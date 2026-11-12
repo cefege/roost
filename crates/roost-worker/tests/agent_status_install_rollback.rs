@@ -12,7 +12,7 @@ use std::fs;
 use std::io::Write;
 use std::os::unix::fs::{MetadataExt, symlink};
 
-use integration_install_support::{Scratch, entries, is_absent, omp_dir, pi_dir};
+use integration_install_support::{Scratch, entries, is_absent, omp_dir};
 use roost_host::env::MapEnv;
 use roost_platform::HostPlatform;
 use roost_worker::agents::install_integrations::_install_agent_integrations_for_test;
@@ -50,7 +50,7 @@ fn preserves_an_unowned_target_that_appears_after_staging() {
     assert!(is_absent(
         &omp_dir(&home).join("roost-omp-agent-reference.ts")
     ));
-    assert!(is_absent(&pi_dir(&home).join("roost-pi-agent-state.ts")));
+    assert!(is_absent(&home.path(".pi")));
 }
 
 #[test]
@@ -85,16 +85,17 @@ fn rejects_a_loader_symlink_swap_at_the_final_mutation_boundary() {
 }
 
 #[test]
-fn rolls_back_owned_replacements_and_absent_creates_after_a_commit_failure() {
+fn rolls_back_owned_replacements_and_retirements_after_a_commit_failure() {
     let home = Scratch::new("integrations-rollback");
     let status_target = omp_dir(&home).join("roost-omp-agent-state.ts");
     let retired_target = omp_dir(&home).join("roost-omp-session-api.ts");
     let prior_owned = "// ROOST_INTEGRATION_ID=omp\n// prior version\n";
-    let user_content = "// user extension\n";
+    let retired_owned = "// ROOST_INTEGRATION_ID=omp\n// retired version\n";
     fs::create_dir_all(omp_dir(&home)).unwrap();
     fs::write(&status_target, prior_owned).unwrap();
-    fs::write(&retired_target, user_content).unwrap();
+    fs::write(&retired_target, retired_owned).unwrap();
     let prior_inode = fs::metadata(&status_target).unwrap().ino();
+    let retired_inode = fs::metadata(&retired_target).unwrap().ino();
     let mut hooks = IntegrationInstallTestHooks {
         after_committed_mutation: Some(Box::new(|completed: usize| {
             if completed == 2 {
@@ -116,13 +117,84 @@ fn rolls_back_owned_replacements_and_absent_creates_after_a_commit_failure() {
     );
     assert_eq!(fs::read_to_string(&status_target).unwrap(), prior_owned);
     assert_eq!(fs::metadata(&status_target).unwrap().ino(), prior_inode);
-    assert_eq!(fs::read_to_string(&retired_target).unwrap(), user_content);
+    assert_eq!(fs::read_to_string(&retired_target).unwrap(), retired_owned);
+    assert_eq!(fs::metadata(&retired_target).unwrap().ino(), retired_inode);
     assert!(is_absent(
         &omp_dir(&home).join("roost-omp-agent-reference.ts")
     ));
-    assert!(is_absent(&pi_dir(&home).join("roost-pi-agent-state.ts")));
+    assert!(is_absent(&home.path(".pi")));
     assert_eq!(
         entries(&omp_dir(&home)),
         ["roost-omp-agent-state.ts", "roost-omp-session-api.ts"]
+    );
+}
+
+#[test]
+fn removes_a_new_asset_and_loader_after_a_commit_failure() {
+    let home = Scratch::new("integrations-create-rollback");
+    let mut hooks = IntegrationInstallTestHooks {
+        after_committed_mutation: Some(Box::new(|_| {
+            Err(std::io::Error::other("injected integration commit failure"))
+        })),
+        ..IntegrationInstallTestHooks::default()
+    };
+
+    let error =
+        _install_agent_integrations_for_test(&MapEnv::new(), home.root(), LINUX, &mut hooks)
+            .unwrap_err();
+
+    assert!(
+        error
+            .to_string()
+            .contains("injected integration commit failure")
+    );
+    assert!(is_absent(&omp_dir(&home)));
+    assert!(is_absent(&home.path(".pi")));
+}
+
+#[test]
+fn rollback_never_overwrites_a_user_file_replacing_the_installed_asset() {
+    let home = Scratch::new("integrations-rollback-race");
+    let target = omp_dir(&home).join("roost-omp-agent-state.ts");
+    let prior_owned = "// ROOST_INTEGRATION_ID=omp\n// prior version\n";
+    let user_content = "// new user extension\n";
+    fs::create_dir_all(omp_dir(&home)).unwrap();
+    fs::write(&target, prior_owned).unwrap();
+    let raced_target = target.clone();
+    let mut hooks = IntegrationInstallTestHooks {
+        after_committed_mutation: Some(Box::new(move |_| {
+            fs::remove_file(&raced_target)?;
+            fs::write(&raced_target, user_content)?;
+            Err(std::io::Error::other("injected integration commit failure"))
+        })),
+        ..IntegrationInstallTestHooks::default()
+    };
+
+    let error =
+        _install_agent_integrations_for_test(&MapEnv::new(), home.root(), LINUX, &mut hooks)
+            .unwrap_err();
+
+    assert!(
+        error
+            .to_string()
+            .contains("injected integration commit failure")
+    );
+    assert_eq!(fs::read_to_string(&target).unwrap(), user_content);
+    let stages: Vec<_> = fs::read_dir(omp_dir(&home))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(".roost-integration-stage-")
+        })
+        .collect();
+    let [stage] = stages.as_slice() else {
+        panic!("rollback must preserve the backup stage: {stages:?}");
+    };
+    assert_eq!(
+        fs::read_to_string(stage.join("backup-omp-status")).unwrap(),
+        prior_owned
     );
 }

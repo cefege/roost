@@ -887,17 +887,17 @@ message TranscriptionGrantTokenResponse { string access_token = 1; int32 expires
 message TranscriptionTestRequest {}
 message TranscriptionTestResponse { bool ok = 1; string error = 2; }
 
-// ─── default agent (launch-button command) ─────────────────────────────────
+// ─── OMP auto-launch in ordinary terminals ─────────────────────────────────
 message AgentConfig {
-  string selected = 1;        // built-in agent id (e.g. "omp") or "custom"
-  string custom_command = 2;  // custom launch string ("" when unset)
-  bool auto_launch = 3;       // auto-launch agent in new terminal windows
+  reserved 1, 2;
+  reserved "selected", "custom_command";
+  bool auto_launch = 3;
 }
 message AgentConfigGetRequest {}
 message AgentConfigSetRequest {
-  string selected = 1;
-  string custom_command = 2;  // always overwrites; "" clears
-  bool auto_launch = 3;       // auto-launch agent in new terminal windows
+  reserved 1, 2;
+  reserved "selected", "custom_command";
+  bool auto_launch = 3;
 }
 
 // ─── ui-cc: browser-tab UI state + command channel ─────────────────────────

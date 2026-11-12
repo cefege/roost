@@ -239,7 +239,13 @@ and reads no provider quota.
 
 ## Agent scope and storage compatibility
 
-OMP is the only agent backend.
+OMP is the only supported agent: its fork retains the terminal TUI and exposes
+the same controllers and content to HTML. A/B checks against the TUI govern web
+parity, alongside native HTML selection, accessibility, clipboard and input.
+
+Worker initialization requires `_meta.commandUi = {version: 1, protocol: "tsp"}`.
+A missing or incompatible capability fails before opening an OMP session or
+emitting `SessionReady`; an unpatched CLI is not a plain-chat fallback.
 
 Applied SQLite and Postgres migration history remains intact, including the
 native conversation, journal, schedule and advisor tables. Those rows are inert:
@@ -249,7 +255,5 @@ Snapshot and event catch-up both return `not_found: conversation not found` for
 archived or missing IDs. Retention prunes only active OMP batches, keeping its
 age threshold and newest batch; cluster notices cannot relay archived events.
 
-Vendored `rpi-agent`
-([`third_party/pi-durable-rs/`](../../third_party/pi-durable-rs/ROOST-PATCHES.md))
-is the runtime a second backend builds on. It is linked but not started; no
-production path constructs it.
+Alternative Rust-native/Rpi engines, provider adapters and local tool runtimes
+are removed from the source tree and dependency graph. There is no second backend.

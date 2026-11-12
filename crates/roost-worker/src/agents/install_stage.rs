@@ -1,9 +1,6 @@
-//! The per-runtime staging directory an integration install writes into
-//! before anything reaches a loader directory, and the cleanup that never
-//! follows a directory that moved. Ports the prepare/stage/cleanup half of v2
-//! `apps/worker/src/agents/integration-install-transaction.ts` (with the
-//! durable write of `@roost/host/durability`); called by
-//! [`super::install_transaction`] and [`super::install_mutation`].
+//! The staging directory an OMP integration install writes into before
+//! anything reaches the loader, and cleanup that never follows a directory
+//! that moved. Called by the install transaction and mutation owners.
 
 use std::fs::{self, DirBuilder};
 use std::io::{self, Write as _};
@@ -18,7 +15,6 @@ use super::install_proof::{
     inspect_integration_directory, integration_lstat_if_present, integration_path_comparison_key,
     refusal, same_integration_identity,
 };
-use super::integration_assets::ByRuntime;
 use roost_keeper::owner_only::{
     create_new_private_file, create_private_dir_all, restrict_to_owner,
 };
@@ -96,21 +92,6 @@ pub(super) fn assert_prepared_directory_stable(
     platform: HostPlatform,
 ) -> io::Result<()> {
     assert_integration_directory_snapshot(&prepared.plan, &prepared.snapshot, platform)
-}
-
-pub(super) fn assert_prepared_directories_distinct(
-    prepared: &ByRuntime<PreparedDirectory>,
-    platform: HostPlatform,
-) -> io::Result<()> {
-    if integration_path_comparison_key(&prepared.omp.snapshot.canonical_path, platform)
-        == integration_path_comparison_key(&prepared.pi.snapshot.canonical_path, platform)
-    {
-        return Err(refusal(
-            "refusing colliding OMP and Pi integration directories; configure distinct roots"
-                .to_owned(),
-        ));
-    }
-    Ok(())
 }
 
 /// Write one asset into the stage, owner-only and flushed with its directory

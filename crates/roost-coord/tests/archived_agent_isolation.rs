@@ -192,7 +192,7 @@ async fn archived_agent_isolation_relay_ignores_fabricated_archive_notices() {
         .buses
         .agent_chat_bus
         .subscribe(move |update| {
-            let _ = sender.send((update.conversation_id.clone(), update.seq));
+            let _ = sender.send(update.conversation_id.clone());
         });
     fixture.core.services.agent.join_cluster();
     tokio::task::yield_now().await;
@@ -204,5 +204,5 @@ async fn archived_agent_isolation_relay_ignores_fabricated_archive_notices() {
         .unwrap()
         .unwrap();
     fixture.core.services.agent.leave_cluster().await;
-    assert_eq!(first, ("active".into(), 1));
+    assert_eq!(first, "active");
 }

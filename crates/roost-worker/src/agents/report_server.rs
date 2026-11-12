@@ -1,4 +1,4 @@
-//! The local socket (a named pipe on Windows) installed omp/pi integrations
+//! The local socket (a named pipe on Windows) installed OMP integrations
 //! report into. Session capabilities authorize claims; the kernel peer PID plus
 //! a fresh process scan own identity. Ports the listener lifecycle of
 //! `apps/worker/src/agents/report-server.ts` (connections: `report_connection`;

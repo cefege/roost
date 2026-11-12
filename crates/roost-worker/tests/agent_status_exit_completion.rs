@@ -102,7 +102,7 @@ fn an_exit_while_working_publishes_the_completion_the_viewer_never_saw() {
 fn an_idle_agent_with_nothing_to_acknowledge_is_retired_on_exit() {
     let harness = registry_harness(5_000);
     let (registry, published, id) = (&harness.registry, &harness.published, session(SESSION_ID));
-    registry.report_screen(&id, screen(Agent::Pi, 73, State::Idle));
+    registry.report_screen(&id, screen(Agent::Omp, 73, State::Idle));
     let idle = published.last();
     assert_eq!(idle.common.completed_revision, 0);
 

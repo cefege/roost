@@ -129,7 +129,7 @@ pub async fn handle_agent_status_wait(
     })
 }
 
-/// `CoordinatorService.AgentConfigGet` -- the operator's default agent.
+/// `CoordinatorService.AgentConfigGet` -- the operator's OMP auto-launch switch.
 pub async fn handle_agent_config_get(
     core: &CoordCore,
     caller: &Caller,
@@ -143,7 +143,7 @@ pub async fn handle_agent_config_get(
     ok_response(agent_config_message(&config))
 }
 
-/// `CoordinatorService.AgentConfigSet` -- store and echo the default agent.
+/// `CoordinatorService.AgentConfigSet` -- store and echo OMP auto-launch.
 pub async fn handle_agent_config_set(
     core: &CoordCore,
     caller: &Caller,
@@ -151,15 +151,9 @@ pub async fn handle_agent_config_set(
 ) -> ServiceResult<proto::AgentConfig> {
     require_account_device(caller)?;
     let dashboard_id = &core.services.boot.require_tenant()?.dashboard_id;
-    let config = set_agent_config(
-        &core.services.db,
-        dashboard_id,
-        &request.selected,
-        &request.custom_command,
-        request.auto_launch,
-    )
-    .await
-    .map_err(internal)?;
+    let config = set_agent_config(&core.services.db, dashboard_id, request.auto_launch)
+        .await
+        .map_err(internal)?;
     ok_response(agent_config_message(&config))
 }
 
@@ -225,8 +219,6 @@ fn agent_status_view(status: &AgentStatus) -> proto::AgentStatusView {
 
 fn agent_config_message(config: &AgentLauncherConfig) -> proto::AgentConfig {
     proto::AgentConfig {
-        selected: config.selected.clone(),
-        custom_command: config.custom_command.clone(),
         auto_launch: config.auto_launch,
         ..Default::default()
     }

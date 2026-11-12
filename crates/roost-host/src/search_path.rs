@@ -1,20 +1,12 @@
-//! The directories a tool binary is searched in, in order. A worker runs as a
-//! service whose `PATH` lacks the per-user and package-manager directories
-//! (`roost-cli` `services/service_environment.rs`), so both the bash tool's
-//! `PATH` and the language-server resolver extend it with this one list.
+//! Executable lookup for worker-hosted OMP and its inherited subprocess PATH.
+//! The worker launcher uses project-local, inherited and user package-manager bins.
+//! This host utility has no dependency on an agent engine or tool implementation.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-/// The data directory's language-server bin directory, where the on-demand
-/// installer links downloaded servers.
-pub fn installed_bin_dir(data_dir: &Path) -> PathBuf {
-    data_dir.join("agent-tools").join("lsp").join("bin")
-}
-
-/// The search directories for `cwd`: project-local bins, then the inherited
-/// `PATH`, then per-user and package-manager directories, then the installer's.
-pub fn tool_search_dirs(cwd: &Path, data_dir: &Path) -> Vec<PathBuf> {
+/// Project-local bins, then inherited PATH, then user/package-manager bins.
+fn tool_search_dirs(cwd: &Path) -> Vec<PathBuf> {
     let mut dirs = vec![cwd.join("node_modules").join(".bin"), venv_bin_dir(cwd)];
     if let Some(path) = std::env::var_os("PATH") {
         dirs.extend(std::env::split_paths(&path));
@@ -28,7 +20,6 @@ pub fn tool_search_dirs(cwd: &Path, data_dir: &Path) -> Vec<PathBuf> {
         dirs.push(PathBuf::from("/opt/homebrew/bin"));
         dirs.push(PathBuf::from("/usr/local/bin"));
     }
-    dirs.push(installed_bin_dir(data_dir));
     let mut unique: Vec<PathBuf> = Vec::with_capacity(dirs.len());
     for dir in dirs {
         if !unique.contains(&dir) {
@@ -39,13 +30,13 @@ pub fn tool_search_dirs(cwd: &Path, data_dir: &Path) -> Vec<PathBuf> {
 }
 
 /// `tool_search_dirs` joined as a `PATH` value for a child process.
-pub fn extended_path_value(cwd: &Path, data_dir: &Path) -> OsString {
-    std::env::join_paths(tool_search_dirs(cwd, data_dir))
+pub fn extended_path_value(cwd: &Path) -> OsString {
+    std::env::join_paths(tool_search_dirs(cwd))
         .unwrap_or_else(|_| std::env::var_os("PATH").unwrap_or_default())
 }
 
 /// The first executable named `name` in the search directories.
-pub fn resolve_binary(name: &str, cwd: &Path, data_dir: &Path) -> Option<PathBuf> {
+pub fn resolve_binary(name: &str, cwd: &Path) -> Option<PathBuf> {
     let candidates: Vec<String> = if cfg!(windows) {
         ["", ".exe", ".cmd", ".bat"]
             .iter()
@@ -54,7 +45,7 @@ pub fn resolve_binary(name: &str, cwd: &Path, data_dir: &Path) -> Option<PathBuf
     } else {
         vec![name.to_owned()]
     };
-    tool_search_dirs(cwd, data_dir).into_iter().find_map(|dir| {
+    tool_search_dirs(cwd).into_iter().find_map(|dir| {
         candidates
             .iter()
             .map(|candidate| dir.join(candidate))
@@ -62,7 +53,7 @@ pub fn resolve_binary(name: &str, cwd: &Path, data_dir: &Path) -> Option<PathBuf
     })
 }
 
-pub fn home_dir() -> Option<PathBuf> {
+fn home_dir() -> Option<PathBuf> {
     let variable = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
     std::env::var_os(variable)
         .filter(|value| !value.is_empty())

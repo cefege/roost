@@ -1,6 +1,6 @@
-//! Agent lifecycle: durable chat delivery and the worker-hosted OMP backend.
-//! The Rust-native harness is gone; `rpi-agent` is the runtime a second
-//! backend will build on.
+//! Agent lifecycle, durable chat delivery and the worker-hosted OMP fork.
+//! OMP is the sole supported agent; its TUI and hosted HTML share controllers.
+//! Archived native rows never start execution or appear in active navigation.
 
 mod chat_delivery;
 pub mod chat_events;

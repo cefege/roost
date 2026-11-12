@@ -2053,20 +2053,15 @@ it ABOVE the integration's own header, so a deployed asset carries its marker on
 of transport code (line 14 onward is `import net from "node:net";`, so it is not a comment header either). Roost's
 own correctly-marked files therefore read as somebody else's, and both the planning refusal and the commit-time
 guard fail closed against the installer itself. Any positional window is the same bug with a bigger constant:
-the prefix is another module's entire source, so it has no bound to pin. The second half of the same failure is
-planning the asset set with `Promise.all`: ONE refusal rejects the batch, so a stale unowned `.pi` asset blocks
-the `.omp` asset from ever being written even with the omp path free.
+the prefix is another module's entire source, so it has no bound to pin.
 
-**Right** — **depth is not evidence of authorship; the token is.** `hasIntegrationOwnership` accepts the marker
+**Right** — **depth is not evidence of authorship; the token is.** `has_integration_ownership` accepts the marker
 as its own whitespace-delimited token on ANY `//` comment line in the file (fast-path bail-out when the marker
 substring is absent), and nothing else loosens: a non-comment line that merely mentions the marker, a near-miss
-token (`ROOST_INTEGRATION_ID=omp-reference` for `…=omp`), and a file with no marker are all still refused. Both
-call sites share that one predicate, so planning and `assertIntegrationTargetUnchanged` cannot disagree. Each
-target is then planned through `capturePlanFailure`, which turns one target's refusal into a reported failure
-(`integration_install_failed` with `runtime`/`path`) instead of a throw: the remaining assets still install and
-`installAgentIntegrations` returns `{installed, failed}`. Target-collision proof moved AHEAD of planning and runs
-over every candidate, so a dropped target cannot relax it. Transactional failures (directory alias, commit-time
-change) still abort the whole pass with zero mutation — only per-target refusals are isolated.
+token (`ROOST_INTEGRATION_ID=omp-reference` for `…=omp`), and a file with no marker are all still refused. Planning
+and `assert_integration_target_unchanged` share that predicate. The OMP-only installer reports per-target
+refusals as `integration_install_failed` with the path; it never inspects Pi's loader. Candidate collision
+proof precedes planning. Commit-time target changes still refuse the transaction and roll back its mutations.
 
 **Guard** — `crates/roost-worker/tests/agent_status_integration_ownership.rs` —
 `adopts_and_overwrites_an_installed_asset_marked_below_the_file_head`,
@@ -4693,3 +4688,19 @@ scope before constructing the private reply. Consume its captured state once.
 
 **Guard** — `accepted_clipboard_result_outside_runtime_keeps_reply_failure_recoverable`
 in `semantic_ui/host_services/copy_tests.rs`, plus actual browser copy completion.
+
+### Unpatched OMP opens chat without its TUI-backed HTML controls
+
+**Symptom** — chat starts successfully, but model selection or settings cannot
+open because the worker accepted OMP without semantic command UI support.
+
+**Wrong** — defer the capability check until a command is opened. That admits a
+different product contract and leaves a seemingly healthy chat with broken controls.
+
+**Right** — require `_meta.commandUi` version `1`, protocol `"tsp"` during ACP
+initialization, before creating a session or publishing `SessionReady`. Reject
+an incompatible executable with the fork installation instructions.
+
+**Guard** — `omp_owner_rejects_missing_or_incompatible_semantic_ui_before_session_ready`
+in `crates/roost-worker/tests/omp_owner/ordering.rs` rejects missing capabilities,
+unsupported versions and incompatible protocols without admitting a session.

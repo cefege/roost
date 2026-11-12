@@ -4,8 +4,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::duplicate_mod)]
 
-#[path = "agent_manifest_claude_rules.rs"]
-mod agent_manifest_claude_rules;
 #[path = "agent_manifest_rules.rs"]
 mod agent_manifest_rules;
 #[path = "agent_process_identity.rs"]

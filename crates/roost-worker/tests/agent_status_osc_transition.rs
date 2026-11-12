@@ -1,9 +1,6 @@
-//! The OSC-evidence clear on agent transition: retained OSC title and progress
-//! are the top-priority input of several manifests, so a replacement process
-//! in the same PTY must not be judged by the previous agent's final title.
-//! Drives the detector against a scripted scanner, the real pinned manifests
-//! and a recording registry. Ports v2
-//! `apps/worker/tests/agents/agent-status-osc-transition.test.ts`.
+//! Retained OSC evidence belongs to one OMP process incarnation.
+//! Exercises title reset on replacement and retention on stable identities
+//! through the detector, pinned manifest and recording registry.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod agent_status_support;
@@ -12,7 +9,7 @@ use agent_status_support::{DetectorHarness, SESSION_ID, detector_harness};
 use roost_protocol::wire::agent_status::AgentRuntimeState as State;
 use roost_worker::agents::BuiltinAgentId as Agent;
 
-const BLOCKED_TITLE: &str = "Action Required — review the patch";
+const BLOCKED_TITLE: &str = "π ! review the patch";
 
 fn harness(agent_id: Agent, osc_title: &str) -> DetectorHarness {
     let harness = detector_harness();
@@ -33,7 +30,7 @@ async fn settle(harness: &DetectorHarness) {
 
 #[tokio::test]
 async fn a_replacement_agent_is_not_judged_by_the_previous_agents_title() {
-    let harness = harness(Agent::Codex, BLOCKED_TITLE);
+    let harness = harness(Agent::Omp, BLOCKED_TITLE);
     settle(&harness).await;
     assert_eq!(harness.published.last().common.state, State::Blocked);
 
@@ -47,7 +44,7 @@ async fn a_replacement_agent_is_not_judged_by_the_previous_agents_title() {
 
 #[tokio::test]
 async fn a_stale_idle_title_cannot_hold_a_working_replacement_at_idle() {
-    let harness = harness(Agent::Grok, "session - grok");
+    let harness = harness(Agent::Omp, "π > repo");
     settle(&harness).await;
     assert_eq!(harness.published.last().common.state, State::Idle);
 
@@ -61,18 +58,8 @@ async fn a_stale_idle_title_cannot_hold_a_working_replacement_at_idle() {
 }
 
 #[tokio::test]
-async fn a_same_agent_pid_replacement_also_drops_the_retained_title() {
-    let harness = harness(Agent::Codex, BLOCKED_TITLE);
-    settle(&harness).await;
-    harness.scanner.set(SESSION_ID, Agent::Codex, 9_999);
-    settle(&harness).await;
-    assert_eq!(harness.sessions.osc_title(), "");
-    harness.detector.dispose();
-}
-
-#[tokio::test]
 async fn first_acquisition_keeps_evidence_the_new_process_already_emitted() {
-    let harness = harness(Agent::Codex, BLOCKED_TITLE);
+    let harness = harness(Agent::Omp, BLOCKED_TITLE);
     settle(&harness).await;
     assert_eq!(harness.sessions.osc_title(), BLOCKED_TITLE);
     assert_eq!(harness.published.last().common.state, State::Blocked);
@@ -81,7 +68,7 @@ async fn first_acquisition_keeps_evidence_the_new_process_already_emitted() {
 
 #[tokio::test]
 async fn a_stable_identity_does_not_clear_evidence_on_every_pass() {
-    let harness = harness(Agent::Codex, BLOCKED_TITLE);
+    let harness = harness(Agent::Omp, BLOCKED_TITLE);
     settle(&harness).await;
     settle(&harness).await;
     settle(&harness).await;

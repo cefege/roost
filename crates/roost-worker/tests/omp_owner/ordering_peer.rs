@@ -26,6 +26,9 @@ pub enum Scenario {
     StallInitialize,
     StallSession,
     OrderedPrompts,
+    MissingCommandUi,
+    UnsupportedCommandUiVersion,
+    WrongCommandUiProtocol,
 }
 
 #[derive(Debug)]
@@ -81,7 +84,24 @@ impl OmpLauncher for OrderingLauncher {
                                 responder.respond(InitializeResponse::new(request.protocol_version))
                             });
                         }
-                        responder.respond(InitializeResponse::new(request.protocol_version))
+                        let command_ui = match scenario {
+                            Scenario::MissingCommandUi => None,
+                            Scenario::UnsupportedCommandUiVersion => {
+                                Some(serde_json::json!({"version":2,"protocol":"tsp"}))
+                            }
+                            Scenario::WrongCommandUiProtocol => {
+                                Some(serde_json::json!({"version":1,"protocol":"other"}))
+                            }
+                            _ => Some(serde_json::json!({"version":1,"protocol":"tsp"})),
+                        };
+                        let mut response = InitializeResponse::new(request.protocol_version);
+                        if let Some(command_ui) = command_ui {
+                            response.agent_capabilities.meta = Some(
+                                serde_json::from_value(serde_json::json!({"commandUi":command_ui}))
+                                    .unwrap(),
+                            );
+                        }
+                        responder.respond(response)
                     },
                     agent_client_protocol::on_receive_request!(),
                 )

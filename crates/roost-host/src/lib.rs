@@ -25,6 +25,7 @@ pub mod host_memory;
 pub mod http_security;
 pub mod jwt_base;
 pub mod paths;
+pub mod search_path;
 pub mod spa_path;
 
 // Part of every path function's signature and of every boot config's error, so

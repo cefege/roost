@@ -25,7 +25,6 @@ pub(super) struct Session {
     pub thinking: Option<String>,
     pub mode: Option<String>,
     pub available_modes: Vec<roost_protocol::wire::agent_chat::OmpChoice>,
-    pub command_ui: bool,
 }
 
 pub(super) async fn open(
@@ -46,18 +45,27 @@ pub(super) async fn open(
                 .block_task(),
         )
         .await?;
-    let command_ui = serde_json::to_value(initialized.agent_capabilities)
-        .ok()
-        .and_then(|value| {
-            value
-                .pointer("/_meta/commandUi/version")
-                .and_then(serde_json::Value::as_u64)
-        })
-        == Some(1);
-    let mut result = open_authenticated(connection, prompt, &mut startup, catalog).await;
-    if let Ok(session) = &mut result {
-        session.command_ui = command_ui;
+    let command_ui = initialized
+        .agent_capabilities
+        .meta
+        .as_ref()
+        .and_then(|metadata| metadata.get("commandUi"));
+    if !command_ui.is_some_and(|capability| {
+        capability
+            .get("version")
+            .and_then(serde_json::Value::as_u64)
+            == Some(1)
+            && capability
+                .get("protocol")
+                .and_then(serde_json::Value::as_str)
+                == Some("tsp")
+    }) {
+        return Err(Error::new(
+            -32000,
+            "This worker requires the OMP fork with semantic command UI version 1 (tsp). Install the build documented in deploy/omp/README.md.",
+        ));
     }
+    let result = open_authenticated(connection, prompt, &mut startup, catalog).await;
     if result
         .as_ref()
         .is_err_and(|error| error.code == ErrorCode::AUTH_REQUIRED)
@@ -203,7 +211,6 @@ fn ready(
         thinking,
         mode,
         available_modes,
-        command_ui: false,
     })
 }
 

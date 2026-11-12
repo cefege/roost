@@ -1,10 +1,6 @@
-//! Which built-in agent a `ps` row is, and which row of a session's process
-//! subtree is its agent. Ports the recognition half of v2
-//! `apps/worker/src/agents/process-scan.ts` (`BUILTIN_AGENT_COMMANDS`,
-//! `identifyAgentProcess`, `findAgentProcessIdentity`), adapted from Herdr's
-//! process-backed detection. Called by `agents::process_scan`. The win32
-//! command-line splitter and `.exe` normalisation are not ported (Windows is
-//! paused).
+//! Recognizes OMP commands and runtime package launchers in process snapshots.
+//! Called by `agents::process_scan` to prove session descendants and exact
+//! reporter identities; unrelated shell command text never establishes identity.
 
 use super::BuiltinAgentId;
 use super::process_scan::AgentProcessIdentity;
@@ -17,16 +13,6 @@ const RUNTIME_COMMANDS: [&str; 4] = ["node", "nodejs", "bun", "deno"];
 /// v2 `BUILTIN_AGENT_COMMANDS`: every executable name an agent answers to.
 pub fn builtin_agent_commands(agent: BuiltinAgentId) -> &'static [&'static str] {
     match agent {
-        BuiltinAgentId::Codex => &["codex"],
-        BuiltinAgentId::Claude => &["claude", "claude-code"],
-        BuiltinAgentId::Gemini => &["gemini"],
-        BuiltinAgentId::OpenCode => &["opencode", "open-code"],
-        BuiltinAgentId::Cursor => &["cursor-agent"],
-        BuiltinAgentId::Amp => &["amp", "amp-local"],
-        BuiltinAgentId::Copilot => &["copilot", "github-copilot", "ghcs"],
-        BuiltinAgentId::Droid => &["droid"],
-        BuiltinAgentId::Grok => &["grok", "grok-build"],
-        BuiltinAgentId::Pi => &["pi"],
         BuiltinAgentId::Omp => &["omp"],
     }
 }
@@ -34,24 +20,6 @@ pub fn builtin_agent_commands(agent: BuiltinAgentId) -> &'static [&'static str] 
 /// v2 `AGENT_PACKAGE_MARKERS`: path fragments of a runtime-launched script.
 fn agent_package_markers(agent: BuiltinAgentId) -> &'static [&'static str] {
     match agent {
-        BuiltinAgentId::Codex => &["/@openai/codex/", "/codex/"],
-        BuiltinAgentId::Claude => &[
-            "/@anthropic-ai/claude-code/",
-            "/claude-code/",
-            "/.claude/local/",
-            "/.local/bin/claude",
-        ],
-        BuiltinAgentId::Gemini => &["/@google/gemini-cli/", "/gemini-cli/"],
-        BuiltinAgentId::OpenCode => &["/opencode/"],
-        BuiltinAgentId::Cursor => &["/cursor-agent/"],
-        BuiltinAgentId::Amp => &["/@sourcegraph/amp/", "/amp/"],
-        BuiltinAgentId::Copilot => &["/@github/copilot/", "/github-copilot/"],
-        BuiltinAgentId::Droid => &["/droid/"],
-        BuiltinAgentId::Grok => &["/grok-build/", "/grok/"],
-        BuiltinAgentId::Pi => &[
-            "/@mariozechner/pi-coding-agent/",
-            "/@badlogic/pi-coding-agent/",
-        ],
         BuiltinAgentId::Omp => &["/@oh-my-pi/pi-coding-agent/", "/oh-my-pi/"],
     }
 }

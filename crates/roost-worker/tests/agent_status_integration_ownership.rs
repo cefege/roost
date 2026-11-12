@@ -29,7 +29,7 @@ const OMP_MARKER_COMMENT: &str = "// ROOST_INTEGRATION_ID=omp ROOST_INTEGRATION_
 /// header, putting the header line on file line 106.
 fn transport_prefixed_asset(header_line: &str) -> String {
     let mut transport = vec![
-        "// Shared delivery transport for the agent-status integrations (omp + pi).".to_owned(),
+        "// Delivery transport for the OMP status integration.".to_owned(),
         "// Spliced in so the installed file resolves no imports of its own.".to_owned(),
         "import net from \"node:net\";".to_owned(),
     ];

@@ -39,11 +39,11 @@ Also live, read when relevant:
   open decision gates.
 - **[`docs/LENS.md`](docs/LENS.md)** — the generic operating doctrine
   (`## Reading lens` below). Read once, not per task.
-- **[`protocol/spec/agent-chat.md`](protocol/spec/agent-chat.md)** — the active
-  OMP web-agent contract and retained Rust-native contract. OMP is the only
-  active agent backend. The Rust-native harness is archived: preserve its code,
-  journals and credentials, but do not re-enable its runtime or UI without an
-  explicit operator request.
+- **[`protocol/spec/agent-chat.md`](protocol/spec/agent-chat.md)** — the
+  OMP-fork web-agent contract. OMP is the only supported agent. Preserve its
+  terminal TUI and require TUI/HTML A/B proof for browser parity, with native
+  HTML usability. Alternative runtimes and tools are removed, not retained as
+  future backends. Applied native database history remains inert.
 
 ---
 
@@ -269,9 +269,15 @@ operator retired it; OMP's own `/fork` still forks a conversation, and Roost's
 `AgentChatFork` RPC, its route row and the "Conversation forked" notice are all
 gone), and the whole `roost-agent` crate: the native engine, its
 conversation/journal store, tool-call registry, scheduler, executor, native
-transcript/inspect/turn RPC paths and their fixtures. OMP is the only agent
-backend; vendored `rpi-agent` (`third_party/pi-durable-rs/crates/rpi-agent/`)
-is the runtime a second backend builds on.
+transcript/inspect/turn RPC paths and their fixtures. OMP is the only supported
+agent: its fork keeps the terminal TUI; HTML parity requires TUI/HTML A/B proof
+alongside native browser usability. The alternative runtimes and
+tool engine (`third_party/pi-durable-rs/`, `crates/roost-agent-tools/`), their
+conformance tool/fixtures (`tools/pi-durable-conformance/`,
+`protocol/conformance/pi-durable/`), `docs/plans/pi-durable-rust.md` and
+`docs/plans/native-tui-parity.md` are removed. Non-OMP terminal identities,
+process/screen rules, the Pi status extension and the multi-agent/custom-command
+launcher are removed too. No second agent backend is planned or supported.
 
 Also dropped in the same sweep: the whole provider-account layer — the
 `roost-llm` crate (model catalogs, wire clients, OAuth logins, credential

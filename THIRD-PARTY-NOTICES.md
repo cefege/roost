@@ -1,13 +1,8 @@
 # Third-party notices
 
-Parts of the agent harness (`crates/roost-agent-tools`, the vendored
-`third_party/pi-durable-rs/`, and the agent-chat tool shapes in
-`crates/roost-protocol`) are ported from the projects below. The agent
-workspace UI adaptation is attributed centrally to the pinned durable-pi
-repository and commit below. Roost did not import the JavaScript runtime, demo
-workflows, Jev registry or extensions. Ported Rust files name their source path on the
-first line of their `//!` header; the centrally attributed UI adaptation does
-not use that per-file attribution.
+Retained agent-chat protocol shapes and UI adaptations derive from the projects
+below. The alternative Rust-native agent/tool engines and vendored pi-ai runtime
+are removed. These notices remain for derived code still present in Roost.
 
 ## durable-pi
 
@@ -51,12 +46,3 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## pi-ai (`@earendil-works/pi-ai`)
-
-Source: https://github.com/earendil-works/pi, package `@earendil-works/pi-ai`,
-author Mario Zechner, license MIT (as declared in the package's
-`package.json`). The vendored `third_party/pi-durable-rs/crates/rpi-ai/` is a
-port of pi-ai 0.82.1: core types, streaming events, tool schema validation,
-usage and cost, model catalog, auth, cross-provider message transforms, retry
-and overflow detection. The MIT license text above applies with the copyright
-line `Copyright (c) 2025 Mario Zechner`.

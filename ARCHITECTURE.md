@@ -67,7 +67,6 @@ container image built from `Dockerfile` and the Helm chart in
 | Protocol | `roost-proto`, `roost-protocol` | `roost-proto`: protobuf messages and Connect stubs generated from `protocol/proto/roost/v1/` (the only protobuf runtime). `roost-protocol`: I/O-free wire logic — the one event fold, cell model, chunk assembly, viewport geometry, view registry, peer packet framing, layout documents. Builds for wasm32 and native. |
 | Host/platform | `roost-host`, `roost-platform`, `roost-observability` | `ROOST_*` config and service names; path/shell conventions; the JSON log line `roost status`/`roost doctor` parse. |
 | OMP web agent | `roost-worker`, `roost-coord::agent::omp`, `roost-web` | Worker-hosted `omp acp`, its real provider/model settings and commands, durable transcript/interaction projection, and semantic HTML. No PTY is created for an agent conversation. |
-| Retained native tools | `roost-agent-tools` | Worker-side tool implementations (hashline read/edit, write, bash, grep, glob, LSP) kept for the archived native harness. The native engine that drove them was removed; vendored `rpi-agent` is the runtime a second backend builds on. |
 
 `roost-client-core` is UI-free: no DOM type, no async runtime I/O, no timer.
 `roost-web` calls `ClientCore::handle` from exactly one place
@@ -210,8 +209,8 @@ Normative detail lives in `protocol/spec/terminal-stream.md` and
 
 ## Agent mode
 
-Shell sessions are PTYs. Agent CLIs (`omp`, Claude Code, Codex) can still run
-inside them with their own terminal interfaces.
+Shell sessions are PTYs and can run arbitrary terminal programs. That generic
+terminal transport does not add another supported agent.
 
 Agent mode is separate: the selected worker runs `omp acp`, the coordinator
 projects its events and interactive requests durably, and the browser renders
@@ -224,16 +223,14 @@ live command output follows its bounded tail, and full results remain expandable
 Explicit forms, questions and plan approvals travel back through `AgentOmpRespond`.
 The browser does not synthesize terminal-only screens or event streams ACP omits.
 
-Roost's custom Rust-native agent is archived. Its source, conversation journals,
-settings and provider credentials are retained, not deleted or converted to OMP.
-Production starts no native execution, recovery, schedules or provider login
-flows, and native mutation RPCs reject as archived. The UI offers one OMP-backed
-New agent path and excludes native conversations from ordinary navigation;
-an old native link shows an archived notice.
+OMP is the sole supported agent: Roost runs its fork, preserves the terminal TUI,
+and renders the same controllers and content as semantic HTML. TUI/HTML A/B
+checks are the acceptance reference, not a separate Roost agent implementation.
+The Rust-native engines, providers, tools and vendored alternative runtimes are
+removed. Applied native database history stays inert; it is not imported into OMP.
+Native links show an archived notice and cannot start execution.
 
-The native engine and its explicit test fixtures remain documented in
-[`protocol/spec/agent-chat.md`](protocol/spec/agent-chat.md) and
-[`docs/plans/pi-durable-rust.md`](docs/plans/pi-durable-rust.md).
+The active contract is [`protocol/spec/agent-chat.md`](protocol/spec/agent-chat.md).
 
 ## Terminal fidelity
 

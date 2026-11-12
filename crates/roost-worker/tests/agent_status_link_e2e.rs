@@ -36,10 +36,9 @@ async fn a_detected_agent_process_reaches_the_coordinator_link() {
     let mut socket = live.accept().await;
     go_live(&mut socket, Vec::new()).await;
 
-    // `exec -a` names the process `codex` in its argv, as an installed agent
-    // binary would be; the session's child IS the agent here.
+    // `exec -a` models an installed OMP executable without starting a provider.
     let mut agent = tokio::process::Command::new("bash")
-        .args(["-c", "exec -a codex sleep 30"])
+        .args(["-c", "exec -a omp sleep 30"])
         .kill_on_drop(true)
         .spawn()
         .unwrap();
@@ -78,7 +77,7 @@ async fn a_detected_agent_process_reaches_the_coordinator_link() {
     let status = frame.status;
     assert!(status.active);
     assert_eq!(status.common.session_id.as_str(), SESSION_ID);
-    assert_eq!(status.common.agent_id.as_str(), "codex");
+    assert_eq!(status.common.agent_id.as_str(), "omp");
     assert_eq!(status.common.source, Some(AgentStatusSource::Screen));
     assert_eq!(
         status.common.status_epoch.as_ref(),

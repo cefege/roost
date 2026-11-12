@@ -77,7 +77,7 @@ async fn accepts_state_with_fresh_worker_derived_identity_and_ordering() {
         request(server.path(), &report_line(&environment, json!({}))).await,
         json!({ "ok": true })
     );
-    detector.set(Some((BuiltinAgentId::Pi, 84)));
+    detector.set(Some((BuiltinAgentId::Omp, 84)));
     peer.set(84);
     let blocked = report_line(&environment, json!({ "state": "blocked" }));
     assert_eq!(
@@ -92,7 +92,7 @@ async fn accepts_state_with_fresh_worker_derived_identity_and_ordering() {
         .collect();
     assert_eq!(
         identities,
-        [(BuiltinAgentId::Omp, 42), (BuiltinAgentId::Pi, 84)]
+        [(BuiltinAgentId::Omp, 42), (BuiltinAgentId::Omp, 84)]
     );
     assert!(
         received[1].seq > received[0].seq,
@@ -106,7 +106,7 @@ async fn accepts_state_with_fresh_worker_derived_identity_and_ordering() {
         .cloned()
         .expect("the registry published");
     assert_eq!(last.common.session_id.as_str(), SESSION);
-    assert_eq!(last.common.agent_id.as_str(), "pi");
+    assert_eq!(last.common.agent_id.as_str(), "omp");
     assert_eq!(last.common.state, AgentRuntimeState::Blocked);
     assert!(last.active);
     assert_eq!(last.common.source, Some(AgentStatusSource::Integration));
@@ -152,7 +152,7 @@ async fn rejects_unavailable_identity_caller_selected_identity_and_malformed_sta
     peer.set(42);
     let selected = report_line(
         &environment,
-        json!({ "pid": 7, "agent": "pi", "seq": 9_007_199_254_740_991_u64 }),
+        json!({ "pid": 7, "agent": "omp", "seq": 9_007_199_254_740_991_u64 }),
     );
     assert_eq!(
         error_of(&request(&path, &selected).await),

@@ -98,12 +98,10 @@ impl ProcessLauncher {
 impl OmpLauncher for ProcessLauncher {
     type Transport = AcpAgent;
     fn launch(&self, cwd: &str) -> Result<OmpLaunch<AcpAgent>, OmpLaunchError> {
-        let path =
-            roost_agent_tools::search_path::resolve_binary("omp", Path::new(cwd), &self.data_dir)
-                .ok_or(OmpLaunchError::NotInstalled)?;
+        let path = roost_host::search_path::resolve_binary("omp", Path::new(cwd))
+            .ok_or(OmpLaunchError::NotInstalled)?;
         let description = path.display().to_string();
-        let path_value =
-            roost_agent_tools::search_path::extended_path_value(Path::new(cwd), &self.data_dir);
+        let path_value = roost_host::search_path::extended_path_value(Path::new(cwd));
         let catalog = CatalogReadiness::install(&self.data_dir)?;
         let agent = AcpAgent::new(
             AcpAgentConfig::new(path)

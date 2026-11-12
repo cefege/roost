@@ -144,18 +144,16 @@ fn source_state_and_message_changes_retain_one_occupant_for_one_process() {
 fn each_registry_has_one_epoch_and_separate_registries_have_different_epochs() {
     let first = registry_harness(1_000);
     let second = registry_harness(1_000);
-    first.registry.report_screen(
-        &session(SESSION_ID),
-        screen(Agent::Codex, 11, State::Working),
-    );
+    first
+        .registry
+        .report_screen(&session(SESSION_ID), screen(Agent::Omp, 11, State::Working));
     first.registry.report_screen(
         &session(OTHER_SESSION_ID),
-        screen(Agent::Pi, 12, State::Idle),
+        screen(Agent::Omp, 12, State::Idle),
     );
-    second.registry.report_screen(
-        &session(SESSION_ID),
-        screen(Agent::Codex, 11, State::Working),
-    );
+    second
+        .registry
+        .report_screen(&session(SESSION_ID), screen(Agent::Omp, 11, State::Working));
 
     let (first_all, second_all) = (first.published.all(), second.published.all());
     assert_eq!(
@@ -211,23 +209,6 @@ fn new_pid_publishes_exact_old_inactive_before_fresh_idle_occupant() {
 }
 
 #[test]
-fn agent_kind_change_at_one_numeric_pid_is_also_a_replacement() {
-    let harness = registry_harness(1_000);
-    let (registry, published) = (&harness.registry, &harness.published);
-    registry.report_screen(
-        &session(SESSION_ID),
-        screen(Agent::Omp, 300, State::Working),
-    );
-    let old_occupant = published.last().common.occupant_id;
-    registry.report_screen(&session(SESSION_ID), screen(Agent::Pi, 300, State::Working));
-
-    assert!(!published.nth_last(2).active);
-    assert!(published.nth_last(1).active);
-    assert_eq!(published.nth_last(2).common.occupant_id, old_occupant);
-    assert_ne!(published.nth_last(1).common.occupant_id, old_occupant);
-}
-
-#[test]
 fn a_replacement_reporter_resets_sequence_while_a_retired_reporter_cannot_reclaim() {
     let harness = registry_harness(1_000);
     let (registry, published) = (&harness.registry, &harness.published);
@@ -257,7 +238,7 @@ fn disappearance_followed_by_the_same_numeric_pid_mints_a_new_occupant() {
     let (registry, published) = (&harness.registry, &harness.published);
     registry.report_screen(
         &session(SESSION_ID),
-        screen(Agent::Codex, 501, State::Working),
+        screen(Agent::Omp, 501, State::Working),
     );
     let first = published.last();
     registry.clear_screen(&session(SESSION_ID));
@@ -266,7 +247,7 @@ fn disappearance_followed_by_the_same_numeric_pid_mints_a_new_occupant() {
     assert_eq!(exited.common.state, State::Idle);
     assert_eq!(exited.common.occupant_id, first.common.occupant_id);
 
-    registry.report_screen(&session(SESSION_ID), screen(Agent::Codex, 501, State::Idle));
+    registry.report_screen(&session(SESSION_ID), screen(Agent::Omp, 501, State::Idle));
     let (retired, reappeared) = (published.nth_last(2), published.nth_last(1));
     assert!(!retired.active);
     assert_eq!(retired.common.occupant_id, first.common.occupant_id);
@@ -284,9 +265,9 @@ fn disappearance_followed_by_the_same_numeric_pid_mints_a_new_occupant() {
 fn inactive_report_rejects_delayed_active_until_absence_proves_a_new_incarnation() {
     let harness = registry_harness(1_000);
     let (registry, published) = (&harness.registry, &harness.published);
-    registry.report_integration(integration(Agent::Pi, 502, State::Working, 900, true));
+    registry.report_integration(integration(Agent::Omp, 502, State::Working, 900, true));
     let first = published.last();
-    assert!(registry.report_integration(integration(Agent::Pi, 502, State::Working, 901, false)));
+    assert!(registry.report_integration(integration(Agent::Omp, 502, State::Working, 901, false)));
     assert!(!published.last().active);
     assert_eq!(
         published.last().common.occupant_id,
@@ -295,20 +276,20 @@ fn inactive_report_rejects_delayed_active_until_absence_proves_a_new_incarnation
     let count_after_inactive = published.len();
 
     for seq in [900, 901, 902] {
-        assert!(!registry.report_integration(integration(Agent::Pi, 502, State::Idle, seq, true)));
+        assert!(!registry.report_integration(integration(Agent::Omp, 502, State::Idle, seq, true)));
     }
-    assert!(!registry.report_screen(&session(SESSION_ID), screen(Agent::Pi, 502, State::Idle)));
+    assert!(!registry.report_screen(&session(SESSION_ID), screen(Agent::Omp, 502, State::Idle)));
     assert_eq!(published.len(), count_after_inactive);
 
     registry.clear_screen(&session(SESSION_ID));
-    assert!(registry.report_screen(&session(SESSION_ID), screen(Agent::Pi, 502, State::Idle)));
+    assert!(registry.report_screen(&session(SESSION_ID), screen(Agent::Omp, 502, State::Idle)));
     let reappeared = published.last();
     assert!(reappeared.active);
     assert_eq!(reappeared.common.source, Some(Source::Screen));
     assert_eq!(reappeared.common.completed_revision, 0);
     assert_eq!(reappeared.common.status_epoch, first.common.status_epoch);
     assert_ne!(reappeared.common.occupant_id, first.common.occupant_id);
-    assert!(registry.report_integration(integration(Agent::Pi, 502, State::Idle, 0, true)));
+    assert!(registry.report_integration(integration(Agent::Omp, 502, State::Idle, 0, true)));
     assert!(published.last().active);
     assert_eq!(published.last().common.source, Some(Source::Integration));
     assert_eq!(
@@ -323,7 +304,7 @@ fn snapshot_and_reconnect_resend_preserve_exact_identity_and_revision() {
     let (registry, published) = (&harness.registry, &harness.published);
     let waiting = IntegrationStatusReport {
         message: Some("waiting".to_owned()),
-        ..integration(Agent::Pi, 601, State::Blocked, 1, true)
+        ..integration(Agent::Omp, 601, State::Blocked, 1, true)
     };
     registry.report_integration(waiting);
     let original = published.last();

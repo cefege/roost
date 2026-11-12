@@ -236,7 +236,6 @@ impl AgentStatusRegistry {
                 process_key: observed_key,
                 state: report.state,
             },
-            visible_blocker: report.visible_blocker,
         });
         let now = self.clock.now_epoch_ms();
         self.recompute(&mut state, session_id, now, CandidateLoss::Exit);

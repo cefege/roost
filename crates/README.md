@@ -15,7 +15,7 @@ registry, `Session` is the user-facing row, `Channel` is a PTY connection,
 | `roost-protocol` | Pure I/O-free wire and terminal logic: event variants and the canonical fold, cell and grid models, viewport geometry, peer packet framing, the keeper-update contract, layout documents. Builds for `wasm32`. | — |
 | `roost-platform` | Pure platform path and shell conventions and quoting. No I/O, no async, no logging. | — |
 | `roost-shell-tokenize` | Pure shell lexing and ECMAScript whitespace helpers, shared with terminal links. No dependencies or I/O. | — |
-| `roost-host` | `ROOST_*` config, service names, durable atomic writes, service health probes. | — |
+| `roost-host` | `ROOST_*` config, service names, durable atomic writes, service health probes and worker OMP executable lookup. | — |
 | `roost-term` | The `TerminalCore` trait, its rio-vt implementation, and the grid→`CellGridFrame` emitter. | — |
 | `roost-keeper` | The keeper daemon: PTY ownership, per-channel byte rings, the framed keeper socket protocol. | `roost-keeper` |
 | `roost-worker` | Sessions, keeper client, durable outbox, coordinator link, local door, WebRTC peer, agent tracking. | — |
@@ -23,7 +23,6 @@ registry, `Session` is the user-facing row, `Channel` is a PTY connection,
 | `roost-coord::agent` | OMP event/interaction projection, worker-backed settings and chat RPCs. | — |
 | `roost-coord::cluster` | What lets coordinator replicas share one Postgres database: the cross-replica notice channel (`pg_notify`/`LISTEN`; in-process on SQLite). | — |
 | `roost-client-core` | The UI-free client: Connect client, Sync state machine, store fold, terminal-stream replica and route election, input lanes, encoders, find paging. | — |
-| `roost-agent-tools` | Retained worker-side tools for the archived native harness: hashline read/edit, write, bash, grep, glob, LSP and language-server installation. OMP uses its own harness tools. | — |
 | `roost-vcs` | Git-linked worktree creation: reflink staging, clean target reconciliation or retained live changes, safe plain-checkout fallback, and captured checkout hooks. | — |
 | `roost-web-terminal` | The imperative `web-sys` terminal renderer and its input, IME, mouse, selection and link controllers. | — |
 | `roost-web` | The Dioxus 0.8 alpha.3 web application: routes, components, static assets. | — |
@@ -46,9 +45,8 @@ roost-protocol       → proto, observability
 roost-host           → protocol, platform, observability
 roost-term           → protocol, observability, rio-vt (vendored), rio-graphics
 roost-keeper         → protocol, host, platform, observability
-roost-worker         → term, keeper, host, proto, protocol, platform, observability, agent-tools
+roost-worker         → term, keeper, host, proto, protocol, platform, observability
 roost-coord          → host, proto, protocol, platform, observability
-roost-agent-tools    → protocol, platform, observability
 roost-client-core    → protocol, proto, observability
 roost-web-terminal   → client-core, protocol, shell-tokenize
 roost-web            → web-terminal, client-core, protocol, platform

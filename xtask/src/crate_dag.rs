@@ -96,7 +96,6 @@ const ALLOWED: &[(&str, &[&str])] = &[
             "roost-protocol",
             "roost-platform",
             "roost-observability",
-            "roost-agent-tools",
         ],
     ),
     // `roost-proto` is here because a Connect service is IMPLEMENTED against
@@ -114,12 +113,6 @@ const ALLOWED: &[(&str, &[&str])] = &[
             "roost-platform",
             "roost-observability",
         ],
-    ),
-    // Providers and accounts sit below every consumer. The worker tools share
-    // the protocol's argument shapes with the coordinator's agent RPCs.
-    (
-        "roost-agent-tools",
-        &["roost-protocol", "roost-platform", "roost-observability"],
     ),
     (
         "roost-client-core",

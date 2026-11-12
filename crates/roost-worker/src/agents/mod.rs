@@ -26,7 +26,6 @@ pub mod manifest_engine;
 mod manifest_regex;
 mod manifest_syntax;
 pub mod manifests;
-mod manifests_claude;
 pub mod peer_process_id;
 pub mod process_identity;
 pub mod process_scan;
@@ -47,58 +46,20 @@ pub mod report_server;
 pub mod stable_detection;
 pub mod status_stack;
 
-/// How many distinct built-in agents this worker can recognise.
-///
-/// Closed on purpose. An unrecognised agent is an agent this worker reports no
-/// status for, which is a state a client already handles; a fifth value that
-/// arrived from a newer peer would be a state it does not.
+/// The supported terminal agent. Other commands remain ordinary terminals
+/// without agent-status recognition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum BuiltinAgentId {
-    Codex,
-    Claude,
-    Gemini,
-    OpenCode,
-    Cursor,
-    Amp,
-    Copilot,
-    Droid,
-    Grok,
-    Pi,
     Omp,
 }
 
 impl BuiltinAgentId {
-    /// Every built-in agent, in the order the manifests are evaluated.
-    pub const ALL: [BuiltinAgentId; 11] = [
-        Self::Codex,
-        Self::Claude,
-        Self::Gemini,
-        Self::OpenCode,
-        Self::Cursor,
-        Self::Amp,
-        Self::Copilot,
-        Self::Droid,
-        Self::Grok,
-        Self::Pi,
-        Self::Omp,
-    ];
+    /// Every supported terminal agent.
+    pub const ALL: [BuiltinAgentId; 1] = [Self::Omp];
 
-    /// The wire name an integration reports and a client matches on. These are
-    /// v2's `BUILTIN_AGENT_COMMANDS` keys verbatim: an alias the command line
-    /// answers to (`open-code`, `ghcs`) is matched when scanning and is NOT a
-    /// second agent, so publishing it would be a second id for one agent.
+    /// The wire name an integration reports and a client matches.
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Codex => "codex",
-            Self::Claude => "claude",
-            Self::Gemini => "gemini",
-            Self::OpenCode => "opencode",
-            Self::Cursor => "cursor",
-            Self::Amp => "amp",
-            Self::Copilot => "copilot",
-            Self::Droid => "droid",
-            Self::Grok => "grok",
-            Self::Pi => "pi",
             Self::Omp => "omp",
         }
     }

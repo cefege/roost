@@ -26,9 +26,9 @@ fn detection(state: State, visible: bool) -> ManifestDetection {
     }
 }
 
-fn codex(pid: u32) -> AgentProcessIdentity {
+fn omp(pid: u32) -> AgentProcessIdentity {
     AgentProcessIdentity {
-        agent_id: Agent::Codex,
+        agent_id: Agent::Omp,
         pid,
         foreground: None,
     }
@@ -36,7 +36,7 @@ fn codex(pid: u32) -> AgentProcessIdentity {
 
 fn report(state: State, visible_blocker: bool) -> Option<ScreenStatusReport> {
     Some(ScreenStatusReport {
-        agent_id: Agent::Codex,
+        agent_id: Agent::Omp,
         process_id: 20,
         state,
         visible_blocker,
@@ -47,11 +47,11 @@ fn report(state: State, visible_blocker: bool) -> Option<ScreenStatusReport> {
 /// working→idle stabilizer from a settled identity.
 fn acquire(stable: &mut StableScreenDetector) {
     assert_eq!(
-        stable.observe(&session(), &codex(20), &detection(State::Working, true), 0),
+        stable.observe(&session(), &omp(20), &detection(State::Working, true), 0),
         None
     );
     assert_eq!(
-        stable.observe(&session(), &codex(20), &detection(State::Working, true), 1),
+        stable.observe(&session(), &omp(20), &detection(State::Working, true), 1),
         report(State::Working, false)
     );
 }
@@ -60,26 +60,16 @@ fn acquire(stable: &mut StableScreenDetector) {
 fn withholds_the_first_evaluation_of_a_newly_acquired_identity() {
     let mut stable = StableScreenDetector::new();
     assert_eq!(
-        stable.observe(&session(), &codex(20), &detection(State::Blocked, true), 0),
+        stable.observe(&session(), &omp(20), &detection(State::Blocked, true), 0),
         None
     );
     assert_eq!(stable.current(&session()).unwrap().state, State::Blocked);
     assert_eq!(
-        stable.observe(
-            &session(),
-            &codex(20),
-            &detection(State::Working, true),
-            100
-        ),
+        stable.observe(&session(), &omp(20), &detection(State::Working, true), 100),
         None
     );
     assert_eq!(
-        stable.observe(
-            &session(),
-            &codex(20),
-            &detection(State::Working, true),
-            200
-        ),
+        stable.observe(&session(), &omp(20), &detection(State::Working, true), 200),
         report(State::Working, false)
     );
 }
@@ -88,13 +78,13 @@ fn withholds_the_first_evaluation_of_a_newly_acquired_identity() {
 fn publishes_a_disagreeing_acquisition_once_the_grace_window_expires() {
     let mut stable = StableScreenDetector::new();
     assert_eq!(
-        stable.observe(&session(), &codex(20), &detection(State::Blocked, true), 0),
+        stable.observe(&session(), &omp(20), &detection(State::Blocked, true), 0),
         None
     );
     assert_eq!(
         stable.observe(
             &session(),
-            &codex(20),
+            &omp(20),
             &detection(State::Working, true),
             2_999
         ),
@@ -103,7 +93,7 @@ fn publishes_a_disagreeing_acquisition_once_the_grace_window_expires() {
     assert_eq!(
         stable.observe(
             &session(),
-            &codex(20),
+            &omp(20),
             &detection(State::Blocked, true),
             3_000
         ),
@@ -116,7 +106,7 @@ fn re_arms_the_grace_window_when_the_process_behind_an_agent_is_replaced() {
     let mut stable = StableScreenDetector::new();
     acquire(&mut stable);
     assert_eq!(
-        stable.observe(&session(), &codex(21), &detection(State::Blocked, true), 2),
+        stable.observe(&session(), &omp(21), &detection(State::Blocked, true), 2),
         None
     );
 }
@@ -126,20 +116,15 @@ fn holds_transient_working_to_plain_idle_spinner_loss() {
     let mut stable = StableScreenDetector::new();
     acquire(&mut stable);
     assert_eq!(
-        stable.observe(&session(), &codex(20), &detection(State::Idle, false), 100),
+        stable.observe(&session(), &omp(20), &detection(State::Idle, false), 100),
         None
     );
     assert_eq!(
-        stable.observe(&session(), &codex(20), &detection(State::Idle, false), 200),
+        stable.observe(&session(), &omp(20), &detection(State::Idle, false), 200),
         None
     );
     assert_eq!(
-        stable.observe(
-            &session(),
-            &codex(20),
-            &detection(State::Working, true),
-            250
-        ),
+        stable.observe(&session(), &omp(20), &detection(State::Working, true), 250),
         None
     );
     assert_eq!(stable.current(&session()).unwrap().state, State::Working);
@@ -150,30 +135,25 @@ fn confirms_sustained_plain_idle_but_accepts_visible_idle_immediately() {
     let mut stable = StableScreenDetector::new();
     acquire(&mut stable);
     assert_eq!(
-        stable.observe(&session(), &codex(20), &detection(State::Idle, false), 100),
+        stable.observe(&session(), &omp(20), &detection(State::Idle, false), 100),
         None
     );
     assert_eq!(
-        stable.observe(&session(), &codex(20), &detection(State::Idle, false), 200),
+        stable.observe(&session(), &omp(20), &detection(State::Idle, false), 200),
         None
     );
     assert_eq!(
-        stable.observe(&session(), &codex(20), &detection(State::Idle, false), 300),
+        stable.observe(&session(), &omp(20), &detection(State::Idle, false), 300),
         None
     );
     assert_eq!(
-        stable.observe(&session(), &codex(20), &detection(State::Idle, false), 400),
+        stable.observe(&session(), &omp(20), &detection(State::Idle, false), 400),
         report(State::Idle, false)
     );
 
-    stable.observe(
-        &session(),
-        &codex(20),
-        &detection(State::Working, true),
-        500,
-    );
+    stable.observe(&session(), &omp(20), &detection(State::Working, true), 500);
     assert_eq!(
-        stable.observe(&session(), &codex(20), &detection(State::Idle, true), 501),
+        stable.observe(&session(), &omp(20), &detection(State::Idle, true), 501),
         report(State::Idle, false)
     );
 }
@@ -187,6 +167,6 @@ fn holds_the_previous_state_on_skip_state_screens() {
         skip_state_update: true,
         ..detection(State::Idle, false)
     };
-    assert_eq!(stable.observe(&session(), &codex(20), &skipped, 100), None);
+    assert_eq!(stable.observe(&session(), &omp(20), &skipped, 100), None);
     assert_eq!(stable.current(&session()).unwrap().state, State::Working);
 }

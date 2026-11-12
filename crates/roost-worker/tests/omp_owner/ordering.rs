@@ -166,3 +166,32 @@ async fn omp_owner_prompt_responses_stay_between_adjacent_notification_chunks() 
         request_id, outstanding: 0, error: None, ..
     }) if request_id == "req2"));
 }
+
+#[tokio::test]
+async fn omp_owner_rejects_missing_or_incompatible_semantic_ui_before_session_ready() {
+    for scenario in [
+        Scenario::MissingCommandUi,
+        Scenario::UnsupportedCommandUiVersion,
+        Scenario::WrongCommandUiProtocol,
+    ] {
+        let launcher = Arc::new(OrderingLauncher::new(scenario));
+        let (uplink, mut receiver) = uplink::channel();
+        let owner = OmpOwner::new(launcher, uplink);
+        owner.prompt(prompt(""));
+        let (_, events) = turn(&mut receiver).await;
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, OmpWorkerEvent::TurnEnded {
+                stop_reason, error: Some(_), outstanding: 0, ..
+            } if stop_reason == "error")),
+            "{scenario:?} must refuse the turn: {events:?}"
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, OmpWorkerEvent::SessionReady { .. })),
+            "{scenario:?} must not publish a usable conversation"
+        );
+    }
+}

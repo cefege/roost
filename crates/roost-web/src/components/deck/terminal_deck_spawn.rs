@@ -241,7 +241,9 @@ mod web {
             return;
         };
         tracing::info!(target: "deck", session_id, %command, "auto-launching configured agent");
-        let mut bytes = command.into_bytes();
+        let mut bytes =
+            Vec::with_capacity(command.len() + roost_protocol::terminal_input::CR_BYTES.len());
+        bytes.extend_from_slice(command.as_bytes());
         bytes.extend_from_slice(&roost_protocol::terminal_input::CR_BYTES);
         pump.dispatch(ClientEvent::TerminalInput {
             session_id: session_id.to_owned(),
@@ -251,14 +253,10 @@ mod web {
     }
 }
 
-/// Type the launcher's agent command into a freshly spawned PTY, once, when
-/// the launcher configuration says a new terminal auto-launches. v2's
-/// `maybeAutoLaunchAgent`: the command is `resolveAgent().command + "\r"`, and
-/// a dropped batch is logged and NOT retried — a second attempt would
-/// double-type an agent the first attempt may have started. Every spawn
-/// surface routes through this one helper, so the deck's tabs, splits and
-/// swipes and the browse launch all behave alike. A native build has no
-/// coordinator-held configuration, so it never launches.
+/// Type OMP plus CR once into a freshly spawned PTY when auto-launch is enabled.
+/// A dropped batch is never retried: a second attempt could double-type a
+/// command the first attempt started. Deck and browse spawns share this path.
+/// Native builds have no coordinator-held setting and never auto-launch.
 pub fn launch_configured_agent(pump: &Pump, session_id: &str) {
     #[cfg(target_arch = "wasm32")]
     web::launch_configured_agent(pump, session_id);

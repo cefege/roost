@@ -1,5 +1,5 @@
 //! The manifest evaluator: picks a screen or OSC region per rule, runs the
-//! rule's contains/regex/all/any/not gates over it, and returns the winning
+//! rule's contains/regex/any gates over it, and returns the winning
 //! rule's state plus its visible evidence. Ports
 //! `apps/worker/src/agents/manifest-engine.ts` (adapted from Herdr
 //! `src/detect/manifest.rs` at c7b79294, Apache-2.0). The detector evaluates
@@ -11,44 +11,31 @@ use roost_protocol::wire::agent_status::AgentRuntimeState;
 use crate::agents::BuiltinAgentId;
 use crate::agents::manifest_regex::compile_herdr_regex;
 
-/// A conjunction of checks over one region's text. Every list must hold;
-/// `any` holds when empty or when one of its gates does; `not` refuses when
-/// any of its gates holds.
+/// A conjunction of checks over one region's text. `any` holds when empty
+/// or when one of its gates matches.
 #[derive(Debug, Clone, Copy)]
 pub struct ManifestGate {
     /// Case-insensitive substrings.
     pub contains: &'static [&'static str],
     /// Patterns over the whole region.
     pub regex: &'static [&'static str],
-    /// Patterns each satisfied by at least one line of the region.
-    pub line_regex: &'static [&'static str],
-    pub all: &'static [ManifestGate],
     pub any: &'static [ManifestGate],
-    pub not: &'static [ManifestGate],
 }
 
 impl ManifestGate {
     pub const NONE: Self = Self {
         contains: &[],
         regex: &[],
-        line_regex: &[],
-        all: &[],
         any: &[],
-        not: &[],
     };
 }
 
-/// Which part of the pane a rule reads. The codex prompt marker is `›` at a
-/// line start; a later `•`/`■`/`✗`/`✓` block line means the prompt is history.
+/// Which part of the pane a rule reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ManifestRegion {
     WholeRecent,
     OscTitle,
-    OscProgress,
-    AfterLastPromptMarker,
-    WholeRecentWithoutCurrentPromptMarker,
     BottomNonEmptyLines(usize),
-    TopNonEmptyLines(usize),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -94,10 +81,7 @@ struct CompiledGate {
     /// Lowercased once, as the haystack is per rule.
     contains: Vec<String>,
     regex: Vec<Regex>,
-    line_regex: Vec<Regex>,
-    all: Vec<CompiledGate>,
     any: Vec<CompiledGate>,
-    not: Vec<CompiledGate>,
 }
 
 /// One manifest with every pattern compiled, built once by its owner.
@@ -140,14 +124,7 @@ fn compile_gate(gate: &ManifestGate) -> Result<CompiledGate, regex::Error> {
             .iter()
             .map(|pattern| compile_herdr_regex(pattern))
             .collect::<Result<_, _>>()?,
-        line_regex: gate
-            .line_regex
-            .iter()
-            .map(|pattern| compile_herdr_regex(pattern))
-            .collect::<Result<_, _>>()?,
-        all: nested(gate.all)?,
         any: nested(gate.any)?,
-        not: nested(gate.not)?,
     })
 }
 
@@ -156,23 +133,11 @@ fn gate_matches(gate: &CompiledGate, text: &str, lower_text: &str) -> bool {
         .iter()
         .all(|needle| lower_text.contains(needle.as_str()))
         && gate.regex.iter().all(|regex| regex.is_match(text))
-        && gate
-            .line_regex
-            .iter()
-            .all(|regex| text.split('\n').any(|line| regex.is_match(line)))
-        && gate
-            .all
-            .iter()
-            .all(|nested| gate_matches(nested, text, lower_text))
         && (gate.any.is_empty()
             || gate
                 .any
                 .iter()
                 .any(|nested| gate_matches(nested, text, lower_text)))
-        && !gate
-            .not
-            .iter()
-            .any(|nested| gate_matches(nested, text, lower_text))
 }
 
 /// The highest-priority matching rule's verdict; the earlier rule wins a tie.
@@ -216,49 +181,8 @@ fn select_region<'a>(input: &DetectionInput<'a>, region: ManifestRegion) -> &'a 
     match region {
         ManifestRegion::WholeRecent => content,
         ManifestRegion::OscTitle => input.osc_title,
-        ManifestRegion::OscProgress => input.osc_progress,
-        ManifestRegion::AfterLastPromptMarker => {
-            let lines: Vec<&str> = content.split('\n').collect();
-            match lines.iter().rposition(|line| is_codex_prompt_line(line)) {
-                None => content,
-                Some(prompt) => &content[line_offset(&lines, prompt + 1).min(content.len())..],
-            }
-        }
-        ManifestRegion::WholeRecentWithoutCurrentPromptMarker => {
-            let lines: Vec<&str> = content.split('\n').collect();
-            if current_codex_prompt_index(&lines).is_none() {
-                content
-            } else {
-                ""
-            }
-        }
         ManifestRegion::BottomNonEmptyLines(count) => bottom_non_empty_lines(content, count),
-        ManifestRegion::TopNonEmptyLines(count) => top_non_empty_lines(content, count),
     }
-}
-
-fn is_codex_prompt_line(line: &str) -> bool {
-    line == "›" || line.starts_with("› ")
-}
-
-fn is_codex_block_line(line: &str) -> bool {
-    ['•', '■', '✗', '✓']
-        .iter()
-        .any(|marker| line.starts_with(*marker))
-}
-
-/// The last prompt line, unless a block line below it shows it is history.
-fn current_codex_prompt_index(lines: &[&str]) -> Option<usize> {
-    let prompt = lines.iter().rposition(|line| is_codex_prompt_line(line))?;
-    (!lines[prompt + 1..]
-        .iter()
-        .any(|line| is_codex_block_line(line)))
-    .then_some(prompt)
-}
-
-/// The byte offset where line `index` starts.
-fn line_offset(lines: &[&str], index: usize) -> usize {
-    lines.iter().take(index).map(|line| line.len() + 1).sum()
 }
 
 /// JavaScript's `trim()`, so a blank row is blank in both runtimes.
@@ -284,23 +208,4 @@ fn bottom_non_empty_lines(content: &str, count: usize) -> &str {
         offset = offset.saturating_sub(1);
     }
     start.map_or("", |start| &content[start..])
-}
-
-/// From the top through the `count`-th non-blank line.
-fn top_non_empty_lines(content: &str, count: usize) -> &str {
-    let mut remaining = count;
-    let mut end = None;
-    let mut offset = 0;
-    for line in content.split('\n') {
-        offset += line.len();
-        if !is_blank(line) {
-            end = Some(offset);
-            remaining -= 1;
-            if remaining == 0 {
-                break;
-            }
-        }
-        offset += 1;
-    }
-    end.map_or("", |end| &content[..end])
 }

@@ -137,12 +137,6 @@ impl UiState {
         {
             return Err(Error::invalid_params());
         }
-        if !session.command_ui {
-            return Err(Error::new(
-                -32000,
-                "This OMP installation lacks semantic command UI support. Install the command-UI-enabled OMP build on this worker.",
-            ));
-        }
         let action: Value =
             serde_json::from_str(&request.action_json).map_err(|_| Error::invalid_params())?;
         let method = action

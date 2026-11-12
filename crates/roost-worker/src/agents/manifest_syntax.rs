@@ -41,10 +41,6 @@ pub(super) const fn idle(id: &'static str, priority: u32, gate: ManifestGate) ->
     rule(id, Some(AgentRuntimeState::Idle), priority, gate)
 }
 
-pub(super) const fn unknown(id: &'static str, priority: u32, gate: ManifestGate) -> ManifestRule {
-    rule(id, None, priority, gate)
-}
-
 impl ManifestRule {
     pub(super) const fn at(mut self, region: ManifestRegion) -> Self {
         self.region = region;
@@ -53,11 +49,6 @@ impl ManifestRule {
 
     pub(super) const fn visible(mut self) -> Self {
         self.visible = true;
-        self
-    }
-
-    pub(super) const fn skipping_state_update(mut self) -> Self {
-        self.skip_state_update = true;
         self
     }
 }
@@ -76,23 +67,9 @@ pub(super) const fn regex(patterns: &'static [&'static str]) -> ManifestGate {
     }
 }
 
-pub(super) const fn line_regex(patterns: &'static [&'static str]) -> ManifestGate {
-    ManifestGate {
-        line_regex: patterns,
-        ..ManifestGate::NONE
-    }
-}
-
 pub(super) const fn any(gates: &'static [ManifestGate]) -> ManifestGate {
     ManifestGate {
         any: gates,
-        ..ManifestGate::NONE
-    }
-}
-
-pub(super) const fn all(gates: &'static [ManifestGate]) -> ManifestGate {
-    ManifestGate {
-        all: gates,
         ..ManifestGate::NONE
     }
 }

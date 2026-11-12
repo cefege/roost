@@ -1,10 +1,6 @@
-//! The default-agent launch configuration, read and written as one value.
-//!
-//! Called by roost-web's Settings launcher pane. v2 call sites:
-//! `apps/web/src/lib/agents.ts:84-120` (`loadAgentConfig`, `saveAgentConfig`,
-//! `saveAutoLaunch`). One request carries all three fields because the
-//! coordinator overwrites each of them, so a partial write would clear the two
-//! it left out.
+//! OMP auto-launch configuration shared across paired devices.
+//! The Settings launcher pane reads/writes this coordinator-owned switch.
+//! Agent selection and custom commands are not part of the contract.
 
 use roost_proto::{AgentConfig, AgentConfigGetRequest, AgentConfigSetRequest};
 
@@ -14,10 +10,6 @@ use crate::client::rpc::unary::UnaryMethod;
 /// The launch configuration, as the coordinator holds it.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AgentLauncherConfig {
-    /// A built-in agent id, or `"custom"`.
-    pub selected: String,
-    /// The custom launch string; empty when unset.
-    pub custom_command: String,
     /// Whether a new terminal auto-launches the agent.
     pub auto_launch: bool,
 }
@@ -26,8 +18,6 @@ impl AgentLauncherConfig {
     /// The coordinator's own answer, unchanged.
     fn from_proto(config: AgentConfig) -> Self {
         Self {
-            selected: config.selected,
-            custom_command: config.custom_command,
             auto_launch: config.auto_launch,
         }
     }
@@ -55,10 +45,6 @@ impl UnaryMethod for GetAgentConfig {
 /// stands.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SetAgentConfig {
-    /// A built-in agent id, or `"custom"`.
-    pub selected: String,
-    /// The custom launch string; empty clears it.
-    pub custom_command: String,
     /// Whether a new terminal auto-launches the agent.
     pub auto_launch: bool,
 }
@@ -71,8 +57,6 @@ impl UnaryMethod for SetAgentConfig {
         encode_message(
             Self::METHOD,
             &AgentConfigSetRequest {
-                selected: self.selected.clone(),
-                custom_command: self.custom_command.clone(),
                 auto_launch: self.auto_launch,
                 ..Default::default()
             },

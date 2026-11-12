@@ -11,17 +11,9 @@ use roost_protocol::wire::agent_status::{
 };
 use roost_protocol::wire::brand::SessionId;
 
-use super::BuiltinAgentId;
 use super::registry::{AgentStatusPublisher, RegistryState};
 use crate::agent_occupancy::{CandidateLoss, EffectiveEntry, ProcessKey, SessionEntry};
 use crate::session::ids::mint_uuid;
-
-/// Agent runtimes whose integration reports cover the whole agent lifecycle,
-/// so no screen signal may correct them. Every other reporter proves identity
-/// and activity only: a visible blocker prompt outranks its state.
-fn full_lifecycle_agent(agent_id: BuiltinAgentId) -> bool {
-    matches!(agent_id, BuiltinAgentId::Omp | BuiltinAgentId::Pi)
-}
 
 /// v2 `nextRevision`: strictly increasing, and never behind the clock.
 fn next_revision(revision: &mut i64, now: i64) -> i64 {
@@ -156,18 +148,8 @@ impl Recompute<'_> {
             .map(|integration| &integration.process)
             .or_else(|| entry.screen.as_ref().map(|screen| &screen.process))
             .cloned();
-        // A screen-visible blocker prompt is direct evidence the agent is
-        // waiting on a human, and it outranks a non-authoritative integration
-        // that claims otherwise — most often one whose reporter went quiet
-        // mid-turn.
-        let blocker_overrides_integration = integration.is_some_and(|integration| {
-            !full_lifecycle_agent(integration.process.agent_id)
-                && integration.process.state != AgentRuntimeState::Blocked
-                && entry.screen.as_ref().is_some_and(|screen| {
-                    screen.visible_blocker
-                        && screen.process.agent_id == integration.process.agent_id
-                })
-        });
+        // OMP reports the full lifecycle; screen evidence cannot correct a
+        // live integration report, even when it shows a blocker.
         let has_integration = integration.is_some();
         let message = integration.and_then(|integration| integration.message.clone());
         let previous = entry.effective.clone();
@@ -207,16 +189,12 @@ impl Recompute<'_> {
             return;
         };
 
-        let source = if has_integration && !blocker_overrides_integration {
+        let source = if has_integration {
             AgentStatusSource::Integration
         } else {
             AgentStatusSource::Screen
         };
-        let state = if blocker_overrides_integration {
-            AgentRuntimeState::Blocked
-        } else {
-            candidate.state
-        };
+        let state = candidate.state;
         let same_occupant = previous.as_ref().is_some_and(|previous| {
             previous.occupant_live && previous.process.process_key == candidate.process_key
         });

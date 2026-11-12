@@ -58,9 +58,13 @@ impl OmpLauncher for DuplexLauncher {
                 .v1()
                 .on_receive_request(
                     async |request: InitializeRequest, responder, _cx| {
+                        let mut capabilities = AgentCapabilities::new().load_session(true);
+                        capabilities.meta = Some(serde_json::from_value(serde_json::json!({
+                            "commandUi": {"version": 1, "protocol": "tsp"}
+                        })).unwrap());
                         responder.respond(
                             InitializeResponse::new(request.protocol_version)
-                                .agent_capabilities(AgentCapabilities::new().load_session(true)),
+                                .agent_capabilities(capabilities),
                         )
                     },
                     agent_client_protocol::on_receive_request!(),

@@ -24,6 +24,14 @@
 | Diagnostics | `DiagDebugLogBatch`, `DiagSnapshot`; `coordinator.proto:1100-1101` | Device-authorized bounded diagnostics. |
 | Sync compatibility | `SyncRequest`, `FirehoseFrame`; `coordinator.proto:1068-1069` | Current path is `/ws/coord-sync`; Connect path is HTTP 410/handler `Unimplemented`. |
 
+## OMP terminal auto-launch
+
+`AgentConfigGet` and `AgentConfigSet` are device-authorized and dashboard-scoped.
+They carry only `auto_launch` (field 3). Agent selection and custom-command fields
+1 and 2, including their names, are reserved and never interpreted. Stored legacy
+selection/command rows are inert. Enabled, loaded clients launch `omp` plus CR once
+in a new terminal; disabled or unloaded clients leave it as a normal shell.
+
 ## Chat snapshots and archived native controls
 
 OMP is the active web-agent backend. Native-only goal and execution metadata

@@ -1,8 +1,6 @@
-//! Stages and commits one complete Roost agent-integration asset set. The
-//! installer supplies preflight snapshots; this owner revalidates directory
+//! Stages and commits Roost's OMP extensions and retired-asset cleanup.
+//! The installer supplies preflight snapshots; this owner revalidates loader
 //! identity and target ownership at commit, then rolls back partial mutations.
-//! Ports v2 `apps/worker/src/agents/integration-install-transaction.ts`
-//! (`commitIntegrationInstall`); called by [`super::install_integrations`].
 
 use std::collections::HashMap;
 use std::io;
@@ -18,17 +16,15 @@ use super::install_proof::{
     assert_integration_target_unchanged, refusal,
 };
 use super::install_stage::{
-    PreparedDirectory, StagedFile, assert_prepared_directories_distinct,
-    assert_prepared_directory_stable, cleanup_created_directories, cleanup_stages,
-    prepare_directory, stage_file,
+    PreparedDirectory, StagedFile, assert_prepared_directory_stable, cleanup_created_directories,
+    cleanup_stages, prepare_directory, stage_file,
 };
-use super::integration_assets::{AgentIntegrationAssetId, AgentIntegrationRuntime, ByRuntime};
+use super::integration_assets::AgentIntegrationAssetId;
 
 /// One asset the preflight admitted: what planning saw at `target`.
 #[derive(Debug, Clone)]
 pub struct IntegrationAssetInstallPlan {
     pub id: AgentIntegrationAssetId,
-    pub runtime: AgentIntegrationRuntime,
     pub target: PathBuf,
     pub content: String,
     pub ownership_marker: &'static str,
@@ -50,7 +46,6 @@ impl IntegrationAssetInstallPlan {
 /// there is Roost's.
 #[derive(Debug, Clone)]
 pub struct IntegrationRetirementPlan {
-    pub runtime: AgentIntegrationRuntime,
     pub target: PathBuf,
     pub ownership_marker: &'static str,
     pub existing: Option<IntegrationFileSnapshot>,
@@ -97,31 +92,17 @@ impl std::fmt::Debug for IntegrationInstallTestHooks<'_> {
 /// mutations one by one. Any failure rolls back what was applied and removes
 /// what this install created.
 pub fn commit_integration_install(
-    directory_plans: &ByRuntime<IntegrationDirectoryPlan>,
+    directory_plan: &IntegrationDirectoryPlan,
     assets: &[IntegrationAssetInstallPlan],
     retirements: &[IntegrationRetirementPlan],
     platform: HostPlatform,
     hooks: &mut IntegrationInstallTestHooks<'_>,
 ) -> io::Result<()> {
-    let mut prepared: Vec<PreparedDirectory> = Vec::with_capacity(2);
-    for runtime in AgentIntegrationRuntime::ALL {
-        match prepare_directory(directory_plans.get(runtime), platform) {
-            Ok(directory) => prepared.push(directory),
-            Err(error) => {
-                let partial: Vec<&PreparedDirectory> = prepared.iter().collect();
-                cleanup_stages(&partial);
-                cleanup_created_directories(&partial, platform);
-                return Err(error);
-            }
-        }
-    }
-    let [omp, pi] = <[PreparedDirectory; 2]>::try_from(prepared)
-        .map_err(|_| refusal("agent integration staging directories are incomplete".to_owned()))?;
-    let directories = ByRuntime { omp, pi };
-    let all = [&directories.omp, &directories.pi];
+    let directory = prepare_directory(directory_plan, platform)?;
+    let all = [&directory];
     let mut mutations: Vec<InstallMutation<'_>> = Vec::new();
     let outcome = stage_and_apply(
-        &directories,
+        &directory,
         assets,
         retirements,
         platform,
@@ -141,17 +122,15 @@ pub fn commit_integration_install(
 }
 
 fn stage_and_apply<'a>(
-    directories: &'a ByRuntime<PreparedDirectory>,
+    directory: &'a PreparedDirectory,
     assets: &[IntegrationAssetInstallPlan],
     retirements: &[IntegrationRetirementPlan],
     platform: HostPlatform,
     hooks: &mut IntegrationInstallTestHooks<'_>,
     mutations: &mut Vec<InstallMutation<'a>>,
 ) -> io::Result<()> {
-    assert_prepared_directories_distinct(directories, platform)?;
     let mut staged: HashMap<AgentIntegrationAssetId, StagedFile> = HashMap::new();
     for asset in assets {
-        let directory = directories.get(asset.runtime);
         assert_prepared_directory_stable(directory, platform)?;
         let name = format!("asset-{}", asset.id.as_str());
         staged.insert(asset.id, stage_file(directory, &name, &asset.content)?);
@@ -160,10 +139,7 @@ fn stage_and_apply<'a>(
     if let Some(before_final_validation) = hooks.before_final_validation.as_mut() {
         before_final_validation()?;
     }
-    for runtime in AgentIntegrationRuntime::ALL {
-        assert_prepared_directory_stable(directories.get(runtime), platform)?;
-    }
-    assert_prepared_directories_distinct(directories, platform)?;
+    assert_prepared_directory_stable(directory, platform)?;
     for asset in assets {
         assert_integration_target_unchanged(asset.guard())?;
     }
@@ -180,7 +156,6 @@ fn stage_and_apply<'a>(
         {
             continue;
         }
-        let directory = directories.get(asset.runtime);
         assert_prepared_directory_stable(directory, platform)?;
         assert_integration_target_unchanged(asset.guard())?;
         let staged_file = staged.get(&asset.id).cloned().ok_or_else(|| {
@@ -210,7 +185,6 @@ fn stage_and_apply<'a>(
         after_committed_mutation(hooks, completed)?;
     }
     for retirement in retirements.iter().filter(|retirement| retirement.remove) {
-        let directory = directories.get(retirement.runtime);
         assert_prepared_directory_stable(directory, platform)?;
         assert_integration_target_unchanged(retirement.guard())?;
         mutations.push(InstallMutation::retirement(

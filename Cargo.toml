@@ -32,12 +32,7 @@ roost-worker = { path = "crates/roost-worker" }
 roost-coord = { path = "crates/roost-coord" }
 roost-client-core = { path = "crates/roost-client-core" }
 roost-web-terminal = { path = "crates/roost-web-terminal" }
-roost-agent-tools = { path = "crates/roost-agent-tools" }
 roost-vcs = { path = "crates/roost-vcs" }
-# Pi Durable's Rust kernel is vendored independently from its CLI and providers.
-rpi-durable = { path = "third_party/pi-durable-rs/crates/rpi-durable" }
-rpi-ai = { path = "third_party/pi-durable-rs/crates/rpi-ai" }
-rpi-agent = { path = "third_party/pi-durable-rs/crates/rpi-agent" }
 # `zstd` is deliberately off. It is a C library built through `cc`, so it
 # cannot compile for `wasm32-unknown-unknown`, and the browser client is a
 # first-class target of this workspace. Connect's compression is per-request
@@ -102,20 +97,15 @@ unicode-segmentation = "1.13.3"
 # first, so two spellings of one directory are one directory.
 unicode-normalization = "0.1.25"
 pulldown-cmark = { version = "0.13.4", default-features = false }
-html2text = "0.14.2" # Converts fetched HTML to readable text without a browser.
-ammonia = "4.2.0"
 # WHATWG URL parsing for terminal link targets: the web terminal classifies
 # untrusted OSC 8 and inferred targets exactly as the browser's `new URL()`.
 url = "2.5.8"
-# HTML search pages are parsed structurally rather than with brittle markup regexes.
-scraper = "0.24.0"
 # The benchmark harness's headless-browser driver: Chrome DevTools Protocol
 # over a websocket. Only `roost-bench`, a developer tool that never ships, uses it.
 chromiumoxide = { version = "0.9.1", default-features = false }
 
 # Crypto and encoding.
 ed25519-dalek = "3.0.0"
-chacha20poly1305 = "0.10.1"
 base64 = "0.23.1"
 sha2 = "0.11.0"
 hex = "0.4.3"
@@ -147,15 +137,6 @@ clap = { version = "4.6.7", features = ["derive"] }
 thiserror = "2.0.21"
 anyhow = "1.0.104"
 
-# Structural search (ast_grep / ast_edit). ast-grep-language is not used: its
-# per-language features panic unless `builtin-parser` compiles all ~25 grammars.
-ast-grep-core = "0.39.9"
-tree-sitter-go = "0.25.0"
-tree-sitter-javascript = "0.25.0"
-tree-sitter-python = "0.25.0"
-tree-sitter-rust = "0.24.2"
-tree-sitter-typescript = "0.23.2"
-
 # Browser.
 wasm-bindgen = "=0.2.127"
 wasm-bindgen-futures = "=0.4.77"
@@ -184,23 +165,6 @@ windows-sys = "0.61"
 # OS entropy on every platform: /dev/urandom does not exist on Windows.
 getrandom = "0.4"
 
-# RFC 3339 instant parsing for `/schedule at`.
-chrono = { version = "0.4", default-features = false, features = ["std"] }
-# The agent harness. The hashline TAG is xxh32 over the normalised file text,
-# the same digest OMP renders, so a header the model saw in one tool matches
-# the header the edit checks.
-xxhash-rust = { version = "0.8.18", features = ["xxh32"] }
-# ripgrep's walker, glob matcher and searcher behind the worker's grep/glob
-# tools: `.gitignore`-aware, and the same semantics a developer's `rg` has.
-ignore = "0.4.33"
-globset = "0.4.20"
-grep-regex = "0.1.14"
-grep-searcher = "0.1.17"
-lsp-types = "0.97.0"
-# Unpacking the on-demand language-server downloads (gz, tar.gz, zip).
-flate2 = "1.1.10"
-tar = "0.4.46"
-zip = { version = "9.0.1", default-features = false, features = ["deflate"] }
 tempfile = "3.27.0"
 reflink-copy = "0.1.30"
 async-stream = "0.3.6"

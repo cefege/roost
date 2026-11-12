@@ -11,9 +11,7 @@ use std::time::Duration;
 
 use roost_protocol::wire::brand::SessionId;
 use roost_worker::agents::BuiltinAgentId as Agent;
-use roost_worker::agents::process_identity::{
-    builtin_agent_commands, find_agent_process_identity, identify_agent_process,
-};
+use roost_worker::agents::process_identity::{find_agent_process_identity, identify_agent_process};
 use roost_worker::agents::process_scan::{
     AgentProcessIdentity, AgentProcessScanner, SessionProcessRoot,
 };
@@ -93,55 +91,97 @@ fn scanner(reader: &Arc<ScriptedReader>, throttle: Duration) -> AgentProcessScan
 }
 
 #[test]
-fn identifies_every_builtin_from_a_live_descendant_command() {
-    for agent_id in Agent::ALL {
-        let command = builtin_agent_commands(agent_id)[0];
-        let child = record(20, 10, command, command);
+fn recognizes_omp_direct_and_runtime_launches_without_reading_shell_text() {
+    for (comm, command) in [
+        ("omp", "omp"),
+        ("omp", "/usr/local/bin/omp"),
+        ("env", "env ROOST_TEST=1 omp"),
+    ] {
+        let child = record(20, 10, comm, command);
         assert_eq!(
             find_agent_process_identity(&[root(), child], 10),
-            Some(identity(agent_id, 20))
+            Some(identity(Agent::Omp, 20))
         );
     }
-}
-
-#[test]
-fn recognizes_runtime_package_launchers_without_reading_shell_command_text() {
-    let launcher = record(
-        20,
-        10,
-        "bun",
-        "bun /home/me/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js",
-    );
-    assert_eq!(identify_agent_process(&launcher), Some(Agent::Omp));
-    let shell = record(20, 10, "bash", "/bin/bash -c echo codex gemini omp");
+    for runtime in ["node", "nodejs", "bun", "deno"] {
+        for script in [
+            "/home/me/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js",
+            "/home/me/oh-my-pi/dist/cli.js",
+            "/usr/local/bin/omp.js",
+        ] {
+            let launcher = record(20, 10, runtime, &format!("{runtime} --quiet {script}"));
+            assert_eq!(identify_agent_process(&launcher), Some(Agent::Omp));
+        }
+    }
+    let shell = record(20, 10, "bash", "/bin/bash -c echo omp");
     assert_eq!(identify_agent_process(&shell), None);
+    let argument = record(20, 10, "node", "node /tmp/unrelated.js omp");
+    assert_eq!(identify_agent_process(&argument), None);
 }
 
 #[test]
-fn recognizes_the_claude_code_process_by_every_identity_it_answers_to() {
-    let native = record(20, 10, "claude", "/usr/local/bin/claude");
-    assert_eq!(identify_agent_process(&native), Some(Agent::Claude));
-    let npm = record(
-        21,
-        10,
-        "node",
-        "node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js",
-    );
-    assert_eq!(identify_agent_process(&npm), Some(Agent::Claude));
-    let local_installer = record(
-        22,
-        10,
-        "node",
-        "node /home/me/.claude/local/claude-code/cli.js",
-    );
-    assert_eq!(
-        identify_agent_process(&local_installer),
-        Some(Agent::Claude)
-    );
-    let alias = record(23, 10, "claude-code", "claude-code");
-    assert_eq!(identify_agent_process(&alias), Some(Agent::Claude));
-    let other = record(24, 10, "claude", "claude doctor --verbose fake-args");
-    assert_eq!(identify_agent_process(&other), Some(Agent::Claude));
+fn unrelated_agent_commands_and_packages_do_not_claim_terminal_status() {
+    for command in [
+        "codex",
+        "claude",
+        "claude-code",
+        "gemini",
+        "opencode",
+        "open-code",
+        "cursor-agent",
+        "amp",
+        "amp-local",
+        "copilot",
+        "github-copilot",
+        "ghcs",
+        "droid",
+        "grok",
+        "grok-build",
+        "pi",
+        "rpi",
+    ] {
+        let direct = record(20, 10, command, &format!("/usr/local/bin/{command}"));
+        assert_eq!(identify_agent_process(&direct), None, "{command}");
+        let runtime = record(20, 10, "bun", &format!("bun /usr/local/bin/{command}.js"));
+        assert_eq!(identify_agent_process(&runtime), None, "{command}.js");
+    }
+    for package in [
+        "@openai/codex",
+        "codex",
+        "@anthropic-ai/claude-code",
+        "claude-code",
+        "@google/gemini-cli",
+        "gemini-cli",
+        "opencode",
+        "cursor-agent",
+        "@sourcegraph/amp",
+        "amp",
+        "@github/copilot",
+        "github-copilot",
+        "droid",
+        "grok-build",
+        "grok",
+        "@mariozechner/pi-coding-agent",
+        "@badlogic/pi-coding-agent",
+        "rpi-agent",
+    ] {
+        let launcher = record(
+            20,
+            10,
+            "node",
+            &format!("node /home/me/node_modules/{package}/cli.js"),
+        );
+        assert_eq!(identify_agent_process(&launcher), None, "{package}");
+    }
+    for script in [
+        "/home/me/.claude/local/claude-code/cli.js",
+        "/home/me/.local/bin/claude",
+    ] {
+        assert_eq!(
+            identify_agent_process(&record(20, 10, "node", &format!("node {script}"))),
+            None
+        );
+    }
 }
 
 #[test]
@@ -161,13 +201,13 @@ fn parses_ps_rows_as_v2s_pattern_does() {
 
 #[tokio::test]
 async fn requires_two_consecutive_misses_before_releasing_identity() {
-    let reader = ScriptedReader::with(vec![root(), record(20, 10, "codex", "codex")]);
+    let reader = ScriptedReader::with(vec![root(), record(20, 10, "omp", "omp")]);
     let scanner = scanner(&reader, Duration::ZERO);
     let roots = [session_root()];
     let id = &session_root().session_id;
-    assert_eq!(scanner.scan_agents(&roots).await[id].agent_id, Agent::Codex);
+    assert_eq!(scanner.scan_agents(&roots).await[id].agent_id, Agent::Omp);
     *reader.records.lock().unwrap() = vec![root()];
-    assert_eq!(scanner.scan_agents(&roots).await[id].agent_id, Agent::Codex);
+    assert_eq!(scanner.scan_agents(&roots).await[id].agent_id, Agent::Omp);
     assert!(!scanner.scan_agents(&roots).await.contains_key(id));
 }
 
@@ -175,7 +215,7 @@ async fn requires_two_consecutive_misses_before_releasing_identity() {
 async fn requires_a_pre_observed_incumbent_before_admitting_a_reporter() {
     let reader = ScriptedReader::with(vec![
         root(),
-        record(20, 10, "pi", "pi"),
+        record(20, 10, "omp", "omp"),
         record(30, 20, "omp", "omp"),
     ]);
     let scanner = scanner(&reader, Duration::ZERO);

@@ -11,9 +11,7 @@ use roost_protocol::wire::agent_status::{AgentOccupantId, AgentRuntimeState, Age
 
 use crate::agents::BuiltinAgentId;
 
-/// v2 `processKey`: the (agent kind, pid) pair one incarnation is known by.
-/// The kind is part of it because a restart can hand the same numeric pid to a
-/// different agent.
+/// The typed process identity used to fence one OMP incarnation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProcessKey {
     pub agent_id: BuiltinAgentId,
@@ -45,14 +43,10 @@ pub struct IntegrationCandidate {
     pub lease_until: i64,
 }
 
-/// v2 `ScreenCandidate`. It carries whether the manifest matched a rule marked
-/// `visible_blocker`: an on-screen prompt is direct evidence a human is being
-/// waited on, and it may correct an integration that is not a full-lifecycle
-/// state authority.
+/// The screen state used when no live integration report is available.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreenCandidate {
     pub process: ProcessCandidate,
-    pub visible_blocker: bool,
 }
 
 /// v2 `EffectiveEntry`: the occupant a session publishes.

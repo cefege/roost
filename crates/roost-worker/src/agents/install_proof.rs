@@ -1,8 +1,6 @@
-//! Filesystem proofs the agent-integration installer plans and commits
-//! against: file and directory identities, ownership markers, and the path key
-//! that decides whether two loader directories are one. Ports v2
-//! `apps/worker/src/agents/integration-install-proof.ts`; called by
-//! [`super::install_integrations`] and the staged install transaction.
+//! Filesystem proofs the OMP integration installer plans and commits against:
+//! file and directory identities, ownership markers, and canonical path keys.
+//! Called by the installer and its staged transaction.
 
 use std::fs::{self, Metadata};
 use std::io;
@@ -57,7 +55,7 @@ pub(crate) fn refusal(message: String) -> io::Error {
     io::Error::other(message)
 }
 
-/// The key two paths must share to be the same loader directory. macOS and
+/// The comparison key for canonical loader and target paths. macOS and
 /// Windows file systems are case-insensitive by default, Linux is not.
 pub fn integration_path_comparison_key(path: &Path, platform: HostPlatform) -> String {
     let normalized: String = path.to_string_lossy().nfc().collect();
