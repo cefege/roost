@@ -143,6 +143,9 @@ fn classify(upstream: CoordWorkerUpstream) -> LinkFrame {
         | Up::TerminalTransportProbeResult(_)
         | Up::OmpEvents(_)
         | Up::OmpHostServiceRequest(_)
+        | Up::RpiCommandAck(_)
+        | Up::RpiEvents(_)
+        | Up::RpiModelsListResult(_)
         | Up::OmpUiActionReceipt(_) => (FrameClass::Rpc, 0),
     };
     LinkFrame::Dispatch(Box::new(InboundFrame {

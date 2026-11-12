@@ -41,3 +41,42 @@ fn plan_mode_then_subagent_kind_then_default_decide_the_running_role() {
     );
     assert_eq!(conversation("normal", None).running_role(), "default");
 }
+
+#[test]
+fn backend_wire_and_json_decoding_preserve_archive_defaults() {
+    for (wire, expected) in [
+        ("native", AgentBackend::Native),
+        ("omp", AgentBackend::Omp),
+        ("rpi", AgentBackend::Rpi),
+        ("", AgentBackend::Native),
+        ("unknown", AgentBackend::Native),
+    ] {
+        assert_eq!(AgentBackend::from_wire(wire), expected);
+        assert!(matches!(
+            serde_json::from_value::<AgentBackend>(serde_json::json!(wire)),
+            Ok(decoded) if decoded == expected
+        ));
+    }
+    for backend in [AgentBackend::Native, AgentBackend::Omp, AgentBackend::Rpi] {
+        assert!(matches!(
+            serde_json::to_value(backend),
+            Ok(encoded) if encoded == serde_json::json!(backend.as_wire())
+        ));
+        let mut summary = conversation("normal", None);
+        summary.backend = backend;
+        assert_eq!(summary.is_native(), backend == AgentBackend::Native);
+    }
+    assert_eq!(AgentBackend::default(), AgentBackend::Native);
+}
+
+#[test]
+fn stored_conversation_without_backend_is_archived() -> Result<(), serde_json::Error> {
+    let mut stored = serde_json::to_value(conversation("normal", None))?;
+    let removed = stored
+        .as_object_mut()
+        .and_then(|fields| fields.remove("backend"));
+    assert_eq!(removed, Some(serde_json::json!("native")));
+    let decoded: ConversationSummary = serde_json::from_value(stored)?;
+    assert!(decoded.is_native());
+    Ok(())
+}

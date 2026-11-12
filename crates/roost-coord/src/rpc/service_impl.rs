@@ -29,6 +29,7 @@ use crate::agent::rpc_chat::{
     handle_agent_chat_withdraw,
 };
 use crate::agent::rpc_chat_transcript::{handle_agent_chat_events, handle_agent_chat_snapshot};
+use crate::agent::rpi::rpc::{handle_agent_rpi_models_list, handle_agent_rpi_session_open};
 use crate::agents::rpc_status::{
     handle_agent_config_get, handle_agent_config_set, handle_agent_status_get,
     handle_agent_status_list, handle_agent_status_wait,
@@ -700,6 +701,32 @@ impl CoordinatorService for CoordinatorServiceImpl {
         async move {
             let caller = caller_of(&ctx, "AgentOmpSessionOpen")?;
             handle_agent_omp_session_open(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_rpi_models_list<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentRpiModelsListRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<AgentRpiModelsListResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "AgentRpiModelsList")?;
+            handle_agent_rpi_models_list(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_rpi_session_open<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentRpiSessionOpenRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<AgentRpiSessionOpenResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "AgentRpiSessionOpen")?;
+            handle_agent_rpi_session_open(&self.core, caller, r.to_owned_message()).await
         }
     }
     fn agent_omp_ui<'a>(

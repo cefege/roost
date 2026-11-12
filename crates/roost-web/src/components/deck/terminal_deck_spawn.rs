@@ -189,6 +189,7 @@ mod web {
                 cwd: anchor.folder.clone(),
                 model: None,
                 backend: AgentBackend::Omp,
+                ..Default::default()
             })
             .await
         {

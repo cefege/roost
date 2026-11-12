@@ -172,5 +172,6 @@ pub fn downstream_arms() -> Vec<(&'static str, CoordWorkerDownstream)> {
         ),
     ];
     arms.extend(live_metrics_arms::downstream_arms());
+    arms.extend(rpi_arms::downstream_arms());
     arms
 }

@@ -213,6 +213,12 @@ impl WorkerFrameDispatcher {
             CoordWorkerUpstream::InputResult(result) => {
                 pending.resolve_typed(TypedWorkerResult::Input(result), Some(worker.as_str()));
             }
+            CoordWorkerUpstream::RpiModelsListResult(result) => {
+                if self.handle.process_epoch.as_deref() != Some(result.worker_epoch.as_str()) {
+                    return self.refuse(channel, "rpi_catalog_epoch_mismatch");
+                }
+                pending.resolve_typed(TypedWorkerResult::RpiModels(result), Some(worker.as_str()));
+            }
             direct @ (CoordWorkerUpstream::TerminalInputRouteResult(_)
             | CoordWorkerUpstream::TerminalTransportProbeResult(_)
             | CoordWorkerUpstream::LocalTerminalPeerAnswer(_)

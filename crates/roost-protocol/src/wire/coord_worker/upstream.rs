@@ -149,6 +149,12 @@ pub enum CoordWorkerUpstream {
     OmpHostServiceRequest(roost_proto::WOmpHostServiceRequest),
     #[serde(rename = "omp-ui-action-receipt")]
     OmpUiActionReceipt(roost_proto::WOmpUiActionReceipt),
+    #[serde(rename = "rpi-command-ack")]
+    RpiCommandAck(roost_proto::WRpiCommandAck),
+    #[serde(rename = "rpi-events")]
+    RpiEvents(roost_proto::WRpiEvents),
+    #[serde(rename = "rpi-models-list-result")]
+    RpiModelsListResult(roost_proto::WRpiModelsListResult),
 }
 
 impl CoordWorkerUpstream {
@@ -183,6 +189,9 @@ impl CoordWorkerUpstream {
             Self::OmpEvents(_) => "omp-events",
             Self::OmpHostServiceRequest(_) => "omp-host-service-request",
             Self::OmpUiActionReceipt(_) => "omp-ui-action-receipt",
+            Self::RpiCommandAck(_) => "rpi-command-ack",
+            Self::RpiEvents(_) => "rpi-events",
+            Self::RpiModelsListResult(_) => "rpi-models-list-result",
         }
     }
 

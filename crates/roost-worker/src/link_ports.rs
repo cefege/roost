@@ -248,6 +248,13 @@ pub trait OmpPort: Send + Sync + std::fmt::Debug {
     fn close(&self, request: roost_proto::DOmpClose);
 }
 
+/// Durable commands and output acknowledgements for worker-local Rpi sessions.
+pub trait RpiPort: Send + Sync + std::fmt::Debug {
+    fn command(&self, request: roost_proto::DRpiCommand);
+    fn ack(&self, request: roost_proto::DRpiEventsAck);
+    fn models(&self, request: roost_proto::DRpiModelsList);
+}
+
 /// Coordinator-driven live host metrics: a subscription starts or stops sampling.
 pub trait LiveMetricsPort: Send + Sync + std::fmt::Debug {
     fn subscription(&self, request: roost_proto::DLiveMetricsSubscription);
@@ -268,5 +275,6 @@ pub struct DownstreamOwners {
     pub attachments: Arc<dyn AttachmentLinkPort>,
     pub keeper_update: Arc<dyn KeeperUpdatePort>,
     pub omp: Option<Arc<dyn OmpPort>>,
+    pub rpi: Option<Arc<dyn RpiPort>>,
     pub live_metrics: Option<Arc<dyn LiveMetricsPort>>,
 }

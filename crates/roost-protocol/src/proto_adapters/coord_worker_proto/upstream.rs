@@ -149,6 +149,11 @@ pub(super) fn to_proto(frame: &CoordWorkerUpstream) -> ProtocolResult<CoordWorke
         CoordWorkerUpstream::OmpUiActionReceipt(receipt) => {
             Frame::OmpUiActionReceipt(Box::new(receipt.clone()))
         }
+        CoordWorkerUpstream::RpiCommandAck(ack) => Frame::RpiCommandAck(Box::new(ack.clone())),
+        CoordWorkerUpstream::RpiEvents(events) => Frame::RpiEvents(Box::new(events.clone())),
+        CoordWorkerUpstream::RpiModelsListResult(result) => {
+            Frame::RpiModelsListResult(Box::new(result.clone()))
+        }
     };
     Ok(CoordWorkerUp {
         frame: Some(arm),
@@ -274,6 +279,11 @@ pub(super) fn from_proto(message: &CoordWorkerUp) -> ProtocolResult<CoordWorkerU
         }
         Frame::OmpUiActionReceipt(receipt) => {
             CoordWorkerUpstream::OmpUiActionReceipt((**receipt).clone())
+        }
+        Frame::RpiCommandAck(ack) => CoordWorkerUpstream::RpiCommandAck((**ack).clone()),
+        Frame::RpiEvents(events) => CoordWorkerUpstream::RpiEvents((**events).clone()),
+        Frame::RpiModelsListResult(result) => {
+            CoordWorkerUpstream::RpiModelsListResult((**result).clone())
         }
     };
     frame.check()?;

@@ -15,6 +15,8 @@ use roost_protocol::wire::coord_worker::{
 
 #[path = "live_metrics_arms.rs"]
 mod live_metrics_arms;
+#[path = "rpi_arms.rs"]
+mod rpi_arms;
 
 #[path = "downstream_arms.rs"]
 mod downstream;
@@ -238,5 +240,6 @@ pub fn upstream_arms() -> Vec<(&'static str, CoordWorkerUpstream)> {
         ),
     ];
     arms.extend(live_metrics_arms::upstream_arms());
+    arms.extend(rpi_arms::upstream_arms());
     arms
 }

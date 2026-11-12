@@ -194,6 +194,10 @@ mod push_web_push_transport;
 mod rate_limit_budget;
 #[path = "rate_limit_refusals.rs"]
 mod rate_limit_refusals;
+#[path = "rpi_contract.rs"]
+mod rpi_contract;
+#[path = "rpi_migration.rs"]
+mod rpi_migration;
 #[path = "search_batch_validation.rs"]
 mod search_batch_validation;
 #[path = "search_control.rs"]

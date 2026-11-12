@@ -21,6 +21,7 @@ mod live_metrics;
 mod local_grants;
 mod owner_task;
 mod replies;
+mod rpi;
 mod terminal;
 
 use std::sync::Arc;
@@ -231,6 +232,9 @@ impl Dispatcher {
                     tracing::debug!("OMP close has no owner");
                 }
             }
+            CoordWorkerDownstream::RpiCommand(request) => self.rpi_command(request, link),
+            CoordWorkerDownstream::RpiEventsAck(request) => self.rpi_events_ack(request),
+            CoordWorkerDownstream::RpiModelsList(request) => self.rpi_models_list(request, link),
             CoordWorkerDownstream::LiveMetricsSubscription(request) => {
                 self.live_metrics_subscription(request)
             }

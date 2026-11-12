@@ -314,6 +314,67 @@ message WOmpUiActionReceipt {
   string error = 6;
 }
 
+// Authenticated worker-local chat models, never credentials or classifier models.
+message RpiModel {
+  string provider = 1;
+  string model_id = 2;
+  string name = 3;
+  bool supports_images = 4;
+  repeated string thinking_levels = 5;
+}
+
+enum RpiCommandKind {
+  RPI_COMMAND_KIND_UNSPECIFIED = 0;
+  RPI_COMMAND_KIND_OPEN = 1;
+  RPI_COMMAND_KIND_SUBMIT = 2;
+  RPI_COMMAND_KIND_ABORT = 3;
+  RPI_COMMAND_KIND_WITHDRAW = 4;
+  RPI_COMMAND_KIND_CONFIGURE = 5;
+  RPI_COMMAND_KIND_CLOSE = 6;
+}
+
+enum RpiCommandAckStatus {
+  RPI_COMMAND_ACK_STATUS_UNSPECIFIED = 0;
+  RPI_COMMAND_ACK_STATUS_ACCEPTED = 1;
+  RPI_COMMAND_ACK_STATUS_SETTLED = 2;
+  RPI_COMMAND_ACK_STATUS_REJECTED = 3;
+}
+
+message WRpiCommandAck {
+  string conversation_id = 1;
+  string request_id = 2;
+  uint64 command_seq = 3;
+  string worker_epoch = 4;
+  // ACCEPTED proves persisted admission, not successful execution.
+  RpiCommandAckStatus status = 5;
+  // Typed RpiCommandResult JSON; errors contain only stable sanitized codes.
+  string result_json = 6;
+}
+
+message RpiEventEnvelope {
+  uint64 command_seq = 1;
+  string request_id = 2;
+  // Generic ChatEvent array, in projection order.
+  string events_json = 3;
+}
+
+message WRpiEvents {
+  string conversation_id = 1;
+  string worker_epoch = 2;
+  string actor_id = 3;
+  // Actor-global persistent sequence, not reset on restart or per prompt.
+  uint64 first_seq = 4;
+  repeated RpiEventEnvelope events = 5;
+}
+
+message WRpiModelsListResult {
+  string request_id = 1;
+  string worker_epoch = 2;
+  repeated RpiModel models = 3;
+  string error_code = 4;
+  string error_message = 5;
+}
+
 message CoordWorkerUp {
   reserved 4, 5, 8, 9, 13, 15;
   reserved "viewport_result", "transfer_line", "transfer_done";
@@ -348,6 +409,9 @@ message CoordWorkerUp {
     WOmpEvents omp_events = 37;
     WOmpHostServiceRequest omp_host_service_request = 38;
     WOmpUiActionReceipt omp_ui_action_receipt = 39;
+    WRpiCommandAck rpi_command_ack = 40;
+    WRpiEvents rpi_events = 41;
+    WRpiModelsListResult rpi_models_list_result = 42;
   }
   reserved 31, 32;
 }
@@ -681,6 +745,28 @@ message DOmpUi {
   string transport_id = 9;
   bool receipt = 10;
 }
+message DRpiCommand {
+  string conversation_id = 1;
+  string request_id = 2;
+  uint64 command_seq = 3;
+  string expected_worker_epoch = 4;
+  RpiCommandKind kind = 5;
+  // Strict RpiCommandPayload JSON; its kind must match the envelope.
+  string payload_json = 6;
+}
+
+message DRpiEventsAck {
+  string conversation_id = 1;
+  string worker_epoch = 2;
+  string actor_id = 3;
+  uint64 committed_seq = 4;
+}
+
+message DRpiModelsList {
+  string request_id = 1;
+  string expected_worker_epoch = 2;
+}
+
 message CoordWorkerDown {
   reserved 11;
   reserved "viewport_request";
@@ -728,6 +814,9 @@ message CoordWorkerDown {
     DOmpRespond omp_respond = 48;
     DOmpSetMode omp_set_mode = 49;
     DOmpUi omp_ui = 50;
+    DRpiCommand rpi_command = 51;
+    DRpiEventsAck rpi_events_ack = 52;
+    DRpiModelsList rpi_models_list = 53;
   }
   reserved 33, 34, 35, 36;
 }

@@ -17,8 +17,9 @@ reads, resumes or mutates them, and no native recovery, schedule or tool wakeup
 runs.
 
 Stored `AgentConversation.backend` values retain their compatibility semantics:
-`omp` identifies OMP; empty or unknown stored values decode as native. The enum's
-Native default is not the creation default and must not relabel old history.
+`omp` identifies OMP and `rpi` identifies worker-local Rpi; empty or unknown
+stored values decode as native. The enum's Native default is not the creation
+default and must not relabel old history.
 
 OMP conversations run `omp acp --approval-mode yolo` on their assigned worker and current cwd.
 A worker-owned `--extension` awaits OMP's background and runtime-provider discovery
@@ -226,6 +227,29 @@ remains. `truncated` means the requested cursor predates retained history.
 Event batches older than 24 hours may be pruned, except that every
 conversation's newest batch is retained so its cursor continues after restart.
 The cursor and retained batches are read from one database snapshot.
+
+## Rpi typed admission
+
+`AgentRpiModelsList(worker_fp)` returns authenticated available chat models
+with provider/model ID, name, image support and thinking levels. The worker
+must advertise `rpi_agent_v1`; an older worker returns `failed_precondition`.
+Catalog replies are correlated to the authenticated worker and process epoch.
+Provider setup errors return a sanitized Connect failure, not an empty catalog
+or raw provider diagnostic.
+
+`AgentRpiSessionOpen(conversation_id,request_id,resume_pending)` admits an OPEN
+command without a user prompt. Archived, deleted and missing IDs return
+`not_found: conversation not found`. A duplicate request retains its command
+sequence and original resume intent; changing that intent under the same ID is
+`invalid_argument`. Delivery failure leaves the committed command pending.
+Create and Configure carry request IDs in fields 6 and 10; OMP accepts omitted
+IDs, while Rpi admission uses durable command identity.
+
+Migration 0020 expands the shared stored discriminator without rebuilding the
+SQLite parent or altering archived rows. Rpi has separate `rpi_sessions` and
+`rpi_commands`; account-scoped `rpi_creations` receipts retain their original
+returned identity after physical conversation deletion.
+
 
 ## Provider settings
 
