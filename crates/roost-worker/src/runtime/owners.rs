@@ -23,9 +23,9 @@ use crate::attachments::peer_owner::AttachmentPeerBootstrapState;
 use crate::door::loopback::{LoopbackOwner, LoopbackRoutes};
 use crate::keeper_pool::{KeeperPool, KeeperUpdateBoundary, KeeperUpdatePreparer};
 use crate::link_ports::{
-    AgentToolsPort, AttachmentPeerPort, DirectTerminalPort, DownstreamOwners, KeeperUpdatePort,
-    LinkLifecyclePort, LinkLifecycles, LocalTerminalGrantPort, TerminalInputPort,
-    TerminalPipelinePort, TerminalStreamPort, TerminalViewPort,
+    AttachmentPeerPort, DirectTerminalPort, DownstreamOwners, KeeperUpdatePort, LinkLifecyclePort,
+    LinkLifecycles, LocalTerminalGrantPort, TerminalInputPort, TerminalPipelinePort,
+    TerminalStreamPort, TerminalViewPort,
 };
 use crate::local_terminal::{LocalTerminalDoor, LocalTerminalDoorDeps};
 use crate::peer::native::NativeLoader;
@@ -221,10 +221,6 @@ impl WorkerOwners {
         );
 
         let agent_report = AgentReportServer::start_for_worker(&stack.agent_environment, &agents);
-        let agent_tools = Arc::new(crate::runtime::agent_tools::AgentToolsOwner::new(
-            data_dir.to_path_buf(),
-            uplink.clone(),
-        )) as Arc<dyn AgentToolsPort>;
         let omp = Arc::new(crate::omp::OmpOwner::new(
             Arc::new(crate::omp::launcher::ProcessLauncher::new(
                 data_dir.to_path_buf(),
@@ -249,9 +245,6 @@ impl WorkerOwners {
                     Arc::new(cadence.clone()),
                 )) as Arc<dyn LinkLifecyclePort>,
                 Arc::new(agents.clone()) as Arc<dyn LinkLifecyclePort>,
-                Arc::new(crate::runtime::agent_tools::AgentToolsLinkLifecycle(
-                    Arc::clone(&agent_tools),
-                )) as Arc<dyn LinkLifecyclePort>,
                 Arc::new(crate::omp::OmpLinkLifecycle(
                     Arc::clone(&omp) as Arc<dyn crate::omp::OmpResend>
                 )) as Arc<dyn LinkLifecyclePort>,
@@ -275,7 +268,6 @@ impl WorkerOwners {
                 Arc::new(attachments.direct.clone()) as Arc<dyn AttachmentPeerPort>
             ),
             keeper_update: Arc::new(keeper_update) as Arc<dyn KeeperUpdatePort>,
-            agent_tools: Some(Arc::clone(&agent_tools)),
             omp: Some(omp as Arc<dyn crate::link_ports::OmpPort>),
             live_metrics: Some(live_metrics as Arc<dyn crate::link_ports::LiveMetricsPort>),
         };

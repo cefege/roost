@@ -41,8 +41,6 @@ const UPSTREAM_FIELD_NUMBERS: &[(&str, u32)] = &[
     ("local-attachment-peer-error", 28),
     ("attachment-direct-status", 29),
     ("update-progress", 30),
-    ("agent-tool-output", 33),
-    ("agent-tool-result", 34),
     ("live-metrics", 36),
     ("omp-host-service-request", 38),
     ("omp-ui-action-receipt", 39),
@@ -82,9 +80,6 @@ const DOWNSTREAM_FIELD_NUMBERS: &[(&str, u32)] = &[
     ("update-broker", 30),
     ("local-attachment-grant-revoke", 31),
     ("attachment-direct-status-request", 32),
-    ("agent-tool-call", 37),
-    ("agent-tool-cancel", 38),
-    ("agent-conversation-closed", 39),
     ("live-metrics-subscription", 42),
     ("omp-ui", 50),
 ];

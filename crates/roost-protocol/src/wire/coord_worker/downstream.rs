@@ -147,16 +147,6 @@ pub enum CoordWorkerDownstream {
     /// was composed against so a fenced occupant's prompt is not delivered.
     #[serde(rename = "agent-prompt")]
     AgentPrompt(DAgentPrompt),
-    #[serde(rename = "agent-tool-call")]
-    AgentToolCall(roost_proto::DAgentToolCall),
-    #[serde(rename = "agent-tool-cancel")]
-    AgentToolCancel(roost_proto::DAgentToolCancel),
-    #[serde(rename = "agent-conversation-closed")]
-    AgentConversationClosed(roost_proto::DAgentConversationClosed),
-    #[serde(rename = "agent-tool-background")]
-    AgentToolBackground(roost_proto::DAgentToolBackground),
-    #[serde(rename = "agent-jobs-abort")]
-    AgentJobsAbort(roost_proto::DAgentJobsAbort),
     #[serde(rename = "live-metrics-subscription")]
     LiveMetricsSubscription(roost_proto::DLiveMetricsSubscription),
     #[serde(rename = "omp-prompt")]
@@ -212,11 +202,6 @@ impl CoordWorkerDownstream {
             Self::UpdateBroker(_) => "update-broker",
             Self::KeeperUpdatePrepare(_) => "keeper-update-prepare",
             Self::AgentPrompt(_) => "agent-prompt",
-            Self::AgentToolCall(_) => "agent-tool-call",
-            Self::AgentToolCancel(_) => "agent-tool-cancel",
-            Self::AgentConversationClosed(_) => "agent-conversation-closed",
-            Self::AgentToolBackground(_) => "agent-tool-background",
-            Self::AgentJobsAbort(_) => "agent-jobs-abort",
             Self::LiveMetricsSubscription(_) => "live-metrics-subscription",
             Self::OmpPrompt(_) => "omp-prompt",
             Self::OmpCancel(_) => "omp-cancel",

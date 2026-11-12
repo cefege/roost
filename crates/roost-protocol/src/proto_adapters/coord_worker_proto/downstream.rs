@@ -139,21 +139,6 @@ pub(super) fn to_proto(frame: &CoordWorkerDownstream) -> ProtocolResult<CoordWor
         CoordWorkerDownstream::AgentPrompt(prompt) => {
             Frame::AgentPrompt(Box::new((*prompt).clone()))
         }
-        CoordWorkerDownstream::AgentToolCall(call) => {
-            Frame::AgentToolCall(Box::new((*call).clone()))
-        }
-        CoordWorkerDownstream::AgentToolCancel(cancel) => {
-            Frame::AgentToolCancel(Box::new((*cancel).clone()))
-        }
-        CoordWorkerDownstream::AgentConversationClosed(closed) => {
-            Frame::AgentConversationClosed(Box::new((*closed).clone()))
-        }
-        CoordWorkerDownstream::AgentToolBackground(background) => {
-            Frame::AgentToolBackground(Box::new((*background).clone()))
-        }
-        CoordWorkerDownstream::AgentJobsAbort(abort) => {
-            Frame::AgentJobsAbort(Box::new((*abort).clone()))
-        }
         CoordWorkerDownstream::LiveMetricsSubscription(subscription) => {
             Frame::LiveMetrics(Box::new((*subscription).clone()))
         }
@@ -286,17 +271,6 @@ pub(super) fn from_proto(message: &CoordWorkerDown) -> ProtocolResult<CoordWorke
             CoordWorkerDownstream::KeeperUpdatePrepare((**prepare).clone())
         }
         Frame::AgentPrompt(prompt) => CoordWorkerDownstream::AgentPrompt((**prompt).clone()),
-        Frame::AgentToolCall(call) => CoordWorkerDownstream::AgentToolCall((**call).clone()),
-        Frame::AgentToolCancel(cancel) => {
-            CoordWorkerDownstream::AgentToolCancel((**cancel).clone())
-        }
-        Frame::AgentConversationClosed(closed) => {
-            CoordWorkerDownstream::AgentConversationClosed((**closed).clone())
-        }
-        Frame::AgentToolBackground(background) => {
-            CoordWorkerDownstream::AgentToolBackground((**background).clone())
-        }
-        Frame::AgentJobsAbort(abort) => CoordWorkerDownstream::AgentJobsAbort((**abort).clone()),
         Frame::LiveMetrics(subscription) => {
             CoordWorkerDownstream::LiveMetricsSubscription((**subscription).clone())
         }

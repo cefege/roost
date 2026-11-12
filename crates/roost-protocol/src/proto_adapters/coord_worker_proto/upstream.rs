@@ -138,15 +138,6 @@ pub(super) fn to_proto(frame: &CoordWorkerUpstream) -> ProtocolResult<CoordWorke
         CoordWorkerUpstream::TerminalPipelineSnapshot(snapshot) => {
             Frame::TerminalPipelineSnapshot(Box::new((*snapshot).clone()))
         }
-        CoordWorkerUpstream::AgentToolOutput(output) => {
-            Frame::AgentToolOutput(Box::new((*output).clone()))
-        }
-        CoordWorkerUpstream::AgentToolResult(result) => {
-            Frame::AgentToolResult(Box::new((*result).clone()))
-        }
-        CoordWorkerUpstream::AgentJobResult(result) => {
-            Frame::AgentJobResult(Box::new((*result).clone()))
-        }
         CoordWorkerUpstream::LiveMetrics(snapshot) => Frame::LiveMetrics(Box::new(WLiveMetrics {
             snapshot: MessageField::some(live_host_snapshot_to_proto(snapshot)?),
             ..Default::default()
@@ -268,9 +259,6 @@ pub(super) fn from_proto(message: &CoordWorkerUp) -> ProtocolResult<CoordWorkerU
         Frame::TerminalPipelineSnapshot(snapshot) => {
             CoordWorkerUpstream::TerminalPipelineSnapshot((**snapshot).clone())
         }
-        Frame::AgentToolOutput(output) => CoordWorkerUpstream::AgentToolOutput((**output).clone()),
-        Frame::AgentToolResult(result) => CoordWorkerUpstream::AgentToolResult((**result).clone()),
-        Frame::AgentJobResult(result) => CoordWorkerUpstream::AgentJobResult((**result).clone()),
         Frame::LiveMetrics(metrics) => {
             let snapshot = metrics.snapshot.as_option().ok_or_else(|| {
                 ProtocolError::new(

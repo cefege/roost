@@ -6,17 +6,17 @@
 - Base Durable lineage: official Pi `abe508e1b89912adde45528136c3221eb69acdd7`, `packages/durable` 1.1.0.
 - Behavioral reference: [`earendil-works/pi@d5b3de22d0e24a3e9c38a9410d3329b099717283`](https://github.com/earendil-works/pi/tree/d5b3de22d0e24a3e9c38a9410d3329b099717283/packages/durable). Its manifest says 1.4.0; the published npm 1.4.0 artifact is not the same source.
 - MIT; [`LICENSE`](LICENSE) is copied from the base revision. Included crates: `rpi-durable`, `rpi-ai`, `rpi-agent`, `rpi-codemode`, and the test-only `rpi-test-env`. Code-mode embeds the base's licensed QuickJS-WASM artifact and runs it through Wasmtime; no second JavaScript engine is retained.
-- `rpi-agent` is vendored as source only: upstream's `tests/` and its dev-dependency chain (`rpi-test-support` → `rpi-ext-host`) are not carried, because Roost's own suites cover the integration and the extension host is not part of the native runtime. Its two extra workspace dependencies, `serde_yaml` and `ignore`, are pinned here.
+- `rpi-agent` is vendored as source only: upstream's `tests/` and its dev-dependency chain (`rpi-test-support` → `rpi-ext-host`) are not carried. The extension host is not included, and no production Roost path constructs this harness. Its two extra workspace dependencies, `serde_yaml` and `ignore`, are pinned here.
 - The workspace declares `edition = "2024"` and `rust-version = "1.98"`, matching Roost's pinned toolchain, so the vendored tree and the product build under one compiler.
 
-This is a maintained local fork, not an unmodified upstream dependency. Roost owns the patches below and must rerun its differential oracle when changing the reference or engine. No CLI/TUI, Node agent host, or upstream OAuth/account store is part of the native Roost runtime.
+This is a maintained local fork, not an unmodified upstream dependency. Roost owns the patches below and must rerun its differential oracle when changing the Durable reference or engine. That oracle does not verify `rpi-agent` integration. No upstream CLI/TUI or Node agent host is included.
 
 ## Packaging and adapters
 
 - Standalone workspace pins the libraries' dependencies without inheriting either monorepo. SQLite uses the same native SQLite linkage as Roost's SQL backend; its statement-cache feature is explicit.
 - Retained the AI catalog/generated sources and required auth fixtures. Removed monorepo placement/source-text guards, not persistence behavior tests.
-- Roost's native provider adapter resolves availability through its credential-aware API-key auth handler; actual requests remain on Roost's account pool, OAuth, transport and failover.
-- Internal request origins distinguish generation and compaction for native policy, usage and streaming. Rich messages retain image order, signed thinking, text/tool signatures and structured results.
+- The deleted `roost-agent`/`roost-llm` host adapters supplied native provider availability, account pooling, transport and failover. No retained production adapter provides those services.
+- The libraries retain request origins for generation/compaction and rich messages with image order, signed thinking, text/tool signatures and structured results; these are library capabilities, not active Roost integration coverage.
 - `ToolHooks::on_interrupted` decorates an unsafe tool's recorded recovery failure without replaying the effect or invoking normal completion hooks.
 - `env/node_watch.rs` reports no device/inode identity on Windows: stable Rust's file-index accessor (`windows_by_handle`) is unstable, so Windows matches the other non-Unix targets and change detection uses kind, size and mtime.
 

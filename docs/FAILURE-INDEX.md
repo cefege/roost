@@ -2937,6 +2937,21 @@ stores its projected transcript. The Rust-native harness is deleted; its stored 
 
 **Guard** — `crates/roost-worker/tests/omp_owner.rs`; `crates/roost-coord/tests/omp_chat.rs`.
 
+### Archived native events leak through catch-up, pruning and relay
+
+**Symptom** — an archived native ID still returns chat event batches, loses old
+batches to retention, or publishes batches after a fabricated cluster notice.
+
+**Wrong** — hide native conversations only in list/snapshot or remove the old
+rows. Catch-up, maintenance and cluster notices are independent entry points.
+
+**Right** — resolve an active conversation before event catch-up; constrain
+pruning and relay target admission to active backends. Keep archived batches,
+journals and encrypted credentials untouched.
+
+**Guard** — `roost-coord`'s `archived_agent_isolation` tests exercise RPC refusal,
+age/newest-batch retention and fabricated-notice relay with retained archive data.
+
 ### A removed migration's history row reads as corruption
 
 **Symptom** — "Applied migration history is not an exact prefix of embedded migrations: found

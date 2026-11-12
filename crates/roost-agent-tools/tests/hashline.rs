@@ -5,8 +5,10 @@
 use roost_agent_tools::file_tools::{edit_tool, read_tool};
 use roost_agent_tools::hashline::{EditStore, compute_tag};
 use roost_agent_tools::lsp::LspManager;
+use roost_agent_tools::{ToolCallRequest, ToolHost};
 use roost_protocol::wire::agent_chat::{EditArgs, ReadArgs};
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 fn read(store: &mut EditStore, cwd: &std::path::Path, path: &str) -> String {
     read_tool(
@@ -316,4 +318,53 @@ fn hashline_tag_vectors_match_the_contract() {
     assert_eq!(compute_tag("hello\n"), "5BF9");
     assert_eq!(compute_tag(""), "5D05");
     assert_eq!(compute_tag("a \n b\t\r\nc"), "80BA");
+}
+
+#[tokio::test]
+async fn tool_host_read_returns_a_snapshot_that_authorizes_an_edit() {
+    let directory = tempfile::tempdir().expect("working directory");
+    let data_dir = tempfile::tempdir().expect("data directory");
+    std::fs::write(directory.path().join("answer.txt"), "hello\n").expect("fixture file");
+    let host = ToolHost::new(data_dir.path().to_path_buf(), mpsc::unbounded_channel().0);
+    let request = |call_id: &str, tool: &str, args_json: String| ToolCallRequest {
+        call_id: call_id.into(),
+        conversation_id: "hashline-conversation".into(),
+        cwd: directory.path().to_path_buf(),
+        tool: tool.into(),
+        args_json,
+        timeout_ms: 5_000,
+        checkpoint_id: 0,
+    };
+    let read = host
+        .call(
+            request("read", "read", r#"{"path":"answer.txt"}"#.into()),
+            mpsc::channel(8).0,
+            CancellationToken::new(),
+        )
+        .await;
+    assert!(!read.is_error, "{}", read.content);
+    assert!(
+        read.content.contains("[answer.txt#5BF9]"),
+        "{}",
+        read.content
+    );
+    let edit = host
+        .call(
+            request(
+                "edit",
+                "edit",
+                serde_json::json!({
+                    "input": "[answer.txt#5BF9]\nPUT 1.=1:\n+changed"
+                })
+                .to_string(),
+            ),
+            mpsc::channel(8).0,
+            CancellationToken::new(),
+        )
+        .await;
+    assert!(!edit.is_error, "{}", edit.content);
+    assert_eq!(
+        std::fs::read_to_string(directory.path().join("answer.txt")).expect("edited file"),
+        "changed\n"
+    );
 }

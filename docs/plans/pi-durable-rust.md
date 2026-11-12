@@ -1,13 +1,14 @@
 # Rust Pi Durable: implementation boundary
 
-**Status: archived.** Production agent mode runs OMP on a worker. This document
-describes the retained Rust-native implementation, not an active runtime or an
-authorization to re-enable it. Its code, journals, settings and credentials stay
-intact; native reactivation requires an explicit operator request.
+**Status: archived implementation plan.** The `roost-agent` and `roost-llm`
+host adapters, native UI and their integration tests are deleted. Applied
+migrations, journals and encrypted credentials remain inert and preserved.
+The ownership and persistence sections below describe the deleted integration,
+not current production behavior or authorization to re-enable it.
 
 ## DURABLE-TARGET
 
-The archived Rust-native harness uses a maintained Rust Pi Durable fork, not `bigfish1913/pi-rust` and not a Node agent sidecar. The behavioral reference is [`earendil-works/pi@d5b3de22d0e24a3e9c38a9410d3329b099717283`, `packages/durable`](https://github.com/earendil-works/pi/tree/d5b3de22d0e24a3e9c38a9410d3329b099717283/packages/durable). Its manifest reports 1.4.0; the published npm artifact is different and is not the oracle.
+The deleted Rust-native harness used a maintained Rust Pi Durable fork, not `bigfish1913/pi-rust` and not a Node agent sidecar. The behavioral reference is [`earendil-works/pi@d5b3de22d0e24a3e9c38a9410d3329b099717283`, `packages/durable`](https://github.com/earendil-works/pi/tree/d5b3de22d0e24a3e9c38a9410d3329b099717283/packages/durable). Its manifest reports 1.4.0; the published npm artifact is different and is not the oracle.
 
 The reusable engine is vendored under [`third_party/pi-durable-rs`](../../third_party/pi-durable-rs), based on `revpidev/rpi` v0.1.7 / `7ee970aad1d825b30b9413ce251c98e610214e2b`. That base ported official Durable 1.1.0 / `abe508e1b89912adde45528136c3221eb69acdd7`. The [vendoring record](../../third_party/pi-durable-rs/ROOST-PATCHES.md) identifies the local behavior patches and maintenance owner.
 
@@ -22,7 +23,7 @@ This is **fork maintenance**, not zero maintenance. Any native reactivation requ
 | [`xiaotubaobiu/pi-rust`](https://github.com/xiaotubaobiu/pi-rust) | Contains Durable, but couples it to a monolithic CLI/TUI/provider package. |
 | [`bigfish1913/pi-rust`](https://github.com/bigfish1913/pi-rust) | Its agent harness is not the requested Durable document/task substrate. Not substituted. |
 
-## DURABLE-OWNERSHIP
+## DURABLE-OWNERSHIP — deleted host integration
 
 | Concern | Single owner |
 |---|---|
@@ -36,7 +37,7 @@ This is **fork maintenance**, not zero maintenance. Any native reactivation requ
 
 This plan targeted the `roost-agent` host adapter, which has since been deleted. Vendored `rpi-agent` (`third_party/pi-durable-rs/crates/rpi-agent/`) is the runtime a future backend builds on; nothing starts it in production.
 
-## DURABLE-PERSISTENCE
+## DURABLE-PERSISTENCE — historical design, retained schema
 
 Each native conversation has one `DurableSession` namespace. Its core root is ID 1; minted IDs start at 2 and are never reused. Core IDs, core commit sequences, native journal sequences, native conversation IDs and provider session IDs are separate domains.
 
@@ -48,6 +49,12 @@ Existing native journals are imported as origin-tagged model contributions. Visi
 
 The [development oracle](../../tools/pi-durable-conformance/README.md) runs the pinned official source and independently runs the Rust engine. Checked-in traces cover plain/tool turns, context/usage, dedup/reopen, queue admission/withdrawal, document fork policies, sleep/wake, SIGKILL during an unsafe tool, ownership abort, nested keyed replay/structured errors, read-only observation and deferred live-versus-stored progress. Only declared timing/generated-provider fields are normalized; content, errors, usage, Durable IDs and sequences remain exact.
 
-Native acceptance additionally covers SQLite/Postgres atomic projection and fences, existing-history import/rewind/fork, worker effect recovery, cancellation partials, persisted yields, model/account policies and product commands. Browser proof uses isolated coordinator/worker data and a disposable local model endpoint; no operator credentials are required. The stock UI and notification proof artifacts are under `target/stock-rust-ui/target/ui-proof/artifacts/`.
+The native acceptance suites for SQLite/Postgres projection, history import,
+rewind/fork, worker effect recovery and product commands were deleted with the
+host adapters. Their former browser artifacts are not evidence for an active
+backend. The Durable oracle verifies only the vendored Durable engine, not
+`rpi-agent::AgentHarness`, worker storage, tools or a Roost provider adapter.
 
-No test count authorizes native reactivation. Deployment follows the tagged release and automatic promotion pipeline; changing this retained engine does not itself enable or deploy it.
+No oracle result authorizes native reactivation. Deployment follows the tagged
+release and automatic promotion pipeline; changing a retained library does not
+itself enable or deploy a backend.

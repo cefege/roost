@@ -13,7 +13,6 @@
 //! arrived on.
 
 mod agent_prompt;
-mod agent_tools;
 mod attachment_peer;
 mod attachments;
 mod direct;
@@ -176,15 +175,6 @@ impl Dispatcher {
             | CoordWorkerDownstream::CoordMoveSnapshotStart(_)
             | CoordWorkerDownstream::CoordMoveSnapshotChunk(_)
             | CoordWorkerDownstream::CoordRelocate(_)) => retired(frame.kind()),
-            CoordWorkerDownstream::AgentToolCall(request) => self.agent_tool_call(request),
-            CoordWorkerDownstream::AgentToolCancel(request) => self.agent_tool_cancel(request),
-            CoordWorkerDownstream::AgentToolBackground(request) => {
-                self.agent_tool_background(request)
-            }
-            CoordWorkerDownstream::AgentJobsAbort(request) => self.agent_jobs_abort(request),
-            CoordWorkerDownstream::AgentConversationClosed(request) => {
-                self.agent_conversation_closed(request)
-            }
             CoordWorkerDownstream::OmpOpen(request) => {
                 if let Some(owner) = self.owners.as_ref().and_then(|owners| owners.omp.as_ref()) {
                     owner.open(request);

@@ -89,7 +89,7 @@ pub async fn read_after(
 }
 
 pub async fn prune(db: &CoordDb) -> Result<u64, sqlx::Error> {
-    let result = sqlx::query("DELETE FROM agent_chat_events WHERE created_ms < $1 AND cursor < (SELECT MAX(latest.cursor) FROM agent_chat_events latest WHERE latest.conversation_id=agent_chat_events.conversation_id)")
+    let result = sqlx::query("DELETE FROM agent_chat_events WHERE EXISTS (SELECT 1 FROM agent_conversations conversation WHERE conversation.id=agent_chat_events.conversation_id AND conversation.backend='omp') AND created_ms < $1 AND cursor < (SELECT MAX(latest.cursor) FROM agent_chat_events latest WHERE latest.conversation_id=agent_chat_events.conversation_id)")
         .bind(now_ms().saturating_sub(24 * 60 * 60 * 1000)).execute(db.pool()).await?;
     Ok(result.rows_affected())
 }
@@ -119,15 +119,31 @@ pub async fn relay(notifier: Arc<ClusterNotifier>, db: CoordDb, delivery: Arc<Ch
         };
         let mut targets = Vec::new();
         if notice.resync {
-            targets.extend(delivery.conversations());
+            targets.extend(delivery.conversations().into_iter().map(|id| (id, None)));
         } else if let Some((id, first)) = notice.payload.rsplit_once(':') {
             let Ok(first) = first.parse::<u64>() else {
                 continue;
             };
-            delivery.start_at(id, first);
-            targets.push(id.to_owned());
+            targets.push((id.to_owned(), Some(first)));
         }
-        for id in targets {
+        for (id, first) in targets {
+            match sqlx::query_scalar::<_, String>(
+                "SELECT id FROM agent_conversations WHERE id=$1 AND backend='omp'",
+            )
+            .bind(&id)
+            .fetch_optional(db.pool())
+            .await
+            {
+                Ok(Some(_)) => {}
+                Ok(None) => continue,
+                Err(error) => {
+                    tracing::warn!(conversation_id = %id, %error, "chat relay target lookup failed");
+                    continue;
+                }
+            }
+            if let Some(first) = first {
+                delivery.start_at(&id, first);
+            }
             loop {
                 let after = delivery.last_delivered(&id).unwrap_or(0);
                 match read_after(&db, &id, after, 500).await {

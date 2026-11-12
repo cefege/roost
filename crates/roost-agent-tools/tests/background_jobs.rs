@@ -204,3 +204,39 @@ async fn abort_jobs_cancels_the_conversations_running_jobs() {
     let settled = next_settlement(&mut settlements).await;
     assert_eq!(settled.state.as_str(), "cancelled");
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn cancelling_foreground_bash_settles_within_one_second() {
+    let data_dir = tempfile::tempdir().expect("data directory");
+    let cwd = tempfile::tempdir().expect("working directory");
+    let host = ToolHost::new(data_dir.path().to_path_buf(), mpsc::unbounded_channel().0);
+    let mut call_request = request(
+        "foreground-cancel",
+        TOOL_BASH,
+        bash_args("printf ready; sleep 30; touch finished.txt", false),
+    );
+    call_request.cwd = cwd.path().to_path_buf();
+    let cancel = CancellationToken::new();
+    let (output, mut chunks) = mpsc::channel(8);
+    let call = host.call(call_request, output, cancel.clone());
+    tokio::pin!(call);
+    tokio::select! {
+        result = &mut call => panic!("bash settled before cancellation: {result:?}"),
+        chunk = tokio::time::timeout(SETTLE_WAIT, chunks.recv()) => {
+            assert_eq!(
+                chunk.expect("bash starts promptly").expect("live output"),
+                "ready"
+            );
+        }
+    }
+    cancel.cancel();
+    let outcome = tokio::time::timeout(Duration::from_secs(1), call)
+        .await
+        .expect("cancelled bash settles within one second");
+    assert!(outcome.is_error, "{}", outcome.content);
+    let details: serde_json::Value =
+        serde_json::from_str(&outcome.details_json).expect("bash result details");
+    assert_eq!(details["cancelled"], true);
+    assert!(!cwd.path().join("finished.txt").exists());
+}

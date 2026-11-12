@@ -245,6 +245,9 @@ Applied SQLite and Postgres migration history remains intact, including the
 native conversation, journal, schedule and advisor tables. Those rows are inert:
 nothing lists, reads, resumes or mutates them. Deleting them is a separate
 operator decision, not a migration.
+Snapshot and event catch-up both return `not_found: conversation not found` for
+archived or missing IDs. Retention prunes only active OMP batches, keeping its
+age threshold and newest batch; cluster notices cannot relay archived events.
 
 Vendored `rpi-agent`
 ([`third_party/pi-durable-rs/`](../../third_party/pi-durable-rs/ROOST-PATCHES.md))

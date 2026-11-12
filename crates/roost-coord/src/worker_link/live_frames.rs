@@ -197,14 +197,6 @@ impl WorkerFrameDispatcher {
             _ => {}
         }
         let pending = self.core.services.scrollback.pending();
-        if matches!(
-            upstream,
-            CoordWorkerUpstream::AgentToolOutput(_)
-                | CoordWorkerUpstream::AgentToolResult(_)
-                | CoordWorkerUpstream::AgentJobResult(_)
-        ) {
-            return self.refuse(channel, "agent_tool_frame_has_no_pending_call");
-        }
         match upstream {
             CoordWorkerUpstream::RpcOk {
                 request_id, data, ..

@@ -140,12 +140,6 @@ pub enum CoordWorkerUpstream {
     /// worker reports only source-owned ids, counters and ages.
     #[serde(rename = "terminal-pipeline-snapshot")]
     TerminalPipelineSnapshot(WTerminalPipelineSnapshot),
-    #[serde(rename = "agent-tool-output")]
-    AgentToolOutput(roost_proto::WAgentToolOutput),
-    #[serde(rename = "agent-tool-result")]
-    AgentToolResult(roost_proto::WAgentToolResult),
-    #[serde(rename = "agent-job-result")]
-    AgentJobResult(roost_proto::WAgentJobResult),
     #[serde(rename = "live-metrics")]
     LiveMetrics(LiveHostSnapshot),
     #[serde(rename = "omp-events")]
@@ -185,9 +179,6 @@ impl CoordWorkerUpstream {
             Self::TerminalInputRouteResult(_) => "terminal-input-route-result",
             Self::TerminalTransportProbeResult(_) => "terminal-transport-probe-result",
             Self::TerminalPipelineSnapshot(_) => "terminal-pipeline-snapshot",
-            Self::AgentToolOutput(_) => "agent-tool-output",
-            Self::AgentToolResult(_) => "agent-tool-result",
-            Self::AgentJobResult(_) => "agent-job-result",
             Self::LiveMetrics(_) => "live-metrics",
             Self::OmpEvents(_) => "omp-events",
             Self::OmpHostServiceRequest(_) => "omp-host-service-request",

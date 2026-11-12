@@ -30,6 +30,15 @@ pub async fn handle_agent_chat_events(
     request: proto::AgentChatEventsRequest,
 ) -> ServiceResult<proto::AgentChatEventsResponse> {
     require_account_device(caller)?;
+    if super::omp::rpc::find_omp(core, &request.conversation_id)
+        .await?
+        .is_none()
+    {
+        return Err(ConnectError::new(
+            ErrorCode::NotFound,
+            "conversation not found",
+        ));
+    }
     let limit = if request.limit == 0 {
         500
     } else {

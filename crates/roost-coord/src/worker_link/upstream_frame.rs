@@ -141,9 +141,6 @@ fn classify(upstream: CoordWorkerUpstream) -> LinkFrame {
         | Up::AttachmentDirectStatus(_)
         | Up::TerminalInputRouteResult(_)
         | Up::TerminalTransportProbeResult(_)
-        | Up::AgentToolOutput(_)
-        | Up::AgentToolResult(_)
-        | Up::AgentJobResult(_)
         | Up::OmpEvents(_)
         | Up::OmpHostServiceRequest(_)
         | Up::OmpUiActionReceipt(_) => (FrameClass::Rpc, 0),

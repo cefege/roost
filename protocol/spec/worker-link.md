@@ -22,10 +22,10 @@ Each worker dials one long-lived, full-duplex binary WebSocket to the coordinato
 | `WTerminalViewState`, `WTerminalViewProjection` | `protocol/proto/roost/v1/worker_transport.proto:170-187` | Worker-owned view result and coordinator presence/diagnostic projection. |
 | Direct grant/peer/attachment result frames | `protocol/proto/roost/v1/worker_transport.proto` | Coordinator-authorized direct terminal/attachment admission and liveness. |
 | `WTerminalMetadata` | `protocol/proto/roost/v1/worker_transport.proto` | Volatile semantic title/activity updates plus one-shot OSC 52 clipboard writes, long-command completion and bell events; events are not replayed after link loss. OSC 9;4 progress, OSC 1337 user variables and OSC 7501 program status are retained: each is sent as the channel's whole current value when it changes, and the coordinator keeps the last value it received until the next change. |
-| `WAgentJobResult` | `protocol/proto/roost/v1/worker_transport.proto` | Settled background `bash` job (`Completed`, `Failed` or `Cancelled`) for one conversation; a running state is refused. Not replayed after link loss: the coordinator records the job as lost. |
-| `DAgentToolCall`, `WAgentToolResult` | `protocol/proto/roost/v1/worker_transport.proto` | Native tool execution correlated by `call_id`; the call names its conversation, working directory and file-restore checkpoint. |
-| `DAgentToolBackground`, `DAgentJobsAbort` | `protocol/proto/roost/v1/worker_transport.proto` | Coordinator asks a worker to detach a running `bash` call into a job, or to cancel a conversation's running jobs. |
 | `WLiveMetrics`, `DLiveMetricsSubscription` | `protocol/proto/roost/v1/worker_transport.proto` | Live host snapshot a worker sends while a coordinator holds a subscription (`CoordWorkerUp` field 36), and the coordinator's subscription toggle (`CoordWorkerDown` field 42). Socket-bound and latest-only: no ACK or replay, dropped under backpressure, never persisted. The coordinator refcounts subscribers per worker on the replica holding the link: first subscriber sends `active: true`, last unsubscribe sends `active: false`, and a reconnect with subscribers re-sends `active: true`. The worker samples only while active, every 2 seconds. |
+
+Retired native remote-tool oneof tags and names stay reserved: upstream
+33–35 and downstream 37–41. Local worker tools have no remote dispatch owner.
 
 ## State machine
 

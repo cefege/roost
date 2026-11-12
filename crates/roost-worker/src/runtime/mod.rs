@@ -20,7 +20,6 @@
 //! Ports v2 `apps/worker/src/main.ts`.
 
 pub mod agent_owners;
-pub mod agent_tools;
 mod auto_update;
 mod auto_update_spawn;
 pub mod boot;

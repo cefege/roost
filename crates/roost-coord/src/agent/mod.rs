@@ -3,7 +3,7 @@
 //! backend will build on.
 
 mod chat_delivery;
-mod chat_events;
+pub mod chat_events;
 pub mod omp;
 pub mod rpc_chat;
 pub mod rpc_chat_transcript;

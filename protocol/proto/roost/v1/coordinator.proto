@@ -980,8 +980,8 @@ message DevicesRotateCurrentResponse { string fingerprint = 1; }
 
 
 
-// Built-in agent harness RPCs. JSON fields carry roost-protocol's
-// wire/agent_chat shapes (transcript, catalog, accounts, settings).
+// Agent chat RPCs. JSON fields carry roost-protocol's
+// wire/agent_chat transcript and OMP settings shapes.
 message AgentChatListRequest {}
 message AgentChatListResponse {
   repeated AgentConversation conversations = 1;
@@ -1065,9 +1065,6 @@ message AgentChatEventsResponse {
   repeated AgentChatEventBatch batches = 1;
   bool truncated = 2;
 }
-// JSON array of AccountEntry (roost-protocol wire/agent_chat).
-// JSON array of AccountEntry with fresh usage reports; selected is true for the next account chat would resolve.
-// JSON AgentSettingsView (roost-protocol wire/agent_chat).
 message AgentOmpSettingsGetRequest {}
 // JSON OmpSettingsView (roost-protocol wire/agent_chat).
 message AgentOmpSettingsGetResponse { string settings_json = 1; }
@@ -1087,7 +1084,6 @@ message AgentOmpUiRequest {
   bool receipt = 7;
 }
 message AgentOmpUiResponse {}
-// The original user content for a retry or edit-and-resend.
 
 // ─── service ──────────────────────────────────────────────────────────────
 

@@ -236,16 +236,6 @@ pub trait KeeperUpdatePort: Send + Sync + std::fmt::Debug {
     ) -> OwnerFuture<Result<serde_json::Value, String>>;
 }
 
-/// Worker-owned coordinator-dispatched tool calls.
-pub trait AgentToolsPort: Send + Sync + std::fmt::Debug {
-    fn call(&self, request: roost_proto::DAgentToolCall);
-    fn cancel(&self, request: roost_proto::DAgentToolCancel);
-    fn background_call(&self, request: roost_proto::DAgentToolBackground);
-    fn abort_jobs(&self, request: roost_proto::DAgentJobsAbort);
-    fn close_conversation(&self, request: roost_proto::DAgentConversationClosed);
-    fn close_all(&self);
-}
-
 /// Worker-owned OMP conversations carried over ACP.
 pub trait OmpPort: Send + Sync + std::fmt::Debug {
     fn open(&self, request: roost_proto::DOmpOpen);
@@ -277,7 +267,6 @@ pub struct DownstreamOwners {
     pub attachment_peers: Option<Arc<dyn AttachmentPeerPort>>,
     pub attachments: Arc<dyn AttachmentLinkPort>,
     pub keeper_update: Arc<dyn KeeperUpdatePort>,
-    pub agent_tools: Option<Arc<dyn AgentToolsPort>>,
     pub omp: Option<Arc<dyn OmpPort>>,
     pub live_metrics: Option<Arc<dyn LiveMetricsPort>>,
 }

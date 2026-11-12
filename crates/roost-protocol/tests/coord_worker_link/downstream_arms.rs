@@ -171,7 +171,6 @@ pub fn downstream_arms() -> Vec<(&'static str, CoordWorkerDownstream)> {
             }),
         ),
     ];
-    arms.extend(agent_tool_arms::downstream_arms());
     arms.extend(live_metrics_arms::downstream_arms());
     arms
 }

@@ -76,7 +76,8 @@ container image built from `Dockerfile` and the Helm chart in
 `web-sys` renderer with no framework code. A future native front end depends
 only on `roost-client-core` and `roost-protocol`.
 
-Windows is a browser client only; no Windows host binaries are published.
+Windows host binaries, installation/update support and CI remain supported.
+Windows is outside this operator's managed deployment fleet.
 
 ## Transport spine
 

@@ -140,11 +140,10 @@ pub struct CoordServices {
     pub sessions: SessionsRuntime,
     /// Per-session agent status, its wait queues, and the agent configuration.
     pub agents: AgentsRuntime,
-    /// The agent harness: conversations, accounts, sign-ins and its event cache.
+    /// Durable chat event delivery and cluster membership.
     pub agent: Arc<crate::agent::AgentService>,
     /// OMP conversations: the per-conversation writer and the worker frames that feed it.
     pub omp: Arc<crate::agent::omp::OmpService>,
-    /// Native worker tool calls and their generation-bound completions.
     /// File RPCs, the chunk relay, direct grants, and peer negotiations.
     pub attachments: AttachmentsRuntime,
     /// Global session search across every worker, and its cancellations.

@@ -26,6 +26,8 @@ mod announced_barrier;
 mod announced_retention;
 #[path = "announced_socket.rs"]
 mod announced_socket;
+#[path = "archived_agent_isolation.rs"]
+mod archived_agent_isolation;
 #[path = "attachments_direct_handlers.rs"]
 mod attachments_direct_handlers;
 #[path = "attachments_direct_status_results.rs"]

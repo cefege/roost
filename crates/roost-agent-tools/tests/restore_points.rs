@@ -1,6 +1,6 @@
 //! Behaviour tests for durable worker file checkpoints.
 //! Exercises first-write snapshots, compound file operations and checkpoint ranges.
-//! Rewind runs through the same hidden tool route used by the coordinator.
+//! Rewind runs through the retained ToolHost checkpoint route.
 
 use std::path::Path;
 

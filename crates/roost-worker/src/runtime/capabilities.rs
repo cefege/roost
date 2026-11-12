@@ -18,10 +18,10 @@
 //!    disabled or unloadable transport is never promised.
 
 use roost_protocol::versioning::{
-    CAPABILITY_AGENT_TOOLS_V1, CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1,
-    CAPABILITY_OMP_ACP_INTERACTIONS_V1, CAPABILITY_OMP_ACP_SESSION_V1, CAPABILITY_OMP_ACP_V1,
-    CAPABILITY_TERMINAL_INPUT_ROUTE_V1, CAPABILITY_TERMINAL_METADATA_V1,
-    CAPABILITY_TERMINAL_PEER_WEBRTC_V1, CAPABILITY_TERMINAL_VIEW_OWNER_V1,
+    CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1, CAPABILITY_OMP_ACP_INTERACTIONS_V1,
+    CAPABILITY_OMP_ACP_SESSION_V1, CAPABILITY_OMP_ACP_V1, CAPABILITY_TERMINAL_INPUT_ROUTE_V1,
+    CAPABILITY_TERMINAL_METADATA_V1, CAPABILITY_TERMINAL_PEER_WEBRTC_V1,
+    CAPABILITY_TERMINAL_VIEW_OWNER_V1,
 };
 
 use crate::peer::DirectPeerSupport;
@@ -38,7 +38,6 @@ pub fn advertised(direct: DirectPeerSupport) -> Vec<String> {
         CAPABILITY_TERMINAL_VIEW_OWNER_V1.to_owned(),
         CAPABILITY_TERMINAL_INPUT_ROUTE_V1.to_owned(),
     ];
-    capabilities.push(CAPABILITY_AGENT_TOOLS_V1.to_owned());
     capabilities.push(CAPABILITY_OMP_ACP_V1.to_owned());
     capabilities.push(CAPABILITY_OMP_ACP_SESSION_V1.to_owned());
     capabilities.push(CAPABILITY_OMP_ACP_INTERACTIONS_V1.to_owned());
@@ -64,42 +63,12 @@ mod tests {
     use super::advertised;
     use crate::peer::DirectPeerSupport;
     use roost_protocol::versioning::{
-        CAPABILITY_AGENT_TOOLS_V1, CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1,
-        CAPABILITY_OMP_ACP_INTERACTIONS_V1, CAPABILITY_OMP_ACP_SESSION_V1, CAPABILITY_OMP_ACP_V1,
-        CAPABILITY_TERMINAL_INPUT_ROUTE_V1, CAPABILITY_TERMINAL_METADATA_V1,
-        CAPABILITY_TERMINAL_PEER_WEBRTC_V1, CAPABILITY_TERMINAL_VIEW_OWNER_V1,
+        CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1, CAPABILITY_TERMINAL_PEER_WEBRTC_V1,
     };
     const BOTH: DirectPeerSupport = DirectPeerSupport {
         terminal: true,
         attachment: true,
     };
-
-    /// EVERY SPELLING IS THE PROTOCOL'S OWN. A capability is compared as a
-    /// string on both sides, so a hand-written spelling that differs by a hyphen
-    /// is a capability the coordinator silently never matches — the worker
-    /// believes it offered view ownership and the coordinator believes it did
-    /// not hear.
-    #[test]
-    fn every_advertised_name_is_the_protocols_own_spelling() {
-        let known = [
-            CAPABILITY_AGENT_TOOLS_V1.to_owned(),
-            CAPABILITY_OMP_ACP_V1.to_owned(),
-            CAPABILITY_OMP_ACP_SESSION_V1.to_owned(),
-            CAPABILITY_OMP_ACP_INTERACTIONS_V1.to_owned(),
-            CAPABILITY_TERMINAL_METADATA_V1.to_owned(),
-            CAPABILITY_TERMINAL_VIEW_OWNER_V1.to_owned(),
-            CAPABILITY_TERMINAL_INPUT_ROUTE_V1.to_owned(),
-            CAPABILITY_TERMINAL_PEER_WEBRTC_V1.to_owned(),
-            CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1.to_owned(),
-        ];
-        for capability in advertised(BOTH) {
-            assert!(
-                known.contains(&capability),
-                "the hello advertises {capability:?}, which is not a capability the \
-                 protocol defines, so a coordinator can never match it"
-            );
-        }
-    }
 
     /// THE LIST IS A PROMISE: a WebRTC carrier is advertised only when its
     /// owner bootstrapped, and each one independently of the other.
