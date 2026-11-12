@@ -269,7 +269,6 @@ impl WorkerOwners {
             ),
             keeper_update: Arc::new(keeper_update) as Arc<dyn KeeperUpdatePort>,
             omp: Some(omp as Arc<dyn crate::link_ports::OmpPort>),
-            rpi: None,
             live_metrics: Some(live_metrics as Arc<dyn crate::link_ports::LiveMetricsPort>),
         };
         tracing::info!(

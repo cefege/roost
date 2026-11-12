@@ -44,9 +44,6 @@ const UPSTREAM_FIELD_NUMBERS: &[(&str, u32)] = &[
     ("live-metrics", 36),
     ("omp-host-service-request", 38),
     ("omp-ui-action-receipt", 39),
-    ("rpi-command-ack", 40),
-    ("rpi-events", 41),
-    ("rpi-models-list-result", 42),
 ];
 
 /// `CoordWorkerDown`'s oneof arms. Field 11 is `reserved`, so a peer that
@@ -85,9 +82,6 @@ const DOWNSTREAM_FIELD_NUMBERS: &[(&str, u32)] = &[
     ("attachment-direct-status-request", 32),
     ("live-metrics-subscription", 42),
     ("omp-ui", 50),
-    ("rpi-command", 51),
-    ("rpi-events-ack", 52),
-    ("rpi-models-list", 53),
 ];
 
 /// The field number of a length-delimited protobuf field, read off the wire.

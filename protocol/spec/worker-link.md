@@ -23,18 +23,9 @@ Each worker dials one long-lived, full-duplex binary WebSocket to the coordinato
 | Direct grant/peer/attachment result frames | `protocol/proto/roost/v1/worker_transport.proto` | Coordinator-authorized direct terminal/attachment admission and liveness. |
 | `WTerminalMetadata` | `protocol/proto/roost/v1/worker_transport.proto` | Volatile semantic title/activity updates plus one-shot OSC 52 clipboard writes, long-command completion and bell events; events are not replayed after link loss. OSC 9;4 progress, OSC 1337 user variables and OSC 7501 program status are retained: each is sent as the channel's whole current value when it changes, and the coordinator keeps the last value it received until the next change. |
 | `WLiveMetrics`, `DLiveMetricsSubscription` | `protocol/proto/roost/v1/worker_transport.proto` | Live host snapshot a worker sends while a coordinator holds a subscription (`CoordWorkerUp` field 36), and the coordinator's subscription toggle (`CoordWorkerDown` field 42). Socket-bound and latest-only: no ACK or replay, dropped under backpressure, never persisted. The coordinator refcounts subscribers per worker on the replica holding the link: first subscriber sends `active: true`, last unsubscribe sends `active: false`, and a reconnect with subscribers re-sends `active: true`. The worker samples only while active, every 2 seconds. |
-| `DRpiCommand`, `WRpiCommandAck` | `protocol/proto/roost/v1/worker_transport.proto` | Ordered durable Rpi commands at downstream tag 51 and upstream tag 40. Accepted means worker admission persisted, not execution success. |
-| `WRpiEvents`, `DRpiEventsAck` | `protocol/proto/roost/v1/worker_transport.proto` | Actor-global persistent contiguous output sequence at upstream tag 41/downstream tag 52; ACK carries conversation, process epoch, stable actor and committed sequence. |
-| `DRpiModelsList`, `WRpiModelsListResult` | `protocol/proto/roost/v1/worker_transport.proto` | Correlated authenticated chat-model catalog at downstream tag 53/upstream tag 42, fenced to worker process epoch; failures are not empty success. |
 
 Retired native remote-tool oneof tags and names stay reserved: upstream
 33–35 and downstream 37–41. Local worker tools have no remote dispatch owner.
-
-Rpi command payloads are strict tagged `RpiCommandPayload` JSON, limited to
-OPEN/SUBMIT/ABORT/WITHDRAW/CONFIGURE/CLOSE. Unknown payload fields and kind
-mismatches are invalid; transport process epoch is excluded from semantic
-request identity. The `rpi_agent_v1` capability gates use of this contract;
-declaring message types does not advertise runtime support.
 
 ## State machine
 

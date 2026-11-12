@@ -20,9 +20,7 @@ pub use interaction_validation::{
 mod omp;
 pub use omp::*;
 mod proto;
-pub mod rpi;
 pub mod semantic_ui;
-pub use rpi::{RpiCommandPayload, RpiCommandResult, RpiErrorCode};
 mod tools;
 mod usage;
 /// An attachment admitted with a user submission.

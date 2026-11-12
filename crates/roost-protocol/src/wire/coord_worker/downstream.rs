@@ -165,12 +165,6 @@ pub enum CoordWorkerDownstream {
     OmpSetMode(roost_proto::DOmpSetMode),
     #[serde(rename = "omp-ui")]
     OmpUi(roost_proto::DOmpUi),
-    #[serde(rename = "rpi-command")]
-    RpiCommand(#[serde(with = "rpi_command_json")] roost_proto::DRpiCommand),
-    #[serde(rename = "rpi-events-ack")]
-    RpiEventsAck(roost_proto::DRpiEventsAck),
-    #[serde(rename = "rpi-models-list")]
-    RpiModelsList(roost_proto::DRpiModelsList),
 }
 
 impl CoordWorkerDownstream {
@@ -217,9 +211,6 @@ impl CoordWorkerDownstream {
             Self::OmpRespond(_) => "omp-respond",
             Self::OmpSetMode(_) => "omp-set-mode",
             Self::OmpUi(_) => "omp-ui",
-            Self::RpiCommand(_) => "rpi-command",
-            Self::RpiEventsAck(_) => "rpi-events-ack",
-            Self::RpiModelsList(_) => "rpi-models-list",
         }
     }
 
@@ -245,43 +236,7 @@ impl CoordWorkerDownstream {
             Self::Ping { ts, .. } => nonnegative("ping.ts", *ts),
             Self::BrowserCommand { frame, .. } => frame.check(),
             Self::Binary(binary) => binary.check(),
-            Self::RpiCommand(command) => {
-                let kind = command
-                    .kind
-                    .as_known()
-                    .ok_or_else(|| ProtocolError::new("rpi.kind", "unknown command kind"))?;
-                crate::wire::agent_chat::RpiCommandPayload::parse(kind, &command.payload_json)?;
-                Ok(())
-            }
             _ => Ok(()),
         }
-    }
-}
-
-// The command's protobuf `kind` must not shadow the frame's JSON discriminant.
-mod rpi_command_json {
-    use roost_proto::DRpiCommand;
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    pub fn serialize<S: Serializer>(
-        command: &DRpiCommand,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        #[derive(Serialize)]
-        struct Envelope<'a> {
-            command: &'a DRpiCommand,
-        }
-        Envelope { command }.serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<DRpiCommand, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct Envelope {
-            command: DRpiCommand,
-        }
-        Envelope::deserialize(deserializer).map(|envelope| envelope.command)
     }
 }

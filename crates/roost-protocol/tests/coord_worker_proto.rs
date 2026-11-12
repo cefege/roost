@@ -246,13 +246,3 @@ fn a_committed_stream_result_carries_v2s_unspecified_failure_kind() {
     };
     assert_eq!(result.failure_kind, None);
 }
-
-#[test]
-fn retired_agent_tool_slots_remain_unknown_after_rpi_allocation() {
-    for field_number in [33, 34, 35] {
-        assert!(decode_upstream(&unknown_arm_frame(field_number)).is_err());
-    }
-    for field_number in [37, 38, 39, 40, 41] {
-        assert!(decode_downstream(&unknown_arm_frame(field_number)).is_err());
-    }
-}

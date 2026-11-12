@@ -9,7 +9,6 @@ import "roost/v1/wire.proto";
 import "roost/v1/sync.proto";
 import "roost/v1/cell.proto";
 import "roost/v1/attachment_transfer.proto";
-import "roost/v1/worker_transport.proto";
 
 // ─── workers ──────────────────────────────────────────────────────────────
 
@@ -994,7 +993,6 @@ message AgentChatCreateRequest {
   string model_provider = 3;
   string model_id = 4;
   string backend = 5;
-  string request_id = 6;
 }
 message AgentChatAttachment {
   string filename = 1;
@@ -1035,7 +1033,6 @@ message AgentChatConfigureRequest {
   optional string title = 7;
   optional bool read_only = 8;
   optional string mode = 9;
-  string request_id = 10;
 }
 message AgentOmpRespondRequest {
   string conversation_id = 1;
@@ -1076,16 +1073,6 @@ message AgentOmpSettingsSetRequest { string scoped_json = 1; }
 message AgentOmpSettingsSetResponse {}
 message AgentOmpSessionOpenRequest { string conversation_id = 1; }
 message AgentOmpSessionOpenResponse {}
-
-// Catalog credentials and provider configuration remain on the selected worker.
-message AgentRpiModelsListRequest { string worker_fp = 1; }
-message AgentRpiModelsListResponse { repeated RpiModel models = 1; }
-message AgentRpiSessionOpenRequest {
-  string conversation_id = 1;
-  string request_id = 2;
-  bool resume_pending = 3;
-}
-message AgentRpiSessionOpenResponse {}
 // Semantic OMP UI action; the worker supplies the managed ACP session identity.
 message AgentOmpUiRequest {
   string conversation_id = 1;
@@ -1150,8 +1137,6 @@ service CoordinatorService {
   rpc AgentOmpSettingsGet(AgentOmpSettingsGetRequest) returns (AgentOmpSettingsGetResponse);
   rpc AgentOmpSettingsSet(AgentOmpSettingsSetRequest) returns (AgentOmpSettingsSetResponse);
   rpc AgentOmpSessionOpen(AgentOmpSessionOpenRequest) returns (AgentOmpSessionOpenResponse);
-  rpc AgentRpiModelsList(AgentRpiModelsListRequest) returns (AgentRpiModelsListResponse);
-  rpc AgentRpiSessionOpen(AgentRpiSessionOpenRequest) returns (AgentRpiSessionOpenResponse);
   rpc AgentOmpUi(AgentOmpUiRequest) returns (AgentOmpUiResponse);
   // workspaces
   rpc WorkspacesList(WorkspacesListRequest) returns (WorkspacesListResponse);

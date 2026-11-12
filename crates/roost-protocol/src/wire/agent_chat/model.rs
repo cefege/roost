@@ -17,11 +17,9 @@ pub struct ModelRef {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentBackend {
-    Omp,
-    Rpi,
     #[default]
-    #[serde(other)]
     Native,
+    Omp,
 }
 
 impl AgentBackend {
@@ -29,15 +27,14 @@ impl AgentBackend {
         match self {
             Self::Native => "native",
             Self::Omp => "omp",
-            Self::Rpi => "rpi",
         }
     }
 
     pub fn from_wire(value: &str) -> Self {
-        match value {
-            "omp" => Self::Omp,
-            "rpi" => Self::Rpi,
-            _ => Self::Native,
+        if value == "omp" {
+            Self::Omp
+        } else {
+            Self::Native
         }
     }
 }

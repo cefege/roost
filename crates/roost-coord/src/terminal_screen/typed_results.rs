@@ -25,8 +25,6 @@ pub enum TypedWorkerResult {
     InputRoute(WTerminalInputRouteResult),
     /// The outcome of one terminal transport probe.
     TransportProbe(WTerminalTransportProbeResult),
-    /// Available authenticated chat models from one worker-local provider snapshot.
-    RpiModels(roost_proto::WRpiModelsListResult),
 }
 
 impl TypedWorkerResult {
@@ -38,7 +36,6 @@ impl TypedWorkerResult {
             Self::PipelineSnapshot(result) => &result.request_id,
             Self::InputRoute(result) => &result.request_id,
             Self::TransportProbe(result) => &result.request_id,
-            Self::RpiModels(result) => &result.request_id,
         }
     }
 
@@ -50,7 +47,6 @@ impl TypedWorkerResult {
             Self::PipelineSnapshot(_) => WTerminalPipelineSnapshot::KIND,
             Self::InputRoute(_) => WTerminalInputRouteResult::KIND,
             Self::TransportProbe(_) => WTerminalTransportProbeResult::KIND,
-            Self::RpiModels(_) => roost_proto::WRpiModelsListResult::KIND,
         }
     }
 }
@@ -107,17 +103,6 @@ impl TypedResult for WTerminalTransportProbeResult {
     fn from_typed(result: TypedWorkerResult) -> Result<Self, &'static str> {
         match result {
             TypedWorkerResult::TransportProbe(result) => Ok(result),
-            other => Err(other.kind()),
-        }
-    }
-}
-
-impl TypedResult for roost_proto::WRpiModelsListResult {
-    const KIND: &'static str = "rpi-models-list-result";
-
-    fn from_typed(result: TypedWorkerResult) -> Result<Self, &'static str> {
-        match result {
-            TypedWorkerResult::RpiModels(result) => Ok(result),
             other => Err(other.kind()),
         }
     }

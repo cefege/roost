@@ -38,7 +38,6 @@ async fn run_launch_agent(
         cwd: folder.clone(),
         model: None,
         backend: AgentBackend::Omp,
-        ..Default::default()
     };
     let created = match pump.rpc().call(&call).await {
         Ok(created) => created,

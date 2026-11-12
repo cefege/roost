@@ -125,7 +125,7 @@ pub const ROWS_AGENTS: &[MethodRoute] = &[
     route("AgentConfigGet", "agents", AuthRequirement::Device, PortStatus::Implemented),
     route("AgentConfigSet", "agents", AuthRequirement::Device, PortStatus::Implemented),
 ];
-/// Worker-hosted agent conversations and backend-specific session controls.
+/// OMP agent conversations and their harness settings.
 #[rustfmt::skip]
 pub const ROWS_AGENT_CHAT: &[MethodRoute] = &[
     route("AgentChatList", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
@@ -142,8 +142,6 @@ pub const ROWS_AGENT_CHAT: &[MethodRoute] = &[
     route("AgentOmpSessionOpen", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
     route("AgentOmpUi", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
     route("AgentOmpRespond", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
-    route("AgentRpiModelsList", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
-    route("AgentRpiSessionOpen", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
 ];
 
 /// global session search across every worker.

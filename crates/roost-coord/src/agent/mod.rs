@@ -7,7 +7,6 @@ pub mod chat_events;
 pub mod omp;
 pub mod rpc_chat;
 pub mod rpc_chat_transcript;
-pub mod rpi;
 pub(crate) mod sink;
 
 use std::sync::{Arc, Mutex, PoisonError};

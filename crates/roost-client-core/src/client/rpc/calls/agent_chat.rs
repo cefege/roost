@@ -133,7 +133,6 @@ pub struct CreateAgentChat {
     pub cwd: String,
     pub model: Option<ModelRef>,
     pub backend: AgentBackend,
-    pub request_id: String,
 }
 impl UnaryMethod for CreateAgentChat {
     const METHOD: &'static str = "AgentChatCreate";
@@ -145,7 +144,6 @@ impl UnaryMethod for CreateAgentChat {
                 worker_fp: self.worker_fp.clone(),
                 cwd: self.cwd.clone(),
                 backend: self.backend.as_wire().to_owned(),
-                request_id: self.request_id.clone(),
                 model_provider: self
                     .model
                     .as_ref()
@@ -174,7 +172,6 @@ pub struct ConfigureAgentChat {
     pub title: Option<String>,
     pub read_only: Option<bool>,
     pub mode: Option<String>,
-    pub request_id: String,
 }
 impl UnaryMethod for ConfigureAgentChat {
     const METHOD: &'static str = "AgentChatConfigure";
@@ -184,7 +181,6 @@ impl UnaryMethod for ConfigureAgentChat {
             Self::METHOD,
             &AgentChatConfigureRequest {
                 conversation_id: self.conversation_id.clone(),
-                request_id: self.request_id.clone(),
                 model_provider: self.model_provider.clone(),
                 model_id: self.model_id.clone(),
                 thinking_level: self.thinking_level.clone(),
@@ -287,13 +283,6 @@ impl UnaryMethod for GetAgentChatEvents {
         Ok((batches, response.truncated))
     }
 }
-
-simple_call!(ListRpiModels, AgentRpiModelsListRequest, AgentRpiModelsListResponse,
-    Vec<RpiModel>, "AgentRpiModelsList", |wire: AgentRpiModelsListResponse| Ok(wire.models);
-    worker_fp: String);
-simple_call!(OpenRpiSession, AgentRpiSessionOpenRequest, AgentRpiSessionOpenResponse,
-    (), "AgentRpiSessionOpen", empty;
-    conversation_id: String, request_id: String, resume_pending: bool);
 
 #[cfg(test)]
 mod tests {

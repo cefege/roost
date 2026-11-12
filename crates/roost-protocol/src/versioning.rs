@@ -33,9 +33,6 @@ pub const CAPABILITY_OMP_ACP_SESSION_V1: &str = "omp_acp_session_v1";
 /// Worker capability for live OMP modes and pending ACP interactions.
 pub const CAPABILITY_OMP_ACP_INTERACTIONS_V1: &str = "omp_acp_interactions_v1";
 
-/// Worker capability for persisted worker-local Rpi conversations.
-pub const CAPABILITY_RPI_AGENT_V1: &str = "rpi_agent_v1";
-
 /// Direct-terminal WebRTC control-channel label.
 pub const CHANNEL_TERMINAL_CONTROL_V1: &str = "roost-terminal-control-v1";
 

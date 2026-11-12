@@ -152,14 +152,6 @@ pub(super) fn to_proto(frame: &CoordWorkerDownstream) -> ProtocolResult<CoordWor
         }
         CoordWorkerDownstream::OmpSetMode(mode) => Frame::OmpSetMode(Box::new((*mode).clone())),
         CoordWorkerDownstream::OmpUi(request) => Frame::OmpUi(Box::new((*request).clone())),
-        CoordWorkerDownstream::RpiCommand(command) => {
-            frame.check()?;
-            Frame::RpiCommand(Box::new(command.clone()))
-        }
-        CoordWorkerDownstream::RpiEventsAck(ack) => Frame::RpiEventsAck(Box::new(ack.clone())),
-        CoordWorkerDownstream::RpiModelsList(request) => {
-            Frame::RpiModelsList(Box::new(request.clone()))
-        }
     };
     Ok(CoordWorkerDown {
         frame: Some(arm),
@@ -290,9 +282,6 @@ pub(super) fn from_proto(message: &CoordWorkerDown) -> ProtocolResult<CoordWorke
         Frame::OmpRespond(response) => CoordWorkerDownstream::OmpRespond((**response).clone()),
         Frame::OmpSetMode(mode) => CoordWorkerDownstream::OmpSetMode((**mode).clone()),
         Frame::OmpUi(request) => CoordWorkerDownstream::OmpUi((**request).clone()),
-        Frame::RpiCommand(command) => CoordWorkerDownstream::RpiCommand((**command).clone()),
-        Frame::RpiEventsAck(ack) => CoordWorkerDownstream::RpiEventsAck((**ack).clone()),
-        Frame::RpiModelsList(request) => CoordWorkerDownstream::RpiModelsList((**request).clone()),
     };
     frame.check()?;
     Ok(frame)
