@@ -109,3 +109,83 @@ fn a_hidden_modal_does_not_count_as_open() {
     );
     assert!(!layer_has_modal(Some(&layer(vec![hidden]))));
 }
+
+fn grouped_layer_surface(
+    surface: roost_protocol::wire::agent_chat::semantic_ui::OmpUiSurface,
+) -> dioxus::prelude::Element {
+    let send = dioxus::prelude::EventHandler::new(|_: Value| {});
+    let slots = super::overlay::layer_slots(
+        surface.root.c.first(),
+        &surface,
+        &send,
+        &std::collections::BTreeMap::new(),
+    );
+    super::overlay_render::non_modal_surface(&slots, &surface.id, false)
+}
+
+#[test]
+fn grouped_layer_columns_keep_real_identity_and_layout_with_overlay_children() {
+    use dioxus::core::{AttributeValue, Mutation};
+    use dioxus::prelude::VirtualDom;
+    let group = node(
+        "group",
+        "col",
+        json!({"role":"grouped.actions","gap":"md","align":"start","grow":1}),
+        vec![
+            node("caption", "text", json!({"text":"Actions"}), Vec::new()),
+            node(
+                "hint",
+                "overlay",
+                json!({"anchor":{"node":"caption","side":"below"}}),
+                vec![node(
+                    "hint-text",
+                    "text",
+                    json!({"text":"Details"}),
+                    Vec::new(),
+                )],
+            ),
+        ],
+    );
+    let root = node("surface", "col", json!({}), vec![layer(vec![group])]);
+    let surface = match serde_json::from_value(json!({"id":"surface","sequence":1,"root":root})) {
+        Ok(surface) => surface,
+        Err(error) => panic!("invalid surface fixture: {error}"),
+    };
+    let mut dom = VirtualDom::new_with_props(grouped_layer_surface, surface);
+    let attributes: Vec<_> = dom
+        .rebuild_to_vec()
+        .edits
+        .into_iter()
+        .filter_map(|edit| match edit {
+            Mutation::SetAttribute {
+                name,
+                value: AttributeValue::Text(value),
+                ..
+            } => Some((name, value)),
+            _ => None,
+        })
+        .collect();
+    for id in ["group", "caption", "hint", "hint-text"] {
+        assert_eq!(
+            attributes
+                .iter()
+                .filter(|(name, value)| *name == "data-omp-node" && value == id)
+                .count(),
+            1,
+            "{id} must remain one actual target"
+        );
+    }
+    assert!(
+        attributes
+            .iter()
+            .any(|(name, value)| *name == "data-omp-role" && value == "grouped.actions")
+    );
+    assert!(attributes.iter().any(|(name, value)| *name == "class"
+        && value.contains("gap-4")
+        && value.contains("items-start")));
+    assert!(
+        attributes
+            .iter()
+            .any(|(name, value)| *name == "style" && value.contains("flex-grow:1"))
+    );
+}

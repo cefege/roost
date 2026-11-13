@@ -32,6 +32,10 @@ pub enum OmpHostServiceKind {
     OpenUrl,
     /// Open the native OMP stats dashboard through its capability bridge.
     OpenStatsDashboard,
+    /// Place the coordinator-bound child of the current canonical session.
+    OpenFork,
+    /// Prepare, connect, mute or close browser-owned live audio.
+    LiveAudio,
 }
 
 impl OmpHostServiceKind {
@@ -41,6 +45,8 @@ impl OmpHostServiceKind {
             Self::CopyText => "copy_text",
             Self::OpenUrl => "open_url",
             Self::OpenStatsDashboard => "open_stats_dashboard",
+            Self::OpenFork => "open_fork",
+            Self::LiveAudio => "live_audio",
         }
     }
 
@@ -50,6 +56,8 @@ impl OmpHostServiceKind {
             "copy_text" => Some(Self::CopyText),
             "open_url" => Some(Self::OpenUrl),
             "open_stats_dashboard" => Some(Self::OpenStatsDashboard),
+            "open_fork" => Some(Self::OpenFork),
+            "live_audio" => Some(Self::LiveAudio),
             _ => None,
         }
     }

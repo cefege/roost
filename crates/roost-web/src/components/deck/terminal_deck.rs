@@ -344,8 +344,15 @@ fn AgentSlot(agent: MountedAgent, surface_visible: bool, spotlight_active: bool)
     let pane_id = slot.map_or_else(String::new, |slot| slot.pane_id.clone());
     let focused = slot.is_some_and(|slot| slot.focused);
     let spotlit = slot.is_some_and(|slot| slot.spotlit);
-    let hidden =
-        !surface_visible || (!spotlight_active && !focused) || (spotlight_active && !spotlit);
+    let hidden = !surface_visible || slot.is_none() || (spotlight_active && !spotlit);
+    let is_fork_parent = pump
+        .core()
+        .borrow()
+        .store()
+        .agent_chat
+        .conversations
+        .values()
+        .any(|conversation| conversation.parent_id.as_deref() == Some(&agent.conversation.id));
     rsx! {
         div {
             class: "group-data-[multi-pane=false]/deck:after:hidden data-[spotlit=true]:after:hidden group-data-[resizing=true]/deck:after:shadow-none data-[focused=true]:after:absolute data-[focused=true]:after:inset-0 data-[focused=true]:after:z-[4] data-[focused=true]:after:pointer-events-none data-[focused=true]:after:content-[''] data-[focused=true]:after:rounded-md data-[focused=true]:after:border-[calc(var(--workbench-border-width)*3)] data-[focused=true]:after:border-solid data-[focused=true]:after:border-ring data-[focused=true]:after:shadow-lg focus-visible:outline-[calc(var(--workbench-border-width)*3)] focus-visible:outline-solid focus-visible:outline-ring focus-visible:-outline-offset-[calc(var(--workbench-border-width)*3)]",
@@ -355,6 +362,9 @@ fn AgentSlot(agent: MountedAgent, surface_visible: bool, spotlight_active: bool)
             "data-pane-id": pane_id,
             "data-focused": if focused { "true" } else { "false" },
             "data-spotlit": spotlit.then_some("true"),
+            "data-omp-conversation": agent.conversation.id.clone(),
+            "data-omp-fork-child": agent.conversation.parent_id.as_ref().map(|_| agent.conversation.id.clone()),
+            "data-omp-fork-parent": is_fork_parent.then(|| agent.conversation.id.clone()),
             style: agent.style,
             aria_hidden: hidden,
             div { class: "flex h-full min-h-0 flex-col",

@@ -97,7 +97,7 @@ pub(super) fn render_full<'a>(
 
 /// A borrowed view of one selected child.
 #[derive(Debug, PartialEq)]
-enum WindowNode<'a> {
+pub(super) enum WindowNode<'a> {
     /// The whole node fits the line budget.
     Full(&'a OmpUiNode),
     /// A row-addressable text leaf drawn through `render_node_window`.
@@ -112,6 +112,29 @@ enum WindowNode<'a> {
     },
 }
 
+pub(super) fn render_with<'a>(
+    children: impl DoubleEndedIterator<Item = &'a OmpUiNode>,
+    preview: Preview,
+    mut render: impl FnMut(&WindowNode<'a>, bool) -> Element,
+) -> Element {
+    let (selected, expanded, frame) = match preview {
+        Preview::None => return rsx! {},
+        Preview::Children => (children.map(WindowNode::Full).collect(), false, None),
+        Preview::Lines(lines) | Preview::Tail(lines) => {
+            let tail = matches!(preview, Preview::Tail(_));
+            let mut budget = lines;
+            let selected = select_nodes(children, &mut budget, tail);
+            (selected, true, Some((lines, tail)))
+        }
+    };
+    let body = rsx! { for node in &selected { {render(node, expanded)} } };
+    if let Some((lines, tail)) = frame {
+        window_frame(body, lines, tail)
+    } else {
+        body
+    }
+}
+
 fn render_window<'a>(
     children: impl DoubleEndedIterator<Item = &'a OmpUiNode>,
     lines: usize,
@@ -124,10 +147,18 @@ fn render_window<'a>(
     let selected = select_nodes(children, &mut budget, tail);
     // Rich leaves have no addressable source rows; keep their complete source
     // but bound the collapsed paint just as strictly as a code/ANSI window.
+    window_frame(
+        render_selected(&selected, surface, send, blobs),
+        lines,
+        tail,
+    )
+}
+
+fn window_frame(body: Element, lines: usize, tail: bool) -> Element {
     let alignment = if tail { "justify-end" } else { "justify-start" };
     rsx! {
         div { class:"flex min-w-0 flex-col overflow-hidden {alignment}",style:"max-height:{lines}lh;",
-            div {class:"min-w-0 shrink-0",{render_selected(&selected,surface,send,blobs)}}
+            div { class:"min-w-0 shrink-0", {body} }
         }
     }
 }

@@ -10,10 +10,10 @@ use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::semantic_ui::{OmpUiBlob, OmpUiNode};
 use serde_json::{Value, json};
 
-use crate::components::ui::{Tabs, TabsList, TabsTrigger, TabsVariant};
+use crate::components::ui::{Separator, Tabs, TabsList, TabsTrigger, TabsVariant};
 
 use super::actions::PointerActions;
-use super::content::render_content;
+use super::content::{render_content, render_spans};
 use super::controls::{render_button, render_item};
 use super::editors::{edit_node, media_node};
 use super::{picker, prefs, text_value};
@@ -101,8 +101,18 @@ fn try_render_node<'a>(
                 )
             })
             .peekable();
+        // An empty list shows its `empty` message in place of rows, as the terminal does.
+        if node.k == "list"
+            && children.peek().is_none()
+            && let Some(empty) = node.p.get("empty").filter(|value| !value.is_null())
+        {
+            let label = text_value(empty);
+            let body = rsx! { p { class: "text-sm text-muted-foreground", "{label}" } };
+            return Some(super::chrome::decorate(node, surface, send, body));
+        }
         if matches!(node.k.as_str(), "col" | "row" | "list" | "overlay")
             && children.peek().is_none()
+            && !super::layout::reserves_layout_space(&node.p)
         {
             return None;
         }
@@ -113,7 +123,7 @@ fn try_render_node<'a>(
         element
     } else {
         match node.k.as_str() {
-            "rule" => rsx! {hr{class:"border-border"}},
+            "rule" => render_rule(node),
             "spacer" => super::layout::spacer(node),
             "image" | "media" => media_node(node, surface, blobs),
             "button" => render_button(node, surface, send),
@@ -135,7 +145,7 @@ fn try_render_node<'a>(
             }
             _ => {
                 let kind = &node.k;
-                rsx! {p{role:"alert",class:"text-sm text-destructive","Unsupported OMP component: {kind}"}}
+                rsx! {p{role:"alert","data-omp-render-error":"unsupported-kind",class:"text-sm text-destructive","Unsupported OMP component: {kind}"}}
             }
         }
     };
@@ -167,7 +177,7 @@ fn render_tabs(node: &OmpUiNode, surface: &str, send: &EventHandler<Value>) -> E
         };
     rsx! {
         Tabs {
-            value: active,
+            value: active.clone(),
             on_value_change: move |value| send.call(super::event("select", &sf, &id, json!({"item": value}))),
             TabsList {
                 aria_label: Some("Options".into()),
@@ -176,10 +186,31 @@ fn render_tabs(node: &OmpUiNode, surface: &str, send: &EventHandler<Value>) -> E
                     {
                         let value = item.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
                         let label = item.get("label").map(text_value).unwrap_or_else(|| value.clone());
-                        rsx! { TabsTrigger { value, has_panel: false, "{label}" } }
+                        let selected = active == value;
+                        rsx! { TabsTrigger {
+                            value: value.clone(),
+                            has_panel: false,
+                            "data-omp-item": value,
+                            "data-omp-item-selected": if selected { "true" } else { "false" },
+                            "{label}"
+                        } }
                     }
                 }
             }
         }
+    }
+}
+
+/// A rule with a `label` leads into its caption the way the terminal draws it
+/// (a short rule, then the label); an unlabelled rule spans the row.
+pub(super) fn render_rule(node: &OmpUiNode) -> Element {
+    match node.p.get("label").filter(|label| !label.is_null()) {
+        None => rsx! { Separator { decorative: true } },
+        Some(label) => rsx! {
+            div { class: "flex items-center gap-2",
+                Separator { decorative: true, class: "w-10 shrink-0" }
+                span { class: "min-w-0 break-words", {render_spans(Some(label), "")} }
+            }
+        },
     }
 }

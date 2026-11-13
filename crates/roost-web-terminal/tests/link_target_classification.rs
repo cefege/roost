@@ -248,6 +248,31 @@ fn a_resolver_turns_a_file_target_into_an_authenticated_route() {
 }
 
 #[test]
+fn unsafe_minted_file_routes_never_become_worker_file_anchors() {
+    for suffix in [
+        "a b.txt",
+        "a\nb.txt",
+        "a\rb.txt",
+        "a\tb.txt",
+        "a\u{7f}b.txt",
+    ] {
+        let resolve = |_: &str, _: Option<u64>, _: Option<&str>| Some(format!("/file/W/{suffix}"));
+        assert_eq!(
+            classify_terminal_link_target("src/file.txt", Some(&resolve)),
+            None,
+            "{suffix:?}",
+        );
+    }
+    let encoded =
+        |_: &str, _: Option<u64>, _: Option<&str>| Some("/file/W/a%20b.txt#L7".to_owned());
+    assert!(matches!(
+        classify_terminal_link_target("src/file.txt", Some(&encoded)),
+        Some(TerminalLinkTarget::WorkerFile { href: Some(href), .. })
+            if href == "/file/W/a%20b.txt#L7"
+    ));
+}
+
+#[test]
 fn the_first_line_shaped_colon_decides_and_a_zero_line_keeps_the_whole_path() {
     // v2 `^(.*?):(\d+)(?::\d+)?$`: the lazy prefix stops at the first colon whose
     // tail has the shape, and a zero line there does not fall through.

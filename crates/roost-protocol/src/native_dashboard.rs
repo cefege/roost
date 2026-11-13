@@ -17,6 +17,9 @@ use std::net::IpAddr;
 
 use serde::{Deserialize, Serialize};
 
+mod resource;
+pub use resource::{DashboardOpen, ResourceKey, StreamRequest, StreamResponse, fragment_is_safe};
+
 /// The coordinator path namespace a capability URL lives under.
 pub const CAPABILITY_PREFIX: &str = "/omp-stats";
 
@@ -80,6 +83,8 @@ pub struct HttpRequest {
     /// Standard base64. Empty when the request has no body.
     #[serde(default)]
     pub body_base64: String,
+    #[serde(default)]
+    pub stream: Option<StreamRequest>,
 }
 
 /// What the worker got back from the native dashboard.
@@ -92,6 +97,8 @@ pub struct HttpResponse {
     /// Standard base64. Empty for a body-less response.
     #[serde(default)]
     pub body_base64: String,
+    #[serde(default)]
+    pub stream: Option<StreamResponse>,
 }
 
 /// The exact loopback origin a capability may reach.

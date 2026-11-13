@@ -9,12 +9,14 @@
 
 use dioxus::prelude::*;
 use roost_protocol::cell::link_uri_within_cap;
-use roost_protocol::native_dashboard::{capability_path, parse_capability_path};
+use roost_protocol::native_dashboard::{capability_path, fragment_is_safe, parse_capability_path};
 use roost_web_terminal::link_target::{
     TerminalLinkTarget, classify_terminal_link_target, is_worker_file_href,
 };
 
+use super::actions::open_target;
 use crate::components::agent_chat::semantic_ui::media::MediaContext;
+use crate::components::ui::{Button, ButtonVariant};
 use crate::pump::use_store;
 use crate::router_state::use_navigate;
 use crate::terminal_file_link::resolve_terminal_file;
@@ -50,6 +52,13 @@ pub(crate) fn resolve_native_target(
     cwd: &str,
     worker_os: Option<&str>,
 ) -> NativeTarget {
+    resolve_native_target_in_context(raw, Some((worker_fp, cwd, worker_os)))
+}
+
+fn resolve_native_target_in_context(
+    raw: &str,
+    worker: Option<(&str, &str, Option<&str>)>,
+) -> NativeTarget {
     if safe_mailto(raw) {
         return NativeTarget::External {
             href: raw.to_owned(),
@@ -57,11 +66,16 @@ pub(crate) fn resolve_native_target(
         };
     }
     if is_worker_file_href(raw) {
-        return NativeTarget::WorkerFile {
-            href: raw.to_owned(),
+        return if worker.is_some() {
+            NativeTarget::WorkerFile {
+                href: raw.to_owned(),
+            }
+        } else {
+            NativeTarget::Inert
         };
     }
     let resolve = |raw_path: &str, line: Option<u64>, authority: Option<&str>| {
+        let (worker_fp, cwd, worker_os) = worker?;
         resolve_terminal_file(worker_os, worker_fp, cwd, raw_path, line, authority)
     };
     match classify_terminal_link_target(raw, Some(&resolve)) {
@@ -158,10 +172,13 @@ pub(crate) fn resolve_host_open(
 /// could reach another origin, carry a query the bridge did not mint, or point
 /// at a cohort of resources other than the dashboard itself.
 pub(crate) fn resolve_stats_capability(value: &str) -> Result<String, String> {
-    let Some((token, upstream)) = parse_capability_path(value) else {
+    let (path, fragment) = value
+        .find('#')
+        .map_or((value, ""), |offset| value.split_at(offset));
+    let Some((token, upstream)) = parse_capability_path(path) else {
         return Err("The stats dashboard capability is malformed.".to_owned());
     };
-    if upstream != "/" || value != capability_path(token) {
+    if upstream != "/" || path != capability_path(token) || !fragment_is_safe(fragment) {
         return Err("The stats dashboard capability is not the minted address.".to_owned());
     }
     Ok(value.to_owned())
@@ -204,25 +221,37 @@ pub(crate) fn NativeLink(
     href: String,
     #[props(default)] class: Option<String>,
     #[props(default)] title: Option<String>,
+    #[props(default)] aria_label: Option<String>,
+    #[props(default)] aria_pressed: Option<String>,
+    #[props(default)] report_refusal: bool,
     children: Element,
 ) -> Element {
-    let media_context = use_context::<Signal<MediaContext>>();
-    let context = (*media_context.read()).clone();
+    let context = try_use_context::<Signal<MediaContext>>().map(|context| context.read().clone());
     let pump = use_store();
     let navigate = use_navigate();
-    let worker_os = {
+    let worker_os = context.as_ref().and_then(|context| {
         let core = pump.core();
         let core = core.borrow();
         worker_os(core.store(), &context.worker_fp).map(str::to_owned)
-    };
-    let target = resolve_native_target(
+    });
+    let target = resolve_native_target_in_context(
         &href,
-        &context.worker_fp,
-        &context.cwd,
-        worker_os.as_deref(),
+        context.as_ref().map(|context| {
+            (
+                context.worker_fp.as_str(),
+                context.cwd.as_str(),
+                worker_os.as_deref(),
+            )
+        }),
     );
     let class_attr = class.unwrap_or_default();
-    let title_attr = title.unwrap_or_default();
+    let title_attr = title.unwrap_or_else(|| {
+        if matches!(&target, NativeTarget::Inert) {
+            href.clone()
+        } else {
+            String::new()
+        }
+    });
     match target {
         NativeTarget::External {
             href,
@@ -232,16 +261,34 @@ pub(crate) fn NativeLink(
                 href: "{href}",
                 class: "{class_attr}",
                 title: "{title_attr}",
+                aria_label,
+                aria_pressed,
+                onclick: move |event: MouseEvent| {
+                    event.stop_propagation();
+                    if event.modifiers().is_empty() {
+                        event.prevent_default();
+                        open_target(NativeTarget::External { href: href.clone(), scheme: "mailto" });
+                    }
+                },
                 {children}
             }
         },
-        NativeTarget::External { href, .. } => rsx! {
+        NativeTarget::External { href, scheme } => rsx! {
             a {
                 href: "{href}",
                 target: "_blank",
                 rel: "noopener noreferrer",
                 class: "{class_attr}",
                 title: "{title_attr}",
+                aria_label,
+                aria_pressed,
+                onclick: move |event: MouseEvent| {
+                    event.stop_propagation();
+                    if event.modifiers().is_empty() {
+                        event.prevent_default();
+                        open_target(NativeTarget::External { href: href.clone(), scheme });
+                    }
+                },
                 {children}
             }
         },
@@ -252,14 +299,33 @@ pub(crate) fn NativeLink(
                     href: "{href}",
                     class: "{class_attr}",
                     title: "{title_attr}",
+                    aria_label,
+                    aria_pressed,
                     onclick: move |event: MouseEvent| {
-                        event.prevent_default();
-                        navigate.call(navigate_to.clone());
+                        event.stop_propagation();
+                        if event.modifiers().is_empty() {
+                            event.prevent_default();
+                            navigate.call(navigate_to.clone());
+                        }
                     },
                     {children}
                 }
             }
         }
+        NativeTarget::Inert if report_refusal => rsx! {
+            Button {
+                variant: ButtonVariant::Ghost,
+                class: Some(class_attr),
+                title: title_attr,
+                aria_label,
+                aria_pressed,
+                onclick: move |event: MouseEvent| {
+                    event.stop_propagation();
+                    open_target(NativeTarget::Inert);
+                },
+                {children}
+            }
+        },
         NativeTarget::Inert => rsx! {
             span { class: "{class_attr}", title: "{title_attr}", {children} }
         },
@@ -267,124 +333,5 @@ pub(crate) fn NativeLink(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const WORKER: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-
-    #[test]
-    fn http_and_https_links_stay_browser_owned() {
-        assert_eq!(
-            resolve_native_target("https://example.com/a?b=1", WORKER, "/work", Some("linux")),
-            NativeTarget::External {
-                href: "https://example.com/a?b=1".into(),
-                scheme: "https"
-            }
-        );
-        assert_eq!(
-            resolve_native_target("mailto:ops@example.com", WORKER, "/work", Some("linux")),
-            NativeTarget::External {
-                href: "mailto:ops@example.com".into(),
-                scheme: "mailto"
-            }
-        );
-    }
-
-    #[test]
-    fn unsafe_schemes_and_relative_text_stay_inert() {
-        for raw in [
-            "javascript:alert(1)",
-            "data:text/html,<script>alert(1)</script>",
-            "vbscript:msgbox(1)",
-            "https://",
-            "mailto:",
-            "file:relative",
-            "just some text",
-        ] {
-            assert_eq!(
-                resolve_native_target(raw, WORKER, "/work", Some("linux")),
-                NativeTarget::Inert,
-                "{raw}"
-            );
-        }
-    }
-
-    #[test]
-    fn worker_paths_use_the_authenticated_file_route_and_keep_the_line() {
-        let NativeTarget::WorkerFile { href } = resolve_native_target(
-            "/srv/roost/README.md:12",
-            WORKER,
-            "/srv/roost",
-            Some("linux"),
-        ) else {
-            panic!("a worker path resolves");
-        };
-        assert!(href.starts_with("/file/"));
-        assert!(href.ends_with("#L12"), "{href}");
-
-        let NativeTarget::WorkerFile { href } = resolve_native_target(
-            "file:///srv/roost/a%20b.txt",
-            WORKER,
-            "/srv/roost",
-            Some("linux"),
-        ) else {
-            panic!("a file URI resolves");
-        };
-        assert!(
-            href.contains("a%20b.txt") || href.contains("a b.txt"),
-            "{href}"
-        );
-    }
-
-    #[test]
-    fn an_already_minted_file_route_is_not_resolved_again_against_the_cwd() {
-        let route = format!("/file/{WORKER}/srv%2Froost%2FREADME.md#L4");
-        assert_eq!(
-            resolve_native_target(&route, WORKER, "/srv/roost", Some("linux")),
-            NativeTarget::WorkerFile { href: route }
-        );
-    }
-
-    #[test]
-    fn host_open_refuses_non_http_external_schemes() {
-        let refusal = resolve_host_open("mailto:ops@example.com", WORKER, "/work", Some("linux"))
-            .expect_err("mailto is not a host service target");
-        assert!(refusal.contains("mailto"));
-        assert_eq!(
-            resolve_host_open("https://example.com/cb", WORKER, "/work", Some("linux")),
-            Ok(HostOpenTarget::Browser("https://example.com/cb".into()))
-        );
-        assert!(matches!(
-            resolve_host_open("/work/file.txt", WORKER, "/work", Some("linux")),
-            Ok(HostOpenTarget::WorkerFile(_))
-        ));
-        for callback in [
-            "http://127.0.0.1:8976/callback",
-            "http://localhost:8976/callback",
-            "https://[::1]:8976/callback",
-        ] {
-            let refusal = resolve_host_open(callback, WORKER, "/work", Some("linux"))
-                .expect_err("a worker-local callback is not this browser's localhost");
-            assert!(
-                refusal.contains("localhost") || refusal.contains("127.0.0.1"),
-                "{refusal}"
-            );
-        }
-    }
-
-    #[test]
-    fn only_a_minted_dashboard_capability_path_opens() {
-        let token = "0123456789abcdef".repeat(4);
-        let path = capability_path(&token);
-        assert_eq!(resolve_stats_capability(&path), Ok(path.clone()));
-        for refused in [
-            "/omp-stats/".to_owned() + &token,
-            format!("{path}api/stats"),
-            format!("/omp-stats/{token}?x=1"),
-            "http://127.0.0.1:3847/".to_owned(),
-            format!("/omp-stats/{token}/../"),
-        ] {
-            assert!(resolve_stats_capability(&refused).is_err(), "{refused}");
-        }
-    }
-}
+#[path = "links_tests.rs"]
+mod tests;

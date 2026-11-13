@@ -68,7 +68,7 @@ fn ErrorFallback(message: String, errors: ErrorContext) -> Element {
     #[cfg(not(target_arch = "wasm32"))]
     let _ = &errors;
     let diagnostic_message = message.clone();
-    let (copy_to_clipboard, copied) = use_copy_clipboard(None);
+    let (copy_to_clipboard, copied) = use_copy_clipboard(None, None);
     rsx! {
         div {
             "data-testid": "error-boundary",

@@ -1,9 +1,10 @@
-//! Native `ansi` output: the shared SGR line engine keeps terminal colours,
-//! weights and line structure while dropping every control sequence.
+//! Native ANSI output, decoded by the shared terminal rendition engine.
+//! Producer colors, decorations, OSC8 links and complete lines survive previews.
+//! The enclosing disclosure alone determines the visible row window.
 
 use super::super::prop_text;
 use super::copy::CopyButton;
-use crate::components::agent_chat::output_lines::{styled_lines, window};
+use crate::components::agent_chat::output_lines::{render_run, styled_lines, window};
 use crate::components::ui::{
     ButtonSize, ButtonVariant, Collapsible, CollapsibleContent, CollapsibleTrigger,
 };
@@ -170,7 +171,7 @@ fn output_line(line: &crate::components::agent_chat::output_lines::OutputLine) -
     rsx! {
         div { class: "min-w-0 whitespace-pre-wrap break-all",
             for run in &line.runs {
-                span { class: run.style.classes(), "{run.text}" }
+                {render_run(run)}
             }
         }
     }
@@ -203,7 +204,7 @@ mod tests {
         let tail = &lines[2..];
         assert_eq!(tail.len(), 1);
         assert_eq!(tail[0].runs[0].text, "red3");
-        assert_eq!(tail[0].runs[0].style.color, Some(1));
+        assert_eq!(tail[0].runs[0].style.fg, 1);
     }
 
     #[test]

@@ -71,7 +71,7 @@ pub fn FileViewer(route: Route) -> Element {
     let content = use_signal(|| ViewerContent::Idle);
     // The line whose link was copied last; the hook decides how long it shows.
     let copied_line = use_signal(|| None::<usize>);
-    let (copy_line_link, link_copied) = use_copy_clipboard(None);
+    let (copy_line_link, link_copied) = use_copy_clipboard(None, None);
     // A superseded read, and a read whose answer lands after this sheet is
     // gone, both find the token moved on and publish nothing.
     let fetch_token = use_hook(|| Rc::new(Cell::new(0_u64)));

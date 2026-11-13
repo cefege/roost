@@ -129,7 +129,6 @@ pub struct OmpActionQueue {
     in_flight: Option<InFlight>,
     deferred: Option<OmpUiActionReceipt>,
     queued: VecDeque<OmpQueuedAction>,
-    completed: u64,
 }
 
 impl OmpActionQueue {
@@ -206,7 +205,6 @@ impl OmpActionQueue {
             return OmpReceiptOutcome::Ignored;
         };
         self.deferred = None;
-        self.completed = self.completed.wrapping_add(1);
         let next = self.queued.pop_front();
         self.in_flight = next.as_ref().map(InFlight::from);
         OmpReceiptOutcome::Completed {
@@ -246,19 +244,9 @@ impl OmpActionQueue {
         true
     }
 
-    /// Receipt completions observed by this view, including native no-ops.
-    pub fn completed_count(&self) -> u64 {
-        self.completed
-    }
-
     /// How many receipt-tracked actions are waiting or in flight.
     pub fn pending_count(&self) -> usize {
         self.queued.len() + usize::from(self.in_flight.is_some())
-    }
-
-    /// Whether the view still owes a receipt-tracked action.
-    pub fn has_pending_input(&self) -> bool {
-        self.pending_count() > 0
     }
 }
 

@@ -23,6 +23,7 @@ fn upload_context(pump: &Pump, session_id: &str, worker_fp: &str) -> UploadConte
         session_id: session_id.to_owned(),
         worker_fp: Some(worker_fp.to_owned()),
         short_path: short_path_preference(),
+        raw_worker_path: false,
         identity: DirectIdentity {
             tab_id,
             device_fingerprint,

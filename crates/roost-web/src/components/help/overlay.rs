@@ -50,7 +50,7 @@ fn HelpOverlayBody() -> Element {
     let mut filter = use_signal(String::new);
     let platform = reader_platform();
     let groups = grouped_shortcuts(&filtered_shortcuts(&filter(), platform));
-    let (copy_to_clipboard, copied) = use_copy_clipboard(None);
+    let (copy_to_clipboard, copied) = use_copy_clipboard(None, None);
     rsx! {
         div { class: "flex min-h-0 flex-1 flex-col", "data-testid": "help-overlay",
             div { class: "flex flex-none justify-end px-5 pt-2",

@@ -4,7 +4,7 @@
 
 use dioxus::prelude::*;
 
-use super::output_lines::{LineTone, styled_lines, window};
+use super::output_lines::{LineTone, render_run, styled_lines, window};
 use super::syntax_output::syntax_tokens;
 use crate::components::ui::{Button, ButtonSize, ButtonVariant};
 
@@ -80,7 +80,7 @@ pub fn OutputWindow(
                             }
                         } else {
                             for run in line.runs.iter() {
-                                span { class: run.style.classes(), "{run.text}" }
+                                {render_run(run)}
                             }
                         }
                     }

@@ -22,6 +22,8 @@ use tokio::{sync::mpsc, task::JoinHandle};
 pub struct OmpOwner<L: OmpLauncher> {
     launcher: Arc<L>,
     uplink: Uplink,
+    dashboard_resources:
+        Arc<crate::browser_commands::native_dashboard::resources::DashboardResources>,
     conversations: Mutex<HashMap<String, OmpHandle>>,
     counter: AtomicU64,
 }
@@ -35,10 +37,17 @@ impl<L: OmpLauncher> std::fmt::Debug for OmpOwner<L> {
     }
 }
 impl<L: OmpLauncher> OmpOwner<L> {
-    pub fn new(launcher: Arc<L>, uplink: Uplink) -> Self {
+    pub fn new(
+        launcher: Arc<L>,
+        uplink: Uplink,
+        dashboard_resources: Arc<
+            crate::browser_commands::native_dashboard::resources::DashboardResources,
+        >,
+    ) -> Self {
         Self {
             launcher,
             uplink,
+            dashboard_resources,
             conversations: Mutex::new(HashMap::new()),
             counter: AtomicU64::new(0),
         }
@@ -84,6 +93,7 @@ impl<L: OmpLauncher> OmpOwner<L> {
                 id.clone(),
                 run_id,
                 inbox,
+                Arc::clone(&self.dashboard_resources),
             ));
             conversations.insert(id.clone(), OmpHandle { commands, task });
         }

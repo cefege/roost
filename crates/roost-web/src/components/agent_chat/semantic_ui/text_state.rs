@@ -1,7 +1,7 @@
 //! Optimistic browser text with one native edit in flight.
 //! Native edit acknowledgments release the exact edit they name, so masked
 //! replacements and no-op carets complete without a visible text change.
-//! Queued keys, pastes and atomic sends wait until the native draft is whole.
+//! Queued keys and pastes wait until the native draft is whole.
 use super::text_edit::{grapheme_count, grapheme_to_utf16, utf16_to_grapheme};
 use super::text_sync::TextSync;
 use dioxus::prelude::*;
@@ -65,7 +65,6 @@ pub(super) enum TextCommand {
     Paste {
         text: String,
     },
-    Send(Rc<String>),
 }
 
 enum PendingAction {
@@ -75,7 +74,6 @@ enum PendingAction {
     },
     #[cfg(any(target_arch = "wasm32", test))]
     Paste(String),
-    Send(Rc<String>),
 }
 
 struct InFlight {
@@ -89,17 +87,19 @@ pub(super) struct NativeTextState {
     in_flight: Option<InFlight>,
     cursor: usize,
     native_cursor: Option<usize>,
+    native_anchor: Option<usize>,
     initialized: bool,
     revision: u64,
-    waiting_clear: bool,
     actions: VecDeque<PendingAction>,
     mask: bool,
     mask_len: usize,
     unknown_secret: bool,
+    /// The user asked to erase a secret whose plaintext the browser never held;
+    /// the empty visible value equals the empty native one, so no diff exists.
+    pending_clear: bool,
     next_token: u32,
     seen_ack: Option<(String, bool, Option<usize>)>,
-    send_base: u64,
-    /// The transport refused a typed edit or the send; the draft is kept for
+    /// The transport refused a typed edit or input; the draft is kept for
     /// the next deliberate keystroke, but nothing retries on its own.
     failed: bool,
     token_prefix: String,
@@ -143,16 +143,16 @@ impl NativeTextState {
             in_flight: None,
             cursor: local_cursor,
             native_cursor: cursor,
+            native_anchor: None,
             initialized: false,
             revision: 0,
-            waiting_clear: false,
             actions: VecDeque::new(),
             mask,
             mask_len,
             unknown_secret,
+            pending_clear: false,
             next_token: 1,
             seen_ack: None,
-            send_base: 0,
             failed: false,
             token_prefix,
         }
@@ -171,11 +171,7 @@ impl NativeTextState {
         self.revision
     }
     pub(super) fn blocks_input(&self) -> bool {
-        self.waiting_clear || !self.actions.is_empty()
-    }
-    /// A send is in flight: the DOM must reject edits until it completes.
-    pub(super) fn awaiting_send(&self) -> bool {
-        self.waiting_clear
+        !self.actions.is_empty()
     }
     /// An RPC failure paused automatic retries; the draft is retained.
     pub(super) fn failed(&self) -> bool {
@@ -193,36 +189,24 @@ impl NativeTextState {
     /// retries until a deliberate keystroke, paste or send resumes the field.
     pub(super) fn fail(&mut self) {
         self.in_flight = None;
-        self.waiting_clear = false;
         self.actions.clear();
         self.failed = true;
     }
-    /// Release a send whose receipt completed with the whole action queue idle.
-    /// The native draft after a send wins: a stale local draft never resurrects.
-    pub(super) fn release_send(&mut self, completion: u64, queue_idle: bool) -> bool {
-        if completion < self.send_base {
-            self.send_base = completion;
-        }
-        if !self.waiting_clear || !queue_idle || completion <= self.send_base {
+    pub(super) fn discard_actions(&mut self) {
+        self.actions.clear();
+    }
+    pub(super) fn clear_unknown_secret(&mut self) -> bool {
+        if !(self.mask && self.unknown_secret && self.value.is_empty()) {
             return false;
         }
-        self.waiting_clear = false;
-        self.actions.clear();
-        if self.value != self.native {
-            self.value = self.native.clone();
-            self.cursor = self.native_cursor_utf16(&self.native, self.native_cursor);
-        }
+        self.pending_clear = true;
+        self.failed = false;
         true
     }
-    pub(super) fn set_send_base(&mut self, completion: u64) {
-        self.send_base = completion;
-    }
     pub(super) fn edit(&mut self, text: String, cursor: usize) {
-        if !self.waiting_clear {
-            self.value = Rc::new(text);
-            self.cursor = cursor;
-            self.failed = false;
-        }
+        self.value = Rc::new(text);
+        self.cursor = cursor;
+        self.failed = false;
     }
     pub(super) fn queue_input(&mut self, data: String, cursor: Option<usize>) -> bool {
         if self.actions.len() >= MAX_QUEUED_TEXT_ACTIONS {
@@ -243,29 +227,12 @@ impl NativeTextState {
         self.actions.push_back(PendingAction::Paste(text));
         true
     }
-    pub(super) fn queue_send(&mut self) -> bool {
-        if self.waiting_clear
-            || self.value.trim().is_empty()
-            || self
-                .actions
-                .iter()
-                .any(|action| matches!(action, PendingAction::Send(_)))
-        {
-            return false;
-        }
-        if self.actions.len() >= MAX_QUEUED_TEXT_ACTIONS {
-            return false;
-        }
-        self.failed = false;
-        self.actions
-            .push_back(PendingAction::Send(self.value.clone()));
-        true
-    }
     fn next_command(&mut self, ready: bool) -> Option<TextCommand> {
-        if !ready || self.waiting_clear || self.in_flight.is_some() || self.failed {
+        if !ready || self.in_flight.is_some() || self.failed {
             return None;
         }
-        if self.value != self.native {
+        if self.value != self.native || self.pending_clear {
+            self.pending_clear = false;
             let token = format!("{}:{}", self.token_prefix, self.next_token);
             self.next_token = self.next_token.wrapping_add(1).max(1);
             self.in_flight = Some(InFlight {
@@ -285,10 +252,6 @@ impl NativeTextState {
             PendingAction::Input { data, cursor } => Some(TextCommand::Input { data, cursor }),
             #[cfg(any(target_arch = "wasm32", test))]
             PendingAction::Paste(text) => Some(TextCommand::Paste { text }),
-            PendingAction::Send(text) => {
-                self.waiting_clear = true;
-                Some(TextCommand::Send(text))
-            }
         }
     }
     /// A caret-only native edit's coordinates: mask cells for a masked field.
@@ -324,7 +287,6 @@ pub(super) fn flush_text(
     sync: &TextSync,
     ready: bool,
 ) {
-    state.release_send(sync.input_completion(), !sync.input_pending());
     while let Some(command) = state.next_command(ready) {
         match command {
             TextCommand::Edit {
@@ -371,15 +333,6 @@ pub(super) fn flush_text(
                 )
                 .into_owned();
                 send.call(json!({"method":"input","params":{"data":payload}}));
-            }
-            TextCommand::Send(text) => {
-                state.set_send_base(sync.input_completion());
-                send.call(super::event(
-                    "send",
-                    surface,
-                    id,
-                    json!({"text":text.as_str()}),
-                ));
             }
         }
     }

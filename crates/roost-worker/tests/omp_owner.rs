@@ -111,7 +111,11 @@ fn text(events: &[OmpWorkerEvent]) -> Vec<&str> {
 #[tokio::test]
 async fn omp_owner_streams_contiguous_events_resends_and_deduplicates() {
     let (uplink, mut receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::new(DuplexLauncher::default()), uplink);
+    let owner = OmpOwner::new(
+        Arc::new(DuplexLauncher::default()),
+        uplink,
+        Arc::new(Default::default()),
+    );
     owner.prompt(prompt(""));
     let (frames, events) = turn(&mut receiver).await;
     let mut expected_seq = 1;
@@ -144,7 +148,11 @@ async fn omp_owner_streams_contiguous_events_resends_and_deduplicates() {
 #[tokio::test]
 async fn omp_owner_load_suppresses_history_and_keeps_new_output() {
     let (uplink, mut receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::new(DuplexLauncher::default()), uplink);
+    let owner = OmpOwner::new(
+        Arc::new(DuplexLauncher::default()),
+        uplink,
+        Arc::new(Default::default()),
+    );
     owner.prompt(prompt("s1"));
     let (_, events) = turn(&mut receiver).await;
     assert_eq!(text(&events), vec!["hi"]);
@@ -157,7 +165,7 @@ async fn omp_owner_cancel_reaches_the_live_session() {
         ..Default::default()
     });
     let (uplink, mut receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::clone(&launcher), uplink);
+    let owner = OmpOwner::new(Arc::clone(&launcher), uplink, Arc::new(Default::default()));
     owner.prompt(prompt(""));
     tokio::time::timeout(Duration::from_secs(5), launcher.started.notified())
         .await
@@ -178,7 +186,11 @@ async fn omp_owner_cancel_reaches_the_live_session() {
 #[tokio::test]
 async fn omp_owner_missing_install_settles_failed() {
     let (uplink, mut receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::new(MissingLauncher), uplink);
+    let owner = OmpOwner::new(
+        Arc::new(MissingLauncher),
+        uplink,
+        Arc::new(Default::default()),
+    );
     owner.prompt(prompt(""));
     let (_, events) = turn(&mut receiver).await;
     assert!(
@@ -190,7 +202,7 @@ async fn omp_owner_missing_install_settles_failed() {
 async fn omp_owner_opens_settings_without_a_prompt_and_reuses_the_session() {
     let launcher = Arc::new(DuplexLauncher::default());
     let (uplink, mut receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::clone(&launcher), uplink);
+    let owner = OmpOwner::new(Arc::clone(&launcher), uplink, Arc::new(Default::default()));
     let open = DOmpOpen {
         conversation_id: "c1".into(),
         cwd: "/work".into(),
@@ -231,7 +243,7 @@ async fn omp_owner_defers_open_refresh_until_prompt_settles() {
         ..Default::default()
     });
     let (uplink, mut receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::clone(&launcher), uplink);
+    let owner = OmpOwner::new(Arc::clone(&launcher), uplink, Arc::new(Default::default()));
     owner.prompt(prompt(""));
     tokio::time::timeout(Duration::from_secs(5), launcher.started.notified())
         .await
@@ -270,7 +282,11 @@ async fn omp_owner_defers_open_refresh_until_prompt_settles() {
 #[tokio::test]
 async fn omp_owner_failed_preparation_does_not_interrupt_the_queued_first_prompt() {
     let (uplink, mut receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::new(FlakyStartup::default()), uplink);
+    let owner = OmpOwner::new(
+        Arc::new(FlakyStartup::default()),
+        uplink,
+        Arc::new(Default::default()),
+    );
     owner.open(DOmpOpen {
         conversation_id: "c1".into(),
         cwd: "/work".into(),
@@ -306,7 +322,7 @@ async fn omp_plan_prompt_applies_the_offered_mode_before_prompt_dispatch() {
         require_mode_before_prompt: true,
         ..Default::default()
     };
-    let owner = OmpOwner::new(Arc::new(launcher), uplink);
+    let owner = OmpOwner::new(Arc::new(launcher), uplink, Arc::new(Default::default()));
     let mut request = prompt("");
     request.mode = "plan".into();
     owner.prompt(request);
@@ -327,7 +343,11 @@ async fn omp_plan_prompt_applies_the_offered_mode_before_prompt_dispatch() {
 #[tokio::test]
 async fn omp_idle_mode_change_opens_session_without_starting_turn() {
     let (uplink, mut receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::new(DuplexLauncher::default()), uplink);
+    let owner = OmpOwner::new(
+        Arc::new(DuplexLauncher::default()),
+        uplink,
+        Arc::new(Default::default()),
+    );
     owner.set_mode(DOmpSetMode {
         conversation_id: "c1".into(),
         cwd: "/work".into(),

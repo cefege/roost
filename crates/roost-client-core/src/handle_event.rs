@@ -140,6 +140,7 @@ pub fn handle_event(
                     *generation,
                     *seq,
                     (**transcript).clone(),
+                    host_now_ms,
                 );
                 store.note_change();
             }
@@ -148,9 +149,12 @@ pub fn handle_event(
                 batches,
                 truncated,
             } => {
-                store
-                    .agent_chat
-                    .apply_event_batches(conversation_id, batches, *truncated);
+                store.agent_chat.apply_event_batches(
+                    conversation_id,
+                    batches,
+                    *truncated,
+                    host_now_ms,
+                );
                 store.note_change();
             }
             crate::client::agent_chat::AgentChatIntent::Forget { conversation_id } => {

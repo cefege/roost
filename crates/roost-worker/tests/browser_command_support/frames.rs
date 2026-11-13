@@ -133,6 +133,10 @@ pub fn every_kind() -> Vec<(&'static str, Value)> {
             "stats-dashboard-http",
             &[
                 ("request_id", json!("r20")),
+                (
+                    "resource",
+                    json!({"conversation_id": "c1", "transport_id": "t1", "resource_id": "d".repeat(64)}),
+                ),
                 ("host", json!("127.0.0.1")),
                 ("port", json!(3847)),
                 ("method", json!("GET")),

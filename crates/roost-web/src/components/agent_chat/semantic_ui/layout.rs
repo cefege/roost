@@ -69,10 +69,7 @@ pub(super) fn render_box(
         .unwrap_or(false);
     let head_value = node.p.get("head");
     let head_text_value = head_value.map(text_value).unwrap_or_default();
-    let head_index = head_value
-        .and_then(Value::as_str)
-        .and_then(|id| node.c.iter().position(|child| child.id == id))
-        .or_else(|| (collapsible && head_text_value.is_empty() && !node.c.is_empty()).then_some(0));
+    let head_index = disclosure_head_index(node, collapsible, head_text_value.is_empty());
     let head_node = head_index.and_then(|index| node.c.get(index));
     let head_text = if head_index.is_some() {
         String::new()
@@ -117,7 +114,10 @@ pub(super) fn render_box(
         span { class: "flex min-w-0 flex-wrap items-center gap-2",
             Icon { icon: chevron, class: Some("size-3.5 text-muted-foreground".to_owned()) }
             if head_node.is_none() {
-                span { class: "min-w-0 break-words text-sm font-medium", "{trigger_label}" }
+                span { class: "min-w-0 break-words text-sm font-medium",
+                    if head_text.is_empty() { "{trigger_label}" }
+                    else { {super::content::render_spans(head_value, "")} }
+                }
             } else {
                 span { class: "sr-only", "{trigger_label}" }
             }
@@ -160,7 +160,7 @@ pub(super) fn render_box(
             if let Some(child) = head_node {
                 div { class: "min-w-0", {super::render_node(child, surface, &send, blobs)} }
             } else if !head_text.is_empty() {
-                p { class: "min-w-0 break-words text-sm font-medium", "{head_text}" }
+                p { class: "min-w-0 break-words text-sm font-medium", {super::content::render_spans(head_value, "")} }
             }
             {body}
         }
@@ -179,14 +179,14 @@ pub(super) fn render_window_box(
 ) -> Element {
     if matches!(node.k.as_str(), "card" | "section") {
         let head = if head_refers_to_child(node) {
-            String::new()
+            None
         } else {
-            node.p.get("head").map(text_value).unwrap_or_default()
+            node.p.get("head")
         };
         return rsx! {
             div { class: "flex min-w-0 flex-col gap-2",
-                if !head.is_empty() {
-                    p { class: "min-w-0 break-words text-sm font-medium", "{head}" }
+                if !super::content::text_is_empty(head) {
+                    p { class: "min-w-0 break-words text-sm font-medium", {super::content::render_spans(head, "")} }
                 }
                 for child in children { {child} }
             }
@@ -196,10 +196,24 @@ pub(super) fn render_window_box(
     rsx! { div { class: "{classes}", for child in children { {child} } } }
 }
 
+pub(super) fn disclosure_head_index(
+    node: &OmpUiNode,
+    collapsible: bool,
+    head_empty: bool,
+) -> Option<usize> {
+    node.p
+        .get("head")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .and_then(|id| node.c.iter().position(|child| child.id == id))
+        .or_else(|| (collapsible && head_empty && !node.c.is_empty()).then_some(0))
+}
+
 fn head_refers_to_child(node: &OmpUiNode) -> bool {
     node.p
         .get("head")
         .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
         .is_some_and(|id| node.c.iter().any(|child| child.id == id))
 }
 
@@ -312,12 +326,34 @@ pub(super) fn common_style(props: &serde_json::Map<String, Value>) -> String {
     style
 }
 
+/// Whether an empty slot still occupies space in OMP's layout: a grow spacer
+/// or a positive minimum extent, which OMP's Row allocates with or without
+/// content.
+pub(super) fn reserves_layout_space(props: &serde_json::Map<String, Value>) -> bool {
+    let grows = props
+        .get("grow")
+        .and_then(Value::as_f64)
+        .is_some_and(|grow| grow.is_finite() && grow > 0.0);
+    let minimum = props.get("min").is_some_and(|min| {
+        ["w", "h"].iter().any(|axis| {
+            min.get(*axis)
+                .and_then(extent_amount)
+                .is_some_and(|(number, _)| number > 0.0)
+        })
+    });
+    grows || minimum
+}
+
 fn extent_css(value: &Value) -> Option<String> {
+    extent_amount(value).map(|(number, unit)| format!("{number}{unit}"))
+}
+
+fn extent_amount(value: &Value) -> Option<(f64, &'static str)> {
     if let Some(fraction) = value
         .as_f64()
         .filter(|value| value.is_finite() && *value >= 0.0)
     {
-        return Some(format!("{}%", fraction * 100.0));
+        return Some((fraction * 100.0, "%"));
     }
     let text = value.as_str()?;
     let (number, unit) = if let Some(number) = text.strip_suffix("lines") {
@@ -329,5 +365,27 @@ fn extent_css(value: &Value) -> Option<String> {
         .parse::<f64>()
         .ok()
         .filter(|value| value.is_finite() && *value >= 0.0)?;
-    Some(format!("{number}{unit}"))
+    Some((number, unit))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reserves_layout_space;
+    use serde_json::{Value, json};
+
+    fn reserves(props: Value) -> bool {
+        props.as_object().is_some_and(reserves_layout_space)
+    }
+
+    #[test]
+    fn empty_slots_keep_space_only_when_omp_allocates_it() {
+        assert!(reserves(json!({"grow": 1, "basis": "content"})));
+        assert!(reserves(json!({"min": {"w": "2ch"}})));
+        assert!(reserves(json!({"min": {"h": "1lines"}})));
+        assert!(reserves(json!({"min": {"w": 0.5}})));
+        assert!(!reserves(json!({})));
+        assert!(!reserves(json!({"grow": 0})));
+        assert!(!reserves(json!({"min": {"w": "0ch"}})));
+        assert!(!reserves(json!({"max": {"w": "2ch"}})));
+    }
 }

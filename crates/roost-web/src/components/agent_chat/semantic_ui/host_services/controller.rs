@@ -15,6 +15,7 @@ use crate::router_state::use_navigate;
 
 use super::actions::{attempt_copy, attempt_open, attempt_stats, dismiss_service};
 use super::browser::user_activation_active;
+use super::live_audio::LiveAudioOwner;
 
 /// Everything that scopes one controller to the mounted native view.
 #[derive(Clone, PartialEq, Eq)]
@@ -63,6 +64,10 @@ impl OmpHostServices {
         self.actions.stats.call(service);
     }
 
+    pub(crate) fn open_fork(&self, service: OmpHostService) {
+        self.actions.fork.call(service);
+    }
+
     pub(crate) fn dismiss(&self, service: OmpHostService) {
         self.actions.dismiss.call(service);
     }
@@ -73,6 +78,7 @@ struct OmpHostServiceActions {
     copy: EventHandler<OmpHostService>,
     open: EventHandler<OmpHostService>,
     stats: EventHandler<OmpHostService>,
+    fork: EventHandler<OmpHostService>,
     dismiss: EventHandler<OmpHostService>,
 }
 
@@ -88,6 +94,7 @@ pub(crate) fn use_omp_host_services(
     transport_id: String,
     worker_fp: String,
     cwd: String,
+    on_action: EventHandler<serde_json::Value>,
 ) -> OmpHostServices {
     let config = OmpHostServiceConfig {
         conversation_id,
@@ -111,10 +118,21 @@ pub(crate) fn use_omp_host_services(
     let mut sending = use_signal(BTreeSet::<String>::new);
     let mut failures = use_signal(BTreeMap::<String, String>::new);
     let navigate = use_navigate();
+    let live_audio = use_hook({
+        let pump = pump.clone();
+        let config = config.clone();
+        move || LiveAudioOwner::new(pump, config, on_action)
+    });
+    live_audio.update(&config, on_action);
+    use_drop({
+        let live_audio = live_audio.clone();
+        move || live_audio.dispose()
+    });
 
     let copy_pump = pump.clone();
     let open_pump = pump.clone();
     let stats_pump = pump.clone();
+    let fork_pump = pump.clone();
     let dismiss_pump = pump.clone();
     let open_config = config.clone();
     let actions = use_hook(move || OmpHostServiceActions {
@@ -138,6 +156,9 @@ pub(crate) fn use_omp_host_services(
         stats: EventHandler::new(move |service: OmpHostService| {
             attempt_stats(stats_pump.clone(), service, sending, failures);
         }),
+        fork: EventHandler::new(move |service: OmpHostService| {
+            super::fork::attempt(fork_pump.clone(), service, sending, failures);
+        }),
         dismiss: EventHandler::new(move |service: OmpHostService| {
             dismiss_service(dismiss_pump.clone(), service, failures);
         }),
@@ -152,8 +173,10 @@ pub(crate) fn use_omp_host_services(
 
     let revision = pump.revision()();
     let sync_pump = pump.clone();
+    let sync_audio = live_audio.clone();
     use_effect(use_reactive((&revision, &config), move |(_, config)| {
         let next = pending_services(&sync_pump, &config);
+        sync_audio.reconcile(&next);
         let active: BTreeSet<String> = next
             .iter()
             .map(|service| service.service_id.clone())
@@ -171,17 +194,17 @@ pub(crate) fn use_omp_host_services(
     }));
 
     let auto_pump = pump.clone();
-    let auto_config = config.clone();
+    let auto_audio = live_audio.clone();
     let auto_ids: Vec<String> = requests()
         .iter()
         .map(|service| service.service_id.clone())
         .collect();
-    use_effect(use_reactive((&auto_ids,), move |(ids,)| {
+    use_effect(use_reactive((&auto_ids, &config), move |(ids, config)| {
         for service_id in ids {
             if attempted.peek().contains(&service_id) {
                 continue;
             }
-            let Some(service) = pending_services(&auto_pump, &auto_config)
+            let Some(service) = pending_services(&auto_pump, &config)
                 .into_iter()
                 .find(|service| service.service_id == service_id)
             else {
@@ -196,7 +219,7 @@ pub(crate) fn use_omp_host_services(
                     attempt_open(
                         auto_pump.clone(),
                         service,
-                        auto_config.clone(),
+                        config.clone(),
                         navigate,
                         sending,
                         failures,
@@ -204,6 +227,12 @@ pub(crate) fn use_omp_host_services(
                 }
                 OmpHostServiceKind::OpenStatsDashboard if user_activation_active() => {
                     attempt_stats(auto_pump.clone(), service, sending, failures);
+                }
+                OmpHostServiceKind::OpenFork => {
+                    super::fork::attempt(auto_pump.clone(), service, sending, failures);
+                }
+                OmpHostServiceKind::LiveAudio => {
+                    auto_audio.attempt(auto_pump.clone(), service);
                 }
                 _ => {}
             }

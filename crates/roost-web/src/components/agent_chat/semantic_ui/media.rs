@@ -24,6 +24,7 @@ use roost_client_core::store::root::captured_generation_is_current;
 
 #[derive(Clone, PartialEq)]
 pub(super) struct MediaContext {
+    pub conversation_id: String,
     pub worker_fp: String,
     pub cwd: String,
 }
@@ -156,7 +157,7 @@ pub(super) fn MediaFilePreview(
         },
         #[cfg(target_arch = "wasm32")]
         Preview::Ready { .. } => rsx! {
-            p { role: "alert", class: "text-sm text-destructive", "Unsupported media type." }
+            p { role: "alert", "data-omp-render-error": "unsupported-media", class: "text-sm text-destructive", "Unsupported media type." }
         },
     }
 }

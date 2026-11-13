@@ -3,7 +3,7 @@
 //! button activation handles Enter and Space instead of forwarding them as
 //! terminal input. All collection values stay reachable through the disclosure.
 
-use super::text_value;
+use super::render_spans;
 use crate::components::ui::{
     ButtonSize, Collapsible, CollapsibleContent, CollapsibleTrigger, Icon, IconType, Table,
     TableBody, TableCell, TableHead, TableHeader, TableRow, TableWrapper,
@@ -34,19 +34,18 @@ pub(super) fn render(node: &OmpUiNode) -> Element {
 fn key_values(node: &OmpUiNode) -> Element {
     let items = node.p.get("items").and_then(Value::as_array);
     let inline = node.p.get("layout").and_then(Value::as_str) == Some("inline");
+    // OMP's grid layout prints each key beside its value in an aligned key column.
     let class = if inline {
         "flex flex-wrap gap-x-4 gap-y-1 text-sm"
     } else {
-        "flex min-w-0 flex-col gap-1 text-sm"
+        "grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm"
     };
     rsx! {
         dl { class,
             for item in items.into_iter().flatten() {
-                { let key = item.get("k").map(text_value).unwrap_or_default();
-                  let value = item.get("v").map(text_value).unwrap_or_default();
-                  rsx! {
-                      dt { class: "text-muted-foreground", "{key}" }
-                      dd { class: "min-w-0 break-all", "{value}" }
+                { rsx! {
+                      dt { class: "text-muted-foreground", {render_spans(item.get("k"), "")} }
+                      dd { class: "min-w-0 break-all", {render_spans(item.get("v"), "")} }
                   }
                 }
             }
@@ -57,16 +56,20 @@ fn key_values(node: &OmpUiNode) -> Element {
 fn table(node: &OmpUiNode) -> Element {
     let columns = node.p.get("cols").and_then(Value::as_array);
     let rows = node.p.get("rows").and_then(Value::as_array);
+    // OMP draws a heading row only for columns that declare one; a column id is
+    // a cell key, not visible text.
+    let headed = columns
+        .into_iter()
+        .flatten()
+        .any(|column| column.get("head").is_some());
     rsx! {
         TableWrapper { class: Some("w-full".into()),
             Table {
-                TableHeader {
-                    TableRow {
-                        for column in columns.into_iter().flatten() {
-                            { let heading = column.get("head").map(text_value).unwrap_or_else(|| {
-                                  column.get("id").map(text_value).unwrap_or_default()
-                              });
-                              rsx! { TableHead { "{heading}" } }
+                if headed {
+                    TableHeader {
+                        TableRow {
+                            for column in columns.into_iter().flatten() {
+                                TableHead { {render_spans(column.get("head"), "")} }
                             }
                         }
                     }
@@ -78,7 +81,7 @@ fn table(node: &OmpUiNode) -> Element {
                               TableRow {
                                   for column in columns.into_iter().flatten() {
                                       { let key = column.get("id").and_then(Value::as_str).unwrap_or_default();
-                                        let value = cells.and_then(|cells| cells.get(key)).map(text_value).unwrap_or_default();
+                                        let value = cells.and_then(|cells| cells.get(key));
                                         let class = match column.get("align").and_then(Value::as_str) {
                                             Some("center") => "text-center whitespace-normal",
                                             Some("end") => "text-right whitespace-normal",
@@ -87,7 +90,7 @@ fn table(node: &OmpUiNode) -> Element {
                                         rsx! {
                                             TableCell {
                                                 class: Some(class.into()),
-                                                "{value}"
+                                                {render_spans(value, "")}
                                             }
                                         }
                                       }
@@ -115,7 +118,7 @@ fn tree(node: &OmpUiNode) -> Element {
 
 #[component]
 fn TreeItem(node: Value) -> Element {
-    let label = node.get("label").map(text_value).unwrap_or_default();
+    let label = node.get("label");
     let icon = node
         .get("icon")
         .and_then(Value::as_str)
@@ -139,7 +142,7 @@ fn TreeItem(node: Value) -> Element {
                             class: "size-4 shrink-0 text-muted-foreground",
                         }
                         if !icon.is_empty() { span { class: "mr-1 text-muted-foreground", "{icon}" } }
-                        "{label}"
+                        {render_spans(label, "")}
                     }
                     CollapsibleContent { class: Some("pl-3".into()),
                         ul { class: "flex flex-col gap-1",
@@ -156,7 +159,7 @@ fn TreeItem(node: Value) -> Element {
             li { class: "ml-3 flex flex-col gap-1",
                 span { class: "text-sm",
                     if !icon.is_empty() { span { class: "mr-1 text-muted-foreground", "{icon}" } }
-                    "{label}"
+                    {render_spans(label, "")}
                 }
             }
         }
@@ -215,6 +218,12 @@ fn JsonTree(value: Value, depth: usize, expanded: usize) -> Element {
         }
     } else {
         let display = value.to_string();
-        rsx! { code { class: "break-all font-mono text-xs", "{display}" } }
+        // The terminal labels a bare scalar root "value: …"; nested scalars sit under their key.
+        rsx! {
+            if depth == 0 {
+                span { class: "font-mono text-xs text-muted-foreground", "value: " }
+            }
+            code { class: "break-all font-mono text-xs", "{display}" }
+        }
     }
 }

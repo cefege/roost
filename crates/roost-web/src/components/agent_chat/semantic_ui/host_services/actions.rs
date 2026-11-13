@@ -19,25 +19,25 @@ use super::browser::{absolute_document_url, open_blank_tab};
 use super::controller::OmpHostServiceConfig;
 use super::reply::{send_host_reply, service_is_pending};
 
-fn begin_attempt(mut sending: Signal<BTreeSet<String>>, service_id: &str) -> bool {
+pub(super) fn begin_attempt(mut sending: Signal<BTreeSet<String>>, service_id: &str) -> bool {
     sending
         .try_write()
         .is_ok_and(|mut sending| sending.insert(service_id.to_owned()))
 }
 
-fn clear_sending(mut sending: Signal<BTreeSet<String>>, service_id: &str) {
+pub(super) fn clear_sending(mut sending: Signal<BTreeSet<String>>, service_id: &str) {
     if let Ok(mut sending) = sending.try_write() {
         sending.remove(service_id);
     }
 }
 
-fn clear_failure(mut failures: Signal<BTreeMap<String, String>>, service_id: &str) {
+pub(super) fn clear_failure(mut failures: Signal<BTreeMap<String, String>>, service_id: &str) {
     if let Ok(mut failures) = failures.try_write() {
         failures.remove(service_id);
     }
 }
 
-fn record_failure(
+pub(super) fn record_failure(
     pump: &Pump,
     service: &OmpHostService,
     mut failures: Signal<BTreeMap<String, String>>,
@@ -103,6 +103,7 @@ fn copy_completion(
             service,
             true,
             None,
+            None,
             Some(EventHandler::new(move |result: Result<(), String>| {
                 clear_sending(sending, &admitted_id);
                 if let Err(error) = result {
@@ -167,6 +168,7 @@ pub(super) fn attempt_open(
                 service,
                 true,
                 None,
+                None,
                 Some(EventHandler::new(move |result: Result<(), String>| {
                     clear_sending(sending, &admitted_id);
                     let Some(tab) = admitted_tab.borrow_mut().take() else {
@@ -212,6 +214,7 @@ pub(super) fn attempt_open(
                 pump,
                 service,
                 true,
+                None,
                 None,
                 Some(EventHandler::new(move |result: Result<(), String>| {
                     clear_sending(sending, &admitted_id);
@@ -273,6 +276,7 @@ pub(super) fn attempt_stats(
         service,
         true,
         None,
+        None,
         Some(EventHandler::new(move |result: Result<(), String>| {
             clear_sending(sending, &admitted_id);
             let Some(tab) = admitted_tab.borrow_mut().take() else {
@@ -323,6 +327,7 @@ pub(super) fn dismiss_service(
         service,
         false,
         Some("The operator dismissed this request.".to_owned()),
+        None,
         Some(EventHandler::new(move |result: Result<(), String>| {
             if let Err(error) = result {
                 record_failure(

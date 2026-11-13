@@ -17,6 +17,17 @@ use roost_proto::DOmpPrompt;
 use roost_protocol::wire::agent_chat::OmpWorkerEvent;
 use tokio::sync::mpsc;
 
+/// The client declares the semantic command UI it renders so the fork gives its sessions the
+/// transcript-rendering prompt blocks and `out://` replies the terminal transcript has.
+fn command_ui_client_meta() -> Meta {
+    let mut meta = Meta::new();
+    meta.insert(
+        "commandUi".into(),
+        serde_json::json!({"version": 1, "protocol": "tsp"}),
+    );
+    meta
+}
+
 pub(super) struct Session {
     pub id: SessionId,
     pub resume_id: String,
@@ -38,9 +49,14 @@ pub(super) async fn open(
             connection
                 .send_request(
                     InitializeRequest::new(agent_client_protocol::schema::ProtocolVersion::V1)
-                        .client_capabilities(ClientCapabilities::new().elicitation(
-                            ElicitationCapabilities::new().form(ElicitationFormCapabilities::new()),
-                        )),
+                        .client_capabilities(
+                            ClientCapabilities::new()
+                                .elicitation(
+                                    ElicitationCapabilities::new()
+                                        .form(ElicitationFormCapabilities::new()),
+                                )
+                                .meta(command_ui_client_meta()),
+                        ),
                 )
                 .block_task(),
         )

@@ -7,7 +7,7 @@
 
 /// A tab opened by `open_blank_tab`, waiting for a validated destination.
 #[cfg(target_arch = "wasm32")]
-pub(super) struct PendingTab {
+pub(in super::super) struct PendingTab {
     window: web_sys::Window,
     kept: std::cell::Cell<bool>,
 }
@@ -23,12 +23,12 @@ impl Drop for PendingTab {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(super) struct PendingTab;
+pub(in super::super) struct PendingTab;
 
 impl PendingTab {
     /// Navigate the reserved tab; an error leaves it open for the caller to
     /// close.
-    pub(super) fn navigate(&self, href: &str) -> Result<(), String> {
+    pub(in super::super) fn navigate(&self, href: &str) -> Result<(), String> {
         #[cfg(target_arch = "wasm32")]
         {
             let navigated = self.window.location().set_href(href);
@@ -41,6 +41,15 @@ impl PendingTab {
         {
             let _ = href;
             Err("Links open only in the browser.".to_owned())
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub(super) fn document(&self) -> Option<web_sys::Document> {
+        if self.window.closed().unwrap_or(true) {
+            None
+        } else {
+            self.window.document()
         }
     }
 
@@ -59,13 +68,18 @@ impl PendingTab {
 /// `noopener` is deliberately NOT passed to `open`: with it the call returns
 /// `null` even on success, which would misreport a working popup as blocked.
 #[cfg(target_arch = "wasm32")]
-pub(super) fn open_blank_tab() -> Result<PendingTab, String> {
+pub(in super::super) fn open_blank_tab() -> Result<PendingTab, String> {
     let window = web_sys::window().ok_or("This document has no window.")?;
     let opened = window
         .open_with_url_and_target("about:blank", "_blank")
         .map_err(|_| "The browser blocked the new tab.".to_owned())?
         .ok_or("The browser blocked the new tab. Allow pop-ups for this site.")?;
-    let _ = js_sys::Reflect::set(&opened, &"opener".into(), &wasm_bindgen::JsValue::NULL);
+    if !js_sys::Reflect::set(&opened, &"opener".into(), &wasm_bindgen::JsValue::NULL)
+        .unwrap_or(false)
+    {
+        let _ = opened.close();
+        return Err("The browser could not isolate the new tab safely.".to_owned());
+    }
     Ok(PendingTab {
         window: opened,
         kept: std::cell::Cell::new(false),
@@ -73,7 +87,7 @@ pub(super) fn open_blank_tab() -> Result<PendingTab, String> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(super) fn open_blank_tab() -> Result<PendingTab, String> {
+pub(in super::super) fn open_blank_tab() -> Result<PendingTab, String> {
     Err("Links open only in the browser.".to_owned())
 }
 

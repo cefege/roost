@@ -13,7 +13,7 @@ use serde_json::Value;
 
 use super::editor::OmpEditor;
 use super::media::MediaFilePreview;
-use super::{prop_text, text_value};
+use super::prop_text;
 
 pub(super) fn edit_node(
     node: &OmpUiNode,
@@ -27,11 +27,6 @@ pub(super) fn edit_node(
     let readonly = node
         .p
         .get("readonly")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let sendable = node
-        .p
-        .get("sendable")
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let typeahead = node
@@ -49,13 +44,20 @@ pub(super) fn edit_node(
         .get("anchor")
         .and_then(Value::as_u64)
         .and_then(|value| usize::try_from(value).ok());
-    let placeholder = prop_text(&node.p, "placeholder").unwrap_or_default();
-    let prompt = node.p.get("prompt").map(text_value);
+    let placeholder = node
+        .p
+        .get("placeholder")
+        .cloned()
+        .unwrap_or(Value::String(String::new()));
+    let prompt = node.p.get("prompt").cloned();
     let ghost = node
         .p
         .get("ghost")
         .and_then(Value::as_str)
         .map(str::to_owned);
+    let decor = node.p.get("decor").cloned();
+    let language = prop_text(&node.p, "lang").filter(|language| !language.is_empty());
+    let mode = prop_text(&node.p, "mode").filter(|mode| !mode.is_empty());
     let single_line = node.k == "input";
     let max_lines = node
         .p
@@ -72,7 +74,6 @@ pub(super) fn edit_node(
             surface,
             text,
             readonly,
-            sendable,
             typeahead,
             focused,
             cursor,
@@ -80,6 +81,10 @@ pub(super) fn edit_node(
             placeholder,
             prompt,
             ghost,
+            decor,
+            language,
+            chrome: node.p.get("chrome").cloned(),
+            mode,
             single_line,
             max_lines,
             secret,

@@ -48,11 +48,6 @@ pub(super) fn OmpUiMount(
     let reduce_motion = use_media_query("(prefers-reduced-motion: reduce)");
     let dark = use_signal(current_dark_theme);
     let action_queue = use_hook(|| Rc::new(RefCell::new(OmpActionQueue::new())));
-    let mut pending_input = use_signal(|| false);
-    let queue_pending = action_queue.borrow().has_pending_input();
-    if *pending_input.peek() != queue_pending {
-        pending_input.set(queue_pending);
-    }
     #[cfg(target_arch = "wasm32")]
     let theme_observer = use_hook(|| Rc::new(RefCell::new(None::<ThemeObserver>)));
 
@@ -212,7 +207,6 @@ pub(super) fn OmpUiMount(
                     .retain_identity(&receipt_identity);
                 if transport.as_deref().is_none() {
                     receipt_queue.borrow_mut().cancel_all();
-                    pending_input.set(false);
                     return;
                 }
                 receipt_pump.write_store(|store| {
@@ -223,7 +217,7 @@ pub(super) fn OmpUiMount(
                         transport.as_deref().unwrap_or_default(),
                     );
                 });
-                let pending = apply_omp_receipts(
+                apply_omp_receipts(
                     receipt_pump.clone(),
                     Rc::clone(&receipt_queue),
                     &receipt_identity,
@@ -231,7 +225,6 @@ pub(super) fn OmpUiMount(
                     receipt_outcome,
                     report_failure,
                 );
-                pending_input.set(pending > 0);
             },
         ));
     }
@@ -280,14 +273,13 @@ pub(super) fn OmpUiMount(
     let action_error = action_outcome;
     let on_action = EventHandler::new(move |action: Value| {
         local_error.set(None);
-        let pending = dispatch_omp_ui_action(
+        dispatch_omp_ui_action(
             action_pump.clone(),
             Rc::clone(&action_queue_for_send),
             action_identity.clone(),
             action,
             action_error,
         );
-        pending_input.set(pending > 0);
     });
     let size_pump = pump.clone();
     let size_identity = latest_identity;
@@ -303,7 +295,7 @@ pub(super) fn OmpUiMount(
                 send_direct(
                     &size_pump,
                     &identity,
-                    json!({"method":"event","params":{"event":{"ev":"resize","cols":size.0}}}),
+                    json!({"method":"event","params":{"event":{"ev":"resize","cols":size.0,"rows":size.1}}}),
                     size_outcome,
                 );
             }
@@ -333,6 +325,7 @@ pub(super) fn OmpUiMount(
             }
             if let Some(error) = error {
                 div { role: "alert",
+                    "data-omp-projection-error": transcript.omp_ui_error.as_ref().map(|_| "true"),
                     Card { size: CardSize::Sm, class: Some("flex items-center gap-3 p-3".into()),
                         p { class: "min-w-0 flex-1 text-sm text-destructive", "OMP UI request failed: {error}" }
                         Button {
@@ -377,8 +370,6 @@ pub(super) fn OmpUiMount(
                     worker_fp: conversation.worker_fp.clone(),
                     cwd: conversation.cwd.clone(),
                     pump: pump.clone(),
-                    pending_input: pending_input(),
-                    completed_input:action_queue.borrow().completed_count(),
                     input_failure:input_failure(),
                     on_action,
                 }

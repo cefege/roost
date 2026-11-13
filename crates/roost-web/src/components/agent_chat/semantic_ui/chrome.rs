@@ -39,12 +39,17 @@ pub(super) fn decorate(
         .get("mark")
         .and_then(Value::as_str)
         .unwrap_or_default();
+    let disabled = node.p.get("busy").and_then(Value::as_bool) == Some(true)
+        || node
+            .p
+            .get("disabled")
+            .is_some_and(|value| !value.is_null() && value != false);
     let click = actions::click_action(node);
     // A list's actions apply to its rows (threaded as inherited actions), and a
     // row's own double press is handled by the row renderer; neither may also
     // wrap the whole container.
-    let dblclick =
-        actions::double_action(node).filter(|_| !matches!(node.k.as_str(), "list" | "item"));
+    let dblclick = actions::double_action(node)
+        .filter(|_| !disabled && !matches!(node.k.as_str(), "list" | "item"));
     let menu = actions::menu_actions(node);
     let href = actions::href(node);
     let collapsed = node
@@ -77,7 +82,7 @@ pub(super) fn decorate(
         aria.to_owned()
     };
     let mut positioned = false;
-    let body = if let Some(act) = click.filter(|_| !owns_controls) {
+    let body = if let Some(act) = click.filter(|_| !owns_controls && !disabled) {
         positioned = true;
         let overlay = match (act, href.as_deref()) {
             ("open", Some(target)) => {
@@ -85,8 +90,9 @@ pub(super) fn decorate(
                 rsx! {
                     NativeLink {
                         href: target.to_owned(),
+                        report_refusal: true,
                         class: Some(
-                            "pointer-events-auto absolute inset-0 rounded-md focus-visible:ring-2 focus-visible:ring-ring/50"
+                            "pointer-events-auto absolute inset-0 h-full w-full rounded-md opacity-0 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50"
                                 .into(),
                         ),
                         title: Some(label.clone()),
@@ -168,13 +174,14 @@ pub(super) fn decorate(
                 id: node.id.clone(),
                 href: href.clone(),
                 collapsed,
+                disabled,
                 send,
                 {body}
             }
         }
     };
-    let body = if let Some(card) = node.p.get("hovercard") {
-        rsx! { NativeHoverCard { card: card.clone(), {body} } }
+    let body = if let Some(card) = node.p.get("hovercard").filter(|_| node.k != "agent") {
+        rsx! { NativeHoverCard { surface: surface.to_owned(), card: card.clone(), {body} } }
     } else {
         body
     };

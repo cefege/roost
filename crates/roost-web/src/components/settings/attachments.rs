@@ -171,7 +171,7 @@ fn AttachmentRow(
         let pump = pump.clone();
         move |_event: MouseEvent| inject(pump.clone(), session.clone(), path.clone())
     };
-    let (copy_path, path_copied) = use_copy_clipboard(None);
+    let (copy_path, path_copied) = use_copy_clipboard(None, None);
     let on_copy = {
         let path = abs_path.clone();
         move |_event: MouseEvent| copy_path(&path)

@@ -120,9 +120,17 @@ pub fn AttachmentInput(
     #[props(default)] accept: Option<String>,
     on_chosen: EventHandler<Vec<ChosenFile>>,
     onmounted: Option<EventHandler<MountedEvent>>,
+    on_reading: Option<EventHandler<()>>,
 ) -> Element {
     let read = move |event: FormEvent| {
-        spawn_read_chosen(dom::files_of_event(&event), on_chosen);
+        let files = dom::files_of_event(&event);
+        if files.is_empty() {
+            return;
+        }
+        if let Some(handler) = on_reading {
+            handler.call(());
+        }
+        spawn_read_chosen(files, on_chosen);
     };
     let mounted = move |event: MountedEvent| {
         if let Some(handler) = onmounted {

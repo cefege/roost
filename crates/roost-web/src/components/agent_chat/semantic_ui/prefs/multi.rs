@@ -32,7 +32,7 @@ pub(super) fn multi_control(
     let surface = surface.to_owned();
     let row_id = row_id.to_owned();
     rsx! {
-        div { class: "flex flex-col gap-2",
+        div { class: "flex max-w-1/2 flex-col gap-2",
             if ordered && !values.is_empty() {
                 div { class: "flex flex-wrap gap-1",
                     for (idx, value) in values.iter().enumerate() {
@@ -40,6 +40,11 @@ pub(super) fn multi_control(
                             let previous = std::rc::Rc::clone(&values);
                             let following = std::rc::Rc::clone(&values);
                             let current = value.clone();
+                            let current_label = options.into_iter().flatten()
+                                .find(|option| option.get("value").and_then(Value::as_str) == Some(current.as_str()))
+                                .and_then(|option| option.get("label"))
+                                .map(text_value)
+                                .unwrap_or_else(|| current.clone());
                             let up_id = prefs_id.clone();
                             let up_surface = surface.clone();
                             let up_row = row_id.clone();
@@ -50,7 +55,7 @@ pub(super) fn multi_control(
                             let down_disabled = disabled || idx + 1 == values.len();
                             rsx! {
                                 div { class: "inline-flex items-center gap-1",
-                                    span { class: "text-xs text-muted-foreground", "{current}" }
+                                    span { class: "text-xs text-muted-foreground", "{current_label}" }
                                     IconButton {
                                         icon: IconType::ArrowUp,
                                         label: format!("Move {current} up"),
@@ -91,6 +96,7 @@ pub(super) fn multi_control(
                         let value = option.get("value").and_then(Value::as_str).unwrap_or_default().to_owned();
                         let checked = values.iter().any(|current| current == &value);
                         let label = option.get("label").map(text_value).unwrap_or_else(|| value.clone());
+                        let detail = option.get("detail").and_then(Value::as_str);
                         let event_id = prefs_id.clone();
                         let sf = surface.clone();
                         let item = row_id.clone();
@@ -102,12 +108,16 @@ pub(super) fn multi_control(
                                     disabled,
                                     aria_label: label.clone(),
                                     on_checked_change: move |checked| {
+                                        if disabled { return; }
                                         let mut next = current_values.iter().filter(|current| *current != &value).cloned().collect::<Vec<_>>();
                                         if checked { next.push(value.clone()); }
                                         send.call(event("change", &sf, &event_id, json!({"item":item,"value":next})));
                                     },
                                 }
-                                "{label}"
+                                span { class: "flex flex-col",
+                                    span { "{label}" }
+                                    if let Some(detail) = detail { span { class: "text-xs text-muted-foreground", "{detail}" } }
+                                }
                             }
                         }
                     }

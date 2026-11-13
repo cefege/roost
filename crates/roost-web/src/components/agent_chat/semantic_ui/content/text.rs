@@ -2,6 +2,7 @@
 //! Markdown, code, diffs, terminal output and TeX each keep their native
 //! semantics; links and files resolve through the authenticated surface link.
 use super::prop_text;
+use crate::components::agent_chat::markdown_figures::FenceFigures;
 use crate::components::ui::{Markdown, MarkdownSize};
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::semantic_ui::OmpUiNode;
@@ -19,6 +20,18 @@ mod spans;
 /// the same treatment `seg` nodes get; a plain string falls through to text.
 pub(crate) fn render_spans(value: Option<&Value>, extra_class: &str) -> Element {
     spans::render(value, "", extra_class)
+}
+
+pub(crate) fn render_editor_run(run: &Value, children: Element) -> Element {
+    spans::editor_run(run, children)
+}
+
+pub(crate) fn editor_style_supported(tokens: &str) -> bool {
+    spans::editor_style_supported(tokens)
+}
+
+pub(crate) fn editor_style_classes(tokens: &str) -> Option<String> {
+    spans::editor_style_classes(tokens)
 }
 
 pub(super) fn render(node: &OmpUiNode, expanded: bool) -> Element {
@@ -76,7 +89,11 @@ pub(super) fn render_window(node: &OmpUiNode, range: Range<usize>) -> Element {
 
 fn markdown(node: &OmpUiNode) -> Element {
     let source = prop_text(node, "text");
-    let html = spans::markdown_with_marks(&source, node.p.get("marks"));
+    let html = spans::markdown_with_marks(
+        &source,
+        node.p.get("marks"),
+        &FenceFigures::from_props(node.p.get("mermaid"), node.p.get("svg")),
+    );
     let streaming = node
         .p
         .get("stream")

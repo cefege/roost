@@ -292,6 +292,17 @@ fn omp_host_service(
     if !value.cancelled && value.value.is_empty() {
         return Err("host service request carried no value".to_owned());
     }
+    if !value.cancelled && kind == OmpHostServiceKind::LiveAudio {
+        roost_protocol::wire::agent_chat::OmpLiveAudioRequest::parse_json(&value.value)
+            .map_err(str::to_owned)?;
+    }
+    if !value.cancelled && kind == OmpHostServiceKind::OpenFork {
+        let target = roost_protocol::native_fork::ForkTarget::parse(&value.value)
+            .ok_or_else(|| "invalid OMP fork placement binding".to_owned())?;
+        if target.parent_conversation_id != value.conversation_id {
+            return Err("OMP fork placement belongs to another parent".to_owned());
+        }
+    }
     Ok(OmpHostService {
         service_id: value.service_id,
         origin_request_id: value.origin_request_id,

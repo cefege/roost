@@ -2,11 +2,14 @@
 //!
 //! A verdict is dispatched only while the store still holds the exact service
 //! this view saw. The worker injects the original origin from its own pending
-//! entry; the browser sends only the service id and the verdict.
+//! entry; only successful live preparation may also return transient SDP.
 
 use dioxus::prelude::*;
-use roost_client_core::client::agent_chat::{OmpActionIdentity, OmpHostService};
+use roost_client_core::client::agent_chat::{
+    OmpActionIdentity, OmpHostService, OmpHostServiceKind,
+};
 use roost_client_core::store::complete_omp_host_service;
+use roost_protocol::wire::agent_chat::{MAX_OMP_LIVE_AUDIO_BYTES, OmpLiveAudioRequest};
 use serde_json::{Value, json};
 
 use crate::components::agent_chat::omp_ui_mount_transport::send_omp_ui_request;
@@ -19,11 +22,7 @@ pub(super) fn service_is_pending(pump: &Pump, service: &OmpHostService) -> bool 
     core.store()
         .omp_host
         .service(&service.service_id)
-        .is_some_and(|pending| {
-            pending.conversation_id == service.conversation_id
-                && pending.view_id == service.view_id
-                && pending.transport_id == service.transport_id
-        })
+        .is_some_and(|pending| pending == service)
 }
 
 /// Send a `host_reply`, dropping the prompt once the RPC lands.
@@ -36,14 +35,28 @@ pub(super) fn send_host_reply(
     service: OmpHostService,
     accepted: bool,
     error: Option<String>,
+    value: Option<String>,
     admitted: Option<EventHandler<Result<(), String>>>,
 ) -> bool {
     if !service_is_pending(&pump, &service) {
         return false;
     }
+    let prepare = accepted
+        && service.kind == OmpHostServiceKind::LiveAudio
+        && OmpLiveAudioRequest::parse_json(&service.value)
+            .is_ok_and(|request| request.is_prepare());
+    if match value.as_ref() {
+        Some(value) => !prepare || value.is_empty() || value.len() > MAX_OMP_LIVE_AUDIO_BYTES,
+        None => prepare,
+    } {
+        return false;
+    }
     let mut params = json!({"serviceId": service.service_id, "accepted": accepted});
     if let Some(error) = error.filter(|_| !accepted) {
         params["error"] = Value::String(error);
+    }
+    if let Some(value) = value {
+        params["value"] = Value::String(value);
     }
     let action = json!({"method": "host_reply", "params": params});
     let identity = OmpActionIdentity {

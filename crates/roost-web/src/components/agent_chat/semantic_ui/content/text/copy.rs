@@ -7,7 +7,7 @@ use dioxus::prelude::*;
 
 #[component]
 pub(super) fn CopyButton(text: String) -> Element {
-    let (copy, copied) = use_copy_clipboard(None);
+    let (copy, copied) = use_copy_clipboard(None, None);
     let copy_text = text.clone();
     rsx! {
         Button {

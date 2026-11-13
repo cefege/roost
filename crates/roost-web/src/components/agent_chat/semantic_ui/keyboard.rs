@@ -8,14 +8,15 @@ pub(super) fn input_data(event: &KeyboardEvent) -> Option<String> {
     {
         use dioxus::web::WebEventExt;
         let native: web_sys::KeyboardEvent = event.data().try_as_web_event()?;
-        let chord = roost_web_terminal::input::dom::key_chord_from_event(&native);
-        roost_web_terminal::input::terminal_key_sequence(&chord, false, 8)
+        encode_for_omp(&roost_web_terminal::input::dom::key_chord_from_event(
+            &native,
+        ))
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
         use roost_web_terminal::input::chord::{KeyChord, KeyKind, Modifiers};
         let modifiers = event.modifiers();
-        let chord = KeyChord {
+        encode_for_omp(&KeyChord {
             kind: KeyKind::from_dom_key(&event.key().to_string()),
             modifiers: Modifiers {
                 shift: modifiers.shift(),
@@ -26,9 +27,20 @@ pub(super) fn input_data(event: &KeyboardEvent) -> Option<String> {
             },
             alt_graph: false,
             is_composing: event.is_composing(),
-        };
-        roost_web_terminal::input::terminal_key_sequence(&chord, false, 8)
+        })
     }
+}
+
+/// OMP negotiates kitty flags without "report all keys", so a real terminal
+/// sends an unmodified (or Shift-only) text key as its character, and OMP's
+/// quick keys compare those raw bytes. Every other key keeps the unambiguous
+/// CSI-u form.
+fn encode_for_omp(chord: &roost_web_terminal::input::chord::KeyChord) -> Option<String> {
+    use roost_web_terminal::input::chord::KeyKind;
+    let modifiers = &chord.modifiers;
+    let plain_text = matches!(chord.kind, KeyKind::Printable(_))
+        && !(modifiers.ctrl || modifiers.alt || modifiers.meta || modifiers.super_key);
+    roost_web_terminal::input::terminal_key_sequence(chord, false, if plain_text { 0 } else { 8 })
 }
 
 pub(super) fn surface_input(event: &KeyboardEvent, modal_open: bool) -> Option<String> {
@@ -96,7 +108,47 @@ pub(super) fn browser_editing_key(event: &KeyboardEvent, text: &str, cursor: usi
 
 #[cfg(test)]
 mod tests {
-    use super::caret_edit_delete;
+    use super::{caret_edit_delete, encode_for_omp};
+    use roost_web_terminal::input::chord::{KeyChord, KeyKind, Modifiers};
+
+    fn chord(key: &str, modifiers: Modifiers) -> KeyChord {
+        KeyChord {
+            kind: KeyKind::from_dom_key(key),
+            modifiers,
+            alt_graph: false,
+            is_composing: false,
+        }
+    }
+
+    #[test]
+    fn text_keys_reach_omp_as_the_bytes_its_terminal_sends() {
+        let shift = Modifiers {
+            shift: true,
+            ..Modifiers::NONE
+        };
+        let ctrl = Modifiers {
+            ctrl: true,
+            ..Modifiers::NONE
+        };
+        assert_eq!(
+            encode_for_omp(&chord("1", Modifiers::NONE)).as_deref(),
+            Some("1")
+        );
+        assert_eq!(encode_for_omp(&chord("A", shift)).as_deref(), Some("A"));
+        assert_eq!(
+            encode_for_omp(&chord(" ", Modifiers::NONE)).as_deref(),
+            Some(" ")
+        );
+        assert_ne!(encode_for_omp(&chord("c", ctrl)).as_deref(), Some("c"));
+        assert_eq!(
+            encode_for_omp(&chord("Enter", Modifiers::NONE)).as_deref(),
+            Some("\x1b[13;1u")
+        );
+        assert_eq!(
+            encode_for_omp(&chord("Escape", Modifiers::NONE)).as_deref(),
+            Some("\x1b[27;1u")
+        );
+    }
 
     #[test]
     fn delete_keys_over_an_empty_caret_side_belong_to_the_program() {

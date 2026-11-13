@@ -5,6 +5,7 @@
 use super::ViewOrigin;
 use crate::omp::emitter::Emitter;
 use roost_proto::WOmpHostServiceRequest;
+use roost_protocol::wire::agent_chat::{MAX_OMP_LIVE_AUDIO_BYTES, OmpLiveAudioRequest};
 use serde_json::Value;
 use std::collections::HashMap;
 use tokio::time::{Duration, Instant};
@@ -20,6 +21,7 @@ pub(super) const HOST_SERVICE_TIMEOUT: Duration = Duration::from_secs(35);
 struct PendingService {
     origin: ViewOrigin,
     kind: &'static str,
+    expects_value: bool,
     deadline: Instant,
 }
 
@@ -60,6 +62,8 @@ impl HostServices {
             "copy_text" => ("copy_text", MAX_COPY_BYTES),
             "open_url" => ("open_url", MAX_URL_BYTES),
             "open_stats_dashboard" => ("open_stats_dashboard", MAX_URL_BYTES),
+            "open_fork" => ("open_fork", 512),
+            "live_audio" => ("live_audio", MAX_OMP_LIVE_AUDIO_BYTES),
             _ => return Err("unsupported host service kind"),
         };
         let value = fields
@@ -72,10 +76,18 @@ impl HostServices {
             return Err("host service value is empty or too large");
         }
         if kind == "open_stats_dashboard"
-            && roost_protocol::native_dashboard::parse_dashboard_origin(value).is_none()
+            && roost_protocol::native_dashboard::DashboardOpen::parse(value).is_none()
         {
             return Err("the stats dashboard host is not reachable through the hosted bridge");
         }
+        if kind == "open_fork" && roost_protocol::native_fork::ForkOpen::parse(value).is_none() {
+            return Err("invalid source fork identity");
+        }
+        let expects_value = if kind == "live_audio" {
+            OmpLiveAudioRequest::parse_json(value)?.is_prepare()
+        } else {
+            false
+        };
         let request = WOmpHostServiceRequest {
             conversation_id: emitter.conversation_id.clone(),
             service_id: service_id.clone(),
@@ -96,6 +108,7 @@ impl HostServices {
             PendingService {
                 origin,
                 kind,
+                expects_value,
                 deadline: Instant::now() + HOST_SERVICE_TIMEOUT,
             },
         );
@@ -123,6 +136,18 @@ impl HostServices {
         if !accepted && error.is_empty() {
             return None;
         }
+        let value = fields.get("value");
+        if accepted && pending.expects_value {
+            let value = value?.as_str()?;
+            if value.trim().is_empty()
+                || value.len() > MAX_OMP_LIVE_AUDIO_BYTES
+                || value.contains('\0')
+            {
+                return None;
+            }
+        } else if value.is_some() {
+            return None;
+        }
         let pending = self.pending.remove(service_id)?;
         let error = if accepted {
             ""
@@ -132,7 +157,7 @@ impl HostServices {
                 .nth(MAX_ERROR_CHARS)
                 .map_or(error.len(), |(at, _)| at)]
         };
-        Some(serde_json::json!({
+        let mut notification = serde_json::json!({
             "origin": {
                 "requestId": pending.origin.request_id,
                 "viewId": pending.origin.view_id,
@@ -141,7 +166,11 @@ impl HostServices {
             "serviceId": service_id,
             "accepted": accepted,
             "error": error,
-        }))
+        });
+        if let Some(value) = value {
+            notification["value"] = value.clone();
+        }
+        Some(notification)
     }
 
     /// The native action withdrew its own request before any reply arrived.

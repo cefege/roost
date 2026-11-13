@@ -19,6 +19,7 @@ use super::overlay_render;
 #[component]
 pub(super) fn NativeRegions(
     surface_id: String,
+    surface_sequence: u64,
     conversation_id: String,
     view_id: String,
     pump: Pump,
@@ -50,8 +51,6 @@ pub(super) fn NativeRegions(
     let hidden_content = covered || has_modal_layer;
     let prompts_root = show_host_services && !covered && !has_modal_layer && !screen;
     let prompts_screen = show_host_services && !covered && !has_modal_layer && screen;
-    let dock_overlays =
-        overlay_render::non_modal_dock(&overlays, &surface_id, covered || has_modal_layer);
     let surface_overlays =
         overlay_render::non_modal_surface(&overlays, &surface_id, covered || has_modal_layer);
     let modals = if covered {
@@ -94,7 +93,6 @@ pub(super) fn NativeRegions(
             div {
                 class: "relative mx-auto w-full max-w-reading min-w-0 max-h-full shrink-0",
                 "data-omp-dock": true,
-                {dock_overlays}
                 div { class: "max-h-full overflow-y-auto border-t border-border px-4 pt-2 pb-3 flex flex-col-reverse", {dock} }
             }
             {surface_overlays}
@@ -142,6 +140,7 @@ pub(super) fn NativeRegions(
         div {
             id: "omp-view-{view_id}",
             "data-omp-surface": surface_id.clone(),
+            "data-omp-surface-sequence": "{surface_sequence}",
             class: "{surface_class}",
             {body}
             for modal in modals {

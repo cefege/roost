@@ -1,5 +1,6 @@
 //! Compact native meter and effort indicators.
 //! Values, thresholds, marks and declared presentation styles drive the visuals.
+use super::data_tone::{tone_fill, tone_text};
 use super::prop_text;
 use crate::components::ui::{Progress, UsageRing};
 use dioxus::prelude::*;
@@ -111,11 +112,9 @@ fn meter(node: &OmpUiNode) -> Element {
                         { let amount = part.get("value").and_then(Value::as_f64).unwrap_or(0.0).clamp(0.0, 1.0);
                           let name = part.get("label").and_then(Value::as_str)
                               .or_else(|| part.get("token").and_then(Value::as_str)).unwrap_or("Context");
-                          let class = match part.get("hatch").and_then(Value::as_bool) {
-                              Some(true) => "h-2 bg-primary/50",
-                              _ => "h-2 bg-primary",
-                          };
-                          rsx! { span { class, style: "width: {amount * 100.0}%", title: "{name}", aria_hidden: "true" } }
+                          let fill = tone_fill(part.get("token").and_then(Value::as_str), "accent");
+                          let hatch = if part.get("hatch").and_then(Value::as_bool) == Some(true) { "opacity-50" } else { "opacity-100" };
+                          rsx! { span { class: "h-2 {fill} {hatch}", style: "width: {amount * 100.0}%", title: "{name}", aria_hidden: "true" } }
                         }
                     }
                 }
@@ -136,13 +135,8 @@ fn meter(node: &OmpUiNode) -> Element {
                       let mark_title = mark.get("title").and_then(Value::as_str).unwrap_or("Threshold");
                       let icon_name = mark.get("icon").and_then(Value::as_str).unwrap_or("");
                       let tone = mark.get("tone").and_then(Value::as_str).unwrap_or("muted");
-                      let class = match tone {
-                          "success" => "text-success",
-                          "warning" => "text-warning",
-                          "error" => "text-destructive",
-                          _ => "text-muted-foreground",
-                      };
-                      let title = format!("{mark_title} at {:.0}%", at * 100.0);
+                      let class = tone_text(Some(tone), "muted");
+                      let title = if mark.get("title").is_some() { mark_title.to_owned() } else { format!("Threshold at {:.0}%", at * 100.0) };
                       let icon = super::data::icon_element(icon_name, "size-3");
                       rsx! {
                           span { class: "inline-flex size-2 items-center justify-center {class}",

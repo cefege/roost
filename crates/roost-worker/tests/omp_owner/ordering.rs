@@ -39,7 +39,7 @@ fn assert_contiguous(frames: &[WOmpEvents]) {
 async fn omp_owner_clean_eof_relaunches_without_resetting_event_sequence() {
     let launcher = Arc::new(OrderingLauncher::new(Scenario::Complete));
     let (uplink, mut receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::clone(&launcher), uplink);
+    let owner = OmpOwner::new(Arc::clone(&launcher), uplink, Arc::new(Default::default()));
     owner.prompt(prompt(""));
     let (mut frames, events) = turn(&mut receiver).await;
     assert!(matches!(events.last(), Some(OmpWorkerEvent::TurnEnded {
@@ -81,7 +81,7 @@ async fn omp_owner_clean_eof_relaunches_without_resetting_event_sequence() {
 async fn close_stalled_peer(scenario: Scenario) {
     let launcher = Arc::new(OrderingLauncher::new(scenario));
     let (uplink, _receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::clone(&launcher), uplink);
+    let owner = OmpOwner::new(Arc::clone(&launcher), uplink, Arc::new(Default::default()));
     owner.prompt(prompt(""));
     notified(&launcher.started).await;
     owner.close(DOmpClose {
@@ -108,7 +108,7 @@ async fn omp_owner_close_drops_transport_during_stalled_session_new() {
 async fn omp_owner_prompt_responses_stay_between_adjacent_notification_chunks() {
     let launcher = Arc::new(OrderingLauncher::new(Scenario::OrderedPrompts));
     let (uplink, mut receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::clone(&launcher), uplink);
+    let owner = OmpOwner::new(Arc::clone(&launcher), uplink, Arc::new(Default::default()));
     owner.prompt(prompt(""));
     let mut second = prompt("");
     second.request_id = "req2".into();
@@ -176,7 +176,7 @@ async fn omp_owner_rejects_missing_or_incompatible_semantic_ui_before_session_re
     ] {
         let launcher = Arc::new(OrderingLauncher::new(scenario));
         let (uplink, mut receiver) = uplink::channel();
-        let owner = OmpOwner::new(launcher, uplink);
+        let owner = OmpOwner::new(launcher, uplink, Arc::new(Default::default()));
         owner.prompt(prompt(""));
         let (_, events) = turn(&mut receiver).await;
         assert!(

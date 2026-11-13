@@ -105,7 +105,7 @@ pub(super) fn picker_item(
         },
         div{class:if layout=="cards"{"flex min-w-0 flex-col items-start gap-1"}else{"flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1"},span{class:"flex min-w-0 items-center gap-2 {indent}",if let Some(status)=dot{StatusDot{status}}if let Some(mark)=mark{Badge{variant:BadgeVariant::Secondary,class:Some("shrink-0".into()),"{mark}"}}if let Some(icon)=icon{Badge{variant:BadgeVariant::Muted,class:Some("shrink-0 text-xs".into()),"{icon}"}}if let Some(role)=role{Badge{variant:BadgeVariant::Muted,class:Some("text-xs".into()),"{role}"}}if let Some(node_kind)=node_kind{Badge{variant:BadgeVariant::Outline,class:Some("text-xs".into()),"{node_kind}"}}{render_picker_label(&label,item_hits,mono)}}
             if let Some(detail)=detail {span{class:"text-xs text-muted-foreground","{detail}"}}
-            if let Some(facts)=item.get("facts").and_then(Value::as_object) {{render_picker_facts(facts,columns)}}
+            if let Some(facts)=item.get("facts").and_then(Value::as_object) {{render_picker_facts(facts,columns,surface,id,&item_id)}}
             if let Some(open_label)=is_open.map(|is_open|if is_open{"Open"}else{"Closed"}) {Badge{variant:if open_label=="Open"{BadgeVariant::Secondary}else{BadgeVariant::Muted},class:Some("text-xs".into()),"{open_label}"}}
             if let Some(badges)=item.get("badges").and_then(Value::as_array) {div{class:"flex flex-wrap gap-1",for badge in badges { {let badge_text=badge.get("text").and_then(Value::as_str).unwrap_or_default();let variant=badge.get("tone").and_then(Value::as_str).map(badge_variant).unwrap_or(BadgeVariant::Outline);rsx!{Badge{variant,class:Some("text-xs".into()),"{badge_text}"}}} }}}
             if let Some(chips)=item.get("chips").and_then(Value::as_array) {div{class:"flex flex-wrap gap-1",for chip in chips { {let chip_text=chip.get("text").and_then(Value::as_str).unwrap_or_default();let variant=if chip.get("on").and_then(Value::as_bool)==Some(true){BadgeVariant::Secondary}else{BadgeVariant::Muted};rsx!{Badge{variant,class:Some("text-xs".into()),"{chip_text}"}}} }}}
@@ -116,12 +116,28 @@ pub(super) fn picker_item(
 fn render_picker_facts(
     facts: &serde_json::Map<String, Value>,
     columns: Option<&[Value]>,
+    surface: &str,
+    node: &str,
+    item: &str,
 ) -> Element {
     if let Some(columns) = columns {
         rsx! {div{class:"flex flex-wrap gap-x-3 text-xs text-muted-foreground",for column in columns{
             if let Some(key)=column.get("id").and_then(Value::as_str){
                 if let Some(value)=facts.get(key){
-                    {let label=column.get("head").and_then(Value::as_str).unwrap_or(key);let text=text_value(value);let title=column.get("head").and_then(Value::as_str);rsx!{span{title,"{label}: {text}"}}}
+                    {
+                        let label = column.get("head").and_then(Value::as_str).unwrap_or(key);
+                        let title = column.get("head").and_then(Value::as_str);
+                        let clocked = column.get("format").and_then(Value::as_str) == Some("elapsed") && value.as_f64().is_some();
+                        rsx! { span { title, "{label}: "
+                            if clocked {
+                                super::super::elapsed_clock::NativeElapsed {
+                                    surface: surface.to_owned(), node: node.to_owned(),
+                                    fact: Some((item.to_owned(), key.to_owned())),
+                                }
+                            } else if let Some(compact) = compact_column_number(column, value) { {compact} }
+                            else { {text_value(value)} }
+                        } }
+                    }
                 }
             }
         }}}
@@ -130,6 +146,33 @@ fn render_picker_facts(
             {let text=text_value(value);rsx!{span{"{key}: {text}"}}}
         }}}
     }
+}
+
+/// `num` columns print the TUI's compact form (32000 → "32k"); values under 1,000 keep their literal text.
+fn compact_column_number(column: &Value, value: &Value) -> Option<String> {
+    if column.get("format").and_then(Value::as_str) != Some("num") {
+        return None;
+    }
+    let number = value
+        .as_f64()
+        .filter(|number| number.is_finite() && *number >= 1_000.0)?;
+    let (scaled, suffix) = if number < 1_000_000.0 {
+        (number / 1_000.0, 'k')
+    } else if number < 1_000_000_000.0 {
+        (number / 1_000_000.0, 'm')
+    } else {
+        (number / 1_000_000_000.0, 'b')
+    };
+    let digits = if scaled < 10.0 {
+        let tenths = format!("{scaled:.1}");
+        match tenths.strip_suffix(".0") {
+            Some(whole) => whole.to_owned(),
+            None => tenths,
+        }
+    } else {
+        format!("{:.0}", scaled.round())
+    };
+    Some(format!("{digits}{suffix}"))
 }
 
 fn render_picker_label(label: &str, hits: Option<&Value>, mono: bool) -> Element {
@@ -213,7 +256,23 @@ pub(super) fn dot_status(tone: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::utf16_byte_offset;
+    use super::{compact_column_number, utf16_byte_offset};
+    use serde_json::json;
+
+    #[test]
+    fn num_columns_print_the_compact_context_form() {
+        let column = json!({"id": "ctx", "format": "num"});
+        let compact = |value: u64| compact_column_number(&column, &json!(value));
+        assert_eq!(compact(32_000).as_deref(), Some("32k"));
+        assert_eq!(compact(1_500).as_deref(), Some("1.5k"));
+        assert_eq!(compact(200_000).as_deref(), Some("200k"));
+        assert_eq!(compact(1_000_000).as_deref(), Some("1m"));
+        assert_eq!(compact(999), None);
+        assert_eq!(
+            compact_column_number(&json!({"id": "ctx"}), &json!(32_000)),
+            None
+        );
+    }
 
     #[test]
     fn picker_hits_resolve_utf16_boundaries_without_splitting_surrogates() {

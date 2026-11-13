@@ -16,11 +16,33 @@ pub(super) fn open_omp_ui_action(
     reduce_motion: bool,
     reset: bool,
 ) -> Value {
-    let mut action = json!({"method":"open","params":{"cols":cols,"rows":rows,"dark":dark,"reduceMotion":reduce_motion,"features":["send","undo","scroll"],"kinds":["col","row","card","section","rule","spacer","text","md","code","diff","ansi","math","image","media","kv","table","tree","json","badge","kbd","icon","spinner","shimmer","elapsed","progress","rate","list","item","tabs","editor","input","button","status","seg","overlay","toast","rows","prefs","tool","checklist","agent","chart","meter","effort"]}});
-    if reset && let Some(params) = action.get_mut("params").and_then(Value::as_object_mut) {
-        params.insert("reset".to_owned(), json!(true));
+    let mut action = json!({"method":"open","params":{"cols":cols,"rows":rows,"dark":dark,"reduceMotion":reduce_motion,"features":["send","undo","scroll"],"kinds":["col","row","card","section","rule","spacer","text","md","code","diff","ansi","math","image","media","kv","table","tree","json","badge","kbd","icon","spinner","shimmer","elapsed","progress","rate","list","item","tabs","editor","input","button","status","seg","overlay","toast","rows","picker","prefs","tool","checklist","agent","chart","meter","effort"]}});
+    if let Some(params) = action.get_mut("params").and_then(Value::as_object_mut) {
+        if reset {
+            params.insert("reset".to_owned(), json!(true));
+        }
+        // OMP formats timestamps on the worker; only the browser knows the reader's clock.
+        if let Some(hour12) = browser_hour12() {
+            params.insert("hour12".to_owned(), json!(hour12));
+        }
     }
     action
+}
+
+fn browser_hour12() -> Option<bool> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let options = js_sys::Object::new();
+        js_sys::Reflect::set(&options, &"hour".into(), &"numeric".into()).ok()?;
+        let format = js_sys::Intl::DateTimeFormat::new(&js_sys::Array::new(), &options);
+        js_sys::Reflect::get(&format.resolved_options(), &"hour12".into())
+            .ok()?
+            .as_bool()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        None
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -63,13 +85,15 @@ pub(super) fn observe_omp_viewport(
 pub(super) fn current_dark_theme() -> bool {
     #[cfg(target_arch = "wasm32")]
     {
-        return web_sys::window()
+        web_sys::window()
             .and_then(|window| window.document())
             .and_then(|document| document.document_element())
-            .is_some_and(|element| element.class_list().contains("dark"));
+            .is_some_and(|element| element.class_list().contains("dark"))
     }
     #[cfg(not(target_arch = "wasm32"))]
-    false
+    {
+        false
+    }
 }
 
 #[cfg(target_arch = "wasm32")]

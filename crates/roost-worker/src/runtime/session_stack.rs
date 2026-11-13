@@ -101,6 +101,9 @@ pub struct SessionStack {
     /// The durable sink's change signal and the replay barrier: the link
     /// drains it, the boot reconcile awaits it before reading recovery data.
     pub durable_delivery: Arc<DurableDelivery>,
+    /// Stats resources registered by the actual ACP child and shared with HTTP.
+    pub dashboard_resources:
+        Arc<crate::browser_commands::native_dashboard::resources::DashboardResources>,
 }
 
 impl std::fmt::Debug for SessionStack {
@@ -252,6 +255,7 @@ pub fn build(
         attachments,
         capture,
         durable_delivery,
+        dashboard_resources: Arc::new(Default::default()),
     })
 }
 
@@ -293,6 +297,7 @@ impl SessionStack {
             capture: Arc::clone(&self.capture),
             platform,
             searches: Arc::clone(&self.searches),
+            dashboard_resources: Arc::clone(&self.dashboard_resources),
         }
         .into_deps()
     }

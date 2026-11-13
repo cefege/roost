@@ -13,6 +13,10 @@ use super::event;
 use crate::components::hooks::use_copy_clipboard::{copy_text_then, use_copy_clipboard};
 use crate::components::ui::{Button, ButtonSize, ButtonVariant, Kbd};
 
+#[path = "action_effects.rs"]
+mod effects;
+pub(super) use effects::{copy_feedback, open_target};
+
 /// How far apart two primary presses may be and still be one double press, ms.
 pub(super) const DOUBLE_PRESS_WINDOW_MS: f64 = 500.0;
 
@@ -26,6 +30,7 @@ pub(super) struct PointerActions<'a> {
     pub owner: Option<&'a str>,
     pub click: Option<&'a str>,
     pub dblclick: Option<&'a str>,
+    pub selected: Option<&'a str>,
 }
 
 impl<'a> PointerActions<'a> {
@@ -33,6 +38,7 @@ impl<'a> PointerActions<'a> {
         let actions = node.p.get("actions");
         Self {
             owner: Some(node.id.as_str()),
+            selected: None,
             click: actions
                 .and_then(|actions| actions.get("click"))
                 .and_then(Value::as_str)
@@ -48,6 +54,7 @@ impl<'a> PointerActions<'a> {
     /// native select/double-activate pair under the list's own event id.
     pub(super) fn for_list(node: &'a OmpUiNode) -> Self {
         let mut actions = Self::of(node);
+        actions.selected = node.p.get("selected").and_then(Value::as_str);
         if actions.click.is_none() {
             actions.click = Some("select");
         }
@@ -127,11 +134,7 @@ pub(super) fn send_item_action(
     send_selection(send, surface, owner_id, verb, clicked_id);
 }
 
-/// Run a click action: local copy targets stay here, the rest return to OMP.
-///
-/// An `open` target is rendered as a real `NativeLink` by the caller so the
-/// browser owns activation and an unsafe scheme stays inert; reaching this path
-/// means the target has no local payload and is forwarded unchanged.
+/// Local copy/open payloads stay in the browser; missing payloads return to OMP.
 pub(super) fn dispatch_click(
     send: EventHandler<Value>,
     surface: &str,
@@ -143,7 +146,14 @@ pub(super) fn dispatch_click(
 ) {
     match act {
         "copy" => match href {
-            Some(text) => copy_text_then(text, |_| {}),
+            Some(text) => {
+                let settled = copy_feedback();
+                copy_text_then(text, move |accepted| settled.call(accepted));
+            }
+            None => send_action(send, surface, owner_id, act),
+        },
+        "open" => match href {
+            Some(target) => effects::open_native(target),
             None => send_action(send, surface, owner_id, act),
         },
         "toggle" => send_toggle(send, surface, owner_id, !collapsed),
@@ -153,8 +163,7 @@ pub(super) fn dispatch_click(
     }
 }
 
-/// Run a double-press action. Copy still works locally; open stays with the
-/// single-click link because a double press has no anchor to activate.
+/// A double-only action follows the same validation without creating a click.
 pub(super) fn dispatch_double(
     send: EventHandler<Value>,
     surface: &str,
@@ -164,17 +173,7 @@ pub(super) fn dispatch_double(
     href: Option<&str>,
     collapsed: bool,
 ) {
-    match act {
-        "copy" => match href {
-            Some(text) => copy_text_then(text, |_| {}),
-            None => send_action(send, surface, owner_id, act),
-        },
-        "open" => {}
-        "toggle" => send_toggle(send, surface, owner_id, !collapsed),
-        "select" => send_item_action(send, surface, owner_id, "select", clicked_id),
-        "activate" => send_item_action(send, surface, owner_id, "activate", clicked_id),
-        _ => send_action(send, surface, owner_id, act),
-    }
+    dispatch_click(send, surface, owner_id, act, clicked_id, href, collapsed);
 }
 
 /// A press memory that answers whether two presses are one double press.
@@ -210,12 +209,13 @@ pub(super) fn DoubleClickRegion(on_double: EventHandler<()>, children: Element) 
     rsx! {
         div {
             class: "contents",
-            onpointerdown: move |event: PointerEvent| {
+            onpointerup: move |event: PointerEvent| {
                 if event.trigger_button()
                     != Some(dioxus::html::input_data::MouseButton::Primary)
                 {
                     return;
                 }
+                event.stop_propagation();
                 let paired = {
                     let mut presses = presses.write();
                     presses.press(now_ms())
@@ -232,7 +232,7 @@ pub(super) fn DoubleClickRegion(on_double: EventHandler<()>, children: Element) 
 /// The invisible hit target that copies a node's declared `href`.
 #[component]
 pub(super) fn CopyOverlay(text: String, label: String) -> Element {
-    let (copy, _copied) = use_copy_clipboard(None);
+    let (copy, _copied) = use_copy_clipboard(None, Some(copy_feedback()));
     let value = text;
     rsx! {
         Button {
@@ -256,6 +256,7 @@ pub(super) fn CopyOverlay(text: String, label: String) -> Element {
 pub(super) fn NativeCopyButton(
     value: String,
     label: String,
+    #[props(default)] aria_label: Option<String>,
     #[props(default)] icon: Option<String>,
     #[props(default)] keys: Vec<String>,
     #[props(default)] size: ButtonSize,
@@ -264,14 +265,14 @@ pub(super) fn NativeCopyButton(
     #[props(default)] reason: String,
     #[props(default)] pressed: bool,
 ) -> Element {
-    let (copy, copied) = use_copy_clipboard(None);
+    let (copy, copied) = use_copy_clipboard(None, Some(copy_feedback()));
     let text = value;
     let aria = if label.is_empty() {
         reason.clone()
     } else {
         label.clone()
     };
-    let aria_label = (!aria.is_empty()).then_some(aria);
+    let aria_label = aria_label.or_else(|| (!aria.is_empty()).then_some(aria));
     let title = (!reason.is_empty()).then_some(reason);
     rsx! {
         Button {
@@ -295,7 +296,7 @@ pub(super) fn NativeCopyButton(
                 "{label}"
             }
             for key in keys {
-                Kbd { "{key}" }
+                Kbd { "{super::key_hint::keycap(&key)}" }
             }
         }
     }

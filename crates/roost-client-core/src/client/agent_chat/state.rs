@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use super::OmpPresentationClocks;
 use roost_protocol::wire::agent_chat::{
     ChatEvent, ConversationSummary, Transcript, fold_chat_event,
 };
@@ -13,7 +14,27 @@ pub struct LoadedTranscript {
     /// OMP may have changed its available choices without switching models.
     pub settings_seq: u64,
     pub transcript: Transcript,
+    pub presentation_clocks: OmpPresentationClocks,
     pub stale: bool,
+}
+
+impl LoadedTranscript {
+    fn fold_events(&mut self, seq: u64, events: &[ChatEvent], now_ms: u64) {
+        for event in events {
+            fold_chat_event(&mut self.transcript, event);
+            if matches!(event, ChatEvent::Agent { .. }) {
+                self.settings_seq = seq;
+            }
+            if matches!(
+                event,
+                ChatEvent::OmpUi { .. } | ChatEvent::OmpUiReset { .. }
+            ) && self.transcript.omp_ui_error.is_none()
+            {
+                self.presentation_clocks.reconcile(&self.transcript, now_ms);
+            }
+        }
+        self.seq = seq;
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -65,7 +86,7 @@ impl AgentChatState {
         }
     }
 
-    pub fn apply_events(&mut self, id: &str, seq: u64, events: &[ChatEvent]) {
+    pub fn apply_events(&mut self, id: &str, seq: u64, events: &[ChatEvent], now_ms: u64) {
         let Some(loaded) = self.transcripts.get_mut(id) else {
             return;
         };
@@ -76,20 +97,21 @@ impl AgentChatState {
             loaded.stale = true;
             return;
         }
-        for event in events {
-            fold_chat_event(&mut loaded.transcript, event);
-            if matches!(event, ChatEvent::Agent { .. }) {
-                loaded.settings_seq = seq;
-            }
-        }
-        loaded.seq = seq;
+        loaded.fold_events(seq, events, now_ms);
     }
 
     pub fn request_snapshot(&mut self, id: &str, generation: u64) {
         self.snapshot_generations.insert(id.to_owned(), generation);
     }
 
-    pub fn load_snapshot(&mut self, id: String, generation: u64, seq: u64, transcript: Transcript) {
+    pub fn load_snapshot(
+        &mut self,
+        id: String,
+        generation: u64,
+        seq: u64,
+        transcript: Transcript,
+        now_ms: u64,
+    ) {
         if self
             .snapshot_generations
             .get(&id)
@@ -104,12 +126,19 @@ impl AgentChatState {
         {
             return;
         }
+        let mut presentation_clocks = self
+            .transcripts
+            .get_mut(&id)
+            .map(|loaded| std::mem::take(&mut loaded.presentation_clocks))
+            .unwrap_or_default();
+        presentation_clocks.reconcile(&transcript, now_ms);
         self.transcripts.insert(
             id,
             LoadedTranscript {
                 seq,
                 settings_seq: seq,
                 transcript,
+                presentation_clocks,
                 stale: false,
             },
         );
@@ -120,6 +149,7 @@ impl AgentChatState {
         id: &str,
         batches: &[(u64, Vec<ChatEvent>)],
         truncated: bool,
+        now_ms: u64,
     ) {
         let Some(loaded) = self.transcripts.get_mut(id) else {
             return;
@@ -138,13 +168,7 @@ impl AgentChatState {
                 loaded.stale = true;
                 return;
             }
-            for event in events {
-                fold_chat_event(&mut loaded.transcript, event);
-                if matches!(event, ChatEvent::Agent { .. }) {
-                    loaded.settings_seq = *seq;
-                }
-            }
-            loaded.seq = *seq;
+            loaded.fold_events(*seq, events, now_ms);
             applied = true;
         }
         loaded.stale = was_stale && !applied;

@@ -5,6 +5,7 @@ pub mod export;
 mod host_inbox;
 mod intent;
 mod omp_actions;
+mod presentation_clocks;
 mod state;
 
 pub use host_inbox::{
@@ -17,4 +18,5 @@ pub use omp_actions::{
     MAX_PENDING_OMP_ACTIONS, OmpActionClass, OmpActionIdentity, OmpActionQueue, OmpQueuedAction,
     OmpReceiptOutcome, OmpSubmit, classify_action,
 };
+pub use presentation_clocks::{OmpPresentationClocks, OmpTimerKind, OmpTimerReading};
 pub use state::{AgentChatState, LoadedTranscript};

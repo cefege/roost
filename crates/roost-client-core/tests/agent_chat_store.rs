@@ -52,12 +52,12 @@ fn hydration_and_frames_replace_snapshots_and_enforce_sequence() {
     state.hydrate(vec![conversation("a", "/repo", 4)], true);
     assert!(state.host_connected);
     assert!(state.conversations.contains_key("a"));
-    state.load_snapshot("a".into(), 0, 3, transcript());
-    state.apply_events("a", 4, &[]);
+    state.load_snapshot("a".into(), 0, 3, transcript(), 0);
+    state.apply_events("a", 4, &[], 0);
     assert_eq!(state.transcripts["a"].seq, 4);
-    state.apply_events("a", 4, &[]);
+    state.apply_events("a", 4, &[], 0);
     assert_eq!(state.transcripts["a"].seq, 4);
-    state.apply_events("a", 6, &[]);
+    state.apply_events("a", 6, &[], 0);
     assert!(state.transcripts["a"].stale);
     state.hydrate(vec![conversation("a", "/repo", 5)], false);
     assert!(state.transcripts["a"].stale);
@@ -94,16 +94,17 @@ fn snapshot_loaded_transcript_accepts_chat_events_only_when_loaded() {
             run_state: AgentRunState::Running,
             error: None,
         }],
+        0,
     );
-    state.load_snapshot("known".into(), 0, 0, transcript());
-    state.apply_events("known", 1, &[]);
+    state.load_snapshot("known".into(), 0, 0, transcript(), 0);
+    state.apply_events("known", 1, &[], 0);
     assert!(!state.transcripts["known"].stale);
 }
 
 #[test]
 fn event_repair_applies_only_contiguous_batches_and_rejects_stale_snapshots() {
     let mut state = AgentChatState::default();
-    state.load_snapshot("chat".into(), 1, 5, transcript());
+    state.load_snapshot("chat".into(), 1, 5, transcript(), 0);
     state.request_snapshot("chat", 3);
     state.apply_event_batches(
         "chat",
@@ -115,15 +116,16 @@ fn event_repair_applies_only_contiguous_batches_and_rejects_stale_snapshots() {
             }],
         )],
         false,
+        0,
     );
     assert_eq!(state.transcripts["chat"].seq, 6);
     assert!(!state.transcripts["chat"].stale);
 
-    state.load_snapshot("chat".into(), 2, 4, transcript());
+    state.load_snapshot("chat".into(), 2, 4, transcript(), 0);
     assert_eq!(state.transcripts["chat"].seq, 6);
-    state.apply_event_batches("chat", &[(8, vec![])], false);
+    state.apply_event_batches("chat", &[(8, vec![])], false, 0);
     assert!(state.transcripts["chat"].stale);
-    state.apply_event_batches("chat", &[], true);
+    state.apply_event_batches("chat", &[], true, 0);
     assert!(state.transcripts["chat"].stale);
 }
 
@@ -137,12 +139,12 @@ fn omp_config_refresh_invalidates_choices_without_changing_the_selected_model() 
     };
     for repair_batch in [false, true] {
         let mut state = AgentChatState::default();
-        state.load_snapshot("chat".into(), 0, 0, transcript());
+        state.load_snapshot("chat".into(), 0, 0, transcript(), 0);
         let apply = |state: &mut AgentChatState, seq, event: ChatEvent| {
             if repair_batch {
-                state.apply_event_batches("chat", &[(seq, vec![event])], false);
+                state.apply_event_batches("chat", &[(seq, vec![event])], false, 0);
             } else {
-                state.apply_events("chat", seq, &[event]);
+                state.apply_events("chat", seq, &[event], 0);
             }
         };
         apply(&mut state, 1, agent.clone());

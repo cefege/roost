@@ -135,7 +135,7 @@ async fn closing_one_view_preserves_the_other_and_credits_wait_for_durable_ack()
     let (launcher, mut requests) = UiLauncher::new();
     let launcher = Arc::new(launcher);
     let (uplink, mut receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::clone(&launcher), uplink);
+    let owner = OmpOwner::new(Arc::clone(&launcher), uplink, Arc::new(Default::default()));
     let mut document = OmpUiDocument::default();
     owner.ui(open(
         "generation-one",
@@ -230,7 +230,7 @@ async fn stale_transport_frames_cannot_change_the_reconnected_document() {
     let (launcher, mut requests) = UiLauncher::new();
     let launcher = Arc::new(launcher);
     let (uplink, mut receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::clone(&launcher), uplink);
+    let owner = OmpOwner::new(Arc::clone(&launcher), uplink, Arc::new(Default::default()));
     let mut document = OmpUiDocument::default();
     owner.ui(open(
         "old-generation",
@@ -271,7 +271,7 @@ async fn a_stale_expected_transport_cannot_reach_the_live_view() {
     let (launcher, mut requests) = UiLauncher::new();
     let launcher = Arc::new(launcher);
     let (uplink, mut receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::clone(&launcher), uplink);
+    let owner = OmpOwner::new(Arc::clone(&launcher), uplink, Arc::new(Default::default()));
     let mut document = OmpUiDocument::default();
     owner.ui(open(
         "live-generation",

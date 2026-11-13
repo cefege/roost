@@ -18,7 +18,11 @@ pub(crate) fn OmpHostServicePrompts() -> Element {
     let Some(services) = try_use_context::<OmpHostServices>() else {
         return rsx! {};
     };
-    let requests = services.requests();
+    let requests: Vec<_> = services
+        .requests()
+        .into_iter()
+        .filter(|service| service.kind != OmpHostServiceKind::LiveAudio)
+        .collect();
     if requests.is_empty() {
         return rsx! {};
     }
@@ -31,6 +35,7 @@ pub(crate) fn OmpHostServicePrompts() -> Element {
                     let busy = services.is_sending(&service_id);
                     let is_copy = service.kind == OmpHostServiceKind::CopyText;
                     let is_stats = service.kind == OmpHostServiceKind::OpenStatsDashboard;
+                    let is_fork = service.kind == OmpHostServiceKind::OpenFork;
                     let (label, detail) = if is_copy {
                         (
                             "OMP wants to copy text to your clipboard.",
@@ -41,6 +46,11 @@ pub(crate) fn OmpHostServicePrompts() -> Element {
                             "OMP wants to open the stats dashboard from this conversation's worker.",
                             "The dashboard runs on the worker and opens in a separate tab without access to this app's storage or your session.",
                         )
+                    } else if is_fork {
+                        (
+                            "The fork is awaiting browser placement.",
+                            "Open the saved child in its requested pane or browser window. The parent remains unchanged.",
+                        )
                     } else {
                         (
                             "OMP wants to open a link in this browser.",
@@ -50,6 +60,7 @@ pub(crate) fn OmpHostServicePrompts() -> Element {
                     let copy_service = service.clone();
                     let open_service = service.clone();
                     let stats_service = service.clone();
+                    let fork_service = service.clone();
                     let dismiss_service = service.clone();
                     rsx! {
                         Card { size: CardSize::Sm, class: Some("flex flex-wrap items-center gap-3 p-3".into()),
@@ -75,6 +86,14 @@ pub(crate) fn OmpHostServicePrompts() -> Element {
                                     disabled: busy,
                                     onclick: move |_| services.open_stats(stats_service.clone()),
                                     if busy { "Opening…" } else { "Open dashboard" }
+                                }
+                            } else if is_fork {
+                                Button {
+                                    size: ButtonSize::Sm,
+                                    variant: ButtonVariant::Secondary,
+                                    disabled: busy,
+                                    onclick: move |_| services.open_fork(fork_service.clone()),
+                                    if busy { "Opening…" } else { "Open fork" }
                                 }
                             } else {
                                 Button {

@@ -226,6 +226,7 @@ impl WorkerOwners {
                 data_dir.to_path_buf(),
             )),
             uplink.clone(),
+            Arc::clone(&stack.dashboard_resources),
         ));
         let live_metrics = Arc::new(crate::runtime::live_metrics::LiveMetricsOwner::new(
             worker_fingerprint,

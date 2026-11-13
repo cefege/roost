@@ -1,8 +1,7 @@
 //! Native overlay shapes and layer parsing for the browser surface.
-//!
-//! `layer` children are individual overlays, bottom to top. This module reads
-//! the exact wire defaults (`anchor` center, `size` md, `modal` false) and
-//! decides which child is an actual modal sheet; `overlay_render` places them.
+//! Layer children retain their structural wrappers and native z-order.
+//! Explicit overlay, picker and prefs nodes are placement boundaries; ordinary
+//! columns keep their identity, layout props and reveal targets.
 
 use std::collections::BTreeMap;
 
@@ -12,6 +11,9 @@ use serde_json::Value;
 
 use super::nodes::render_node_with_focus;
 use super::prop_text;
+
+#[path = "overlay_options.rs"]
+pub(super) mod options;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum OverlaySize {
@@ -33,6 +35,14 @@ pub(super) enum OverlayAnchor {
     Center,
     Top,
     Bottom,
+    TopLeft,
+    TopRight,
+    TopCenter,
+    BottomLeft,
+    BottomRight,
+    BottomCenter,
+    LeftCenter,
+    RightCenter,
     Node { id: String, side: OverlaySide },
     Caret { id: String },
 }
@@ -46,15 +56,21 @@ pub(super) struct OverlayShape {
     pub head: Option<String>,
     pub role: String,
     pub sheet: bool,
+    pub options: options::OverlayOptions,
 }
 
 #[derive(Clone, PartialEq)]
 pub(super) struct OverlaySlot {
     pub id: String,
     pub content: Element,
+    pub surface_id: String,
     pub shape: OverlayShape,
     pub title: String,
     pub head_visible: bool,
+    pub head_content: Option<Value>,
+    pub boundary: bool,
+    pub children: Vec<OverlaySlot>,
+    pub group: Option<OmpUiNode>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -108,11 +124,11 @@ fn push_slot(
     if hidden(node) {
         return;
     }
+    let mut children = Vec::new();
     if node.k == "col" {
         for child in &node.c {
-            push_slot(child, surface, send, blobs, slots);
+            push_slot(child, surface, send, blobs, &mut children);
         }
-        return;
     }
     if node.k == "overlay" && node.c.is_empty() {
         return;
@@ -133,13 +149,36 @@ fn push_slot(
                 shape.role.clone()
             }
         });
-    let content = render_node_with_focus(node, &surface.id, send, blobs, surface.focus.as_deref());
+    let content = if node.k == "col" {
+        let body = super::layout::render_box(
+            node,
+            &surface.id,
+            *send,
+            blobs,
+            children
+                .iter()
+                .map(|child| super::overlay_render::nested_non_modal(child, &surface.id)),
+        );
+        super::chrome::decorate(node, &surface.id, *send, body)
+    } else {
+        render_node_with_focus(node, &surface.id, send, blobs, surface.focus.as_deref())
+    };
     slots.push(OverlaySlot {
         id: node.id.clone(),
+        surface_id: surface.id.clone(),
         content,
         head_visible: !shape.sheet && shape.head.is_some(),
         shape,
         title,
+        head_content: node.p.get("head").cloned(),
+        boundary: matches!(node.k.as_str(), "overlay" | "picker" | "prefs"),
+        children,
+        group: (node.k == "col").then(|| OmpUiNode {
+            id: node.id.clone(),
+            k: node.k.clone(),
+            p: node.p.clone(),
+            c: Vec::new(),
+        }),
     });
 }
 
@@ -174,11 +213,21 @@ fn modal_child(node: &OmpUiNode) -> bool {
 }
 
 pub(super) fn has_modal_layer(slots: &[OverlaySlot]) -> bool {
-    slots.iter().any(|slot| slot.shape.modal)
+    slots
+        .iter()
+        .any(|slot| slot.shape.modal || has_modal_layer(&slot.children))
 }
 
-pub(super) fn highest_modal(slots: &[OverlaySlot]) -> Option<usize> {
-    slots.iter().rposition(|slot| slot.shape.modal)
+pub(super) fn modal_slots(slots: &[OverlaySlot]) -> Vec<&OverlaySlot> {
+    let mut modals = Vec::new();
+    for slot in slots {
+        if slot.shape.modal {
+            modals.push(slot);
+        } else {
+            modals.extend(modal_slots(&slot.children));
+        }
+    }
+    modals
 }
 
 fn hidden(node: &OmpUiNode) -> bool {
@@ -204,14 +253,17 @@ pub(super) fn overlay_shape(node: &OmpUiNode) -> OverlayShape {
             .unwrap_or_default()
             .to_owned(),
         sheet: false,
+        options: options::OverlayOptions::parse(&node.p),
     }
 }
 
 pub(super) fn sheet_shape(node: &OmpUiNode) -> OverlayShape {
+    // OMP's settings and advisor panels own the whole terminal frame, so the
+    // browser sheet is fullscreen rather than sized to its rows.
     let size = if node.k == "picker" {
         parse_size(node.p.get("size"))
     } else {
-        OverlaySize::Lg
+        OverlaySize::Full
     };
     OverlayShape {
         anchor: OverlayAnchor::Center,
@@ -226,6 +278,7 @@ pub(super) fn sheet_shape(node: &OmpUiNode) -> OverlayShape {
             .unwrap_or_default()
             .to_owned(),
         sheet: true,
+        options: options::OverlayOptions::default(),
     }
 }
 
@@ -243,6 +296,14 @@ fn parse_anchor(value: Option<&Value>) -> OverlayAnchor {
         Some(Value::String(name)) => match name.as_str() {
             "top" => OverlayAnchor::Top,
             "bottom" => OverlayAnchor::Bottom,
+            "top-left" => OverlayAnchor::TopLeft,
+            "top-right" => OverlayAnchor::TopRight,
+            "top-center" => OverlayAnchor::TopCenter,
+            "bottom-left" => OverlayAnchor::BottomLeft,
+            "bottom-right" => OverlayAnchor::BottomRight,
+            "bottom-center" => OverlayAnchor::BottomCenter,
+            "left-center" => OverlayAnchor::LeftCenter,
+            "right-center" => OverlayAnchor::RightCenter,
             _ => OverlayAnchor::Center,
         },
         Some(Value::Object(anchor)) => {

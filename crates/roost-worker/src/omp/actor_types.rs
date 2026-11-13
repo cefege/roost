@@ -24,6 +24,7 @@ pub(super) enum AcpEvent {
     HostService(serde_json::Value),
     /// The native action withdrew its own request (its own timeout).
     HostServiceCancel(serde_json::Value),
+    DashboardResource(serde_json::Value),
     UiCompleted {
         method: &'static str,
         transport_id: String,

@@ -75,7 +75,7 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
     let navigate = use_navigate();
     let compact = use_is_compact();
     let notify_target = use_context::<NotifyTarget>();
-    let (copy_to_clipboard, copied) = use_copy_clipboard(None);
+    let (copy_to_clipboard, copied) = use_copy_clipboard(None, None);
     let mut copied_text = use_signal(|| None::<String>);
     let held = use_signal(|| false);
 

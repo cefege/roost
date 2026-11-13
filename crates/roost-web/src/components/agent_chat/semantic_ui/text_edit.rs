@@ -240,6 +240,42 @@ pub(super) fn current_value(id: &str) -> Option<String> {
     }
 }
 
+pub(super) fn mark_composing(id: &str, composing: bool) {
+    #[cfg(target_arch = "wasm32")]
+    if let Some(element) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.get_element_by_id(id))
+    {
+        if composing {
+            let _ = element.set_attribute("data-omp-composing", "true");
+        } else {
+            let _ = element.remove_attribute("data-omp-composing");
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (id, composing);
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+fn selection_range(
+    cursor: Option<usize>,
+    anchor: Option<usize>,
+) -> Option<(u32, u32, &'static str)> {
+    let cursor = u32::try_from(cursor?).ok()?;
+    let anchor = anchor
+        .and_then(|value| u32::try_from(value).ok())
+        .unwrap_or(cursor);
+    Some((
+        cursor.min(anchor),
+        cursor.max(anchor),
+        if cursor < anchor {
+            "backward"
+        } else {
+            "forward"
+        },
+    ))
+}
+
 pub(super) fn set_selection(id: &str, cursor: Option<usize>, anchor: Option<usize>) {
     #[cfg(target_arch = "wasm32")]
     {
@@ -250,22 +286,10 @@ pub(super) fn set_selection(id: &str, cursor: Option<usize>, anchor: Option<usiz
         else {
             return;
         };
-        let range = cursor
-            .and_then(|value| u32::try_from(value).ok())
-            .map(|cursor| {
-                let anchor = anchor
-                    .and_then(|value| u32::try_from(value).ok())
-                    .unwrap_or(cursor);
-                (
-                    cursor.min(anchor),
-                    cursor.max(anchor),
-                    if cursor < anchor {
-                        "backward"
-                    } else {
-                        "forward"
-                    },
-                )
-            });
+        if element.has_attribute("data-omp-composing") {
+            return;
+        }
+        let range = selection_range(cursor, anchor);
         if let Some(input) = element.dyn_ref::<web_sys::HtmlInputElement>() {
             let _ = input.focus();
             if let Some((start, end, direction)) = range {
@@ -287,6 +311,22 @@ pub(super) fn set_selection(id: &str, cursor: Option<usize>, anchor: Option<usiz
 #[cfg(test)]
 mod tests {
     use super::{diff_bounds, grapheme_count, grapheme_to_utf16, utf16_to_grapheme};
+
+    #[test]
+    fn selection_anchor_can_extend_reverse_and_collapse_without_moving_caret() {
+        assert_eq!(
+            super::selection_range(Some(3), Some(0)),
+            Some((0, 3, "forward"))
+        );
+        assert_eq!(
+            super::selection_range(Some(3), Some(5)),
+            Some((3, 5, "backward"))
+        );
+        assert_eq!(
+            super::selection_range(Some(3), None),
+            Some((3, 3, "forward"))
+        );
+    }
 
     #[test]
     fn edit_ranges_use_utf16_offsets() {

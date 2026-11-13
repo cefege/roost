@@ -1,12 +1,17 @@
 //! Leaf renderers for simple semantic data kinds.
 //! Structured tables, trees, charts, and meters live in their own sibling modules.
-use super::{duration, prop_text, text_value, tone_variant};
-use crate::components::ui::{Badge, Icon, IconType, Kbd, Progress, Spinner, StatusDot};
+use super::super::elapsed_clock::{NativeElapsed, PropElapsed};
+use super::{prop_text, render_spans, text_value, tone_variant};
+use crate::components::agent_chat::output_lines::{render_run, styled_rows};
+use crate::components::ui::{Badge, Icon, IconType, Kbd, Progress, Spinner};
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::semantic_ui::OmpUiNode;
 use serde_json::Value;
 
-pub(super) fn render(node: &OmpUiNode) -> Element {
+#[path = "status.rs"]
+mod status;
+
+pub(super) fn render(node: &OmpUiNode, surface: &str) -> Element {
     match node.k.as_str() {
         "kv" | "table" => super::data_table::render(node),
         "tree" | "json" => super::data_table::render(node),
@@ -16,10 +21,9 @@ pub(super) fn render(node: &OmpUiNode) -> Element {
         "kbd" => kbd(node),
         "icon" => icon(node),
         "spinner" => spinner(node),
-        "elapsed" => elapsed(node),
+        "elapsed" => elapsed(node, surface),
         "progress" => progress(node),
         "rate" => rate(node),
-        "status" => status(node),
         "rows" => rows(node),
         _ => rsx! { span {} },
     }
@@ -53,6 +57,17 @@ pub(super) fn icon_element(name: &str, size: &str) -> Element {
         "branch" | "git-branch" => IconType::GitBranch,
         "context.speculation" => IconType::Sparkles,
         "context.compaction" => IconType::Archive,
+        "appearance" => IconType::Palette,
+        "model" => IconType::Bot,
+        "interaction" => IconType::Keyboard,
+        "context" => IconType::Layers,
+        "memory" => IconType::Brain,
+        "files" => IconType::FolderOpen,
+        "shell" => IconType::Terminal,
+        "tools" => IconType::Wrench,
+        "tasks" => IconType::ListChecks,
+        "providers" => IconType::Cloud,
+        "plugins" => IconType::Package,
         _ => IconType::CircleHelp,
     };
     rsx! { Icon { icon, class: Some(size.to_owned()) } }
@@ -76,63 +91,56 @@ fn kbd(node: &OmpUiNode) -> Element {
     let keys = node.p.get("keys").and_then(Value::as_array);
     rsx! {
         crate::components::ui::KbdGroup {
-            for key in keys.into_iter().flatten() { Kbd { "{text_value(key)}" } }
+            for key in keys.into_iter().flatten() { Kbd { "{super::super::key_hint::keycap(&text_value(key))}" } }
         }
     }
 }
 
 fn spinner(node: &OmpUiNode) -> Element {
-    let label = prop_text(node, "label");
+    let label = node.p.get("label");
     rsx! {
         span { class: "inline-flex items-center gap-2",
             Spinner {}
-            if !label.is_empty() { span { class: "text-sm", "{label}" } }
+            {render_spans(label, "")}
         }
     }
 }
 
-fn elapsed(node: &OmpUiNode) -> Element {
-    let age = node.p.get("age").and_then(Value::as_f64).unwrap_or(0.0);
-    let stopped = node.p.get("stopped").and_then(Value::as_f64);
-    let milliseconds = stopped.unwrap_or(age);
+fn elapsed(node: &OmpUiNode, surface: &str) -> Element {
     let format = node
         .p
         .get("format")
         .and_then(Value::as_str)
-        .unwrap_or("short");
-    let label = if format == "clock" {
-        let seconds = (milliseconds.max(0.0) / 1000.0).floor() as u64;
-        format!(
-            "{:02}:{:02}:{:02}",
-            seconds / 3600,
-            (seconds / 60) % 60,
-            seconds % 60
-        )
-    } else {
-        duration(milliseconds)
-    };
-    rsx! {
-        time {
-            "{label}"
-            if stopped.is_none() { span { class: "sr-only", " elapsed and counting" } }
-        }
+        .unwrap_or("short")
+        .to_owned();
+    if node.id.is_empty() {
+        let number = |key: &str| {
+            node.p
+                .get(key)
+                .and_then(Value::as_f64)
+                .filter(|value| value.is_finite())
+        };
+        return match number("age") {
+            Some(age) => rsx! { PropElapsed { age, stopped: number("stopped"), format } },
+            None => {
+                rsx! { span { role: "alert", class: "text-destructive", "OMP timer unavailable" } }
+            }
+        };
     }
+    rsx! { NativeElapsed { surface: surface.to_owned(), node: node.id.clone(), format } }
 }
 
 fn progress(node: &OmpUiNode) -> Element {
     let value = node.p.get("value").and_then(Value::as_f64);
-    let label = match prop_text(node, "label") {
-        label if label.is_empty() => "Progress".to_owned(),
-        label => label,
-    };
-    if let Some(value) = value {
-        rsx! { Progress { value: Some(value.clamp(0.0, 1.0)), label, class: Some("w-full".into()) } }
-    } else {
-        rsx! {
-            div { class: "flex items-center gap-2",
-                Progress { value: None, label: label.clone(), class: Some("w-full".into()) }
-                span { class: "text-xs text-muted-foreground", "Indeterminate" }
-            }
+    let native_label = node.p.get("label");
+    let label = native_label
+        .map(text_value)
+        .filter(|label| !label.is_empty())
+        .unwrap_or_else(|| "Progress".to_owned());
+    rsx! {
+        div { class: "flex min-w-0 flex-col gap-1",
+            {render_spans(native_label, "")}
+            Progress { value: value.map(|value| value.clamp(0.0, 1.0)), label, class: Some("w-full".into()) }
         }
     }
 }
@@ -140,46 +148,22 @@ fn progress(node: &OmpUiNode) -> Element {
 fn rate(node: &OmpUiNode) -> Element {
     let value = node.p.get("value").and_then(Value::as_f64).unwrap_or(0.0);
     let unit = prop_text(node, "unit");
-    rsx! { span { class: "text-sm tabular-nums", "{value} {unit}" } }
+    rsx! { span { class: "text-sm tabular-nums", "{value:.1} {unit}" } }
 }
 
-fn status(node: &OmpUiNode) -> Element {
-    let text = node
-        .p
-        .get("spans")
-        .or_else(|| node.p.get("text"))
-        .map(text_value)
-        .unwrap_or_default();
-    let label = if text.is_empty() {
-        prop_text(node, "label")
-    } else {
-        text
-    };
-    let status = node
-        .p
-        .get("tone")
-        .and_then(Value::as_str)
-        .unwrap_or("muted")
-        .to_owned();
-    let transparent = node
-        .p
-        .get("transparent")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    rsx! {
-        span { class: "inline-flex items-center gap-2",
-            StatusDot { status, hollow: transparent, title: None }
-            span { class: "text-sm", "{label}" }
-        }
-    }
+pub(super) fn render_status(node: &OmpUiNode, children: Vec<Element>) -> Element {
+    status::render(node, children)
 }
 
 fn rows(node: &OmpUiNode) -> Element {
-    let lines = node.p.get("lines").and_then(Value::as_array);
+    let rows = node.p.get("lines").and_then(Value::as_array);
+    let lines = styled_rows(rows.into_iter().flatten().filter_map(Value::as_str));
     rsx! {
-        div { class: "flex flex-col gap-1",
-            for line in lines.into_iter().flatten() {
-                p { class: "whitespace-pre-wrap text-sm", "{text_value(line)}" }
+        pre { class: "m-0 max-w-full overflow-x-auto bg-terminal font-mono text-xs text-terminal-foreground",
+            for line in &lines {
+                div { class: "min-h-lh whitespace-pre",
+                    for run in &line.runs { {render_run(run)} }
+                }
             }
         }
     }

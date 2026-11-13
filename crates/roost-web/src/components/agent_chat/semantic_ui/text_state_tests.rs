@@ -63,7 +63,7 @@ fn delayed_typing_ack_does_not_move_caret_or_replace_newer_text() {
 }
 
 #[test]
-fn submit_never_sends_a_partial_draft_or_resurrects_cleared_text() {
+fn enter_waits_for_the_complete_native_draft_and_accepts_the_canonical_clear() {
     let mut state = NativeTextState::new(String::new(), Some(0));
     state.edit("/m".into(), 2);
     assert!(matches!(
@@ -71,7 +71,7 @@ fn submit_never_sends_a_partial_draft_or_resurrects_cleared_text() {
         Some(TextCommand::Edit { .. })
     ));
     state.edit("/models".into(), 7);
-    state.queue_send();
+    state.queue_input("\r".into(), None);
     assert!(state.blocks_input());
     assert!(state.next_command(true).is_none());
     state.observe("/m", Some(2), None, false);
@@ -80,10 +80,10 @@ fn submit_never_sends_a_partial_draft_or_resurrects_cleared_text() {
         Some(TextCommand::Edit { .. })
     ));
     state.observe("/models", Some(7), None, false);
-    let Some(TextCommand::Send(text)) = state.next_command(true) else {
-        panic!("Only the complete native draft may cross the submit barrier");
+    let Some(TextCommand::Input { data, .. }) = state.next_command(true) else {
+        panic!("Only the complete native draft may precede Enter");
     };
-    assert_eq!(text.as_str(), "/models");
+    assert_eq!(data, "\r");
     assert!(state.next_command(true).is_none());
     assert!(state.observe("", Some(0), None, false));
     assert_eq!(state.value(), "");
@@ -94,10 +94,10 @@ fn submit_never_sends_a_partial_draft_or_resurrects_cleared_text() {
 #[test]
 fn coalesced_clear_and_native_typeahead_release_submission_barrier() {
     let mut state = NativeTextState::new("previous prompt".into(), Some(15));
-    state.queue_send();
+    state.queue_input("\r".into(), None);
     assert!(matches!(
         state.next_command(true),
-        Some(TextCommand::Send(_))
+        Some(TextCommand::Input { .. })
     ));
     assert!(state.observe("next", Some(4), None, false));
     assert_eq!(state.value(), "next");
@@ -286,45 +286,33 @@ fn bounded_queue_rejects_more_keys_without_dropping_earlier_ones() {
 }
 
 #[test]
-fn completed_send_releases_the_barrier_only_after_the_queue_drains() {
+fn discarding_a_blocked_submit_preserves_edits_and_their_exact_acknowledgment() {
     let mut state = NativeTextState::new("draft".into(), Some(5));
-    state.queue_send();
-    let Some(TextCommand::Send(_)) = state.next_command(true) else {
-        panic!("send");
+    state.observe("draft", Some(5), None, false);
+    state.edit("draft!".into(), 6);
+    let Some(TextCommand::Edit { token, .. }) = state.next_command(true) else {
+        panic!("typed edit");
     };
-    state.set_send_base(7);
-    assert!(
-        !state.release_send(7, true),
-        "an unchanged receipt count must not release"
-    );
-    assert!(
-        !state.release_send(8, false),
-        "a busy queue must not release"
-    );
-    assert!(state.release_send(8, true));
-    assert!(!state.awaiting_send());
-    assert_eq!(state.value(), "draft");
-    assert!(
-        state.next_command(true).is_none(),
-        "a released send must not resurrect the draft"
-    );
-}
-
-#[test]
-fn send_completion_never_resurrects_a_native_clear() {
-    let mut state = NativeTextState::new("draft".into(), Some(5));
-    state.queue_send();
-    assert!(matches!(
-        state.next_command(true),
-        Some(TextCommand::Send(_))
-    ));
-    state.set_send_base(2);
-    assert!(state.observe("", Some(0), None, false));
-    assert_eq!(state.value(), "");
-    state.release_send(3, true);
-    assert_eq!(state.value(), "");
-    assert!(!state.blocks_input());
+    state.edit("draft!!".into(), 7);
+    state.queue_input("\r".into(), None);
+    state.discard_actions();
     assert!(state.next_command(true).is_none());
+    assert!(!state.observe(
+        "draft!",
+        Some(6),
+        Some(super::EditAck {
+            token,
+            ok: true,
+            cursor: Some(6),
+        }),
+        false
+    ));
+    let Some(TextCommand::Edit { old, new, .. }) = state.next_command(true) else {
+        panic!("buffered draft survives discarded send");
+    };
+    assert_eq!(old.as_str(), "draft!");
+    assert_eq!(new.as_str(), "draft!!");
+    assert!(!state.blocks_input());
 }
 
 #[test]

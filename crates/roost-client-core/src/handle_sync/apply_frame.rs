@@ -341,7 +341,9 @@ pub(super) fn apply_frame(
             seq,
             events,
         } => {
-            store.agent_chat.apply_events(conversation_id, *seq, events);
+            store
+                .agent_chat
+                .apply_events(conversation_id, *seq, events, now_ms);
             store.note_change();
         }
         SyncFrame::WorkerLiveMetrics { frame } => {

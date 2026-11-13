@@ -19,10 +19,8 @@ const SETTLE_ROUNDS: usize = 6;
 #[component]
 fn ProbeRoot(renders: Rc<Cell<u32>>) -> Element {
     let error = use_signal(|| None::<String>);
-    let pending = use_signal(|| false);
-    let completed = use_signal(|| 0_u64);
     let send = EventHandler::new(|_: Value| {});
-    use_context_provider(|| TextSync::new(send, error, pending, completed));
+    use_context_provider(|| TextSync::new(send, error));
     rsx! { FieldProbe{renders} }
 }
 

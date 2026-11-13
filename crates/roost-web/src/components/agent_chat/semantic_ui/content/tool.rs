@@ -7,6 +7,7 @@
 //! disclosure owner, so children never grow an independent collapse control.
 
 use super::super::body_preview::{self, Preview};
+use super::super::elapsed_clock::NativeElapsed;
 use super::super::links::NativeLink;
 use super::render_icon;
 use super::{duration, event, prop_text, text_value, tone_variant};
@@ -16,6 +17,7 @@ use crate::components::ui::{
     CollapsibleContent, CollapsibleTrigger, Kbd, KbdGroup, Spinner, button_class,
 };
 use dioxus::prelude::*;
+use roost_client_core::client::agent_chat::OmpTimerKind;
 use roost_protocol::wire::agent_chat::semantic_ui::{OmpUiBlob, OmpUiNode};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -26,32 +28,49 @@ pub(super) fn render(
     send: &EventHandler<Value>,
     blobs: &BTreeMap<String, OmpUiBlob>,
 ) -> Element {
-    let send = *send;
-    let inline = node.p.get("frame").and_then(Value::as_str) == Some("inline");
     let collapsible = node
         .p
         .get("collapsible")
         .and_then(Value::as_bool)
         .unwrap_or(!node.c.is_empty());
+    let collapsed = node.p.get("collapsed").and_then(Value::as_bool) == Some(true);
+    let body = if !collapsible || !collapsed {
+        body_preview::render_full(node.c.iter(), surface, send, blobs)
+    } else {
+        body_preview::render_body(node.c.iter(), surface, send, blobs, Preview::for_tool(node))
+    };
+    render_frame(node, surface, Some((surface, *send)), body)
+}
+
+pub(super) fn render_readonly(node: &OmpUiNode, surface: &str, body: Element) -> Element {
+    render_frame(node, surface, None, body)
+}
+
+fn render_frame(
+    node: &OmpUiNode,
+    surface: &str,
+    action_target: Option<(&str, EventHandler<Value>)>,
+    body: Element,
+) -> Element {
+    let collapsible = node
+        .p
+        .get("collapsible")
+        .and_then(Value::as_bool)
+        .unwrap_or(!node.c.is_empty())
+        && action_target.is_some();
     let collapsed = node
         .p
         .get("collapsed")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let preview = Preview::for_tool(node);
     let intent = prop_text(node, "intent");
     let status = prop_text(node, "status");
     let live = matches!(status.as_str(), "running" | "pending");
     let target = prop_text(node, "target");
     let copy_text = copy_text(node);
-    let body = if !collapsible || !collapsed {
-        body_preview::render_full(node.c.iter(), surface, &send, blobs)
-    } else {
-        body_preview::render_body(node.c.iter(), surface, &send, blobs, preview)
-    };
-    let head = tool_head(node, &status, &target, &intent, live);
+    let head = tool_head(node, surface, &status, &target, &intent, live);
     let details = tool_details(node);
-    let actions = tool_actions(node, surface, &send, &copy_text);
+    let actions = tool_actions(node, action_target, &copy_text);
     let head_title = if live { String::new() } else { intent.clone() };
     let content = rsx! {
         div { class: "flex min-w-0 flex-col gap-2",
@@ -76,7 +95,7 @@ pub(super) fn render(
             }
         }
     };
-    let framed = if collapsible {
+    let framed = if let Some((surface, send)) = action_target.filter(|_| collapsible) {
         let sf = surface.to_owned();
         let id = node.id.clone();
         rsx! {
@@ -94,27 +113,32 @@ pub(super) fn render(
     } else {
         content
     };
-    if inline {
-        rsx! { div { class: "flex min-w-0 flex-col gap-2", {framed} } }
-    } else {
-        // The terminal frames only the tool body; the head stays on the canvas.
-        rsx! { div { class: "flex min-w-0 flex-col gap-2", {framed} } }
-    }
+    rsx! { div { class: "flex min-w-0 flex-col gap-2", {framed} } }
 }
 
 /// The head verb, state, elapsed time and source badges. The primary argument
 /// stays in [`tool_details`] so it is rendered once and can be a real link.
-fn tool_head(node: &OmpUiNode, status: &str, target: &str, intent: &str, live: bool) -> Element {
-    let title = match prop_text(node, "title") {
-        title if !title.is_empty() => title,
-        _ => prop_text(node, "name"),
+fn tool_head(
+    node: &OmpUiNode,
+    surface: &str,
+    status: &str,
+    target: &str,
+    intent: &str,
+    live: bool,
+) -> Element {
+    // A present-but-empty title is the renderer hiding its verb (the bash head
+    // shows only its command); only an absent title falls back to the tool name.
+    let title = if node.p.contains_key("title") {
+        prop_text(node, "title")
+    } else {
+        prop_text(node, "name")
     };
     let exit = node
         .p
         .get("exit")
         .and_then(Value::as_i64)
         .filter(|code| *code != 0);
-    let age = node.p.get("age").and_then(Value::as_f64).map(duration);
+    let has_age = node.p.get("age").and_then(Value::as_f64).is_some();
     let took = node.p.get("took").and_then(Value::as_f64).map(duration);
     let note = prop_text(node, "note");
     let show_note = !note.is_empty() && note != status;
@@ -125,15 +149,16 @@ fn tool_head(node: &OmpUiNode, status: &str, target: &str, intent: &str, live: b
     let show_intent = live && !intent.is_empty() && intent != target;
     rsx! {
         div { class: "flex min-w-0 flex-wrap items-center gap-2",
-            strong { class: "min-w-0 break-words text-sm", "{title}" }
+            if !title.is_empty() {
+                strong { class: "min-w-0 break-words text-sm", "{title}" }
+            }
             {status_chip(status)}
             if let Some(exit) = exit {
                 Badge { variant: BadgeVariant::Destructive, size: BadgeSize::Sm, "exit {exit}" }
             }
-            if let Some(age) = age {
+            if has_age {
                 span { class: "text-xs text-muted-foreground", title: "Elapsed",
-                    time { "{age}" }
-                    if status == "running" || status == "pending" { span { class: "sr-only", " elapsed, still running" } }
+                    NativeElapsed { surface: surface.to_owned(), node: node.id.clone(), kind: OmpTimerKind::ToolAge }
                 }
             }
             if let Some(took) = took {
@@ -242,13 +267,9 @@ fn target_text(target: &str, kind: &str, href: &str) -> Element {
 /// are host-local; every other id returns to OMP unchanged.
 fn tool_actions(
     node: &OmpUiNode,
-    surface: &str,
-    send: &EventHandler<Value>,
+    target: Option<(&str, EventHandler<Value>)>,
     copy_text: &str,
 ) -> Element {
-    let action_send = *send;
-    let id = node.id.clone();
-    let sf = surface.to_owned();
     let href = prop_text(node, "href");
     let actions = node.p.get("tools").and_then(Value::as_array);
     let has_copy = actions
@@ -266,7 +287,9 @@ fn tool_actions(
                 let keys = action.get("keys").and_then(Value::as_array);
                 let pressed = action.get("on").and_then(Value::as_bool) == Some(true);
                 let variant = action_variant(action);
-                let action_event = event("action", &sf, &id, json!({ "act": action_id.clone() }));
+                let action_target = target.map(|(surface, send)| (
+                    send, event("action", surface, &node.id, json!({ "act": action_id.clone() })),
+                ));
                 rsx! {
                     div { class: "flex items-center gap-1",
                         if action_id == "copy" {
@@ -278,7 +301,7 @@ fn tool_actions(
                                 title: Some(label.clone()),
                                 "{label}"
                             }
-                        } else {
+                        } else if let Some((action_send, action_event)) = action_target {
                             Button {
                                 size: ButtonSize::Sm,
                                 variant,
@@ -289,10 +312,12 @@ fn tool_actions(
                                 onclick: move |_| action_send.call(action_event.clone()),
                                 "{label}"
                             }
+                        } else {
+                            span { class: "text-xs text-muted-foreground", "{label}" }
                         }
                         if pressed { Badge { variant: BadgeVariant::Accent, size: BadgeSize::Sm, "on" } }
                         if let Some(keys) = keys {
-                            KbdGroup { for key in keys { Kbd { "{text_value(key)}" } } }
+                            KbdGroup { for key in keys { Kbd { "{super::super::key_hint::keycap(&text_value(key))}" } } }
                         }
                         if !reason.is_empty() {
                             span { class: "text-xs text-muted-foreground", "{reason}" }
@@ -311,7 +336,7 @@ fn tool_actions(
 /// `command` prop (never the clamped display) through the one clipboard hook.
 #[component]
 fn CopyCommand(label: String, command: String, disabled: bool, reason: String) -> Element {
-    let (copy, copied) = use_copy_clipboard(None);
+    let (copy, copied) = use_copy_clipboard(None, None);
     let value = command;
     rsx! {
         Button {

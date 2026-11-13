@@ -7,7 +7,7 @@
 use super::{event, prop_text, render_node, text_value};
 use crate::components::ui::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, CardSize, Command,
-    CommandGroupLabel, CommandList, StatusDot, Tabs, TabsList, TabsTrigger,
+    CommandGroupLabel, CommandList, Kbd, StatusDot, Tabs, TabsList, TabsTrigger,
 };
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::semantic_ui::{OmpUiBlob, OmpUiNode};
@@ -170,7 +170,7 @@ pub(super) fn render_picker(
                 CommandList { id:list_id.clone(), role:"listbox", aria_label:Some(list_label), tabindex:Some("-1".into()), class:Some(list_class.into()),
                     aria_active_descendant:if list_active{selected_dom.clone()}else{None},
                     if let Some(order)=order { for entry in order {
-                        if let Some(group)=entry.get("group").and_then(Value::as_str) { {let group_label=entry.get("label").map(text_value).unwrap_or_else(||group.to_owned());rsx!{CommandGroupLabel{class:Some("border-b border-border py-1".into()),aria_hidden:Some("true".into()),"{group_label}"}}} }
+                        if let Some(group)=entry.get("group").and_then(Value::as_str) { {let group_label=entry.get("label").map(text_value).unwrap_or_else(||group.to_owned());rsx!{CommandGroupLabel{class:Some("col-span-full border-b border-border py-1".into()),aria_hidden:Some("true".into()),"{group_label}"}}} }
                         else if let Some(item_id)=entry.as_str() { if let Some(item)=indexed_items.as_ref().and_then(|items|items.get(item_id)).copied() { {picker_item(item,selected,current.map(Vec::as_slice),&id,&sf,layout,columns,global_hits,&send)} } }
                     } }
                     else { for item in items.into_iter().flatten() { {picker_item(item,selected,current.map(Vec::as_slice),&id,&sf,layout,columns,global_hits,&send)} } }
@@ -179,7 +179,22 @@ pub(super) fn render_picker(
             }
             if let Some(item_id)=selected_dom { PickerReveal { selected:selected.map(str::to_owned), list_id:list_id.clone(), item_id } }
         }
-        if let Some(confirm)=props.get("confirm").filter(|value|!value.is_null()) { {let act=confirm.get("act").and_then(Value::as_str).unwrap_or("confirm").to_owned();let label=confirm.get("label").map(text_value).or_else(||confirm.get("text").map(text_value)).filter(|label|!label.is_empty()).unwrap_or_else(||"Confirm".into());let disabled=selected.is_none();let sid=id.clone();let ssf=sf.clone();rsx!{Button{size:ButtonSize::Sm,variant:ButtonVariant::Default,disabled,onclick:move |_|send.call(event("action",&ssf,&sid,json!({"act":act}))),"{label}"}}} }
+        if let Some(confirm)=props.get("confirm").filter(|value|!value.is_null()) {
+            {
+                let act=confirm.get("act").and_then(Value::as_str).unwrap_or("confirm").to_owned();
+                let label=confirm.get("label").map(text_value).filter(|label|!label.is_empty()).unwrap_or_else(||"Confirm".into());
+                let text=confirm.get("text").map(text_value).filter(|text|!text.is_empty());
+                let disabled=selected.is_none();
+                let sid=id.clone();
+                let ssf=sf.clone();
+                rsx!{
+                    div { class:"flex flex-wrap items-center gap-2", "data-omp-picker-confirm":"",
+                        if let Some(text)=text { p { class:"text-sm", "{text}" } }
+                        Button{size:ButtonSize::Sm,variant:ButtonVariant::Default,disabled,onclick:move |_|send.call(event("action",&ssf,&sid,json!({"act":act}))),"{label}"}
+                    }
+                }
+            }
+        }
         if let Some(actions)=props.get("actions").and_then(Value::as_array) {
             div { class:"flex flex-wrap gap-2 border-t border-border pt-2",
                 for action in actions {
@@ -196,10 +211,8 @@ pub(super) fn render_picker(
                             variant:if danger{ButtonVariant::Destructive}else if action.get("primary").and_then(Value::as_bool)==Some(true){ButtonVariant::Default}else if active{ButtonVariant::Secondary}else{ButtonVariant::Outline},
                             disabled,title:action.get("disabled").and_then(Value::as_str).map(str::to_owned),
                             onclick:move |_|send.call(event("action",&ssf,&sid,json!({"act":act}))),
-                            span { class:"inline-flex items-center gap-2",
-                                span { "{label}" }
-                                if let Some(keys)=keys { Badge { variant:BadgeVariant::Outline,class:Some("text-xs".into()),"{keys}" } }
-                            }
+                            "{label}"
+                            if let Some(keys)=keys { Kbd { "{keys}" } }
                         }}
                     }
                 }

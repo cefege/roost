@@ -195,6 +195,7 @@ pub(super) async fn connected_loop(
                     }
                     AcpEvent::HostService(payload) => ui.host_service(payload,&session,&connection,emitter),
                     AcpEvent::HostServiceCancel(payload) => ui.host_service_cancel(payload,&session,emitter),
+                    AcpEvent::DashboardResource(payload) => ui.dashboard_resource(payload,&session,emitter),
                     AcpEvent::UiCompleted {method,transport_id,request_id,result} => ui.complete(method,&transport_id,&request_id,result,emitter),
                     event @ AcpEvent::Interaction { .. } => {
                         interaction_pending::consume_open_event(

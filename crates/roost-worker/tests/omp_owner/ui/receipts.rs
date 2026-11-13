@@ -9,7 +9,7 @@ async fn receipts_wait_for_durable_frame_acknowledgement() {
     let (launcher, mut requests) = UiLauncher::new();
     let launcher = Arc::new(launcher);
     let (uplink, mut receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::clone(&launcher), uplink);
+    let owner = OmpOwner::new(Arc::clone(&launcher), uplink, Arc::new(Default::default()));
     let mut document = OmpUiDocument::default();
     owner.ui(open(
         "open-r",
@@ -64,7 +64,7 @@ async fn a_failed_native_action_still_receipts_its_error_after_the_ack() {
     let (launcher, mut requests) = UiLauncher::new();
     let launcher = Arc::new(launcher);
     let (uplink, mut receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::clone(&launcher), uplink);
+    let owner = OmpOwner::new(Arc::clone(&launcher), uplink, Arc::new(Default::default()));
     let mut document = OmpUiDocument::default();
     owner.ui(open(
         "open-f",
@@ -122,7 +122,7 @@ async fn a_typed_input_without_a_receipt_still_reports_its_native_failure() {
     let (launcher, mut requests) = UiLauncher::new();
     let launcher = Arc::new(launcher);
     let (uplink, mut receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::clone(&launcher), uplink);
+    let owner = OmpOwner::new(Arc::clone(&launcher), uplink, Arc::new(Default::default()));
     let mut document = OmpUiDocument::default();
     owner.ui(open(
         "open-u",
@@ -192,7 +192,7 @@ async fn a_typed_input_success_without_a_receipt_stays_silent() {
     let (launcher, mut requests) = UiLauncher::new();
     let launcher = Arc::new(launcher);
     let (uplink, mut receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::clone(&launcher), uplink);
+    let owner = OmpOwner::new(Arc::clone(&launcher), uplink, Arc::new(Default::default()));
     let mut document = OmpUiDocument::default();
     owner.ui(open(
         "open-s",

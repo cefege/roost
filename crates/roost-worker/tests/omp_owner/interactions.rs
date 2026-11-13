@@ -30,7 +30,7 @@ async fn omp_form_response_stays_pending_until_valid_answer_and_rejects_stale_id
         ..Default::default()
     };
     let outcome = Arc::clone(&launcher.elicitation_outcome);
-    let owner = OmpOwner::new(Arc::new(launcher), uplink);
+    let owner = OmpOwner::new(Arc::new(launcher), uplink, Arc::new(Default::default()));
     owner.prompt(prompt(""));
     let interaction = pending_interaction(&mut receiver).await;
     assert_eq!(outcome.load(std::sync::atomic::Ordering::Relaxed), 0);
@@ -74,7 +74,7 @@ async fn omp_form_cancel_reaches_the_original_acp_responder() {
         ..Default::default()
     };
     let outcome = Arc::clone(&launcher.elicitation_outcome);
-    let owner = OmpOwner::new(Arc::new(launcher), uplink);
+    let owner = OmpOwner::new(Arc::new(launcher), uplink, Arc::new(Default::default()));
     owner.prompt(prompt(""));
     let interaction = pending_interaction(&mut receiver).await;
     owner.respond(DOmpRespond {
@@ -94,7 +94,7 @@ async fn omp_startup_form_can_be_answered_before_new_session_returns() {
         ..Default::default()
     };
     let outcome = Arc::clone(&launcher.elicitation_outcome);
-    let owner = OmpOwner::new(Arc::new(launcher), uplink);
+    let owner = OmpOwner::new(Arc::new(launcher), uplink, Arc::new(Default::default()));
     owner.prompt(prompt(""));
     let interaction = pending_interaction(&mut receiver).await;
     owner.respond(DOmpRespond {
@@ -121,7 +121,7 @@ async fn omp_startup_cancel_after_form_never_submits_initial_prompt() {
         ..Default::default()
     };
     let outcome = Arc::clone(&launcher.elicitation_outcome);
-    let owner = OmpOwner::new(Arc::new(launcher), uplink);
+    let owner = OmpOwner::new(Arc::new(launcher), uplink, Arc::new(Default::default()));
     owner.prompt(prompt(""));
     let interaction = pending_interaction(&mut receiver).await;
     assert_eq!(outcome.load(std::sync::atomic::Ordering::Relaxed), 0);
@@ -154,7 +154,7 @@ async fn omp_startup_cancel_before_form_aborts_initialization() {
     };
     let started = Arc::clone(&launcher.new_session_started);
     let release_form = Arc::clone(&launcher.release_new_session_form);
-    let owner = OmpOwner::new(Arc::new(launcher), uplink);
+    let owner = OmpOwner::new(Arc::new(launcher), uplink, Arc::new(Default::default()));
     owner.prompt(prompt(""));
     tokio::time::timeout(std::time::Duration::from_secs(5), started.notified())
         .await

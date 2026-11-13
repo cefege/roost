@@ -10,6 +10,7 @@ mod document;
 mod frame;
 mod index;
 mod operations;
+pub mod palette;
 mod properties;
 mod structure;
 
@@ -173,13 +174,17 @@ pub struct OmpUiDocument {
     pub surfaces: BTreeMap<String, OmpUiSurface>,
     #[serde(default)]
     pub blobs: BTreeMap<String, OmpUiBlob>,
+    #[serde(default)]
+    pub palette: BTreeMap<String, String>,
     #[serde(skip)]
     usage_bytes: Option<usize>,
 }
 
 impl PartialEq for OmpUiDocument {
     fn eq(&self, other: &Self) -> bool {
-        self.surfaces == other.surfaces && self.blobs == other.blobs
+        self.surfaces == other.surfaces
+            && self.blobs == other.blobs
+            && self.palette == other.palette
     }
 }
 impl Eq for OmpUiDocument {}

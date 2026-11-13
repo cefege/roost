@@ -13,18 +13,28 @@ const MAX_QUEUED_ACTIONS: usize = 128;
 struct TextBarrier {
     pending: BTreeSet<String>,
     actions: VecDeque<Value>,
+    prerequisites: VecDeque<Value>,
 }
 impl TextBarrier {
     fn enqueue(&mut self, action: Value) -> Result<(), ()> {
-        if self.actions.len() >= MAX_QUEUED_ACTIONS {
+        if self.actions.len() + self.prerequisites.len() >= MAX_QUEUED_ACTIONS {
             return Err(());
         }
         self.actions.push_back(action);
         Ok(())
     }
+    fn prerequisite_pair(&mut self, first: Value, second: Value) -> Result<(), ()> {
+        if self.actions.len() + self.prerequisites.len() > MAX_QUEUED_ACTIONS - 2 {
+            return Err(());
+        }
+        self.prerequisites.extend([first, second]);
+        Ok(())
+    }
     fn next(&mut self) -> Option<Value> {
         if self.pending.is_empty() {
-            self.actions.pop_front()
+            self.prerequisites
+                .pop_front()
+                .or_else(|| self.actions.pop_front())
         } else {
             None
         }
@@ -38,9 +48,13 @@ impl TextBarrier {
             self.pending.remove(key);
         }
     }
+    fn abandon_actions(&mut self) {
+        self.actions.clear();
+    }
     fn cancel(&mut self, key: &str) {
         if self.pending.remove(key) {
             self.actions.clear();
+            self.prerequisites.clear();
         }
     }
 }
@@ -51,24 +65,17 @@ struct TextSyncOwner {
     barrier: TextBarrier,
     send: EventHandler<Value>,
     error: Signal<Option<String>>,
-    pending_input: Signal<bool>,
-    completed_input: Signal<u64>,
     failure: Signal<u64>,
+    discarded_actions: Signal<u64>,
 }
 impl TextSync {
-    pub(super) fn new(
-        send: EventHandler<Value>,
-        error: Signal<Option<String>>,
-        pending_input: Signal<bool>,
-        completed_input: Signal<u64>,
-    ) -> Self {
+    pub(super) fn new(send: EventHandler<Value>, error: Signal<Option<String>>) -> Self {
         Self(Rc::new(RefCell::new(TextSyncOwner {
             barrier: TextBarrier::default(),
             send,
             error,
-            pending_input,
-            completed_input,
             failure: Signal::new(0),
+            discarded_actions: Signal::new(0),
         })))
     }
     pub(super) fn sender(&self) -> EventHandler<Value> {
@@ -77,12 +84,8 @@ impl TextSync {
     pub(super) fn update_sender(&self, send: EventHandler<Value>) {
         self.0.borrow_mut().send = send;
     }
-    pub(super) fn input_pending(&self) -> bool {
-        (self.0.borrow().pending_input)()
-    }
-    /// Receipt-tracked actions the mount has seen complete, including no-op sends.
-    pub(super) fn input_completion(&self) -> u64 {
-        (self.0.borrow().completed_input)()
+    pub(super) fn discard_generation(&self) -> u64 {
+        (self.0.borrow().discarded_actions)()
     }
     /// Bumped only when an RPC the text path emitted failed; controls drop the
     /// in-flight edit and show the error instead of waiting forever.
@@ -116,9 +119,32 @@ impl TextSync {
         drop(owner);
         self.drain();
     }
+    /// Finish asynchronous input before actions queued while it was pending.
+    pub(super) fn prerequisite_pair(&self, first: Value, second: Value) -> bool {
+        let mut owner = self.0.borrow_mut();
+        if owner.barrier.prerequisite_pair(first, second).is_err() {
+            if let Ok(mut error) = owner.error.try_write() {
+                *error = Some("OMP has too many queued actions. Retry the attachment.".into());
+            }
+            return false;
+        }
+        drop(owner);
+        self.drain();
+        true
+    }
     pub(super) fn pending(&self, key: &str, pending: bool) {
         self.0.borrow_mut().barrier.pending(key, pending);
         self.drain();
+    }
+    pub(super) fn abandon_queued_actions(&self, message: &str) {
+        {
+            let mut owner = self.0.borrow_mut();
+            owner.barrier.abandon_actions();
+            owner
+                .discarded_actions
+                .with_mut(|generation| *generation = generation.wrapping_add(1));
+        }
+        self.reject_input(message);
     }
     pub(super) fn cancel(&self, key: &str) {
         self.0.borrow_mut().barrier.cancel(key);
@@ -191,5 +217,64 @@ mod tests {
         barrier.pending("editor", true);
         barrier.pending("editor", false);
         assert!(barrier.next().is_none());
+    }
+    #[test]
+    fn uploaded_paths_keep_pick_order_before_a_send_and_wait_for_text_ack() {
+        let mut barrier = TextBarrier::default();
+        barrier.pending("text", true);
+        barrier.pending("upload-a", true);
+        barrier.pending("upload-b", true);
+        assert!(barrier.enqueue(json!("send")).is_ok());
+        assert!(
+            barrier
+                .prerequisite_pair(json!("focus-a"), json!("path-a"))
+                .is_ok()
+        );
+        barrier.pending("upload-a", false);
+        assert!(barrier.next().is_none());
+        assert!(
+            barrier
+                .prerequisite_pair(json!("focus-b"), json!("path-b"))
+                .is_ok()
+        );
+        barrier.pending("upload-b", false);
+        assert!(barrier.next().is_none());
+        barrier.pending("text", false);
+        for action in ["focus-a", "path-a", "focus-b", "path-b", "send"] {
+            assert_eq!(barrier.next(), Some(json!(action)));
+        }
+        assert!(barrier.next().is_none());
+    }
+    #[test]
+    fn closing_an_upload_owner_discards_its_paths_and_blocked_send() {
+        let mut barrier = TextBarrier::default();
+        barrier.pending("upload", true);
+        assert!(
+            barrier
+                .prerequisite_pair(json!("focus"), json!("path"))
+                .is_ok()
+        );
+        assert!(barrier.enqueue(json!("send")).is_ok());
+        barrier.cancel("upload");
+        assert!(barrier.next().is_none());
+    }
+    #[test]
+    fn failed_upload_keeps_send_fenced_and_discard_does_not_send_without_the_image() {
+        let mut barrier = TextBarrier::default();
+        barrier.pending("failed-upload", true);
+        assert!(barrier.enqueue(json!("send")).is_ok());
+        assert!(
+            barrier
+                .prerequisite_pair(json!("focus"), json!("completed-path"))
+                .is_ok()
+        );
+        assert!(barrier.next().is_none());
+        barrier.abandon_actions();
+        barrier.pending("failed-upload", false);
+        assert_eq!(barrier.next(), Some(json!("focus")));
+        assert_eq!(barrier.next(), Some(json!("completed-path")));
+        assert!(barrier.next().is_none());
+        assert!(barrier.enqueue(json!("deliberate-send")).is_ok());
+        assert_eq!(barrier.next(), Some(json!("deliberate-send")));
     }
 }

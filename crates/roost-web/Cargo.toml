@@ -28,6 +28,7 @@ roost-protocol = { workspace = true }
 roost-web-terminal = { workspace = true }
 base64 = { workspace = true }
 unicode-segmentation = { workspace = true }
+rio-unicode = { workspace = true }
 js-sys = { workspace = true }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
@@ -201,12 +202,18 @@ features = [
   "RtcIceCandidate",
   "RtcIceCandidateInit",
   "RtcIceServer",
+  "RtcIceGatheringState",
   "RtcPeerConnection",
   "RtcPeerConnectionIceEvent",
   "RtcPeerConnectionState",
+  "RtcRtpSender",
+  "RtcRtpTransceiver",
+  "RtcRtpTransceiverDirection",
+  "RtcRtpTransceiverInit",
   "RtcSdpType",
   "RtcSessionDescription",
   "RtcSessionDescriptionInit",
+  "RtcTrackEvent",
   "Screen",
   "ScrollBehavior",
   "ScrollIntoViewOptions",

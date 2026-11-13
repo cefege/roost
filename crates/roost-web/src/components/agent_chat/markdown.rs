@@ -1,9 +1,11 @@
 //! Safe Markdown rendering for assistant text. Raw HTML from the model becomes
 //! text, only web-safe link schemes survive, and fenced code gets the chat's
 //! code-block chrome (language label and a Copy button the transcript handles
-//! by delegation) and `syntax_lite` colours for a known language. The only
-//! markup emitted is markup this file writes.
+//! by delegation) and `syntax_lite` colours for a known language. A mermaid or
+//! svg fence the terminal drew (`FenceFigures`) shows its drawing instead. The
+//! only markup emitted is markup this file and `markdown_figures` write.
 
+use super::markdown_figures::FenceFigures;
 use crate::components::ui::{ButtonSize, ButtonVariant, button_class};
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, html};
 
@@ -15,15 +17,28 @@ pub(super) fn parser_options() -> Options {
     Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS
 }
 
+/// A fence being buffered until its closing event.
+struct OpenFence {
+    language: String,
+    highlighted: bool,
+    /// Whether the opening chrome waits for the close, because a drawing may replace the block.
+    deferred: bool,
+    code: String,
+}
+
 /// Convert chat Markdown to HTML while treating host-provided content as untrusted.
 pub fn markdown_to_safe_html(text: &str) -> String {
+    markdown_with_figures(text, &FenceFigures::default())
+}
+
+/// [`markdown_to_safe_html`], drawing each closed mermaid and svg fence `figures` holds.
+pub fn markdown_with_figures(text: &str, figures: &FenceFigures) -> String {
     let options = parser_options();
-    // The open fence: whether its language is highlighted, and its text so far.
-    let mut open_code: Option<(bool, String)> = None;
-    let events = Parser::new_ext(text, options).filter_map(move |event| match event {
+    let mut open_code: Option<OpenFence> = None;
+    let events = Parser::new_ext(text, options).filter_map(|event| match event {
         Event::Text(code) if open_code.is_some() => {
-            if let Some((_, buffer)) = open_code.as_mut() {
-                buffer.push_str(&code);
+            if let Some(fence) = open_code.as_mut() {
+                fence.code.push_str(&code);
             }
             None
         }
@@ -48,24 +63,54 @@ pub fn markdown_to_safe_html(text: &str) -> String {
             }))
         }
         Event::Start(Tag::CodeBlock(kind)) => {
-            let highlighted = match &kind {
-                CodeBlockKind::Fenced(info) => highlighted_language(&safe_language(info)),
-                CodeBlockKind::Indented => false,
+            let language = match &kind {
+                CodeBlockKind::Fenced(info) => safe_language(info),
+                CodeBlockKind::Indented => String::new(),
             };
-            open_code = Some((highlighted, String::new()));
-            Some(Event::Html(code_block_open(&kind).into()))
+            let deferred = !figures.is_empty() && matches!(language.as_str(), "mermaid" | "svg");
+            let opening = (!deferred).then(|| Event::Html(code_block_open(&language).into()));
+            open_code = Some(OpenFence {
+                highlighted: highlighted_language(&language),
+                language,
+                deferred,
+                code: String::new(),
+            });
+            opening
         }
         Event::End(TagEnd::CodeBlock) => {
-            let (highlighted, code) = open_code.take().unwrap_or_default();
-            Some(Event::Html(
-                format!("{}</code></pre></div>", code_html(&code, highlighted)).into(),
-            ))
+            let fence = open_code.take()?;
+            Some(Event::Html(closed_fence_html(&fence, figures).into()))
         }
         other => Some(other),
     });
     let mut rendered = String::new();
     html::push_html(&mut rendered, events);
     rendered
+}
+
+/// A closed fence's markup: its drawing when the terminal drew one, else the code block.
+fn closed_fence_html(fence: &OpenFence, figures: &FenceFigures) -> String {
+    let code = || code_html(&fence.code, fence.highlighted);
+    if !fence.deferred {
+        return format!("{}</code></pre></div>", code());
+    }
+    let drawing = match fence.language.as_str() {
+        "svg" => figures.svg_image(&fence.code),
+        _ => figures.mermaid_art(&fence.code).map(|art| {
+            format!(
+                "{}{}</code></pre></div>",
+                code_block_open(&fence.language),
+                escape_html(art)
+            )
+        }),
+    };
+    drawing.unwrap_or_else(|| {
+        format!(
+            "{}{}</code></pre></div>",
+            code_block_open(&fence.language),
+            code()
+        )
+    })
 }
 
 /// Whether a fence language is one `syntax_lite` colours.
@@ -123,7 +168,7 @@ pub(super) fn token_class(kind: crate::syntax_lite::TokenKind) -> &'static str {
     }
 }
 
-fn escape_html(text: &str) -> String {
+pub(super) fn escape_html(text: &str) -> String {
     let mut escaped = String::with_capacity(text.len());
     for ch in text.chars() {
         match ch {
@@ -137,15 +182,11 @@ fn escape_html(text: &str) -> String {
     escaped
 }
 
-fn code_block_open(kind: &CodeBlockKind<'_>) -> String {
-    let language = match kind {
-        CodeBlockKind::Fenced(info) => safe_language(info),
-        CodeBlockKind::Indented => String::new(),
-    };
+fn code_block_open(language: &str) -> String {
     let label = if language.is_empty() {
         "code"
     } else {
-        language.as_str()
+        language
     };
     // Sanitized HTML cannot mount a Dioxus button, so copy uses its registry recipe.
     let copy_class = button_class(ButtonVariant::Ghost, ButtonSize::Sm, None);
@@ -177,7 +218,9 @@ fn safe_link(url: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::markdown_to_safe_html;
+    use super::super::markdown_figures::FenceFigures;
+    use super::{markdown_to_safe_html, markdown_with_figures};
+    use serde_json::json;
 
     #[test]
     fn raw_script_markup_is_escaped_as_text() {
@@ -237,5 +280,51 @@ mod tests {
         assert!(html.contains("alt=\"A small diagram\""), "{html}");
         assert!(html.contains("title=\"Diagram title\""), "{html}");
         assert!(!html.contains("<svg"), "{html}");
+    }
+
+    fn from_json(props: &serde_json::Value) -> FenceFigures {
+        FenceFigures::from_props(props.get("mermaid"), props.get("svg"))
+    }
+
+    fn figures() -> FenceFigures {
+        from_json(&json!({
+            "mermaid": [{"src": "flowchart LR\nA-->B", "ascii": "+---+ <A> +---+"}],
+            "svg": [{"src": "<svg></svg>", "doc": "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>"}],
+        }))
+    }
+
+    #[test]
+    fn a_drawn_mermaid_fence_shows_its_art_in_the_code_block_chrome() {
+        let html = markdown_with_figures("```mermaid\nflowchart LR\nA-->B\n```", &figures());
+        assert!(html.contains(">mermaid</span>"), "{html}");
+        assert!(html.contains("+---+ &lt;A&gt; +---+"), "{html}");
+        assert!(!html.contains("A--&gt;B"), "{html}");
+    }
+
+    #[test]
+    fn a_drawn_svg_fence_becomes_an_image_and_never_inline_markup() {
+        let html = markdown_with_figures("```svg\n<svg></svg>\n```", &figures());
+        assert!(html.contains("data-svg-figure"), "{html}");
+        assert!(
+            html.contains(
+                "<img alt=\"SVG figure\" src=\"data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns"
+            ),
+            "{html}"
+        );
+        assert!(!html.contains("<svg"), "{html}");
+    }
+
+    #[test]
+    fn a_fence_without_a_drawing_stays_a_code_block() {
+        let html = markdown_with_figures(
+            "```mermaid\ngraph TD\n```\n\n```svg\n<svg><g/></svg>\n```",
+            &figures(),
+        );
+        assert!(html.contains("graph TD"), "{html}");
+        assert!(html.contains("data-copy-code"), "{html}");
+        assert!(html.contains("&lt;svg&gt;&lt;g/&gt;&lt;/svg&gt;"), "{html}");
+        assert!(!html.contains("data-svg-figure"), "{html}");
+        let plain = markdown_to_safe_html("```svg\n<svg></svg>\n```");
+        assert!(plain.contains("&lt;svg&gt;"), "{plain}");
     }
 }

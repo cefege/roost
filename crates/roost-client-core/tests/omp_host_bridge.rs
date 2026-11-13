@@ -368,3 +368,22 @@ fn a_host_service_value_never_appears_in_debug_output() {
     assert!(!debug.contains("top-secret-value"), "{debug}");
     assert!(debug.contains("value_bytes"));
 }
+
+#[test]
+fn live_audio_frames_require_the_strict_shared_operation_contract() {
+    let value = r#"{"op":"prepare","peerId":"adbd487b-df30-46da-b899-b40016b15775"}"#;
+    let Frame::OmpHostService(mut frame) = service_frame(value) else {
+        unreachable!();
+    };
+    frame.kind = "live_audio".into();
+    let event = decoded(&control(Frame::OmpHostService(frame.clone())), 4);
+    let SyncFrame::OmpHostService { service } = frame_of(&event) else {
+        panic!("expected live audio host service");
+    };
+    assert_eq!(service.kind, OmpHostServiceKind::LiveAudio);
+    frame.value = r#"{"op":"prepare","peerId":"invalid"}"#.into();
+    assert!(matches!(
+        refused(&control(Frame::OmpHostService(frame))),
+        DecodeRefusal::MalformedArm { .. }
+    ));
+}

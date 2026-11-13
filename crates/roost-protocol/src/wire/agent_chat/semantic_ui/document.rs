@@ -21,6 +21,7 @@ impl OmpUiDocument {
             "f" => self.frame(body),
             "x" => self.close(body),
             "b" => self.blob(message),
+            "t" => self.replace_palette(body),
             _ => Err(OmpUiDocumentError::Invalid("unsupported message verb")),
         }
     }
@@ -41,7 +42,8 @@ impl OmpUiDocument {
         if self.surfaces.len() > MAX_TSP_SURFACES || self.blobs.len() > 256 {
             return Err(OmpUiDocumentError::Limit);
         }
-        let mut bytes = 0usize;
+        palette::validate(&self.palette)?;
+        let mut bytes = palette::bytes(&self.palette);
         for surface in self.surfaces.values_mut() {
             index::ensure(surface)?;
             bytes = bytes.saturating_add(index::bytes(surface)?);

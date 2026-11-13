@@ -1,8 +1,9 @@
 //! Styled native text runs, safe links, Nerd icon runs and Markdown marks.
 //! `s` is a compound token list, so `dim mono bold` applies every style. Theme
-//! colour names map onto Roost roles; unknown tokens never reach the DOM.
+//! colour names resolve through the active surface's canonical OMP palette.
 use super::super::super::links::NativeLink;
 use super::super::{render_icon, text_value};
+use crate::components::agent_chat::markdown_figures::FenceFigures;
 use dioxus::prelude::*;
 use serde_json::Value;
 
@@ -73,17 +74,48 @@ pub(super) fn render(value: Option<&Value>, icon: &str, extra_class: &str) -> El
 }
 
 fn run_element(run: &Value, extra_class: &str) -> Element {
+    styled_run(run, extra_class, false, None)
+}
+
+/// Editor drawing inherits the control's exact metrics, including hidden ranges.
+pub(super) fn editor_run(run: &Value, children: Element) -> Element {
+    styled_run(run, "", true, Some(children))
+}
+
+pub(super) fn editor_style_supported(tokens: &str) -> bool {
+    apply_tokens(&mut RunStyle::default(), Some(tokens))
+}
+
+pub(super) fn editor_style_classes(tokens: &str) -> Option<String> {
+    let mut style = RunStyle::default();
+    (apply_tokens(&mut style, Some(tokens)) && !style.hidden && !style.icon)
+        .then(|| style.classes())
+}
+
+fn styled_run(
+    run: &Value,
+    extra_class: &str,
+    editor_drawing: bool,
+    children: Option<Element>,
+) -> Element {
     let text = run.get("t").and_then(Value::as_str).unwrap_or_default();
     let tokens = run.get("s").and_then(Value::as_str);
     let mut style = RunStyle {
-        href: run.get("href").and_then(Value::as_str).map(str::to_owned),
+        href: if editor_drawing {
+            None
+        } else {
+            run.get("href").and_then(Value::as_str).map(str::to_owned)
+        },
         ..RunStyle::default()
     };
     apply_tokens(&mut style, tokens);
-    if style.hidden || text.is_empty() {
+    if (style.hidden && !editor_drawing) || (text.is_empty() && children.is_none()) {
         return rsx! {};
     }
     let mut classes = style.classes();
+    if style.hidden {
+        classes.push_str(" invisible");
+    }
     if let Some(effect) = run.get("fx").and_then(Value::as_str) {
         match effect {
             "shimmer" => classes.push_str(" shimmer"),
@@ -98,96 +130,55 @@ fn run_element(run: &Value, extra_class: &str) -> Element {
     if let Some(href) = style.href.filter(|href| !href.is_empty()) {
         rsx! { NativeLink { href, class: Some(classes), "{text}" } }
     } else {
-        rsx! { span { class: "{classes}", "{text}" } }
+        rsx! { span { class: "{classes}", if let Some(children) = children { {children} } else { "{text}" } } }
     }
 }
 
-fn apply_tokens(style: &mut RunStyle, styles: Option<&str>) {
+fn apply_tokens(style: &mut RunStyle, styles: Option<&str>) -> bool {
+    let mut supported = true;
     for token in styles.unwrap_or_default().split_whitespace() {
+        let theme_class = super::super::super::theme::token_class(token);
+        if let Some(class) = theme_class {
+            style.push(class);
+        }
         match token {
-            "muted" | "dim" | "toolDiffContext" => style.push("text-muted-foreground"),
             "strong" | "bold" => style.push("font-semibold"),
             "em" | "italic" => style.push("italic"),
-            "accent" | "link" | "mdLink" | "mdLinkUrl" | "borderAccent" => {
-                style.push("text-primary")
-            }
-            "success" | "toolDiffAdded" | "statusLineGitClean" => style.push("text-success-dark"),
-            "warning" => style.push("text-warning-dark"),
-            "error" | "toolDiffRemoved" => style.push("text-destructive"),
-            "info" => style.push("text-info-dark"),
-            "code" | "mono" | "path" | "key" | "num" | "mdCode" | "statusLinePath" => {
-                style.push("font-mono")
-            }
+            "link" | "info" => style.push("text-omp-accent"),
+            "code" | "mono" | "path" | "key" | "num" => style.push("font-mono"),
             "ins" => {
-                style.push("bg-success-light");
-                style.push("text-success-dark");
+                style.push("bg-omp-tool-success-bg");
+                style.push("text-omp-tool-diff-added");
             }
             "del" => {
-                style.push("bg-destructive/10");
-                style.push("text-destructive");
+                style.push("bg-omp-tool-error-bg");
+                style.push("text-omp-tool-diff-removed");
                 style.push("line-through");
             }
-            "mark" => {
-                style.push("rounded-sm");
-                style.push("bg-accent");
-                style.push("text-accent-foreground");
-            }
+            "mark" => style.push("bg-omp-selected-bg"),
             "underline" => style.push("underline"),
             "typo" => {
                 style.push("underline");
-                style.push("decoration-destructive");
+                style.push("decoration-omp-error");
                 style.push("decoration-wavy");
             }
             "icon" => style.icon = true,
             "hide" => style.hidden = true,
-            "thinkingText" | "mdQuote" | "borderMuted" | "statusLineSep" => {
-                style.push("text-muted-foreground");
-                style.push("italic");
-            }
-            "toolTitle" | "mdHeading" | "statusLineModel" | "customMessageLabel" => {
-                style.push("font-semibold")
-            }
-            "toolOutput"
-            | "assistantMessageText"
-            | "userMessageText"
-            | "customMessageText"
-            | "text" => style.push("text-foreground"),
-            "mdHr" | "border" => style.push("text-border"),
-            "mdCodeBlock" => style.push("font-mono"),
-            "mdListBullet" => style.push("text-primary"),
-            "syntaxComment" => style.push("text-[var(--syntax-comment)]"),
-            "syntaxKeyword" => style.push("text-[var(--syntax-keyword)]"),
-            "syntaxFunction" => style.push("text-[var(--syntax-function)]"),
-            "syntaxVariable" => style.push("text-[var(--syntax-variable)]"),
-            "syntaxString" => style.push("text-[var(--syntax-string)]"),
-            "syntaxNumber" => style.push("text-[var(--syntax-number)]"),
-            "syntaxType" => style.push("text-[var(--syntax-type)]"),
-            "syntaxOperator" => style.push("text-[var(--syntax-operator)]"),
-            "syntaxPunctuation" => style.push("text-[var(--syntax-punctuation)]"),
-            "statusLineOutput" | "statusLineContext" | "statusLineSpend" | "statusLineCost" => {
-                style.push("font-mono")
-            }
-            "bashMode" => {
-                style.push("font-mono");
-                style.push("text-success-dark");
-            }
-            "pythonMode" => {
-                style.push("font-mono");
-                style.push("text-info-dark");
-            }
-            "thinkingOff" | "thinkingMinimal" | "thinkingLow" | "thinkingMedium"
-            | "thinkingHigh" | "thinkingXhigh" | "thinkingMax" => {
-                style.push("text-muted-foreground")
-            }
-            _ => {}
+            _ if theme_class.is_some() => {}
+            _ => supported = false,
         }
     }
+    supported
 }
 
 /// Markdown with native `marks` applied only across prose text, never inside
 /// tags, code or pre. The mark's class list comes from the same token map.
-pub(super) fn markdown_with_marks(source: &str, marks: Option<&Value>) -> String {
-    let html = super::super::super::super::markdown::markdown_to_safe_html(source);
+pub(super) fn markdown_with_marks(
+    source: &str,
+    marks: Option<&Value>,
+    figures: &FenceFigures,
+) -> String {
+    let html = super::super::super::super::markdown::markdown_with_figures(source, figures);
     let Some(marks) = marks.and_then(Value::as_array) else {
         return html;
     };
@@ -305,6 +296,7 @@ fn apply_mark_text(out: &mut String, text: &str, marks: &[(String, String)]) {
 #[cfg(test)]
 mod tests {
     use super::markdown_with_marks;
+    use crate::components::agent_chat::markdown_figures::FenceFigures;
 
     #[test]
     fn marks_style_prose_only_and_never_open_markup() {
@@ -312,14 +304,34 @@ mod tests {
             { "t": "/skill", "s": "accent strong" },
             { "t": "<x>", "s": "code" }
         ]);
-        let html = markdown_with_marks("run /skill and `code /skill` plus <x>", Some(&marks));
+        let html = markdown_with_marks(
+            "run /skill and `code /skill` plus <x>",
+            Some(&marks),
+            &FenceFigures::default(),
+        );
         assert_eq!(
-            html.matches("<span class=\"text-primary font-semibold\">/skill</span>")
+            html.matches("<span class=\"text-omp-accent font-semibold\">/skill</span>")
                 .count(),
             1,
             "{html}"
         );
         assert!(!html.contains("<x>"), "{html}");
         assert!(html.contains("&lt;x&gt;"), "{html}");
+    }
+
+    #[test]
+    fn editable_and_ordinary_spans_share_actual_theme_tokens_without_changing_metrics() {
+        let classes = super::editor_style_classes("userMessageText bg:userMessageBg strong");
+        assert_eq!(
+            classes.as_deref(),
+            Some("text-omp-user-message-text bg-omp-user-message-bg font-semibold")
+        );
+        assert!(super::editor_style_supported(
+            "syntaxKeyword bg:statusLineBg"
+        ));
+        assert!(!super::editor_style_supported("inventedColor"));
+        assert!(super::editor_style_classes("hide").is_none());
+        assert!(super::editor_style_classes("icon").is_none());
+        assert!(!classes.unwrap_or_default().contains("text-sm"));
     }
 }

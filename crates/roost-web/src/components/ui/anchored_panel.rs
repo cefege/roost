@@ -16,6 +16,22 @@ pub fn anchored_placement_style(
     prefer_up: bool,
     scrollable: bool,
 ) -> Option<String> {
+    anchored_panel_style(trigger_id, prefer_up, scrollable, false)
+}
+
+/// Viewport-clamped placement for a native hover card, independent of pane bounds.
+#[cfg(target_arch = "wasm32")]
+pub fn anchored_viewport_placement_style(trigger_id: &str, prefer_up: bool) -> Option<String> {
+    anchored_panel_style(trigger_id, prefer_up, false, true)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn anchored_panel_style(
+    trigger_id: &str,
+    prefer_up: bool,
+    scrollable: bool,
+    viewport_clamped: bool,
+) -> Option<String> {
     let window = web_sys::window()?;
     let document = window.document()?;
     let trigger = document.get_element_by_id(trigger_id)?;
@@ -41,7 +57,7 @@ pub fn anchored_placement_style(
         viewport
     };
     let placement = place_menu(client_box_of(&trigger), bounds, containing, prefer_up);
-    Some(if scrollable {
+    Some(if scrollable || viewport_clamped {
         placement.style()
     } else {
         position_longhands(&placement)
@@ -54,6 +70,11 @@ pub fn anchored_placement_style(
     _prefer_up: bool,
     _scrollable: bool,
 ) -> Option<String> {
+    None
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn anchored_viewport_placement_style(_trigger_id: &str, _prefer_up: bool) -> Option<String> {
     None
 }
 

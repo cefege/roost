@@ -79,6 +79,8 @@ fn a_receipt_below_the_transcript_fence_is_deferred_and_released_later() {
         Some(OmpReceiptOutcome::Completed { error, .. }) if error.is_empty()
     ));
     assert_eq!(queue.pending_count(), 0);
+    assert_eq!(queue.receive(&receipt, 30), OmpReceiptOutcome::Ignored);
+    assert!(queue.settle(31).is_none());
 }
 
 #[test]
@@ -209,31 +211,7 @@ fn ambiguous_admission_failure_cancels_later_actions_without_replaying_them() {
     assert!(!queue.reject_admission("first", &identity("old-transport")));
     assert_eq!(queue.pending_count(), 2);
     assert!(queue.reject_admission("first", &identity(TRANSPORT)));
-    assert!(!queue.has_pending_input());
-    assert_eq!(queue.completed_count(), 0);
-}
-
-#[test]
-fn no_op_receipt_completes_only_after_its_transcript_fence_and_only_once() {
-    let mut queue = OmpActionQueue::new();
-    queue.submit("no-op".into(), identity(TRANSPORT), action("send"));
-    let receipt = OmpUiActionReceipt {
-        origin_request_id: "no-op".into(),
-        conversation_id: CONVERSATION.into(),
-        view_id: VIEW.into(),
-        transport_id: TRANSPORT.into(),
-        after_seq: 5,
-        error: String::new(),
-    };
-    assert_eq!(queue.receive(&receipt, 4), OmpReceiptOutcome::Deferred);
-    assert_eq!(queue.completed_count(), 0);
-    assert!(matches!(
-        queue.settle(5),
-        Some(OmpReceiptOutcome::Completed { .. })
-    ));
-    assert_eq!(queue.completed_count(), 1);
-    assert_eq!(queue.receive(&receipt, 5), OmpReceiptOutcome::Ignored);
-    assert_eq!(queue.completed_count(), 1);
+    assert_eq!(queue.pending_count(), 0);
 }
 
 #[test]
@@ -248,8 +226,7 @@ fn a_restarted_native_transport_drops_old_typeahead_before_new_input() {
     queue.retain_identity(&identity(TRANSPORT));
     assert_eq!(queue.pending_count(), 2);
     queue.retain_identity(&identity("new-native-transport"));
-    assert!(!queue.has_pending_input());
-    assert_eq!(queue.completed_count(), 0);
+    assert_eq!(queue.pending_count(), 0);
     let OmpSubmit::Send(next) = queue.submit(
         "new-input".into(),
         identity("new-native-transport"),

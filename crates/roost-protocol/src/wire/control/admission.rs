@@ -185,6 +185,8 @@ impl ClientControlFrame {
             }
             Self::StatsDashboardHttp {
                 request_id,
+                resource,
+                stream,
                 host,
                 port,
                 method,
@@ -203,6 +205,30 @@ impl ClientControlFrame {
                         "stats-dashboard-http.request_id",
                         "must not be empty",
                     ));
+                }
+                if !resource.is_valid() {
+                    return Err(ProtocolError::new(
+                        "stats-dashboard-http.resource",
+                        "must name a process-owned conversation/transport resource",
+                    ));
+                }
+                if let Some(operation) = stream {
+                    use crate::native_dashboard::{StreamRequest, token_is_well_formed};
+                    let valid = method == "GET"
+                        && path == "/api/events"
+                        && body_base64.is_empty()
+                        && match operation {
+                            StreamRequest::Open => true,
+                            StreamRequest::Next { id } | StreamRequest::Close { id } => {
+                                token_is_well_formed(id)
+                            }
+                        };
+                    if !valid {
+                        return Err(ProtocolError::new(
+                            "stats-dashboard-http.stream",
+                            "must be a bounded native event stream operation",
+                        ));
+                    }
                 }
                 if !dashboard_host_is_valid(host) {
                     return Err(ProtocolError::new(

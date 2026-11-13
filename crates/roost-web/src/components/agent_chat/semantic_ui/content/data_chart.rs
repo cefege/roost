@@ -1,5 +1,6 @@
 //! Native bars, sparklines and heatmaps.
 //! Each visualization maps source data through its declared value domain.
+use super::data_tone::{tone_border, tone_fill, tone_stroke, tone_svg_fill};
 use super::{prop_text, text_value};
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::semantic_ui::OmpUiNode;
@@ -32,6 +33,7 @@ fn chart(node: &OmpUiNode) -> Element {
     let kind = prop_text(node, "kind");
     let size = prop_text(node, "size");
     let summary = prop_text(node, "summary");
+    let token = prop_text(node, "token");
     let marks = node.p.get("marks").and_then(Value::as_array);
     let series_entries = series.into_iter().flatten().collect::<Vec<_>>();
     let height = match size.as_str() {
@@ -39,11 +41,16 @@ fn chart(node: &OmpUiNode) -> Element {
         "lg" => "h-20",
         _ => "h-12",
     };
+    let section_class = if kind == "spark" {
+        "flex min-w-0 flex-row items-center gap-2"
+    } else {
+        "flex min-w-0 flex-col gap-2"
+    };
     rsx! {
-        section { class: "flex min-w-0 flex-col gap-2",
+        section { class: "{section_class}",
             if !summary.is_empty() { p { class: "text-sm text-muted-foreground", "{summary}" } }
             if kind == "spark" {
-                {sparkline(&series_entries, low, span, marks, height)}
+                {sparkline(&series_entries, low, span, marks, height, &token)}
             } else {
                 div { class: "relative flex min-w-0 items-end gap-1 {height}", role: "img",
                     aria_label: if summary.is_empty() { "Bar chart".to_owned() } else { summary.clone() },
@@ -52,28 +59,21 @@ fn chart(node: &OmpUiNode) -> Element {
                             { let value = mark.get("value").and_then(Value::as_f64).unwrap_or(low);
                               let y = 100.0 - ((value - low) / span).clamp(0.0, 1.0) * 100.0;
                               let title = mark.get("title").and_then(Value::as_str).unwrap_or("Reference");
-                              let class = match mark.get("tone").and_then(Value::as_str) {
-                                  Some("success") => "border-success",
-                                  Some("warning") => "border-warning",
-                                  Some("error") => "border-destructive",
-                                  Some("info") => "border-info",
-                                  Some("accent") => "border-primary",
-                                  _ => "border-muted-foreground",
-                              };
+                              let class = tone_border(mark.get("tone").and_then(Value::as_str), "muted");
                               rsx! { div { class: "absolute inset-x-0 z-10 border-t border-dashed {class}",
                                   style: "top: {y}%", title: "{title}: {value}", aria_hidden: "true"
                               } }
                             }
                         }
                     }
-                    for entry in &series_entries { {chart_bar(entry, low, span)} }
+                    for entry in &series_entries { {chart_bar(entry, low, span, &token)} }
                 }
                 div { class: "flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground",
                     for entry in &series_entries {
                         { let label = entry.get("label").and_then(Value::as_str).unwrap_or("");
                           let value = entry.get("value").and_then(Value::as_f64).unwrap_or(0.0);
                           let title = entry.get("title").and_then(Value::as_str).unwrap_or(label);
-                          rsx! { span { title: "{title}", "{label}: {value}" } }
+                          rsx! { if !label.is_empty() { span { title: "{title}", "{label}: {value}" } } }
                         }
                     }
                 }
@@ -82,23 +82,16 @@ fn chart(node: &OmpUiNode) -> Element {
     }
 }
 
-fn chart_bar(entry: &Value, low: f64, span: f64) -> Element {
+fn chart_bar(entry: &Value, low: f64, span: f64, token: &str) -> Element {
     let label = entry.get("label").and_then(Value::as_str).unwrap_or("");
     let value = entry.get("value").and_then(Value::as_f64).unwrap_or(0.0);
     let fraction = ((value - low) / span).clamp(0.0, 1.0);
-    let tone = entry.get("tone").and_then(Value::as_str);
-    let class = match tone {
-        Some("success") => "w-full rounded-sm bg-success",
-        Some("warning") => "w-full rounded-sm bg-warning",
-        Some("error") => "w-full rounded-sm bg-destructive",
-        Some("info") => "w-full rounded-sm bg-info",
-        _ => "w-full rounded-sm bg-primary",
-    };
+    let fill = tone_fill(entry.get("tone").and_then(Value::as_str), token);
     let title = entry.get("title").and_then(Value::as_str).unwrap_or(label);
     rsx! {
         div { class: "flex h-full min-w-2 flex-1 items-end rounded-sm bg-muted",
             title: "{title}: {value}",
-            span { class, style: "height: {fraction * 100.0}%", aria_hidden: "true" }
+            span { class: "w-full rounded-sm {fill}", style: "height: {fraction * 100.0}%", aria_hidden: "true" }
         }
     }
 }
@@ -109,6 +102,7 @@ fn sparkline(
     span: f64,
     marks: Option<&Vec<Value>>,
     height: &str,
+    token: &str,
 ) -> Element {
     let count = entries.len();
     let points = entries
@@ -141,24 +135,17 @@ fn sparkline(
                 { let value = mark.get("value").and_then(Value::as_f64).unwrap_or(low);
                   let y = 100.0 - ((value - low) / span).clamp(0.0, 1.0) * 100.0;
                   let title = mark.get("title").and_then(Value::as_str).unwrap_or("Reference");
-                  let class = match mark.get("tone").and_then(Value::as_str) {
-                      Some("success") => "stroke-success",
-                      Some("warning") => "stroke-warning",
-                      Some("error") => "stroke-destructive",
-                      Some("info") => "stroke-info",
-                      Some("accent") => "stroke-primary",
-                      _ => "stroke-border",
-                  };
+                  let class = tone_stroke(mark.get("tone").and_then(Value::as_str), "muted");
                   rsx! { line { x1: "0", x2: "100", y1: "{y}", y2: "{y}",
                       class, "stroke-dasharray": "2 2", title { "{title}: {value}" }
                   } }
                 }
             }
-            polyline { points: "{points}", class: "fill-none stroke-primary", "stroke-width": "3", vector_effect: "non-scaling-stroke" }
+            polyline { points: "{points}", class: "fill-none {tone_stroke(None, token)}", "stroke-width": "3", vector_effect: "non-scaling-stroke" }
             if let Some(value) = last {
                 circle { cx: if count <= 1 { "50".to_owned() } else { "100".to_owned() },
                     cy: "{100.0 - ((value - low) / span).clamp(0.0, 1.0) * 100.0}",
-                    r: "3", class: "fill-primary", "aria-label": "Latest value {value}"
+                    r: "3", class: "{tone_svg_fill(None, token)}", "aria-label": "Latest value {value}"
                 }
             }
         }

@@ -4,15 +4,20 @@
 //! one disclosure event each row owns. Tool cards live in `tool.rs`; the head
 //! here shows only source-authored facts, never raw schema fields.
 
-use super::{duration, event, prop_text, render_children, text_value};
+use super::super::elapsed_clock::NativeElapsed;
+use super::{event, prop_text, render_children, text_value};
 use crate::components::ui::{
     Badge, BadgeSize, BadgeVariant, ButtonSize, ButtonVariant, Collapsible, CollapsibleContent,
     CollapsibleTrigger, Icon, IconType, Progress,
 };
 use dioxus::prelude::*;
+use roost_client_core::client::agent_chat::OmpTimerKind;
 use roost_protocol::wire::agent_chat::semantic_ui::{OmpUiBlob, OmpUiNode};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+
+#[path = "activity_stats.rs"]
+mod stats;
 
 pub(super) fn render(
     node: &OmpUiNode,
@@ -22,14 +27,27 @@ pub(super) fn render(
 ) -> Element {
     match node.k.as_str() {
         "tool" => super::tool::render(node, surface, send, blobs),
-        "checklist" => checklist(node, surface, send),
-        _ => agent(node, surface, send, blobs),
+        "checklist" => checklist(node, Some((surface, *send))),
+        _ => agent(
+            node,
+            surface,
+            Some((surface, *send)),
+            render_children(node, surface, send, blobs),
+        ),
     }
 }
 
-fn checklist(node: &OmpUiNode, surface: &str, send: &EventHandler<Value>) -> Element {
+pub(super) fn render_readonly(node: &OmpUiNode, surface: &str, children: Element) -> Element {
+    match node.k.as_str() {
+        "tool" => super::tool::render_readonly(node, surface, children),
+        "checklist" => checklist(node, None),
+        _ => agent(node, surface, None, children),
+    }
+}
+
+fn checklist(node: &OmpUiNode, target: Option<(&str, EventHandler<Value>)>) -> Element {
     let mode = prop_text(node, "mode");
-    let note = prop_text(node, "note");
+    let note = node.p.get("note");
     let phases = node.p.get("phases").and_then(Value::as_array);
     let flat = matches!(mode.as_str(), "reminder" | "hud");
     let note_class = if mode == "reminder" {
@@ -39,11 +57,11 @@ fn checklist(node: &OmpUiNode, surface: &str, send: &EventHandler<Value>) -> Ele
     };
     rsx! {
         section { class: "flex min-w-0 flex-col gap-2",
-            if !note.is_empty() {
-                span { class: "{note_class}", "{note}" }
+            if !super::text_is_empty(note) {
+                span { class: "{note_class}", {super::render_spans(note, "")} }
             }
             for phase in phases.into_iter().flatten() {
-                {phase_block(phase, &mode, flat, node, surface, send)}
+                {phase_block(phase, &mode, flat, node, target)}
             }
         }
     }
@@ -54,15 +72,9 @@ fn phase_block(
     mode: &str,
     flat: bool,
     node: &OmpUiNode,
-    surface: &str,
-    send: &EventHandler<Value>,
+    target: Option<(&str, EventHandler<Value>)>,
 ) -> Element {
-    let id = phase
-        .get("id")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
-    let title = phase.get("title").map(text_value).unwrap_or_default();
+    let title = phase.get("title");
     let items = phase.get("items").and_then(Value::as_array);
     let collapsed = phase
         .get("collapsed")
@@ -84,25 +96,32 @@ fn phase_block(
             for item in &visible { {checklist_item(item)} }
         }
     };
-    let heading = if title.is_empty() {
+    let heading = if super::text_is_empty(title) {
         rsx! {}
     } else {
         rsx! {
             div { class: "flex min-w-0 items-center gap-2",
-                strong { class: "min-w-0 break-words text-sm font-medium", "{title}" }
+                strong { class: "min-w-0 break-words text-sm font-medium", {super::render_spans(title, "")} }
                 if total > 0 {
                     span { class: "text-xs text-muted-foreground", "{closed}/{total}" }
                 }
             }
         }
     };
-    if flat || !collapsed || title.is_empty() {
+    if flat || !collapsed || super::text_is_empty(title) {
         return rsx! { div { class: "flex min-w-0 flex-col gap-1", {heading} {list} } };
     }
+    let Some((surface, toggle_send)) = target else {
+        return heading;
+    };
+    let id = phase
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
     let sf = surface.to_owned();
     let node_id = node.id.clone();
     let phase_id = id.clone();
-    let toggle_send = *send;
     rsx! {
         Collapsible {
             open: false,
@@ -124,9 +143,9 @@ fn phase_block(
 }
 
 fn checklist_item(item: &Value) -> Element {
-    let text = item.get("text").map(text_value).unwrap_or_default();
+    let text = item.get("text");
     let status = item_status(item);
-    let note = item.get("note").map(text_value).unwrap_or_default();
+    let note = item.get("note");
     let text_class = match status {
         "done" | "dropped" => "min-w-0 break-words text-sm text-muted-foreground line-through",
         "active" => "min-w-0 break-words text-sm font-medium text-foreground",
@@ -141,9 +160,9 @@ fn checklist_item(item: &Value) -> Element {
         li { class: "flex min-w-0 items-start gap-2",
             span { class: "mt-0.5 shrink-0", {checklist_glyph(status)} }
             div { class: "flex min-w-0 flex-1 flex-col gap-0.5",
-                span { class: "{text_class}", "{text}" }
+                span { class: "{text_class}", {super::render_spans(text, "")} }
                 span { class: "sr-only", "{status}" }
-                if !note.is_empty() { p { class: "{note_class}", "{note}" } }
+                if !super::text_is_empty(note) { p { class: "{note_class}", {super::render_spans(note, "")} } }
             }
         }
     }
@@ -169,15 +188,15 @@ fn item_status(item: &Value) -> &str {
 fn agent(
     node: &OmpUiNode,
     surface: &str,
-    send: &EventHandler<Value>,
-    blobs: &BTreeMap<String, OmpUiBlob>,
+    target: Option<(&str, EventHandler<Value>)>,
+    children: Element,
 ) -> Element {
     let name = match prop_text(node, "name") {
         name if !name.is_empty() => name,
         _ => "Agent".to_owned(),
     };
     let kind = prop_text(node, "agent");
-    let task = prop_text(node, "task");
+    let task = node.p.get("task");
     let status = prop_text(node, "status");
     let model = prop_text(node, "model");
     let thinking = prop_text(node, "thinking");
@@ -191,6 +210,7 @@ fn agent(
         .get("collapsible")
         .and_then(Value::as_bool)
         .unwrap_or(!node.c.is_empty());
+    let interactive = collapsible && target.is_some();
     let stats = node.p.get("stats");
     let done = stats
         .and_then(|stats| stats.get("done"))
@@ -198,19 +218,31 @@ fn agent(
     let current_tool = node.p.get("tool").filter(|value| !value.is_null());
     let retry = node.p.get("retry").filter(|value| !value.is_null());
     let badges = node.p.get("badges").and_then(Value::as_array);
-    let stats_line = agent_stats(stats);
+    let stats_line = stats::summary(stats);
+    let stats_time = stats.is_some_and(|stats| {
+        stats.get("age").and_then(Value::as_f64).is_some()
+            || stats.get("took").and_then(Value::as_f64).is_some()
+    });
+    let stats_time_label = if stats
+        .and_then(|stats| stats.get("took"))
+        .and_then(Value::as_f64)
+        .is_some()
+    {
+        "took "
+    } else {
+        "running "
+    };
     let tool_line = current_tool.map(|tool| {
         let name = tool.get("name").and_then(Value::as_str).unwrap_or("tool");
-        let intent = tool.get("intent").map(text_value).unwrap_or_default();
-        let age = tool.get("age").and_then(Value::as_f64).map(duration);
-        (name.to_owned(), intent, age)
+        let intent = tool.get("intent");
+        let age = tool.get("age").and_then(Value::as_f64).is_some();
+        (name, intent, age)
     });
     let retry_line = retry.map(|retry| {
         let attempt = retry.get("attempt").map(text_value).unwrap_or_default();
         let max = retry.get("max").map(text_value).unwrap_or_default();
-        let delay = retry.get("delay").map(text_value).unwrap_or_default();
         let error = retry.get("error").and_then(Value::as_str).unwrap_or("");
-        (attempt, max, delay, error.to_owned())
+        (attempt, max, error.to_owned())
     });
     let head = rsx! {
         div { class: "flex min-w-0 flex-wrap items-center gap-2",
@@ -230,9 +262,16 @@ fn agent(
             }
         }
     };
+    let head = if let Some((surface, _)) = target
+        && let Some(card) = node.p.get("hovercard")
+    {
+        rsx! { super::super::hovercard::NativeHoverCard { card: card.clone(), surface: surface.to_owned(), {head} } }
+    } else {
+        head
+    };
     let body = rsx! {
         div { class: "flex min-w-0 flex-col gap-2",
-            if collapsible {
+            if interactive {
                 CollapsibleTrigger {
                     size: ButtonSize::Sm,
                     variant: ButtonVariant::Ghost,
@@ -242,37 +281,47 @@ fn agent(
             } else {
                 {head}
             }
-            if !stats_line.is_empty() {
-                p { class: "text-xs text-muted-foreground", "{stats_line}" }
+            if !stats_line.is_empty() || stats_time {
+                p { class: "text-xs text-muted-foreground",
+                    "{stats_line}"
+                    if stats_time {
+                        if !stats_line.is_empty() { " · " }
+                        "{stats_time_label}"
+                        NativeElapsed { surface: surface.to_owned(), node: node.id.clone(), kind: OmpTimerKind::AgentStats }
+                    }
+                }
             }
-            if !task.is_empty() { p { class: "min-w-0 break-words text-sm", "{task}" } }
+            if !super::text_is_empty(task) { p { class: "min-w-0 break-words text-sm", {super::render_spans(task, "")} } }
             if let Some((tool, intent, age)) = tool_line {
                 p { class: "text-sm text-muted-foreground",
                     "Running {tool}"
-                    if !intent.is_empty() { span { ": {intent}" } }
-                    if let Some(age) = age { span { " · {age}" } }
+                    if !super::text_is_empty(intent) { span { ": " {super::render_spans(intent, "")} } }
+                    if age { span { " · " NativeElapsed { surface: surface.to_owned(), node: node.id.clone(), kind: OmpTimerKind::AgentTool } } }
                 }
             }
-            if let Some((attempt, max, delay, error)) = retry_line {
+            if let Some((attempt, max, error)) = retry_line {
                 p { class: "text-xs text-warning",
-                    "Retry {attempt}/{max} in {delay} ms"
+                    "Retry {attempt}/{max} "
+                    NativeElapsed { surface: surface.to_owned(), node: node.id.clone(), kind: OmpTimerKind::AgentRetry }
                     if !error.is_empty() { span { " · {error}" } }
                 }
             }
             if let Some(done) = done {
                 Progress { value: Some(done), label: "Agent completion".to_owned() }
             }
-            if collapsible {
+            if interactive {
                 CollapsibleContent { class: "min-w-0",
-                    div { class: "mt-2 flex flex-col gap-2", {render_children(node, surface, send, blobs)} }
+                    div { class: "mt-2 flex flex-col gap-2", {children} }
                 }
+            }
+            else if !collapsed || !collapsible {
+                {children}
             }
         }
     };
-    let framed = if collapsible {
+    let framed = if let Some((surface, toggle_send)) = target.filter(|_| collapsible) {
         let sf = surface.to_owned();
         let id = node.id.clone();
-        let toggle_send = *send;
         rsx! {
             Collapsible {
                 open: !collapsed,
@@ -325,32 +374,4 @@ fn thinking_badge(token: &str) -> Element {
             Badge { variant: BadgeVariant::Outline, size: BadgeSize::Sm, "{level}" }
         }
     }
-}
-
-fn agent_stats(stats: Option<&Value>) -> String {
-    let Some(stats) = stats else {
-        return String::new();
-    };
-    let mut parts: Vec<String> = Vec::new();
-    for (key, label) in [("tools", "tools"), ("requests", "requests")] {
-        if let Some(value) = stats.get(key).filter(|value| !value.is_null()) {
-            parts.push(format!("{} {label}", text_value(value)));
-        }
-    }
-    if let Some(label) = stats.get("contextLabel").and_then(Value::as_str) {
-        parts.push(format!("context {label}"));
-    } else if let Some(value) = stats.get("context").and_then(Value::as_f64) {
-        parts.push(format!("context {:.0}%", value * 100.0));
-    } else if let Some(value) = stats.get("tokens").filter(|value| !value.is_null()) {
-        parts.push(format!("{} tokens", text_value(value)));
-    }
-    if let Some(value) = stats.get("cost").and_then(Value::as_f64) {
-        parts.push(format!("${value:.2}"));
-    }
-    if let Some(value) = stats.get("took").and_then(Value::as_f64) {
-        parts.push(format!("took {}", duration(value)));
-    } else if let Some(value) = stats.get("age").and_then(Value::as_f64) {
-        parts.push(format!("running {}", duration(value)));
-    }
-    parts.join(" · ")
 }

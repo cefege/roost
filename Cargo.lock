@@ -5519,6 +5519,7 @@ dependencies = [
  "js-sys",
  "pulldown-cmark",
  "qrcode",
+ "rio-unicode",
  "roost-client-core",
  "roost-platform",
  "roost-protocol",

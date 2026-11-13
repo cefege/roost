@@ -12,6 +12,7 @@ mod header;
 pub(crate) mod last_conversation;
 mod launch;
 mod markdown;
+mod markdown_figures;
 pub(crate) mod omp_controls;
 mod omp_form_field;
 mod omp_interaction_card;

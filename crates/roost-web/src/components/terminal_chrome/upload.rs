@@ -54,6 +54,7 @@ struct QueuedUpload {
     upload_id: String,
     file: ChosenFile,
     short_path: bool,
+    raw_worker_path: bool,
     identity: DirectIdentity,
     sink: InsertionSink,
     observer: Option<UploadObserver>,
@@ -69,6 +70,8 @@ pub struct UploadContext {
     pub worker_fp: Option<String>,
     /// Whether the worker stores attachments under a short path.
     pub short_path: bool,
+    /// Native agent editors paste a worker path, not a shell-quoted command.
+    pub raw_worker_path: bool,
     /// The tab and device a direct grant is bound to.
     pub identity: DirectIdentity,
 }
@@ -118,6 +121,7 @@ pub fn enqueue_attachments(
                 worker_fp: context.worker_fp.clone(),
                 upload_id,
                 file,
+                raw_worker_path: context.raw_worker_path,
                 short_path: context.short_path,
                 identity: context.identity.clone(),
                 sink: sink.clone(),
@@ -361,6 +365,10 @@ async fn relay(job: &QueuedUpload, plan: &UploadPlan) -> UploadOutcome {
 /// say it may be typed. The rules are the worker's because the path is typed
 /// into the worker's shell, not the reader's.
 fn insert_path(job: &QueuedUpload, abs_path: &str) {
+    if job.raw_worker_path {
+        (job.sink)(&job.upload_id, abs_path);
+        return;
+    }
     let worker_os = {
         let core = job.pump.core();
         let borrowed = core.borrow();

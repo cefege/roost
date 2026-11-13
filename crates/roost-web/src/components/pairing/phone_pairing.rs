@@ -125,7 +125,7 @@ fn ScannableCode(
     clock_ms: u64,
     on_regenerate: EventHandler<MouseEvent>,
 ) -> Element {
-    let (copy_link, copied) = use_copy_clipboard(None);
+    let (copy_link, copied) = use_copy_clipboard(None, None);
     // "New code" replaces a one-time link, so the confirmation belongs to the
     // link it copied, not to whichever link the card shows now.
     let mut copied_link = use_signal(|| None::<String>);

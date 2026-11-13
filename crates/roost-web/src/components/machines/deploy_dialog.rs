@@ -55,7 +55,7 @@ pub fn MachineDeployDialog(on_close: EventHandler<()>) -> Element {
 
     let state = model();
     let phase = state.phase();
-    let (copy_command, copied) = use_copy_clipboard(None);
+    let (copy_command, copied) = use_copy_clipboard(None, None);
     // A re-check or a re-mint replaces the one-time command, so the
     // confirmation belongs to the command it copied.
     let mut copied_command = use_signal(|| None::<String>);

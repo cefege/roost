@@ -80,6 +80,7 @@ portable-pty = "0.9.0"
 # PTY driver, which Roost does not use.
 rio-vt = { version = "=0.5.28", default-features = false, features = ["graphics"] }
 rio-graphics = "=0.5.28"
+rio-unicode = "=0.5.28"
 str0m = "0.23.1"
 # PNG encoding for terminal graphics fetched independently from cell frames.
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }

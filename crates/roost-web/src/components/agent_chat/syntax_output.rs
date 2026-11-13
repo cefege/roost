@@ -52,7 +52,7 @@ mod tests {
     }
 
     #[test]
-    fn highlighting_keeps_the_output_sanitization_and_line_limit() {
+    fn highlighting_keeps_sanitized_output_without_truncating_its_source() {
         let output = format!("discarded\rlet text = \"{}\";\u{0007}", "x".repeat(5_000));
         let lines = super::super::output_lines::styled_lines(&output, false);
         let rendered = || {
@@ -69,7 +69,8 @@ mod tests {
         let expected: String = rendered().collect();
         assert_eq!(highlighted, expected);
         assert!(highlighted.starts_with("let text = "));
-        assert!(highlighted.ends_with('…'));
+        assert!(highlighted.ends_with("\";"));
+        assert_eq!(highlighted.matches('x').count(), 5_001);
         assert!(!highlighted.chars().any(char::is_control));
     }
 }

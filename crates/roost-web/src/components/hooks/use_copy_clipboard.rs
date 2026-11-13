@@ -14,8 +14,12 @@ const DEFAULT_TIMEOUT_MS: i32 = 2000;
 
 /// A copy function and whether its last copy is still being shown, for
 /// `timeout_ms` (two seconds when `None`). Each attempt clears the previous
-/// confirmation; only the latest attempt's accepted verdict raises it.
-pub fn use_copy_clipboard(timeout_ms: Option<i32>) -> (impl Fn(&str) + Clone, ReadSignal<bool>) {
+/// confirmation; only the latest attempt's accepted verdict raises it. The
+/// optional completion runs in its owning Dioxus scope for that same attempt.
+pub fn use_copy_clipboard(
+    timeout_ms: Option<i32>,
+    on_settled: Option<EventHandler<bool>>,
+) -> (impl Fn(&str) + Clone, ReadSignal<bool>) {
     let copied = use_signal(|| false);
     let latest = use_hook(|| CopyValue::new(0_u64));
     // Converted once: every `From<Signal>` allocates a box the scope keeps.
@@ -28,6 +32,11 @@ pub fn use_copy_clipboard(timeout_ms: Option<i32>) -> (impl Fn(&str) + Clone, Re
         };
         copy_text_then(text, move |accepted| {
             finish_copy(timeout, ticket, latest, copied, accepted);
+            if latest.try_read().is_ok_and(|latest| *latest == ticket)
+                && let Some(on_settled) = on_settled
+            {
+                on_settled.call(accepted);
+            }
         });
     };
 

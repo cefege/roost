@@ -8,8 +8,10 @@ mod content;
 mod controls;
 mod editor;
 mod editors;
+mod elapsed_clock;
 pub(crate) mod host_services;
 mod hovercard;
+mod key_hint;
 mod keyboard;
 mod layout;
 pub(crate) mod links;
@@ -31,6 +33,7 @@ mod scroll_effects;
 mod text_edit;
 mod text_state;
 mod text_sync;
+mod theme;
 use media::MediaContext;
 #[cfg(target_arch = "wasm32")]
 use media::MediaLinkContext;
@@ -44,6 +47,12 @@ use serde_json::{Value, json};
 #[derive(Clone, PartialEq)]
 pub(super) struct NativeViewScope {
     pub view_id: std::rc::Rc<str>,
+}
+
+/// The DOM-scope id of one surface's regions inside a view; overlay placement
+/// resolves its bounds through the element rendered with this id.
+pub(super) fn surface_view_id(view_id: &str, surface_id: &str) -> String {
+    format!("{view_id}-{surface_id}")
 }
 
 struct RegionContext<'view> {
@@ -63,8 +72,6 @@ pub fn OmpCommandSurface(
     worker_fp: String,
     cwd: String,
     pump: Pump,
-    #[props(default = false)] pending_input: bool,
-    #[props(default = 0)] completed_input: u64,
     #[props(default)] input_failure: Option<(u64, String)>,
     on_action: EventHandler<Value>,
 ) -> Element {
@@ -72,6 +79,7 @@ pub fn OmpCommandSurface(
     use_context_provider(|| NativeViewScope {
         view_id: std::rc::Rc::from(view_id.as_str()),
     });
+    use_context_provider(hovercard::HoverCardScope::default);
     host_services::use_omp_host_services(
         pump.clone(),
         conversation_id.clone(),
@@ -79,19 +87,10 @@ pub fn OmpCommandSurface(
         transport_id,
         worker_fp.clone(),
         cwd.clone(),
+        on_action,
     );
     let input_error = use_signal(|| None::<String>);
-    let mut pending_state = use_signal(|| pending_input);
-    if *pending_state.peek() != pending_input {
-        pending_state.set(pending_input);
-    }
-    let mut completed_state = use_signal(|| completed_input);
-    if *completed_state.peek() != completed_input {
-        completed_state.set(completed_input);
-    }
-    let input_sync = use_context_provider(|| {
-        text_sync::TextSync::new(on_action, input_error, pending_state, completed_state)
-    });
+    let input_sync = use_context_provider(|| text_sync::TextSync::new(on_action, input_error));
     input_sync.update_sender(on_action);
     let failure_sync = input_sync.clone();
     use_effect(use_reactive((&input_failure,), move |(failure,)| {
@@ -102,6 +101,7 @@ pub fn OmpCommandSurface(
     let on_action = use_callback(move |action: Value| input_sync.enqueue(action));
     let mut media_context = use_context_provider(|| {
         Signal::new(MediaContext {
+            conversation_id: conversation_id.clone(),
             worker_fp: worker_fp.clone(),
             cwd: cwd.clone(),
         })
@@ -115,13 +115,38 @@ pub fn OmpCommandSurface(
         media_links.set(MediaLinkContext::default());
         linked_conversation.set(conversation_id.clone());
     }
-    if media_context.peek().worker_fp.as_str() != worker_fp.as_str()
+    if media_context.peek().conversation_id.as_str() != conversation_id.as_str()
+        || media_context.peek().worker_fp.as_str() != worker_fp.as_str()
         || media_context.peek().cwd.as_str() != cwd.as_str()
     {
         media_context.set(MediaContext {
+            conversation_id: conversation_id.clone(),
             worker_fp: worker_fp.clone(),
             cwd: cwd.clone(),
         });
+    }
+    elapsed_clock::use_clock();
+    let root_id = use_hook(|| crate::components::ui::field::scoped_element_id("omp-surface"));
+    #[cfg(target_arch = "wasm32")]
+    {
+        // A program overlay replaces the focused composer, and the browser then
+        // parks focus on <body>, outside this subtree's key handler. The terminal
+        // keeps delivering keys to the program, so reclaim focus when nothing owns it.
+        let focus_root_id = root_id.clone();
+        use_effect(use_reactive((&_revision,), move |_| {
+            let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+                return;
+            };
+            let parked = document
+                .active_element()
+                .is_none_or(|active| active.tag_name().eq_ignore_ascii_case("body"));
+            if parked
+                && let Some(root) = document.get_element_by_id(&focus_root_id)
+                && let Ok(root) = wasm_bindgen::JsCast::dyn_into::<web_sys::HtmlElement>(root)
+            {
+                let _ = root.focus();
+            }
+        }));
     }
     let core = pump.core();
     let core = core.borrow();
@@ -169,8 +194,11 @@ pub fn OmpCommandSurface(
         revision: _revision,
     };
     let key_action = on_action;
+    let theme_style = theme::surface_style(&document.palette);
     rsx! {
-        div { class: "relative flex h-full min-h-0 min-w-0 flex-1 flex-col",
+        div { id: "{root_id}", tabindex: "-1", class: "relative flex h-full min-h-0 min-w-0 flex-1 flex-col outline-none",
+            style: "{theme_style}",
+            "data-omp-theme-scope": "true",
             onkeydown: move |event: KeyboardEvent| { if let Some(data)=keyboard::surface_input(&event,has_open_modal) { event.prevent_default();event.stop_propagation();key_action.call(json!({"method":"input","params":{"data":data}})); } },
             if let Some(error)=input_error(){p{role:"alert",class:"shrink-0 px-4 py-2 text-sm text-destructive","{error}"}}
             if host_surface.is_none(){host_services::OmpHostServicePrompts{}}
@@ -229,7 +257,8 @@ fn render_regions(
     let layer_marker = overlay::layer_marker(layer);
     rsx! {regions::NativeRegions{
         key:"{surface.id}",surface_id:surface.id.clone(),title:surface.title.clone().unwrap_or_else(||"OMP command".into()),
-        conversation_id:context.conversation_id.to_owned(),view_id:format!("{}-{}",context.view_id,surface.id),pump:context.pump.clone(),
+        surface_sequence:surface.sequence,
+        conversation_id:context.conversation_id.to_owned(),view_id:surface_view_id(context.view_id,&surface.id),pump:context.pump.clone(),
         revision:context.revision,show_host_services,screen:surface.mode=="screen",covered,
         layer_marker,overlays,main,dock,send:*send
     }}

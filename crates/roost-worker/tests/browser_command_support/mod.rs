@@ -97,7 +97,7 @@ pub fn harness() -> Harness {
             searches: Arc::new(Mutex::new(Searches::new())),
             attachments,
             diagnostics: diagnostics.clone(),
-            dashboard: Arc::new(NativeDashboardHttp::new()),
+            dashboard: Arc::new(NativeDashboardHttp::new(Arc::new(Default::default()))),
         },
         root,
         sessions,

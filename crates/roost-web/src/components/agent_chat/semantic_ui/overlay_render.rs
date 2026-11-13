@@ -1,9 +1,7 @@
-//! Placement of native overlay slots as non-modal floats or stock modals.
-//!
-//! A non-modal overlay is absolutely positioned without a focus trap or inert
-//! content; caret/node anchors carry data attributes for the parent's caret
-//! query. Modal slots are stock Dialogs above the covered surface, and only the
-//! highest one receives the host-service prompts.
+//! Measured native floats and stock modal overlays above a surface.
+//! Non-modal layers never enter the composer's flow or take its focus.
+//! Browser placement follows node/caret geometry and visible viewport bounds;
+//! stock Dialog retains cancellation, focus restoration and modal stacking.
 
 use dioxus::prelude::*;
 use serde_json::{Value, json};
@@ -12,10 +10,17 @@ use crate::components::ui::{Dialog, DialogContent, DialogDescription, DialogHead
 
 use super::host_services::OmpHostServicePrompts;
 use super::overlay::{
-    NativeLayerMarker, OverlayAnchor, OverlaySide, OverlaySize, OverlaySlot, highest_modal,
+    NativeLayerMarker, OverlayAnchor, OverlaySide, OverlaySize, OverlaySlot, modal_slots,
 };
 
-/// Non-modal overlays anchored top or center, inside the surface content.
+#[cfg(target_arch = "wasm32")]
+#[path = "overlay_browser.rs"]
+mod browser;
+#[cfg(any(target_arch = "wasm32", test))]
+#[path = "overlay_geometry.rs"]
+pub(super) mod geometry;
+
+/// All non-modal slots share the surface plane, regardless of anchor location.
 pub(super) fn non_modal_surface(
     slots: &[OverlaySlot],
     surface_id: &str,
@@ -24,86 +29,79 @@ pub(super) fn non_modal_surface(
     if occluded {
         return rsx! {};
     }
-    let top: Vec<&OverlaySlot> = slots
-        .iter()
-        .filter(|slot| !slot.shape.modal && slot.shape.anchor == OverlayAnchor::Top)
-        .collect();
-    let center: Vec<&OverlaySlot> = slots
-        .iter()
-        .filter(|slot| !slot.shape.modal && slot.shape.anchor == OverlayAnchor::Center)
-        .collect();
-    if top.is_empty() && center.is_empty() {
-        return rsx! {};
-    }
     rsx! {
-        if !top.is_empty() {
-            div { class: "pointer-events-none absolute inset-x-0 top-0 z-50 flex justify-center p-2",
-                for slot in top { {non_modal_child(slot, surface_id)} }
-            }
-        }
-        if !center.is_empty() {
-            div { class: "pointer-events-none absolute inset-0 z-50 flex items-center justify-center p-4",
-                for slot in center { {non_modal_child(slot, surface_id)} }
-            }
+        for slot in slots.iter().filter(|slot| !slot.shape.modal) {
+            {non_modal_child(slot, surface_id)}
         }
     }
 }
 
-/// Non-modal overlays anchored to the composer/caret, above the dock.
-// Non-modal overlays anchored to the composer/caret, above the dock.
-pub(super) fn non_modal_dock(slots: &[OverlaySlot], surface_id: &str, occluded: bool) -> Element {
-    if occluded {
-        return rsx! {};
-    }
-    let docked: Vec<&OverlaySlot> = slots
-        .iter()
-        .filter(|slot| {
-            !slot.shape.modal
-                && !matches!(
-                    &slot.shape.anchor,
-                    OverlayAnchor::Top | OverlayAnchor::Center
-                )
-        })
-        .collect();
-    if docked.is_empty() {
-        return rsx! {};
-    }
-    // Caret/node-anchored overlays (the autocomplete) flow inline above the
-    // dock's editor, like the terminal draws them in the composer; center and
-    // bottom-anchored ones stay floating popups above the dock.
-    // All non-modal dock overlays flow inline above the dock's editor.
-    let elements = docked
-        .into_iter()
-        .map(|slot| non_modal_child(slot, surface_id))
-        .collect::<Vec<_>>();
-    rsx! {
-        div { class: "flex w-full flex-col items-center gap-2 pb-2",
-            for element in elements { {element} }
-        }
+pub(super) fn nested_non_modal(slot: &OverlaySlot, surface_id: &str) -> Element {
+    if slot.shape.modal {
+        rsx! {}
+    } else if slot.boundary {
+        non_modal_child(slot, surface_id)
+    } else {
+        slot.content.clone()
     }
 }
 
 fn non_modal_child(slot: &OverlaySlot, surface_id: &str) -> Element {
+    rsx! { NativeOverlay { key: "{slot.id}", slot: slot.clone(), surface_id: surface_id.to_owned() } }
+}
+
+#[component]
+fn NativeOverlay(slot: OverlaySlot, surface_id: String) -> Element {
+    let element_id = use_hook(|| crate::components::ui::field::scoped_element_id("omp-overlay"));
+    #[cfg(target_arch = "wasm32")]
+    browser::use_overlay_placement(&element_id, &surface_id, &slot.shape, false);
     let (anchor, anchor_node) = anchor_attributes(&slot.shape.anchor);
-    let content = slot.content.clone();
-    let head = slot.shape.head.clone().filter(|_| slot.head_visible);
-    let id = slot.id.clone();
-    let surface = surface_id.to_owned();
+    let size_class = match slot.shape.size {
+        OverlaySize::Sm => "w-full max-w-sm",
+        OverlaySize::Md => "w-full max-w-lg",
+        OverlaySize::Lg => "w-full max-w-3xl",
+        OverlaySize::Full => "w-full max-w-full",
+    };
     rsx! {
         div {
-            key: "{slot.id}",
-            class: "pointer-events-auto w-full max-w-full",
+            id: element_id,
+            class: "pointer-events-auto fixed z-50 min-w-0 overflow-y-auto overscroll-contain rounded-md border border-border bg-popover text-popover-foreground shadow-md {size_class}",
+            style: "visibility:hidden;",
             "data-omp-overlay": "nonmodal",
-            "data-omp-overlay-id": id,
-            "data-omp-surface": surface,
+            "data-omp-overlay-id": slot.id,
+            "data-omp-surface": surface_id,
             "data-omp-anchor": anchor,
             "data-omp-anchor-node": anchor_node,
-            div { class: "max-h-96 overflow-y-auto overscroll-contain",
-                if let Some(head) = head {
-                    p { class: "px-2 pt-1 pb-0.5 text-xs font-medium text-muted-foreground", "{head}" }
+            {overlay_metrics()}
+            if slot.head_visible {
+                p { class: "px-2 pt-1 pb-0.5 text-xs font-medium text-muted-foreground",
+                    {super::content::render_spans(slot.head_content.as_ref(), "")}
                 }
-                {content}
             }
+            {slot.content}
+        }
+    }
+}
+
+#[component]
+fn ModalPlacement(surface_id: String, shape: super::overlay::OverlayShape) -> Element {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let context = use_context::<crate::components::ui::dialog::DialogContext>();
+        browser::use_overlay_placement(&context.content_id, &surface_id, &shape, true);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (surface_id, shape);
+    overlay_metrics()
+}
+
+fn overlay_metrics() -> Element {
+    rsx! {
+        span {
+            class: "pointer-events-none invisible absolute",
+            style: "width:1ch;height:1lh;",
+            "data-omp-overlay-metrics": "true",
+            aria_hidden: "true",
         }
     }
 }
@@ -114,13 +112,44 @@ pub(super) fn modal_dialogs(
     show_prompts: bool,
     send: EventHandler<Value>,
 ) -> Vec<Element> {
-    let owner = highest_modal(slots);
+    let modals = modal_slots(slots);
+    let owner = modals.last().map(|slot| slot.id.as_str());
     slots
         .iter()
-        .enumerate()
-        .filter(|(_, slot)| slot.shape.modal)
-        .map(|(index, slot)| modal_dialog(slot, show_prompts && owner == Some(index), send))
+        .filter_map(|slot| modal_tree(slot, show_prompts, owner, send))
         .collect()
+}
+
+fn modal_tree(
+    slot: &OverlaySlot,
+    show_prompts: bool,
+    owner: Option<&str>,
+    send: EventHandler<Value>,
+) -> Option<Element> {
+    if slot.shape.modal {
+        return Some(modal_dialog(
+            slot,
+            show_prompts && owner == Some(slot.id.as_str()),
+            send,
+        ));
+    }
+    let group = slot.group.as_ref()?;
+    let children: Vec<_> = slot
+        .children
+        .iter()
+        .filter_map(|child| modal_tree(child, show_prompts, owner, send))
+        .collect();
+    if children.is_empty() {
+        return None;
+    }
+    let body = super::layout::render_box(
+        group,
+        &slot.surface_id,
+        send,
+        &std::collections::BTreeMap::new(),
+        children.into_iter(),
+    );
+    Some(super::chrome::decorate(group, &slot.surface_id, send, body))
 }
 
 fn modal_dialog(slot: &OverlaySlot, show_prompts: bool, send: EventHandler<Value>) -> Element {
@@ -128,15 +157,11 @@ fn modal_dialog(slot: &OverlaySlot, show_prompts: bool, send: EventHandler<Value
     let title = slot.title.clone();
     let visible = slot.head_visible;
     let fullscreen = slot.shape.fullscreen;
-    let panel = if fullscreen {
-        "flex min-h-0 flex-col overflow-auto pt-12".to_owned()
-    } else {
-        let width = match slot.shape.size {
-            OverlaySize::Sm => "max-w-sm",
-            OverlaySize::Lg => "max-w-3xl",
-            _ => "max-w-lg",
-        };
-        format!("flex min-h-0 flex-col overflow-auto pt-12 {width}")
+    let panel = match (fullscreen, slot.shape.size) {
+        (true, _) => "flex min-h-0 flex-col overflow-auto pt-12",
+        (_, OverlaySize::Sm) => "flex min-h-0 flex-col overflow-auto pt-12 max-w-sm",
+        (_, OverlaySize::Lg) => "flex min-h-0 flex-col overflow-auto pt-12 max-w-3xl",
+        _ => "flex min-h-0 flex-col overflow-auto pt-12 max-w-lg",
     };
     let header_class = if visible { "" } else { "sr-only" };
     rsx! {
@@ -149,14 +174,21 @@ fn modal_dialog(slot: &OverlaySlot, show_prompts: bool, send: EventHandler<Value
                 }
             },
             DialogContent {
-                class: Some(panel),
+                class: Some(panel.into()),
                 style: fullscreen.then(|| "position:absolute;height:100%;".to_owned()),
                 fullscreen,
                 close_on_backdrop_click: true,
                 DialogHeader { class: Some(header_class.into()),
-                    DialogTitle { "{title}" }
+                    DialogTitle {
+                        if visible {
+                            {super::content::render_spans(slot.head_content.as_ref(), "")}
+                        } else {
+                            "{title}"
+                        }
+                    }
                     DialogDescription { class: Some("sr-only".into()), "OMP overlay" }
                 }
+                ModalPlacement { surface_id: slot.surface_id.clone(), shape: slot.shape.clone() }
                 if show_prompts {
                     OmpHostServicePrompts {}
                 }
@@ -186,6 +218,14 @@ fn anchor_attributes(anchor: &OverlayAnchor) -> (&'static str, String) {
         OverlayAnchor::Center => ("center", String::new()),
         OverlayAnchor::Top => ("top", String::new()),
         OverlayAnchor::Bottom => ("bottom", String::new()),
+        OverlayAnchor::TopLeft => ("top-left", String::new()),
+        OverlayAnchor::TopRight => ("top-right", String::new()),
+        OverlayAnchor::TopCenter => ("top-center", String::new()),
+        OverlayAnchor::BottomLeft => ("bottom-left", String::new()),
+        OverlayAnchor::BottomRight => ("bottom-right", String::new()),
+        OverlayAnchor::BottomCenter => ("bottom-center", String::new()),
+        OverlayAnchor::LeftCenter => ("left-center", String::new()),
+        OverlayAnchor::RightCenter => ("right-center", String::new()),
         OverlayAnchor::Node { id, side } => (
             match side {
                 OverlaySide::Above => "node-above",

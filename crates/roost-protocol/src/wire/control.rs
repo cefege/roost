@@ -342,6 +342,7 @@ pub enum ClientControlFrame {
     #[serde(rename = "stats-dashboard-http")]
     StatsDashboardHttp {
         request_id: String,
+        resource: crate::native_dashboard::ResourceKey,
         /// The reported native host: a loopback, wildcard or locally
         /// assigned address the worker must prove before dialling.
         host: String,
@@ -355,6 +356,8 @@ pub enum ClientControlFrame {
         /// Standard base64, empty when the request has no body.
         #[serde(default)]
         body_base64: String,
+        #[serde(default)]
+        stream: Option<crate::native_dashboard::StreamRequest>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         trace_id: Option<TraceId>,
     },

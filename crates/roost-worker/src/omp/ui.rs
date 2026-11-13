@@ -9,11 +9,14 @@ use roost_protocol::wire::agent_chat::OmpWorkerEvent;
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, VecDeque},
+    sync::Arc,
     time::Duration,
 };
 use tokio::{sync::mpsc, time::Instant};
+mod dashboard;
 mod host_services;
 mod lifecycle;
+mod presentation;
 mod receipts;
 mod reconnect;
 mod validation;
@@ -47,12 +50,12 @@ struct ViewLease {
     expires: Instant,
     view_id: String,
     transport_id: String,
+    presentation: Option<Arc<Value>>,
     /// Admitted origin request ids, so a late asynchronous callback still owns
     /// the view it started in without trusting anything the child sends.
     requests: VecDeque<String>,
 }
 
-#[derive(Default)]
 pub(super) struct UiState {
     views: HashMap<String, ViewLease>,
     opened: bool,
@@ -60,12 +63,39 @@ pub(super) struct UiState {
     streaming: bool,
     turn_id: Option<String>,
     transport_id: String,
-    open_params: Option<Value>,
+    open_params: Option<Arc<Value>>,
     receipts: Receipts,
     host_services: HostServices,
+    resources: crate::browser_commands::native_dashboard::resources::ResourceOwner,
 }
 
 impl UiState {
+    pub fn new(
+        registry: Arc<crate::browser_commands::native_dashboard::resources::DashboardResources>,
+        owner_id: String,
+    ) -> Self {
+        Self {
+            views: HashMap::new(),
+            opened: false,
+            acknowledgements: VecDeque::new(),
+            streaming: false,
+            turn_id: None,
+            transport_id: String::new(),
+            open_params: None,
+            receipts: Receipts::default(),
+            host_services: HostServices::default(),
+            resources: crate::browser_commands::native_dashboard::resources::ResourceOwner {
+                registry,
+                owner_id: owner_id.into(),
+            },
+        }
+    }
+    pub fn begin_child(&mut self, owner_id: String) {
+        self.resources
+            .registry
+            .revoke_owner(&self.resources.owner_id);
+        self.resources.owner_id = owner_id.into();
+    }
     pub fn active(&self) -> bool {
         !self.views.is_empty()
     }
@@ -191,6 +221,7 @@ impl UiState {
                 {
                     return Err(Error::new(-32000, "Too many pending OMP actions."));
                 }
+                self.remember_presentation_event(&request.client_id, &params);
                 "event"
             }
             "input" => {
@@ -238,48 +269,6 @@ impl UiState {
             return Err(error);
         }
         Ok(())
-    }
-
-    fn open(
-        &mut self,
-        request: &DOmpUi,
-        params: &Value,
-        emitter: &mut Emitter,
-    ) -> Result<bool, Error> {
-        if !valid_view_id(&request.view_id) || !valid_view_id(&request.tab_id) {
-            return Err(Error::invalid_params());
-        }
-        if !self.views.contains_key(&request.client_id) && self.views.len() >= MAX_VIEWS {
-            return Err(Error::new(-32000, "Too many open OMP views."));
-        }
-        let reset = params.get("reset").and_then(Value::as_bool) == Some(true);
-        if self.opened && !reset {
-            let transport_id = self.transport_id.clone();
-            self.lease(request, &transport_id);
-            if self.open_params.as_ref() != Some(params) {
-                self.open_params = Some(params.clone());
-            }
-            return Ok(false);
-        }
-        // A new transport invalidates every binding of the previous generation.
-        self.views.clear();
-        self.acknowledgements.clear();
-        self.receipts.cancel_all();
-        self.host_services.cancel_all(emitter);
-        self.transport_id = request.request_id.clone();
-        self.open_params = Some(params.clone());
-        self.opened = true;
-        let transport_id = self.transport_id.clone();
-        self.lease(request, &transport_id);
-        emitter.emit(OmpWorkerEvent::UiReset {
-            transport_id: Some(self.transport_id.clone()),
-        });
-        tracing::info!(
-            conversation_id = %emitter.conversation_id,
-            tab_id = %request.tab_id,
-            "OMP semantic UI opening"
-        );
-        Ok(true)
     }
 
     fn close(&mut self, request: &DOmpUi, emitter: &mut Emitter) -> Result<bool, Error> {
@@ -350,7 +339,7 @@ impl UiState {
         })
     }
 
-    fn lease(&mut self, request: &DOmpUi, transport_id: &str) {
+    fn lease(&mut self, request: &DOmpUi, transport_id: &str) -> &mut ViewLease {
         let entry = self
             .views
             .entry(request.client_id.clone())
@@ -358,6 +347,7 @@ impl UiState {
                 expires: Instant::now(),
                 view_id: request.view_id.clone(),
                 transport_id: transport_id.to_owned(),
+                presentation: None,
                 requests: VecDeque::new(),
             });
         entry.expires = Instant::now() + VIEW_LEASE;
@@ -369,5 +359,6 @@ impl UiState {
             }
             entry.requests.push_back(request.request_id.clone());
         }
+        entry
     }
 }

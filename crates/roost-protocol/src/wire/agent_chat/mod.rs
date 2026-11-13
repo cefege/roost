@@ -19,6 +19,8 @@ pub use interaction_validation::{
 };
 mod omp;
 pub use omp::*;
+mod omp_live_audio;
+pub use omp_live_audio::{MAX_OMP_LIVE_AUDIO_BYTES, OmpLiveAudioRequest};
 mod proto;
 pub mod semantic_ui;
 mod tools;

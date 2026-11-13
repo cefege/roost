@@ -8,7 +8,7 @@ async fn host_services_are_private_bound_to_the_view_and_consumed_once() {
     let (launcher, mut requests) = UiLauncher::new();
     let launcher = Arc::new(launcher);
     let (uplink, mut receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::clone(&launcher), uplink);
+    let owner = OmpOwner::new(Arc::clone(&launcher), uplink, Arc::new(Default::default()));
     let mut document = OmpUiDocument::default();
     owner.ui(open(
         "open-1",
@@ -85,7 +85,7 @@ async fn a_reply_from_another_view_never_reaches_native_and_close_withdraws_prom
     let (launcher, mut requests) = UiLauncher::new();
     let launcher = Arc::new(launcher);
     let (uplink, mut receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::clone(&launcher), uplink);
+    let owner = OmpOwner::new(Arc::clone(&launcher), uplink, Arc::new(Default::default()));
     let mut document = OmpUiDocument::default();
     owner.ui(open(
         "open-2",
@@ -162,7 +162,7 @@ async fn a_native_timeout_withdraws_its_own_browser_prompt() {
     let (launcher, mut requests) = UiLauncher::new();
     let launcher = Arc::new(launcher);
     let (uplink, mut receiver) = uplink::channel();
-    let owner = OmpOwner::new(Arc::clone(&launcher), uplink);
+    let owner = OmpOwner::new(Arc::clone(&launcher), uplink, Arc::new(Default::default()));
     let mut document = OmpUiDocument::default();
     owner.ui(open(
         "open-t",
@@ -221,5 +221,89 @@ async fn a_native_timeout_withdraws_its_own_browser_prompt() {
         json!({"data":"barrier"}),
     ));
     assert_eq!(peer_request(&mut requests).await.method, "_omp/ui/input");
+    close(&owner);
+}
+
+#[tokio::test]
+async fn live_audio_only_prepare_returns_a_value_to_its_original_requester() {
+    let (launcher, mut requests) = UiLauncher::new();
+    let launcher = Arc::new(launcher);
+    let (uplink, mut receiver) = uplink::channel();
+    let owner = OmpOwner::new(Arc::clone(&launcher), uplink, Arc::new(Default::default()));
+    let mut document = OmpUiDocument::default();
+    owner.ui(open(
+        "open-live",
+        "device:a",
+        "view-live",
+        json!({"cols":80,"rows":24,"dark":true,"reduceMotion":false}),
+    ));
+    peer_request(&mut requests).await;
+    until(&mut receiver, &mut document, ui_frame).await;
+    let peer = "adbd487b-df30-46da-b899-b40016b15775";
+    for (service_id, operation) in [
+        ("prepare-live", json!({"op":"prepare","peerId":peer})),
+        ("mute-live", json!({"op":"mute","peerId":peer,"muted":true})),
+    ] {
+        launcher.control(Control::Notify {
+            method: "_omp/ui/host_service_request".into(),
+            params: json!({
+                "sessionId":"live-handle",
+                "origin":{"requestId":"open-live","viewId":"view-live","transportId":"open-live"},
+                "serviceId":service_id,"kind":"live_audio","value":operation.to_string(),
+            }),
+        });
+        let CoordWorkerUpstream::OmpHostServiceRequest(request) =
+            next_upstream(&mut receiver).await
+        else {
+            panic!("host service request frame");
+        };
+        assert_eq!(request.kind, "live_audio");
+        assert_eq!(request.value, operation.to_string());
+        let invalid_reply = if service_id == "prepare-live" {
+            json!({"serviceId":service_id,"accepted":true})
+        } else {
+            json!({"serviceId":service_id,"accepted":true,"value":"v=0\r\n"})
+        };
+        owner.ui(view_action(
+            &format!("invalid-{service_id}"),
+            "device:a",
+            "view-live",
+            "open-live",
+            "host_reply",
+            invalid_reply,
+        ));
+        owner.ui(view_action(
+            &format!("barrier-{service_id}"),
+            "device:a",
+            "view-live",
+            "open-live",
+            "input",
+            json!({"data":"barrier"}),
+        ));
+        assert_eq!(peer_request(&mut requests).await.method, "_omp/ui/input");
+        let valid_reply = if service_id == "prepare-live" {
+            json!({"serviceId":service_id,"accepted":true,"value":"v=0\r\n"})
+        } else {
+            json!({"serviceId":service_id,"accepted":true})
+        };
+        owner.ui(view_action(
+            &format!("valid-{service_id}"),
+            "device:a",
+            "view-live",
+            "open-live",
+            "host_reply",
+            valid_reply,
+        ));
+        let reply = peer_request(&mut requests).await;
+        assert_eq!(reply.method, "_omp/ui/host_service_reply");
+        assert_eq!(reply.params["origin"]["requestId"], "open-live");
+        assert_eq!(reply.params["origin"]["viewId"], "view-live");
+        assert_eq!(reply.params["origin"]["transportId"], "open-live");
+        if service_id == "prepare-live" {
+            assert_eq!(reply.params["value"], "v=0\r\n");
+        } else {
+            assert!(reply.params.get("value").is_none());
+        }
+    }
     close(&owner);
 }

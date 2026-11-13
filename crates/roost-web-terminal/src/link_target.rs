@@ -109,8 +109,15 @@ pub fn classify_terminal_link_target(
 
 /// Only routes the worker file route minted may be installed on an internal
 /// terminal anchor: `/file/<workerFp>/<path>` with an optional `#L<line>`.
-/// Query strings, other fragments and over-cap routes are refused.
+/// Query strings, other fragments, raw whitespace/controls and over-cap routes
+/// are refused; the worker route codec percent-encodes path bytes.
 pub fn is_worker_file_href(href: &str) -> bool {
+    if href
+        .chars()
+        .any(|character| character <= ' ' || character == '\u{7f}')
+    {
+        return false;
+    }
     let Some(rest) = href.strip_prefix("/file/") else {
         return false;
     };

@@ -41,6 +41,9 @@ pub(super) async fn conversation_actor<L: OmpLauncher>(
     id: String,
     run_id: String,
     mut inbox: mpsc::UnboundedReceiver<OmpCommand>,
+    dashboard_resources: Arc<
+        crate::browser_commands::native_dashboard::resources::DashboardResources,
+    >,
 ) {
     let mut emitter = Emitter::new(id, run_id, uplink);
     let mut seen = HashSet::new();
@@ -48,7 +51,7 @@ pub(super) async fn conversation_actor<L: OmpLauncher>(
     let mut child_generation = 0_u64;
     let mut tick = interval(Duration::from_millis(50));
     let mut refresh: Option<DOmpOpen> = None;
-    let mut ui = super::ui::UiState::default();
+    let mut ui = super::ui::UiState::new(dashboard_resources, emitter.run_id.clone());
     loop {
         let mut initial_ui = None;
         let (prompt, start_turn) = if let Some(request) = refresh.take() {
@@ -142,6 +145,7 @@ pub(super) async fn conversation_actor<L: OmpLauncher>(
         tracing::info!(conversation_id=%emitter.conversation_id,run_id=%emitter.run_id,omp_path=description,"OMP process spawning");
         child_generation = child_generation.saturating_add(1);
         let identity_prefix = format!("{}:{child_generation}", emitter.run_id);
+        ui.begin_child(identity_prefix.clone());
         let (events_tx, mut events) = mpsc::unbounded_channel();
         let notification_tx = events_tx.clone();
         let permission_tx = events_tx.clone();
@@ -161,13 +165,14 @@ pub(super) async fn conversation_actor<L: OmpLauncher>(
                         let _ = notification_tx.send(AcpEvent::Notification(notification));
                     }
                     AgentNotification::ExtNotification(notification)
-                        if matches!(notification.method.as_ref(), "_omp/ui/message" | "_omp/ui/state" | "_omp/ui/host_service_request" | "_omp/ui/host_service_cancel") => {
+                        if matches!(notification.method.as_ref(), "_omp/ui/message" | "_omp/ui/state" | "_omp/ui/host_service_request" | "_omp/ui/host_service_cancel" | "_omp/ui/dashboard_resource") => {
                         let payload: serde_json::Value = serde_json::from_str(notification.params.get())
                             .map_err(|_| agent_client_protocol::Error::invalid_params())?;
                         let event = match notification.method.as_ref() {
                             "_omp/ui/state" => AcpEvent::UiState(payload),
                             "_omp/ui/host_service_request" => AcpEvent::HostService(payload),
                             "_omp/ui/host_service_cancel" => AcpEvent::HostServiceCancel(payload),
+                            "_omp/ui/dashboard_resource" => AcpEvent::DashboardResource(payload),
                             _ => AcpEvent::Ui(payload),
                         };
                         let _ = ui_tx.send(event);

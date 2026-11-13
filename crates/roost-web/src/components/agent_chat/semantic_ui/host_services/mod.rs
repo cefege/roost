@@ -8,10 +8,22 @@
 mod actions;
 mod browser;
 mod controller;
+mod fork;
+mod live_audio;
+#[cfg(target_arch = "wasm32")]
+mod live_media;
+#[cfg(target_arch = "wasm32")]
+mod live_peer;
+#[cfg(target_arch = "wasm32")]
+mod live_requests;
+#[cfg(target_arch = "wasm32")]
+mod live_wait;
 mod prompts;
 mod reply;
 #[cfg(test)]
 mod tests;
+
+pub(super) use browser::open_blank_tab;
 
 pub(crate) use controller::use_omp_host_services;
 pub(crate) use prompts::OmpHostServicePrompts;

@@ -339,7 +339,7 @@ pub async fn dispatch(command: &Command, deps: &Deps) -> Vec<CoordWorkerUpstream
 }
 
 /// The refusal, correlated so the caller can act on it.
-fn refuse(command: &Command, refusal: Refusal) -> Vec<CoordWorkerUpstream> {
+pub(crate) fn refuse(command: &Command, refusal: Refusal) -> Vec<CoordWorkerUpstream> {
     tracing::warn!(
         kind = command.frame.kind(),
         request_id = %command.request_id,

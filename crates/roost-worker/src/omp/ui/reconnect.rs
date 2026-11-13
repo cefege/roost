@@ -33,7 +33,7 @@ impl UiState {
         if self.views.is_empty() {
             return;
         }
-        let Some(mut params) = self.open_params.clone() else {
+        let Some(mut params) = self.open_params.as_deref().cloned() else {
             return;
         };
         let Some(fields) = params.as_object_mut() else {

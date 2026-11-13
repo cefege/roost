@@ -171,6 +171,11 @@ impl UiState {
             self.receipts.cancel_view(&view_id, &transport_id);
         }
         if self.opened && !self.active() {
+            self.resources.registry.revoke_transport(
+                &self.resources.owner_id,
+                &emitter.conversation_id,
+                &self.transport_id,
+            );
             self.opened = false;
             self.acknowledgements.clear();
             self.receipts.cancel_transport(&self.transport_id);
@@ -190,6 +195,11 @@ impl UiState {
     /// The ACP child is gone: its transport, prompts and receipts cannot outlive it.
     /// Mounted view leases survive so a replacement child can reattach them.
     pub fn disconnected(&mut self, emitter: &mut Emitter) {
+        self.resources.registry.revoke_transport(
+            &self.resources.owner_id,
+            &emitter.conversation_id,
+            &self.transport_id,
+        );
         self.host_services.cancel_all(emitter);
         self.receipts.cancel_all();
         self.acknowledgements.clear();
@@ -238,6 +248,48 @@ impl UiState {
         }) else {
             return;
         };
+        let denial = match payload.get("kind").and_then(Value::as_str) {
+            Some("open_stats_dashboard") => {
+                let registered = payload
+                    .get("value")
+                    .and_then(Value::as_str)
+                    .and_then(roost_protocol::native_dashboard::DashboardOpen::parse)
+                    .is_some_and(|(open, target)| {
+                        self.resources.registry.contains(
+                            &roost_protocol::native_dashboard::ResourceKey {
+                                conversation_id: emitter.conversation_id.clone(),
+                                transport_id: transport_id.to_owned(),
+                                resource_id: open.resource_id,
+                            },
+                            &target.host,
+                            target.port,
+                        )
+                    });
+                (!registered)
+                    .then_some("The stats dashboard is not registered to this OMP transport.")
+            }
+            Some("open_fork") => {
+                let owned = payload
+                    .get("value")
+                    .and_then(Value::as_str)
+                    .and_then(roost_protocol::native_fork::ForkOpen::parse)
+                    .is_some_and(|fork| fork.parent_session_id == session.resume_id);
+                (!owned).then_some("The fork does not belong to this OMP session.")
+            }
+            _ => None,
+        };
+        if let Some(reason) = denial {
+            let _ = notify(
+                connection,
+                "_omp/ui/host_service_reply",
+                json!({
+                    "sessionId": session.id, "transportId": self.transport_id,
+                    "origin": origin, "serviceId": payload.get("serviceId"),
+                    "accepted": false, "error": reason,
+                }),
+            );
+            return;
+        }
         let admitted = ViewOrigin {
             client_id: client_id.clone(),
             view_id: view_id.to_owned(),

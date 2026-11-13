@@ -2,10 +2,41 @@
 //! Called by the browser text control after native properties change.
 //! Shares the owning state so queued local drafts survive delayed frames.
 
-use super::{EditAck, NativeTextState, PendingAction, grapheme_count, grapheme_to_utf16};
+use super::{EditAck, NativeTextState, grapheme_count, grapheme_to_utf16};
 use std::rc::Rc;
 
 impl NativeTextState {
+    pub(in super::super) fn anchor_changed(&self, anchor: Option<usize>) -> bool {
+        self.native_anchor != anchor
+    }
+
+    /// Selection-only frames never acknowledge an edit or release queued input.
+    pub(in super::super) fn observe_anchor(
+        &mut self,
+        anchor: Option<usize>,
+        buffered: bool,
+    ) -> bool {
+        let changed = self.anchor_changed(anchor);
+        self.native_anchor = anchor;
+        changed
+            && (!self.mask || !self.unknown_secret)
+            && !buffered
+            && !self.edits_pending()
+            && !self.blocks_input()
+            && !self.failed
+    }
+    pub(in super::super) fn anchor_utf16(&self, anchor: Option<usize>) -> Option<usize> {
+        if self.mask {
+            if self.unknown_secret {
+                None
+            } else {
+                anchor.map(|anchor| grapheme_to_utf16(&self.value, anchor))
+            }
+        } else {
+            anchor
+        }
+    }
+
     pub(in super::super) fn native_changed(
         &self,
         text: &str,
@@ -116,22 +147,6 @@ impl NativeTextState {
             }
             return false;
         }
-        if self.waiting_clear {
-            self.waiting_clear = false;
-            if self.mask {
-                if text.is_empty() {
-                    self.native = Rc::new(String::new());
-                    self.mask_len = 0;
-                    self.unknown_secret = false;
-                }
-            } else {
-                self.native = Rc::new(text.to_owned());
-            }
-            self.value = self.native.clone();
-            self.cursor = self.native_cursor_utf16(text, cursor);
-            self.actions.clear();
-            return true;
-        }
         if self.mask {
             let len = grapheme_count(text);
             if len != self.mask_len {
@@ -168,11 +183,7 @@ impl NativeTextState {
             }
             return authoritative;
         }
-        let preserve = (buffered && self.value != self.native)
-            || self
-                .actions
-                .iter()
-                .any(|action| matches!(action, PendingAction::Send(_)));
+        let preserve = buffered && self.value != self.native;
         self.native = Rc::new(text.to_owned());
         self.in_flight = None;
         if !preserve {

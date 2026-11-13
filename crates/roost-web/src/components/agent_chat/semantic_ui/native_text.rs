@@ -52,9 +52,6 @@ impl NativeTextControl {
     pub(super) fn cursor(&self) -> usize {
         self.state.read().cursor()
     }
-    pub(super) fn awaiting_send(&self) -> bool {
-        self.state.read().awaiting_send()
-    }
     pub(super) fn masked_placeholder(&self) -> Option<String> {
         self.state.read().masked_placeholder()
     }
@@ -67,6 +64,15 @@ impl NativeTextControl {
         *self.last_dom_cursor.write() = Some(cursor);
         self.state.write().edit(text, cursor);
         self.flush();
+    }
+    /// Backspace or Delete on a masked field whose secret the browser never
+    /// read erases it natively; returns whether the key was consumed.
+    pub(super) fn clear_unknown_secret(&mut self) -> bool {
+        if self.readonly || !self.state.write().clear_unknown_secret() {
+            return false;
+        }
+        self.flush();
+        true
     }
     pub(super) fn queue_input(&mut self, data: String) {
         let current = current_selection(&self.address.element_id);
@@ -85,20 +91,11 @@ impl NativeTextControl {
     }
     #[cfg(target_arch = "wasm32")]
     pub(super) fn paste(&mut self, text: String) {
-        if self.awaiting_send() {
-            self.sync
-                .reject_input("OMP is still sending the previous message. Wait, then paste again.");
-            return;
-        }
         if !self.state.write().queue_paste(text) {
             self.sync
                 .reject_input("Too much text is waiting for OMP. Wait for the field to catch up.");
             return;
         }
-        self.flush();
-    }
-    pub(super) fn submit(&mut self) {
-        self.state.write().queue_send();
         self.flush();
     }
     pub(super) fn flush(&mut self) {
@@ -158,6 +155,11 @@ pub(super) fn use_native_text(
     let changed = state
         .peek()
         .native_changed(source.text, source.cursor, source.ack.as_ref());
+    let anchor_changed = state.peek().anchor_changed(source.anchor);
+    let apply_anchor = anchor_changed
+        && state
+            .write()
+            .observe_anchor(source.anchor, source.typeahead);
     if changed {
         let local_cursor = current_selection(&address.element_id);
         let apply_cursor = state.write().observe_with_cursor(
@@ -171,14 +173,18 @@ pub(super) fn use_native_text(
             let cursor = state.peek().cursor();
             selection.set(Some((
                 Some(cursor),
-                if source.mask { None } else { source.anchor },
+                state.peek().anchor_utf16(source.anchor),
             )));
         }
-    } else if focus_entered && !state.peek().edits_pending() {
+    } else if source.focused
+        && (apply_anchor || focus_entered)
+        && !state.peek().edits_pending()
+        && !state.peek().blocks_input()
+    {
         let cursor = state.peek().cursor();
         selection.set(Some((
             Some(cursor),
-            if source.mask { None } else { source.anchor },
+            state.peek().anchor_utf16(source.anchor),
         )));
     }
     use_effect({
@@ -194,13 +200,17 @@ pub(super) fn use_native_text(
     });
     let ready = !source.readonly && !source.typeahead;
     let revision = state.peek().revision();
-    let completion = sync.input_completion();
-    let queue_pending = sync.input_pending();
     let failure = sync.input_failure();
     let mut seen_failure = use_hook(|| CopyValue::new(failure));
     if failure != *seen_failure.read() {
         *seen_failure.write() = failure;
         state.write().fail();
+    }
+    let discarded = sync.discard_generation();
+    let mut seen_discard = use_hook(|| CopyValue::new(discarded));
+    if discarded != *seen_discard.read() {
+        *seen_discard.write() = discarded;
+        state.write().discard_actions();
     }
     let control = NativeTextControl {
         state,
@@ -212,13 +222,10 @@ pub(super) fn use_native_text(
         send,
         last_dom_cursor,
     };
-    use_effect(use_reactive(
-        (&revision, &ready, &completion, &queue_pending, &failure),
-        {
-            let mut control = control.clone();
-            move |_| control.flush()
-        },
-    ));
+    use_effect(use_reactive((&revision, &ready, &failure, &discarded), {
+        let mut control = control.clone();
+        move |_| control.flush()
+    }));
     control
 }
 

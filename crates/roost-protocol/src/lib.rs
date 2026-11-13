@@ -30,6 +30,7 @@ pub mod keeper_update;
 pub mod layout;
 pub mod local_ui_door;
 pub mod native_dashboard;
+pub mod native_fork;
 pub mod program_status;
 pub mod proto_adapters;
 pub mod terminal_capture;
