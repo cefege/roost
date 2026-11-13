@@ -32,6 +32,10 @@ use crate::pump::use_store;
 use crate::router_state::{use_location, use_navigate};
 use crate::session_naming::rel_time_since;
 
+#[path = "folder_drag.rs"]
+mod drag;
+use drag::{accept_folder_drag, left_folder_row, prepare_folder_drag};
+
 /// A folder row.
 #[component]
 pub fn FolderRow(
@@ -39,6 +43,10 @@ pub fn FolderRow(
     selected: bool,
     cursor: bool,
     dragging_folder: bool,
+    drag_source: bool,
+    drop_position: Option<&'static str>,
+    on_drag_over: EventHandler<()>,
+    on_drag_leave: EventHandler<()>,
     on_drag_start: EventHandler<()>,
     on_drag_end: EventHandler<()>,
     on_drop_folder: EventHandler<()>,
@@ -124,9 +132,16 @@ pub fn FolderRow(
     };
     rsx! {
         SidenavMenuItem {
-            class: "min-w-0",
+            class: if drag_source {
+                "relative min-w-0 cursor-grabbing rounded-md opacity-50 ring-2 ring-dashed ring-primary transition-opacity motion-reduce:transition-none"
+            } else {
+                "relative min-w-0 cursor-grab transition-opacity motion-reduce:transition-none"
+            },
             title: group.spawn_cwd.clone(),
             "data-testid": "folder-row-{group.key}",
+            "data-flip-key": group.key.clone(),
+            "data-drag-source": drag_source.then_some("true"),
+            "data-drop-position": drop_position,
             "data-selected": if selected { "focused" } else { "" },
             "data-cursor": cursor.then_some("on"),
             "data-notify-target": ringing,
@@ -143,6 +158,12 @@ pub fn FolderRow(
             ondragover: move |event: DragEvent| {
                 if dragging_folder {
                     accept_folder_drag(&event);
+                    on_drag_over.call(());
+                }
+            },
+            ondragleave: move |event: DragEvent| {
+                if dragging_folder && left_folder_row(&event) {
+                    on_drag_leave.call(());
                 }
             },
             ondrop: move |event: DragEvent| {
@@ -157,6 +178,16 @@ pub fn FolderRow(
                 let at = event.client_coordinates();
                 menu.set(Some(menu_target(at.x, at.y)));
             },
+            if let Some(position) = drop_position {
+                div {
+                    class: if position == "before" {
+                        "pointer-events-none absolute inset-x-1 top-0 z-10 h-1 rounded-full bg-primary"
+                    } else {
+                        "pointer-events-none absolute inset-x-1 bottom-0 z-10 h-1 rounded-full bg-primary"
+                    },
+                    "aria-hidden": "true",
+                }
+            }
             SidenavMenuButton {
                 href: href.clone(),
                 size: SidenavMenuButtonSize::Lg,
@@ -181,6 +212,7 @@ pub fn FolderRow(
                     }
                     navigate.call(href.clone());
                 },
+                Icon { icon: IconType::GripVertical, class: "text-muted-foreground" }
                 Icon { icon: IconType::Folder }
                 span { class: "grid min-w-0 flex-1 text-left text-sm leading-tight",
                     span { class: "truncate font-medium", {group.name.clone()} }
@@ -252,29 +284,32 @@ pub fn FolderRow(
     }
 }
 
-fn prepare_folder_drag(event: &DragEvent) {
-    #[cfg(target_arch = "wasm32")]
-    if let Some(transfer) = native_drag_transfer(event) {
-        transfer.set_effect_allowed("move");
-        let _ = transfer.set_data("application/x-roost-folder", "folder");
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = event;
-}
-
-fn accept_folder_drag(event: &DragEvent) {
-    event.prevent_default();
-    event.stop_propagation();
-    #[cfg(target_arch = "wasm32")]
-    if let Some(transfer) = native_drag_transfer(event) {
-        // The page-wide file/link guard rejects a drag until its owner claims it.
-        transfer.set_drop_effect("move");
+/// The marker names the slot that `MoveFolder` will actually persist.
+pub(super) fn folder_drop_position(
+    keys: &[String],
+    source: &str,
+    target: &str,
+) -> Option<&'static str> {
+    let from = keys.iter().position(|key| key == source)?;
+    let to = keys.iter().position(|key| key == target)?;
+    match from.cmp(&to) {
+        std::cmp::Ordering::Less => Some("after"),
+        std::cmp::Ordering::Greater => Some("before"),
+        std::cmp::Ordering::Equal => None,
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-fn native_drag_transfer(event: &DragEvent) -> Option<web_sys::DataTransfer> {
-    use dioxus::web::WebEventExt;
-    let native: web_sys::DragEvent = event.try_as_web_event()?;
-    native.data_transfer()
+#[cfg(test)]
+mod tests {
+    use super::folder_drop_position;
+
+    #[test]
+    fn insertion_marker_matches_the_persisted_move_in_both_directions() {
+        let keys = ["a", "b", "c"].map(str::to_owned);
+        assert_eq!(folder_drop_position(&keys, "a", "c"), Some("after"));
+        assert_eq!(folder_drop_position(&keys, "c", "a"), Some("before"));
+        assert_eq!(folder_drop_position(&keys, "b", "b"), None);
+        assert_eq!(folder_drop_position(&keys, "missing", "a"), None);
+        assert_eq!(folder_drop_position(&keys, "a", "missing"), None);
+    }
 }

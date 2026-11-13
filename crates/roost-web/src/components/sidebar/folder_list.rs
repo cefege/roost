@@ -18,7 +18,7 @@ use roost_client_core::store::sidebar::folder_groups::{
 use roost_protocol::wire::{Session, SessionKind};
 
 use super::folder_conversations::FolderConversationRows;
-use super::folder_row::FolderRow;
+use super::folder_row::{FolderRow, folder_drop_position};
 use super::session_row::SessionRow;
 use crate::components::ui::empty::EmptyState;
 use crate::components::ui::{
@@ -29,6 +29,10 @@ use crate::platform::BrowserWorkerPaths;
 use crate::pump::{Pump, use_store};
 use crate::route_session::active_session_for_path;
 use crate::router_state::use_location;
+
+#[cfg(target_arch = "wasm32")]
+#[path = "folder_motion.rs"]
+mod motion;
 
 /// Quick-chat folders live under this segment and never show as folders.
 pub const CHAT_FOLDER_SEGMENT: &str = "/.roost/chats/";
@@ -46,6 +50,7 @@ pub fn FolderList(active: bool, query: String) -> Element {
     let compact = crate::components::layout::window_size::use_is_compact();
     let path = use_location();
     let mut dragged_folder = use_signal(|| None::<String>);
+    let mut drop_target = use_signal(|| None::<String>);
     let core = pump.core();
     let (
         groups,
@@ -123,6 +128,8 @@ pub fn FolderList(active: bool, query: String) -> Element {
             keys.as_ref().clone(),
         )));
     }));
+    #[cfg(target_arch = "wasm32")]
+    let prepare_reorder_motion = motion::use_folder_motion(Rc::clone(&folder_keys));
     let filtering = has_active_filter(&query);
     let visible_ids: Vec<String> = if filtering {
         filtered_ids.clone()
@@ -174,17 +181,51 @@ pub fn FolderList(active: bool, query: String) -> Element {
                                         && !group.lead_id.is_empty()
                                         && cursor_id.as_deref() == Some(group.lead_id.as_str()),
                                     dragging_folder: dragged_folder.read().is_some(),
+                                    drag_source: dragged_folder.read().as_deref() == Some(group.key.as_str()),
+                                    drop_position: if drop_target.read().as_deref() == Some(group.key.as_str()) {
+                                        dragged_folder.read().as_ref().and_then(|source| {
+                                            folder_drop_position(&folder_keys, source, &group.key)
+                                        })
+                                    } else { None },
+                                    on_drag_over: {
+                                        let folder_key = group.key.clone();
+                                        move |()| {
+                                            if drop_target.peek().as_deref() != Some(folder_key.as_str()) {
+                                                drop_target.set(Some(folder_key.clone()));
+                                            }
+                                        }
+                                    },
+                                    on_drag_leave: {
+                                        let folder_key = group.key.clone();
+                                        move |()| {
+                                            if drop_target.peek().as_deref() == Some(folder_key.as_str()) {
+                                                drop_target.set(None);
+                                            }
+                                        }
+                                    },
                                     on_drag_start: {
                                         let folder_key = group.key.clone();
-                                        move |()| dragged_folder.set(Some(folder_key.clone()))
+                                        move |()| {
+                                            drop_target.set(None);
+                                            dragged_folder.set(Some(folder_key.clone()));
+                                        }
                                     },
-                                    on_drag_end: move |()| dragged_folder.set(None),
+                                    on_drag_end: move |()| {
+                                        dragged_folder.set(None);
+                                        drop_target.set(None);
+                                    },
                                     on_drop_folder: {
                                         let target = group.key.clone();
                                         let keys = Rc::clone(&folder_keys);
                                         let drop_pump = pump.clone();
                                         move |()| {
+                                            drop_target.set(None);
                                             if let Some(source) = dragged_folder.take() {
+                                                if source == target {
+                                                    return;
+                                                }
+                                                #[cfg(target_arch = "wasm32")]
+                                                prepare_reorder_motion.call(());
                                                 drop_pump.dispatch(ClientEvent::Sidebar(SidebarIntent::ObserveFolders(keys.as_ref().clone())));
                                                 drop_pump.dispatch(ClientEvent::Sidebar(SidebarIntent::MoveFolder {
                                                     source,

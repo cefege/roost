@@ -25,6 +25,8 @@ pub mod local_keeper;
 pub mod recovery;
 pub mod release;
 pub mod release_listing;
+#[cfg(unix)]
+pub mod release_tree;
 pub mod rollout;
 pub mod version;
 
@@ -87,6 +89,13 @@ pub async fn run(_args: &UpdateArgs) -> Result<ExitCode, CommandFailure> {
     }
     let asset = release_asset_name(platform, &listing.arch)?;
     let executable = current_executable()?;
+    #[cfg(unix)]
+    if version::ReleaseVersion::parse(&listing.tag)?.bundles_omp()
+        && release_tree::is_managed_worker(&env, platform, &executable)
+    {
+        return crate::self_update::run(&crate::self_update::SelfUpdateArgs { to: listing.tag })
+            .await;
+    }
     info!(
         version = %identity.artifact_version,
         latest = %listing.tag,
@@ -94,9 +103,25 @@ pub async fn run(_args: &UpdateArgs) -> Result<ExitCode, CommandFailure> {
         asset,
         "roost update resolving the latest release",
     );
-    let verified = release::download_and_verify(&env, &listing.tag, asset, &executable)
-        .await
-        .map_err(refusal)?;
+    #[cfg(unix)]
+    let (verified, bundle_executable) =
+        if version::ReleaseVersion::parse(&listing.tag)?.bundles_omp() {
+            release_tree::stage(&env, platform, &listing.arch, &listing.tag, &executable).await?
+        } else {
+            (
+                release::download_and_verify(&env, &listing.tag, asset, &executable)
+                    .await
+                    .map_err(refusal)?,
+                executable.clone(),
+            )
+        };
+    #[cfg(not(unix))]
+    let (verified, bundle_executable) = (
+        release::download_and_verify(&env, &listing.tag, asset, &executable)
+            .await
+            .map_err(refusal)?,
+        executable.clone(),
+    );
     let installed = read_installed(&executable).map_err(refusal)?;
     let keeper = local_keeper(&env, platform).await?;
     let candidate = keeper::probe_candidate_contract(&verified.path)
@@ -114,7 +139,7 @@ pub async fn run(_args: &UpdateArgs) -> Result<ExitCode, CommandFailure> {
         crate::wall_clock::now_ms(),
     )
     .map_err(refusal)?;
-    install_web_bundle(&env, &executable, &listing.tag).await;
+    install_web_bundle(&env, &bundle_executable, &listing.tag).await;
     report(&outcome);
     Ok(ExitCode::SUCCESS)
 }

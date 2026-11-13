@@ -96,7 +96,7 @@ async function assertCachedBinding(root: string, native: NativeIdentity, package
   }
   const allowed = new Set([`pi_natives.${tag}.node`, `pi_natives.${tag}-baseline.node`, `pi_natives.${tag}-modern.node`]);
   for (const binary of native.binaries) {
-    if (dirname(binary.path) !== "packages/natives/native" || !allowed.has(basename(binary.path))) {
+    if (dirname(binary.path) !== join("packages", "natives", "native") || !allowed.has(basename(binary.path))) {
       throw new Error(`Refusing foreign native binding path: ${binary.path}`);
     }
     const file = join(root, binary.path);
@@ -113,7 +113,7 @@ export async function installNativeBinding(
   existing?: NativeIdentity,
 ): Promise<NativeIdentity> {
   const tag = `${process.platform}-${process.arch}`;
-  if (!["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"].includes(tag)) {
+  if (!["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64", "win32-x64"].includes(tag)) {
     throw new Error(`OMP parity requires a supported published native binding; ${tag} is not supported by this runner.`);
   }
   const manifest = JSON.parse(await readFile(join(root, "packages/natives/package.json"), "utf8")) as { version: string };

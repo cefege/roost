@@ -1,25 +1,32 @@
-# OMP command-UI parity build
+# OMP runtime and command-UI parity
 
-Every worker that hosts OMP conversations requires the pinned OMP fork. Stock
-OMP and other agent runtimes are not supported:
+Releases from `v3.0.5` ship the pinned standalone OMP fork for every supported
+worker platform. Installers, fleet installation and self-update verify its
+digest and stage `omp` (`omp.exe` on Windows) beside `roost` and `roost-keeper`
+under `versions/<tag>/bin/`. The worker selects that release-owned sibling
+before project or user executables. Global OMP installations and credentials
+under `~/.omp` are not replaced.
 
-- base commit `650f3a108229ee11bf68ba3377f4e8c3391cd424` of our
-  `omp-command-ui` checkout (`https://github.com/cefege/oh-my-pi.git`)
-- `command-ui-parity.patch` in this directory, applied on top
-  (`git apply command-ui-parity.patch`), then `bun install && bun run build`
-  in `packages/coding-agent`
-- install the resulting `pi`/`omp` binary ahead of any release `omp` on the
-  worker `PATH` (the worker resolves the binary through
-  `roost-host::search_path`, so `~/.local/bin` or the session cwd's
-  `node_modules/.bin` both win over a package-manager install)
+The source identity is [`source.json`](source.json):
 
-The patch adds the hosted TSP command-UI extension (`_omp/ui/*`), the browser
-host-service bridge, and the native picker/settings/session descriptors the
-web client projects. Initialization requires
+- `https://github.com/cefege/oh-my-pi.git`
+- base commit `650f3a108229ee11bf68ba3377f4e8c3391cd424`
+- [`command-ui-parity.patch`](command-ui-parity.patch), applied on top
+
+`bun deploy/omp/runtime.ts` prepares that exact source, provisions its matching
+published native binding, compiles a standalone executable and verifies its ACP
+initialization in an isolated home. Outputs and digests are under
+`target/omp-runtime/`; `.github/workflows/omp-runtime.yml` builds all five native
+assets before publication. `bun deploy/omp/runtime-smoke.ts <binary>` verifies
+an already-built executable without rebuilding.
+
+Source builds without a sibling retain project/PATH lookup. They still require
+the patched fork; stock OMP and alternative runtimes are unsupported.
+Initialization requires
 `agentCapabilities._meta.commandUi = {"version":1,"protocol":"tsp"}` before a
-session can open. Missing or incompatible support produces an explicit failure;
-there is no plain-chat fallback.
+session can open. Startup failures are displayed in chat, not hidden behind
+“Connecting to OMP…”. There is no plain-chat fallback.
 
-The fork retains the real TUI as the reference. TUI/HTML A/B checks must cover
-the same command, state, actions and results; HTML keeps native browser controls,
+The fork retains the real TUI as the reference. TUI/HTML A/B checks cover the
+same command, state, actions and results; HTML keeps native browser controls,
 selection, clipboard and responsive layout. A partial flow is not full parity.

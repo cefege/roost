@@ -78,6 +78,11 @@ impl ReleaseVersion {
         Ok(Self { core, pre_release })
     }
 
+    /// Whether this release's artifact contract includes the bundled OMP.
+    pub fn bundles_omp(&self) -> bool {
+        self.core >= [3, 0, 5]
+    }
+
     /// Whether this is a pre-release (`-rc.N` and the like).
     pub fn is_prerelease(&self) -> bool {
         !self.pre_release.is_empty()

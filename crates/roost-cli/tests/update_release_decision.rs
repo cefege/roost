@@ -333,3 +333,21 @@ fn a_digest_sidecar_verifies_in_every_shape_a_mirror_writes_it() {
         );
     }
 }
+
+#[test]
+fn omp_bundle_contract_starts_with_the_3_0_5_release_line() {
+    use roost_cli::update::version::ReleaseVersion;
+    for (tag, bundled) in [
+        ("v3.0.0-rc.39", false),
+        ("v3.0.4", false),
+        ("v3.0.5-rc.1", true),
+        ("v3.0.5", true),
+        ("v3.1.0", true),
+    ] {
+        assert_eq!(
+            ReleaseVersion::parse(tag).unwrap().bundles_omp(),
+            bundled,
+            "{tag}"
+        );
+    }
+}

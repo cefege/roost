@@ -294,3 +294,28 @@ fn the_directories_a_service_needs_are_created_before_the_first_definition() {
         );
     }
 }
+
+#[test]
+fn a_local_install_copies_the_sibling_omp_without_touching_global_omp() {
+    let tree = TempTree::new("bundled-omp");
+    let roost = tree.path("source/roost");
+    let keeper = tree.path("source/roost-keeper");
+    let omp = tree.path("source/omp");
+    let global = tree.path("home/.local/bin/omp");
+    write_program(&roost, "roost");
+    write_program(&keeper, "keeper");
+    write_program(&omp, "fork");
+    write_program(&global, "user omp");
+    let bin = tree.path("versions/v3.0.5/bin");
+    install_release_programs(&roost, Some(&keeper), &bin).expect("install succeeds");
+    assert_eq!(std::fs::read(bin.join("omp")).unwrap(), b"fork");
+    assert_eq!(
+        std::fs::metadata(bin.join("omp"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o755
+    );
+    assert_eq!(std::fs::read(global).unwrap(), b"user omp");
+}

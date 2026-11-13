@@ -126,17 +126,30 @@ fn place_script(platform: Platform, tag: &str) -> String {
         Platform::Macos => "xattr -dr com.apple.quarantine \"$REL\" 2>/dev/null || true\n",
         Platform::Linux | Platform::Windows => "",
     };
+    let binaries = if super::fetch::bundles_omp(tag).unwrap_or(true) {
+        "roost roost-keeper omp"
+    } else {
+        "roost roost-keeper"
+    };
     format!(
         "set -euo pipefail\n\
          STAGE=\"$HOME/{STAGE_DIR}/{tag}\"\n\
          ROOT=\"{root}\"\n\
          REL=\"$ROOT/versions/{tag}\"\n\
-         mkdir -p \"$REL/bin\"\n\
-         for binary in roost roost-keeper; do\n\
-           cp \"$STAGE/bin/$binary\" \"$REL/bin/.$binary.new\"\n\
-           chmod 755 \"$REL/bin/.$binary.new\"\n\
-           mv -f \"$REL/bin/.$binary.new\" \"$REL/bin/$binary\"\n\
+         mkdir -p \"$REL\"\n\
+         rm -rf \"$REL/bin.roost-incoming\"\n\
+         mkdir \"$REL/bin.roost-incoming\"\n\
+         for binary in {binaries}; do\n\
+           cp \"$STAGE/bin/$binary\" \"$REL/bin.roost-incoming/$binary\"\n\
+           chmod 755 \"$REL/bin.roost-incoming/$binary\"\n\
          done\n\
+         rm -rf \"$REL/bin.roost-retired\"\n\
+         if [ -d \"$REL/bin\" ]; then mv \"$REL/bin\" \"$REL/bin.roost-retired\"; fi\n\
+         if ! mv \"$REL/bin.roost-incoming\" \"$REL/bin\"; then\n\
+           if [ -d \"$REL/bin.roost-retired\" ]; then mv \"$REL/bin.roost-retired\" \"$REL/bin\"; fi\n\
+           exit 1\n\
+         fi\n\
+         rm -rf \"$REL/bin.roost-retired\"\n\
          rm -rf \"$REL/web\"\n\
          cp -R \"$STAGE/web\" \"$REL/web\"\n\
          {quarantine}\
@@ -161,15 +174,32 @@ fn pid_script(platform: Platform) -> String {
 /// [`place_script`] for a Windows host, in PowerShell.
 fn windows_place_script(tag: &str) -> String {
     let root = Platform::Windows.data_root();
+    let binaries = if super::fetch::bundles_omp(tag).unwrap_or(true) {
+        "'roost.exe', 'roost-keeper.exe', 'omp.exe'"
+    } else {
+        "'roost.exe', 'roost-keeper.exe'"
+    };
     format!(
         r#"$STAGE = Join-Path $HOME '{STAGE_DIR}\{tag}'
 $ROOT = "{root}"
 $REL = Join-Path $ROOT 'versions\{tag}'
-New-Item -ItemType Directory -Force (Join-Path $REL 'bin') | Out-Null
-foreach ($b in 'roost.exe', 'roost-keeper.exe') {{
-  Copy-Item -Force (Join-Path $STAGE "bin\$b") (Join-Path $REL "bin\.$b.new")
-  Move-Item -Force (Join-Path $REL "bin\.$b.new") (Join-Path $REL "bin\$b")
+$ErrorActionPreference = 'Stop'
+New-Item -ItemType Directory -Force $REL | Out-Null
+$incoming = Join-Path $REL 'bin.roost-incoming'
+$retired = Join-Path $REL 'bin.roost-retired'
+$bin = Join-Path $REL 'bin'
+Remove-Item -Recurse -Force $incoming,$retired -ErrorAction SilentlyContinue
+New-Item -ItemType Directory $incoming | Out-Null
+foreach ($b in {binaries}) {{
+  Copy-Item (Join-Path $STAGE "bin\$b") (Join-Path $incoming $b)
 }}
+if (Test-Path $bin) {{ Move-Item $bin $retired }}
+try {{ Move-Item $incoming $bin }}
+catch {{
+  if (Test-Path $retired) {{ Move-Item $retired $bin }}
+  throw
+}}
+Remove-Item -Recurse -Force $retired -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force (Join-Path $REL 'web') -ErrorAction SilentlyContinue
 Copy-Item -Recurse (Join-Path $STAGE 'web') (Join-Path $REL 'web')
 & (Join-Path $REL 'bin\roost.exe') --version

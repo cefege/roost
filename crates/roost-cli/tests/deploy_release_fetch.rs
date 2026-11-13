@@ -272,3 +272,75 @@ fn two_deploys_of_one_tag_at_once_each_install_their_own_published_bytes() {
         );
     }
 }
+
+#[tokio::test]
+async fn bundled_omp_is_verified_and_staged_with_published_bytes() {
+    use std::os::unix::fs::PermissionsExt;
+    let tag = "v3.0.5-rc.1";
+    let origin = FakeRelease::start(
+        tag,
+        vec![
+            FakeAsset::roost_program("roost-linux-x64"),
+            FakeAsset::named("roost-keeper-linux-x64", "keeper"),
+            FakeAsset::named("roost-omp-linux-x64", "bundled fork"),
+        ],
+    );
+    let staged = fetch_release(
+        &environment(&origin.base_url),
+        tag,
+        HostPlatform::Linux,
+        "x64",
+    )
+    .await
+    .expect("the complete release stages");
+    let omp = staged.local_dir.join("omp");
+    assert_eq!(
+        release_support::read(&omp),
+        origin.body("roost-omp-linux-x64")
+    );
+    assert_ne!(
+        std::fs::metadata(omp).unwrap().permissions().mode() & 0o111,
+        0
+    );
+    let installed = staged.local_dir.parent().unwrap().join("installed-bin");
+    roost_cli::deploy::apply_release::install_release(&staged.local_dir, &installed)
+        .expect("the complete release installs");
+    assert_eq!(
+        release_support::read(&installed.join("omp")),
+        origin.body("roost-omp-linux-x64")
+    );
+    assert_ne!(
+        std::fs::metadata(installed.join("omp"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o111,
+        0
+    );
+}
+
+#[tokio::test]
+async fn bundled_omp_is_required_and_bad_digest_refuses_the_release() {
+    let tag = "v3.0.5";
+    for corrupt in [false, true] {
+        let mut assets = vec![
+            FakeAsset::roost_program("roost-linux-x64"),
+            FakeAsset::named("roost-keeper-linux-x64", "keeper"),
+        ];
+        if corrupt {
+            let mut omp = FakeAsset::named("roost-omp-linux-x64", "fork");
+            omp.sha256 = "0".repeat(64);
+            assets.push(omp);
+        }
+        let origin = FakeRelease::start(tag, assets);
+        let failure = fetch_release(
+            &environment(&origin.base_url),
+            tag,
+            HostPlatform::Linux,
+            "x64",
+        )
+        .await
+        .expect_err("an incomplete or corrupt release is refused");
+        assert!(failure.to_string().contains("roost-omp-linux-x64"));
+    }
+}

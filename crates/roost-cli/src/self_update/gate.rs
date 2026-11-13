@@ -24,6 +24,22 @@ pub fn check_tag(tag: &str) -> Result<(), String> {
     }
 }
 
+/// A legacy updater can install this release without its newly bundled runtime.
+pub fn release_is_complete(
+    tag: &str,
+    platform: roost_host::HostPlatform,
+    executable: &Path,
+) -> bool {
+    crate::update::version::ReleaseVersion::parse(tag).is_ok_and(|version| {
+        !version.bundles_omp()
+            || executable.parent().is_some_and(|directory| {
+                directory
+                    .join(crate::update::assets::omp_program_file(platform))
+                    .is_file()
+            })
+    })
+}
+
 /// The staged `roost` binary's own account of itself: its artifact version and
 /// its build commit. Both come from the bytes about to be installed, so a tag
 /// that does not match its binary stops here rather than on the machine.
@@ -109,6 +125,25 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn a_same_tag_install_is_not_complete_without_its_required_omp_sibling()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let root = std::env::temp_dir().join(format!(
+            "roost-runtime-gate-{}-{}",
+            std::process::id(),
+            roost_worker::runtime::boot::new_process_epoch()
+        ));
+        std::fs::create_dir(&root)?;
+        let executable = root.join("roost");
+        let platform = roost_host::HostPlatform::Linux;
+        assert!(release_is_complete("v3.0.4", platform, &executable));
+        assert!(!release_is_complete("v3.0.5", platform, &executable));
+        std::fs::write(root.join("omp"), b"release-owned fork")?;
+        assert!(release_is_complete("v3.0.5", platform, &executable));
+        std::fs::remove_dir_all(root)?;
+        Ok(())
+    }
 
     fn contract(protocol: u32, required: &[&str], supported: &[&str]) -> String {
         json!({

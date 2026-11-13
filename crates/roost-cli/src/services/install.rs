@@ -131,6 +131,12 @@ pub fn install_release_programs(
             PROGRAM_MODE,
         )?);
     }
+    let omp_name = if cfg!(windows) { "omp.exe" } else { "omp" };
+    if let Some(omp) = roost_source.parent().map(|parent| parent.join(omp_name))
+        && omp.is_file()
+    {
+        outcomes.push(install_binary(&omp, &bin_dir.join(omp_name), PROGRAM_MODE)?);
+    }
     Ok(outcomes)
 }
 

@@ -54,6 +54,12 @@ function Install-RoostWorker {
             @('roost-windows-x64.exe', 'roost.exe'),
             @('roost-keeper-windows-x64.exe', 'roost-keeper.exe')
         )
+        $core = (($tag -replace '^[vV]', '') -split '[-+]', 2)[0] -split '\.'
+        if (([long]$core[0] -gt 3) -or
+            ([long]$core[0] -eq 3 -and [long]$core[1] -gt 0) -or
+            ([long]$core[0] -eq 3 -and [long]$core[1] -eq 0 -and [long]$core[2] -ge 5)) {
+            $assets += ,@('roost-omp-windows-x64.exe', 'omp.exe')
+        }
         foreach ($pair in $assets) {
             $asset = $pair[0]
             $target = Join-Path $stage $pair[1]

@@ -33,6 +33,11 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  omp-runtime:
+    uses: ./.github/workflows/omp-runtime.yml
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
   # The gate, verbatim from ci.yml's `rust` job. A release that skips a step the
   # merge gate runs can ship what the merge gate would have refused, and a
   # release that runs a step the merge gate does not is the same defect wearing
@@ -271,7 +276,7 @@ jobs:
   publish:
     name: publish
     runs-on: ubuntu-latest
-    needs: [verify, build, web]
+    needs: [verify, build, web, omp-runtime]
     steps:
       # Only the tag's release notes are read from the tree, and they are read
       # from the TAG, so the notes a release publishes are the ones gated with it.
@@ -289,6 +294,11 @@ jobs:
         with:
           name: release-web
           path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-omp-*
+          path: dist
+          merge-multiple: true
       - name: every asset the installer resolves is here, with its digest
         run: |
           set -euo pipefail
@@ -296,7 +306,9 @@ jobs:
           for a in roost roost-linux-x64 roost-linux-arm64 roost-darwin-x64 \
                    roost-keeper roost-keeper-linux-x64 roost-keeper-linux-arm64 \
                    roost-keeper-darwin-x64 roost-windows-x64.exe \
-                   roost-keeper-windows-x64.exe roost-web.tar.gz; do
+                   roost-keeper-windows-x64.exe roost-web.tar.gz \
+                   roost-omp roost-omp-darwin-x64 roost-omp-linux-x64 \
+                   roost-omp-linux-arm64 roost-omp-windows-x64.exe; do
             if [ ! -f "dist/$a" ]; then
               echo "::error::dist/$a was never published"
               missing=1
@@ -313,7 +325,7 @@ jobs:
             echo "ok  $a  $(cut -d' ' -f1 "dist/$a.sha256")"
           done
           test "$missing" -eq 0
-          echo "all eleven assets present with digests"
+          echo "all sixteen assets present with digests"
       - name: create the release
         env:
           GH_TOKEN: ${{ github.token }}

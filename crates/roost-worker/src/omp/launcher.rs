@@ -98,7 +98,8 @@ impl ProcessLauncher {
 impl OmpLauncher for ProcessLauncher {
     type Transport = AcpAgent;
     fn launch(&self, cwd: &str) -> Result<OmpLaunch<AcpAgent>, OmpLaunchError> {
-        let path = roost_host::search_path::resolve_binary("omp", Path::new(cwd))
+        let current_executable = std::env::current_exe().ok();
+        let path = resolve_omp(current_executable.as_deref(), Path::new(cwd))
             .ok_or(OmpLaunchError::NotInstalled)?;
         let description = path.display().to_string();
         let path_value = roost_host::search_path::extended_path_value(Path::new(cwd));
@@ -121,9 +122,36 @@ impl OmpLauncher for ProcessLauncher {
     }
 }
 
+fn resolve_omp(current_executable: Option<&Path>, cwd: &Path) -> Option<PathBuf> {
+    current_executable
+        .and_then(Path::parent)
+        .map(|directory| directory.join(if cfg!(windows) { "omp.exe" } else { "omp" }))
+        .filter(|path| path.is_file())
+        .or_else(|| roost_host::search_path::resolve_binary("omp", cwd))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::CatalogReadiness;
+    use super::{CatalogReadiness, resolve_omp};
+
+    #[test]
+    fn release_owned_omp_precedes_project_and_user_executables()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let directory = tempfile::tempdir()?;
+        let release_bin = directory.path().join("release");
+        let project = directory.path().join("project");
+        let project_bin = project.join("node_modules").join(".bin");
+        std::fs::create_dir_all(&release_bin)?;
+        std::fs::create_dir_all(&project_bin)?;
+        let executable = release_bin.join(if cfg!(windows) { "roost.exe" } else { "roost" });
+        let sibling = release_bin.join(if cfg!(windows) { "omp.exe" } else { "omp" });
+        let project_omp = project_bin.join(if cfg!(windows) { "omp.exe" } else { "omp" });
+        std::fs::write(&project_omp, b"project")?;
+        assert_eq!(resolve_omp(Some(&executable), &project), Some(project_omp));
+        std::fs::write(&sibling, b"release")?;
+        assert_eq!(resolve_omp(Some(&executable), &project), Some(sibling));
+        Ok(())
+    }
 
     #[test]
     fn incomplete_or_failed_discovery_never_passes_readiness()

@@ -7,7 +7,7 @@ mod ordering_peer;
 
 use self::ordering_peer::{OrderingLauncher, Scenario};
 use super::{frame, prompt, text, turn};
-use roost_proto::{DOmpClose, WOmpEvents};
+use roost_proto::{DOmpClose, DOmpUi, WOmpEvents};
 use roost_protocol::wire::agent_chat::OmpWorkerEvent;
 use roost_worker::{link_ports::OmpPort, omp::OmpOwner, uplink};
 use std::{
@@ -194,4 +194,46 @@ async fn omp_owner_rejects_missing_or_incompatible_semantic_ui_before_session_re
             "{scenario:?} must not publish a usable conversation"
         );
     }
+}
+
+#[tokio::test]
+async fn browser_ui_open_publishes_the_capability_failure_without_session_ready() {
+    let launcher = Arc::new(OrderingLauncher::new(Scenario::MissingCommandUi));
+    let (uplink, mut receiver) = uplink::channel();
+    let owner = OmpOwner::new(launcher, uplink, Arc::new(Default::default()));
+    owner.ui(DOmpUi {
+        conversation_id: "c1".into(),
+        request_id: "open-1".into(),
+        client_id: "device:view".into(),
+        view_id: "view".into(),
+        tab_id: "tab".into(),
+        cwd: "/work".into(),
+        action_json: serde_json::json!({"method":"open","params":{}}).to_string(),
+        ..Default::default()
+    });
+    let mut events = Vec::new();
+    loop {
+        let batch = frame(&mut receiver).await;
+        events.extend(
+            batch
+                .events_json
+                .iter()
+                .map(|event| serde_json::from_str::<OmpWorkerEvent>(event).unwrap()),
+        );
+        if events
+            .iter()
+            .any(|event| matches!(event, OmpWorkerEvent::SessionFailed { .. }))
+        {
+            break;
+        }
+    }
+    assert!(events.iter().any(|event| matches!(event,
+        OmpWorkerEvent::SessionFailed { error }
+            if error.contains("requires the OMP fork") && error.contains("semantic command UI")
+    )));
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, OmpWorkerEvent::SessionReady { .. }))
+    );
 }

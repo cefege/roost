@@ -54,6 +54,7 @@ pub enum Decision {
 pub struct Facts<'a> {
     pub running: &'a str,
     pub desired: &'a str,
+    pub runtime_installed: bool,
     pub last_attempt: Option<&'a Attempt>,
     pub now_ms: u64,
 }
@@ -64,7 +65,7 @@ pub fn decide(facts: &Facts<'_>) -> Decision {
     if !is_release_tag(facts.desired) {
         return Decision::Skip("the coordinator reports no release tag");
     }
-    if facts.desired == facts.running {
+    if facts.desired == facts.running && facts.runtime_installed {
         return Decision::UpToDate;
     }
     if let Some(last) = facts.last_attempt
@@ -183,6 +184,10 @@ async fn poll_once(client: &reqwest::Client, site: &Site) {
     let facts = Facts {
         running: &site.running,
         desired: &desired,
+        runtime_installed: std::env::current_exe().ok().is_some_and(|mut executable| {
+            executable.set_file_name(if cfg!(windows) { "omp.exe" } else { "omp" });
+            executable.is_file()
+        }),
         last_attempt: last.as_ref(),
         now_ms,
     };
@@ -256,6 +261,7 @@ mod tests {
         Facts {
             running: RUNNING,
             desired,
+            runtime_installed: true,
             last_attempt,
             now_ms,
         }
@@ -295,6 +301,24 @@ mod tests {
     #[test]
     fn the_same_release_is_up_to_date() {
         assert_eq!(decide(&facts(RUNNING, None, 1_000)), Decision::UpToDate);
+    }
+
+    #[test]
+    fn a_missing_bundled_runtime_repairs_the_same_release_without_bypassing_the_retry_window() {
+        let mut incomplete = Facts {
+            running: "v3.0.5",
+            runtime_installed: false,
+            ..facts("v3.0.5", None, 1_000)
+        };
+        assert_eq!(
+            decide(&incomplete),
+            Decision::Update {
+                tag: "v3.0.5".to_owned()
+            }
+        );
+        let recent = attempt(999);
+        incomplete.last_attempt = Some(&recent);
+        assert!(matches!(decide(&incomplete), Decision::Skip(_)));
     }
 
     #[test]

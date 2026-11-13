@@ -85,6 +85,19 @@ impl LocalPrograms {
             .filter(|candidate| candidate.is_file());
         let identity = roost_host::build_identity(env);
         require_keeper_for_release(keeper.as_deref(), &roost, &identity.artifact_version)?;
+        if identity.artifact_version != roost_host::DEV_BUILD_STAMP
+            && crate::update::version::ReleaseVersion::parse(&identity.artifact_version)?
+                .bundles_omp()
+        {
+            let omp_name = if cfg!(windows) { "omp.exe" } else { "omp" };
+            if !roost.with_file_name(omp_name).is_file() {
+                return Err(CommandFailure::generic(format!(
+                    "no {omp_name} beside {}; the {} release requires its bundled OMP",
+                    roost.display(),
+                    identity.artifact_version
+                )));
+            }
+        }
         Ok(Self { roost, keeper })
     }
 }

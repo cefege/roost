@@ -3,6 +3,11 @@
 //! OMP and the authenticated agent session remain authoritative.
 #[path = "omp_ui_mount_appearance.rs"]
 mod appearance;
+#[path = "omp_ui_mount_connection.rs"]
+mod connection;
+#[cfg(test)]
+#[path = "omp_ui_mount_tests.rs"]
+mod tests;
 use dioxus::prelude::*;
 use roost_client_core::client::agent_chat::{OmpActionIdentity, OmpActionQueue};
 use roost_protocol::wire::agent_chat::ConversationSummary;
@@ -12,13 +17,12 @@ use std::rc::Rc;
 
 use super::omp_interaction_card::OmpInteractionCard;
 use super::omp_ui_mount_transport::{
-    VIEW_LEASE_MS, apply_omp_receipts, current_dark_theme, dispatch_omp_ui_action,
-    open_omp_ui_action, send_direct,
+    apply_omp_receipts, current_dark_theme, dispatch_omp_ui_action, send_direct,
 };
 use super::semantic_ui::OmpCommandSurface;
 use super::surface_state::assistant_is_streaming;
 use super::working_row::{WorkingRow, working_label};
-use crate::components::deck::deck_dom::{SizeWatch, Timeout};
+use crate::components::deck::deck_dom::SizeWatch;
 use crate::components::hooks::use_media_query::use_media_query;
 use crate::components::ui::{Button, ButtonSize, ButtonVariant, Card, CardSize};
 use crate::pump::Pump;
@@ -38,13 +42,10 @@ pub(super) fn OmpUiMount(
     let view_id = use_hook(super::request_ids::new_request_id);
     let mut local_error = use_signal(|| None::<String>);
     let mut input_failure = use_signal(|| None::<(u64, String)>);
-    let mut opened_owner = use_signal(|| None::<String>);
     let mut retry = use_signal(|| 0_u32);
     let mut reset_requested = use_signal(|| false);
-    let lease_tick = use_signal(|| 0_u32);
     let viewport = use_signal(|| None::<(u32, u32)>);
     let observer = use_hook(|| Rc::new(RefCell::new(None::<SizeWatch>)));
-    let lease_timer = use_hook(|| Rc::new(RefCell::new(None::<Timeout>)));
     let reduce_motion = use_media_query("(prefers-reduced-motion: reduce)");
     let dark = use_signal(current_dark_theme);
     let action_queue = use_hook(|| Rc::new(RefCell::new(OmpActionQueue::new())));
@@ -81,73 +82,25 @@ pub(super) fn OmpUiMount(
         input_failure.set(Some((serial, error.clone())));
         local_error.set(Some(error));
     });
-    let action_outcome = use_callback(move |result: Result<(), String>| {
-        if let Err(error) = result {
-            report_failure.call(error);
-        }
-    });
+    let action_outcome =
+        connection::scoped_outcome(identity.clone(), latest_identity, report_failure);
 
-    {
-        let request_pump = pump.clone();
-        let request_identity = identity.clone();
-        let request_outcome = action_outcome;
-        use_effect(use_reactive(
-            (
-                &conversation_id,
-                &active,
-                &host_connected,
-                &retry(),
-                &reset_requested(),
-                &viewport(),
-                &dark(),
-                &reduce_motion(),
-            ),
-            move |(
-                conversation_id,
-                active,
-                host_connected,
-                _retry,
-                reset,
-                viewport,
-                dark,
-                reduce,
-            )| {
-                if !active || !host_connected {
-                    if opened_owner.peek().as_deref() == Some(conversation_id.as_str()) {
-                        opened_owner.set(None);
-                        send_direct(
-                            &request_pump,
-                            &request_identity,
-                            json!({"method":"close","params":{}}),
-                            request_outcome,
-                        );
-                    }
-                    return;
-                }
-                if opened_owner.peek().as_deref() == Some(conversation_id.as_str()) {
-                    return;
-                }
-                let Some((cols, rows)) = viewport else {
-                    return;
-                };
-                opened_owner.set(Some(conversation_id.to_owned()));
-                local_error.set(None);
-                send_direct(
-                    &request_pump,
-                    &request_identity,
-                    open_omp_ui_action(cols, rows, dark, reduce, reset),
-                    EventHandler::new(move |result| {
-                        if let Err(error) = result {
-                            opened_owner.set(None);
-                            local_error.set(Some(error));
-                        } else {
-                            reset_requested.set(false);
-                        }
-                    }),
-                );
-            },
-        ));
-    }
+    let mut opened_owner = connection::use_omp_connection(
+        pump.clone(),
+        identity.clone(),
+        connection::ConnectionState {
+            active,
+            host_connected,
+            retry,
+            reset_requested,
+            viewport,
+            dark,
+            reduce_motion,
+            local_error,
+            latest_identity,
+        },
+        report_failure,
+    );
     appearance::use_omp_appearance(
         pump.clone(),
         identity.clone(),
@@ -156,43 +109,14 @@ pub(super) fn OmpUiMount(
             opened_owner,
             dark,
             reduce_motion,
+            latest_identity,
         },
-        action_outcome,
+        report_failure,
     );
-
-    {
-        let request_pump = pump.clone();
-        let request_identity = identity.clone();
-        let request_outcome = action_outcome;
-        use_effect(use_reactive(
-            (&conversation_id, &active, &opened_owner(), &lease_tick()),
-            move |(conversation_id, active, owner, tick)| {
-                *lease_timer.borrow_mut() = None;
-                if !active || owner.as_deref() != Some(conversation_id.as_str()) {
-                    return;
-                }
-                let mut next_tick = lease_tick;
-                *lease_timer.borrow_mut() = Timeout::after(VIEW_LEASE_MS, move || next_tick += 1);
-                if tick > 0 {
-                    let Some((cols, rows)) = viewport() else {
-                        return;
-                    };
-                    send_direct(
-                        &request_pump,
-                        &request_identity,
-                        open_omp_ui_action(cols, rows, dark(), reduce_motion(), false),
-                        request_outcome,
-                    );
-                }
-            },
-        ));
-    }
 
     {
         let receipt_pump = pump.clone();
         let receipt_queue = Rc::clone(&action_queue);
-        let receipt_identity = identity.clone();
-        let receipt_outcome = action_outcome;
         use_effect(use_reactive(
             (
                 &conversation_id,
@@ -202,6 +126,19 @@ pub(super) fn OmpUiMount(
                 &_revision,
             ),
             move |(conversation_id, view_id, transport, loaded, _revision)| {
+                let receipt_identity = OmpActionIdentity {
+                    conversation_id: conversation_id.clone(),
+                    view_id: view_id.clone(),
+                    transport_id: transport.clone().unwrap_or_default(),
+                };
+                if *latest_identity.read() != receipt_identity {
+                    return;
+                }
+                let receipt_outcome = connection::scoped_outcome(
+                    receipt_identity.clone(),
+                    latest_identity,
+                    report_failure,
+                );
                 receipt_queue
                     .borrow_mut()
                     .retain_identity(&receipt_identity);
@@ -236,8 +173,11 @@ pub(super) fn OmpUiMount(
         let close_queue = Rc::clone(&action_queue);
         move || {
             close_queue.borrow_mut().cancel_all();
-            if opened_owner.peek().as_deref() == Some(close_id.as_str()) {
-                let identity = close_identity.read().clone();
+            if let Some((identity, _)) = opened_owner.peek().clone()
+                && identity.conversation_id == close_id
+                && identity == *close_identity.read()
+                && !identity.transport_id.is_empty()
+            {
                 send_direct(
                     &close_pump,
                     &identity,
@@ -263,7 +203,22 @@ pub(super) fn OmpUiMount(
         };
     };
 
-    let error = transcript.omp_ui_error.clone().or_else(&*local_error);
+    let session_error = match &transcript.omp_session {
+        Some(roost_protocol::wire::agent_chat::OmpSessionState::Failed { error }) => {
+            Some(error.clone())
+        }
+        _ => None,
+    };
+    let error = session_error
+        .or_else(|| transcript.omp_ui_error.clone())
+        .or_else(|| {
+            transcript
+                .omp_ui
+                .is_none()
+                .then(|| transcript.error.clone())
+                .flatten()
+        })
+        .or_else(&*local_error);
     let view_closed = transcript.omp_ui.as_ref().is_some_and(|document| {
         !document.surfaces.is_empty() && document.surfaces.values().all(|surface| surface.suspended)
     });
@@ -272,6 +227,15 @@ pub(super) fn OmpUiMount(
     let action_queue_for_send = Rc::clone(&action_queue);
     let action_error = action_outcome;
     let on_action = EventHandler::new(move |action: Value| {
+        if *latest_identity.read() != action_identity {
+            return;
+        }
+        if action_identity.transport_id.is_empty()
+            || !connection::owns(&opened_owner.peek(), &action_identity)
+        {
+            report_failure.call("OMP view is reconnecting. Retry the action.".into());
+            return;
+        }
         local_error.set(None);
         dispatch_omp_ui_action(
             action_pump.clone(),
@@ -283,7 +247,6 @@ pub(super) fn OmpUiMount(
     });
     let size_pump = pump.clone();
     let size_identity = latest_identity;
-    let size_outcome = action_outcome;
     let size_owner = opened_owner;
     let mut size_signal = viewport;
     let size_observer = Rc::clone(&observer);
@@ -291,7 +254,10 @@ pub(super) fn OmpUiMount(
         let identity = size_identity.read().clone();
         if *size_signal.peek() != Some(size) {
             size_signal.set(Some(size));
-            if size_owner.peek().as_deref() == Some(identity.conversation_id.as_str()) {
+            let size_outcome =
+                connection::scoped_outcome(identity.clone(), size_identity, report_failure);
+            if !identity.transport_id.is_empty() && connection::owns(&size_owner.peek(), &identity)
+            {
                 send_direct(
                     &size_pump,
                     &identity,
@@ -323,7 +289,7 @@ pub(super) fn OmpUiMount(
             for interaction in transcript.omp_interactions.iter().cloned() {
                 OmpInteractionCard { key: "{interaction.id}", conversation_id: conversation_id.clone(), interaction, pump: pump.clone() }
             }
-            if let Some(error) = error {
+            if let Some(error) = &error {
                 div { role: "alert",
                     "data-omp-projection-error": transcript.omp_ui_error.as_ref().map(|_| "true"),
                     Card { size: CardSize::Sm, class: Some("flex items-center gap-3 p-3".into()),
@@ -373,10 +339,15 @@ pub(super) fn OmpUiMount(
                     input_failure:input_failure(),
                     on_action,
                 }
-            } else {
+            } else if error.is_none() {
                 div { class: "flex min-h-0 flex-1 items-center justify-center",
                     role: "status",
                     p { class: "text-sm text-muted-foreground", "Connecting to OMP…" }
+                }
+            } else {
+                div { class: "flex min-h-0 flex-1 items-center justify-center",
+                    role: "status",
+                    p { class: "text-sm text-muted-foreground", "OMP view is not connected." }
                 }
             }
         }

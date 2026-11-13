@@ -1,0 +1,53 @@
+name: OMP standalone runtimes
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact Roost revision containing the OMP pin and patches
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    name: ${{ matrix.asset }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            asset: roost-omp
+          - runner: macos-15-intel
+            asset: roost-omp-darwin-x64
+          - runner: ubuntu-24.04
+            asset: roost-omp-linux-x64
+          - runner: ubuntu-24.04-arm
+            asset: roost-omp-linux-arm64
+          - runner: windows-2025
+            asset: roost-omp-windows-x64.exe
+    steps:
+      - name: Keep LF line endings
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.4'
+      - name: Build pinned standalone runtime
+        run: bun deploy/omp/runtime.ts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-omp-${{ matrix.asset }}
+          path: |
+            target/omp-runtime/${{ matrix.asset }}
+            target/omp-runtime/${{ matrix.asset }}.sha256
+          if-no-files-found: error
+          retention-days: 7

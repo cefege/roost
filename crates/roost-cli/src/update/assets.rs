@@ -63,6 +63,23 @@ pub fn keeper_release_asset_name(
     Ok(release_asset_name(platform, arch)?.replacen(ROOST_PROGRAM, KEEPER_PROGRAM, 1))
 }
 
+/// The OMP fork uses the same target suffix as the Roost binary.
+pub fn omp_release_asset_name(
+    platform: HostPlatform,
+    arch: &str,
+) -> Result<String, CommandFailure> {
+    Ok(release_asset_name(platform, arch)?.replacen("roost", "roost-omp", 1))
+}
+
+/// Installed sibling name on the target platform.
+pub fn omp_program_file(platform: HostPlatform) -> &'static str {
+    if platform == HostPlatform::Windows {
+        "omp.exe"
+    } else {
+        "omp"
+    }
+}
+
 /// The web bundle a release publishes, and the only asset whose name is not
 /// per-platform.
 ///

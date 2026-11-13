@@ -73,6 +73,14 @@ asset_name() {
   fi
 }
 
+# The artifact contract begins at 3.0.5, including its prereleases.
+bundles_omp() {
+  printf '%s\n' "$1" | awk '
+    { sub(/^[vV]/, ""); sub(/[-+].*/, ""); split($0, core, ".")
+      exit !((core[1] + 0 > 3) || (core[1] + 0 == 3 && core[2] + 0 > 0) ||
+        (core[1] + 0 == 3 && core[2] + 0 == 0 && core[3] + 0 >= 5)) }'
+}
+
 # Every published v3 tag, one per line, as `<sort key> <stable|prerelease> <tag>`.
 # The key orders by semver: each number zero-padded so text order is numeric
 # order, and a release with no pre-release part ends in `~`, which sorts after
@@ -268,6 +276,22 @@ fetch_roost() {
         "  actual   ${got}" \
         "Nothing was installed. Fetch it by hand and compare before relying on it:" \
         "  ${base}/${keeper}"
+  fi
+  if bundles_omp "$tag"; then
+    local omp="roost-omp${asset#roost}"
+    say "fetching ${omp} from ${tag}" >&2
+    if ! curl -fsSL -o "${tmp}/omp" "${base}/${omp}" ||
+       ! curl -fsSL -o "${tmp}/omp.sha256" "${base}/${omp}.sha256"; then
+      rm -rf "$tmp"
+      die "The ${tag} release is missing ${omp} or its digest. Nothing was installed."
+    fi
+    got="$(sha256_of "${tmp}/omp")"
+    want="$(head -1 "${tmp}/omp.sha256" | cut -d' ' -f1 | tr -d '[:space:]')"
+    if [ -z "$want" ] || [ "$got" != "$want" ]; then
+      rm -rf "$tmp"
+      die "The ${tag} ${omp} does not match its published digest. Nothing was installed."
+    fi
+    chmod 0755 "${tmp}/omp"
   fi
   chmod 0755 "${tmp}/roost" "${tmp}/roost-keeper"
   say "fetched ${tag} (${asset} and ${keeper}) into ${tmp}" >&2

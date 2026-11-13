@@ -238,10 +238,6 @@ fn write_journal(journal: &SelfUpdateJournal, service_dir: &Path) -> Result<(), 
 
 /// Copy the installed binary beside itself and prove the copy before the swap
 /// may rely on it.
-///
-/// A rollback that installs a truncated save over a working binary is worse than
-/// no rollback, so the digest is checked here — before anything is replaced —
-/// and again before any restore reads the copy back.
 fn retain_previous(journal: &SelfUpdateJournal) -> Result<(), ReplaceError> {
     let previous_path = journal.previous_path();
     let executable = journal.executable();
@@ -275,14 +271,23 @@ fn retain_previous(journal: &SelfUpdateJournal) -> Result<(), ReplaceError> {
 /// target's name in one step, then flush the directory so the rename itself
 /// survives a power cut.
 fn swap_candidate_into_place(candidate_path: &Path, executable: &Path) -> Result<(), ReplaceError> {
-    // Write access: Windows' FlushFileBuffers refuses a read-only handle.
-    let candidate = fs::OpenOptions::new()
-        .write(true)
-        .open(candidate_path)
-        .map_err(|error| ReplaceError::SwapFailed {
-            path: candidate_path.to_path_buf(),
-            cause: error.to_string(),
-        })?;
+    // A release-tree candidate is a symlink to an already durable executable.
+    // Opening that executable for writing fails when another process runs it.
+    #[cfg(unix)]
+    let candidate = if fs::symlink_metadata(candidate_path)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        fs::File::open(candidate_path)
+    } else {
+        fs::OpenOptions::new().write(true).open(candidate_path)
+    };
+    #[cfg(not(unix))]
+    let candidate = fs::OpenOptions::new().write(true).open(candidate_path);
+    let candidate = candidate.map_err(|error| ReplaceError::SwapFailed {
+        path: candidate_path.to_path_buf(),
+        cause: error.to_string(),
+    })?;
     candidate
         .sync_all()
         .map_err(|error| ReplaceError::SwapFailed {

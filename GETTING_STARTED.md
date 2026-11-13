@@ -210,6 +210,11 @@ OMP configuration, not the coordinator's provider-account store. Provider
 discovery finishes before choices are advertised. OMP credentials stay on that
 worker under `~/.omp`.
 
+Releases from `v3.0.5` bundle the pinned OMP fork beside the worker executable;
+they do not replace a global `omp` or the worker's provider credentials.
+The runtime pin, build and capability check are documented in
+[`deploy/omp/README.md`](deploy/omp/README.md).
+
 The composer combines model and thinking controls. Reopening the picker reloads
 the saved session in a fresh OMP process when idle; a busy chat defers refresh
 until work settles. Model and thinking pins apply independently to the next
@@ -739,6 +744,11 @@ outside the worker's stop path. It follows a downgrade too, so rolling the
 coordinator back rolls its workers back. Each run logs to
 `self-update-<tag>.log` in the worker's log directory, and starts are at least
 an hour apart (`self-update-attempt.json` in its data directory).
+
+An older updater may omit the newly bundled OMP executable on its first upgrade.
+The new worker detects that incomplete release and reinstalls the same tag on a
+following poll, respecting the hourly attempt limit. Use
+`cargo xtask fleet install --version <tag> --host <name>` for immediate adoption.
 
 `ROOST_AUTO_UPDATE=0` in the worker's environment turns this off. Source builds
 never update themselves, and a worker on a release older than the first one

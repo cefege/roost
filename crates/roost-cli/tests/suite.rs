@@ -102,6 +102,8 @@ mod update_keeper_gate;
 mod update_recovery;
 #[path = "update_release_decision.rs"]
 mod update_release_decision;
+#[path = "update_release_tree.rs"]
+mod update_release_tree;
 #[path = "update_replace_bytes.rs"]
 mod update_replace_bytes;
 #[path = "update_self_replace.rs"]

@@ -33,6 +33,26 @@ const PUBLISHED: [(HostPlatform, &str); 5] = [
     (HostPlatform::Windows, "x64"),
 ];
 
+#[test]
+fn omp_assets_use_the_same_target_suffixes_as_roost() {
+    use roost_cli::update::assets::{omp_program_file, omp_release_asset_name};
+    for (platform, arch, asset, installed) in [
+        (HostPlatform::MacOs, "arm64", "roost-omp", "omp"),
+        (HostPlatform::MacOs, "x64", "roost-omp-darwin-x64", "omp"),
+        (HostPlatform::Linux, "x64", "roost-omp-linux-x64", "omp"),
+        (HostPlatform::Linux, "arm64", "roost-omp-linux-arm64", "omp"),
+        (
+            HostPlatform::Windows,
+            "x64",
+            "roost-omp-windows-x64.exe",
+            "omp.exe",
+        ),
+    ] {
+        assert_eq!(omp_release_asset_name(platform, arch).unwrap(), asset);
+        assert_eq!(omp_program_file(platform), installed);
+    }
+}
+
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")

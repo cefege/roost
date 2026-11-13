@@ -159,14 +159,25 @@ async fn fetch_into(
             keeper_release_asset_name(platform, arch)?.as_str(),
             roost_host::KEEPER_PROGRAM_FILE,
         ),
-    ] {
+    ]
+    .into_iter()
+    .map(|(published, installed)| (published.to_owned(), installed))
+    .chain(
+        crate::update::version::ReleaseVersion::parse(tag)?
+            .bundles_omp()
+            .then(|| {
+                crate::update::assets::omp_release_asset_name(platform, arch)
+                    .map(|name| (name, crate::update::assets::omp_program_file(platform)))
+            })
+            .transpose()?,
+    ) {
         let file = std::fs::File::create(bin_dir.join(installed)).map_err(|error| {
             codes::refuse(
                 codes::BUILD_FAILED,
                 format!("cannot create the staged {installed}: {error}"),
             )
         })?;
-        crate::update::release::download_verified_to(env, tag, published, file)
+        crate::update::release::download_verified_to(env, tag, &published, file)
             .await
             .map_err(|error| {
                 codes::refuse(

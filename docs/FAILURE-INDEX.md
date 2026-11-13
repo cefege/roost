@@ -4872,3 +4872,26 @@ Live edge scans keep their existing semantics.
 
 **Guard** — `file_viewer::loading_tests::loaded_preview_paints_file_lines_when_download_controls_appear`,
 driven by `protocol/conformance/dom-placement/file-preview-loading.json`.
+
+### Released worker uses stock OMP and chat never leaves Connecting
+
+**Symptom** — production chat stays on “Connecting to OMP…” while the worker
+reports that its executable lacks semantic command UI version 1, protocol tsp.
+The source-based parity harness works on the same machine.
+
+**Wrong** — prove a patched source checkout, release only Roost, and let the
+service resolve an unrelated global `omp`. Ignore `omp_session: Failed` while
+waiting for a UI snapshot.
+
+**Right** — publish the pinned standalone fork with each release, verify and
+install it in the release's own bin directory, and prefer that sibling at
+launch. Show worker startup failures immediately. Reopen and lease each native
+view against its actual transport generation. An older updater's incomplete
+same-tag installation must remain repairable.
+
+**Guard** — `release_owned_omp_precedes_project_and_user_executables`,
+`bundled_omp_is_verified_and_staged_with_published_bytes`,
+`startup_capability_failure_replaces_connecting_with_the_worker_error`, and
+`a_missing_bundled_runtime_repairs_the_same_release_without_bypassing_the_retry_window`.
+Every published native runtime also passes isolated ACP initialization with the
+required semantic capability.

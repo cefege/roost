@@ -168,3 +168,28 @@ fn the_digest_line_claims_only_what_a_digest_establishes() {
          from a tampered one"
     );
 }
+
+#[test]
+fn a_new_release_without_its_omp_digest_never_runs_the_installer() {
+    let sandbox = Sandbox::new("missing-omp-digest");
+    let (api, origin) = sandbox.publish_fake_releases_cut_from(&["v3.0.5"], &[]);
+    let assets = sandbox.root.join("release/download/v3.0.5");
+    for name in [
+        "roost-omp",
+        "roost-omp-linux-x64",
+        "roost-omp-linux-arm64",
+        "roost-omp-darwin-x64",
+    ] {
+        std::fs::remove_file(assets.join(format!("{name}.sha256"))).unwrap();
+    }
+    let empty_path = sandbox.root.join("empty-bin");
+    std::fs::create_dir_all(&empty_path).unwrap();
+    let (ok, _, stderr) = run_script_against(&sandbox, &empty_path, &api, &origin, &JOIN);
+    assert!(!ok, "{stderr}");
+    assert!(stderr.contains("roost-omp"), "{stderr}");
+    assert!(
+        std::fs::read_to_string(sandbox.log())
+            .unwrap_or_default()
+            .is_empty()
+    );
+}
