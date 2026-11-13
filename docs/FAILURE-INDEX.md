@@ -4704,3 +4704,153 @@ an incompatible executable with the fork installation instructions.
 **Guard** — `omp_owner_rejects_missing_or_incompatible_semantic_ui_before_session_ready`
 in `crates/roost-worker/tests/omp_owner/ordering.rs` rejects missing capabilities,
 unsupported versions and incompatible protocols without admitting a session.
+
+### OMP non-modal overlay stays invisible in HTML
+
+**Symptom** — the terminal shows a non-modal OMP overlay (for example a
+bottom-center text panel), the browser acknowledged the frame, and the panel is
+in the DOM with `visibility:hidden`; `innerText` and screenshots omit it.
+
+**Wrong** — look up the surface root as `omp-view-{view_id}` while the regions
+render it as `omp-view-{view_id}-{surface_id}`. `PlacementWatch::attach` then
+returns `None`, no placement ever runs, and the panel keeps its pre-measure
+hidden style.
+
+**Right** — both sides derive the id from `semantic_ui::surface_view_id`: the
+regions' element id and the placement watcher's lookup cannot diverge.
+
+**Guard** — parity case `primitive-styled-unicode-text` (browser observes the
+overlay's "Bold café" text beside the terminal).
+
+### Parity case runs out of memory serializing its evidence
+
+**Symptom** — `RangeError: Out of memory` in `JSON.stringify` while writing
+`results.json`, with each case's `result.json` near 0.5 GB; or the coverage gate
+spins for many minutes on one case.
+
+**Wrong** — retain every probe row. The probe records every call of every
+instrumented callable, so hot helpers (`isRecord`, `numericOption`) repeat
+byte-identical visits ~600k times per case, and the coverage gate matched each
+filtered row against every raw row.
+
+**Right** — `readProvenance` keeps the first identical visit per process window;
+a window ends at every non-visit row and at every checkpoint cursor, which are
+the only bounds coverage queries use. The gate indexes raw rows by
+`pid:generation:sequence`. Gate runs delete a passing case's raw `probe.jsonl`
+once `result.json` holds the compacted provenance.
+
+**Guard** — `runner-evidence.test.ts` (window and cursor rules). On a recorded
+case, compaction kept 2,287 of 595,989 rows, and the coverage verdict was
+identical with and without compaction.
+
+### Parity inventory claims every native kind has a browser producer
+
+**Symptom** — every `kind:*` entry lists the same generic describe helper as
+its UI emitter (for example `node()` in `packages/tui/src/native/describe.ts`),
+so a kind that no reachable code builds, such as `math`, still demands a
+scenario that can never exist.
+
+**Wrong** — treat a factory whose `k` parameter is typed by its own type
+parameter as producing every kind the constraint admits. The kind is chosen at
+the caller, and copying an existing node's `k` produces nothing new.
+
+**Right** — `nativeKindEmitters` (`deploy/omp/parity/inventory-native-kinds.ts`)
+resolves such a `k` to each direct call's argument, recursively; any escaping
+reference (spread, missing argument, renamed import, reassignment) falls back to
+the whole constraint. A kind whose only producers sit in functions no
+identifier or string literal names becomes `unproduced` with proof
+`producer-unreferenced`.
+
+**Guard** — `deploy/omp/parity/inventory-native-kinds.test.ts` (per-call kinds,
+carriers, nullable contexts, an escaping factory, unreferenced vs
+string-referenced producers).
+
+### Erasing a saved secret preference in the browser does nothing
+
+**Symptom** — a masked OMP setting whose value the browser never learns shows
+its `••••` placeholder; Backspace or Delete leaves the setting unchanged while
+the terminal clears it.
+
+**Wrong** — rely on a local value change to schedule the native edit. The local
+draft of an unknown secret is already empty, so erasing it changes nothing and
+no replacement is sent.
+
+**Right** — `NativeTextState::clear_unknown_secret` marks an explicit pending
+clear; the next command is a masked `Edit` with an empty value and the secret's
+unknown length, sent by `prefs/text.rs` on Backspace/Delete.
+
+**Guard** — `erasing_an_unknown_masked_secret_sends_an_empty_replacement` in
+`crates/roost-web/src/components/agent_chat/semantic_ui/text_state_ack_tests.rs`.
+
+### Parity run aborts with "Refusing changed OMP source"
+
+**Symptom** — every parity case fails during source preparation after someone
+edited `target/omp-parity-source` (or added a file there) without regenerating
+the patch.
+
+**Wrong** — mark the checkout owned again, reset it, or point the run at the
+edited tree directly. Any of these runs a source that no committed patch
+describes, so the verdict names a fork revision nobody can reproduce.
+
+**Right** — after every fork edit, regenerate
+`deploy/omp/command-ui-parity.patch` from the pinned revision in
+`deploy/omp/source.json` with all files staged, including new ones, then run
+`bun run deploy/omp/parity/source.ts --mark-owned`. Adoption only accepts a
+tree that equals the pinned revision plus the listed patches.
+
+**Guard** — `deploy/omp/parity/source.test.ts` ("explicit adoption refuses a
+local source edit even with a matching revision and patch list").
+
+### Parity inventory demands scenarios for props no producer writes
+
+**Symptom** — `property:Tsp*Props.<member>` stays `ui` while no reachable OMP
+code ever sets it, or an enum value is still required although every typed
+site bounds it out.
+
+**Wrong** — count a re-spread of an existing element (`{ ...props.pages[0] }`)
+as producing its members, or ignore assignments (`props.mode = "keys"`) and
+untyped sinks when bounding values. The first keeps impossible obligations.
+The second drops real ones.
+
+**Right** — `classifyUnproduced` (`deploy/omp/parity/inventory-unproduced.ts`)
+proves `every-typed-site-lacks-key` / `every-typed-site-bounds-value` only when
+every typed site, assignment and untyped write is accounted for. Pass-through
+spreads produce nothing. An untyped write keeps the obligation unless a
+primitive-returning library call (`JSON.stringify`) consumes it.
+
+**Guard** — `deploy/omp/parity/inventory-unproduced.test.ts`.
+
+### Native-contract proof rejects a prop read only while replaying queued native events
+
+**Symptom** — a `@nativeContract` prop (for example the editor's `sendable`) is
+reported as read from TTY input, because the component's `handleInput` drains a
+queue of wire-delivered events through `handleNativeEvent`.
+
+**Wrong** — treat every path from `handleInput` to the read as a TTY read. The
+TSP decoder delivers browser events into that same queue, so the read is
+native.
+
+**Right** — `SourceFlowIndex.nativeContract` classifies a read reached from TTY
+only by draining queued events into `replayedReads`. An event the TTY path
+constructs itself remains a TTY read.
+
+**Guard** — `deploy/omp/parity/inventory-flow.test.ts`.
+
+### Agent chat stuck on "Connecting to OMP…" after a new open parameter
+
+**Symptom** — the browser shows `OMP UI request failed: InvalidArgument:
+invalid OMP UI parameters: unknown field `hour12`` and then stays on
+"Connecting to OMP…"; the composer never appears.
+
+**Wrong** — add a field to the web client's `open` action (`omp_ui_mount_transport.rs`)
+and to OMP's remote-UI parser only. The coordinator admits the action through
+its own `deny_unknown_fields` `OpenParams` before forwarding the original JSON,
+so it rejects every open.
+
+**Right** — every `open` parameter the web client sends is declared, with its
+type, in `OpenParams` (`crates/roost-coord/src/agent/omp/rpc_ui.rs`). The worker
+forwards the admitted params unchanged.
+
+**Guard** — `open_dimensions_and_nested_event_depth_are_bounded` in
+`crates/roost-coord/src/agent/omp/rpc_ui/tests.rs` (`hour12` boolean admitted,
+non-boolean rejected).
