@@ -1,0 +1,15 @@
+{
+  "name": "roost-omp-parity",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "parity": "bun run run.ts",
+    "inventory": "bun run inventory.ts"
+  },
+  "dependencies": {
+    "@types/bun": "1.4.4",
+    "@xterm/headless": "6.0.0",
+    "playwright": "1.58.2",
+    "typescript": "5.9.3"
+  }
+}

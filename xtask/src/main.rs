@@ -8,6 +8,7 @@ mod file_size;
 mod fleet;
 mod fmt;
 mod lint_table;
+mod omp_parity;
 mod ratchet;
 mod source_tree;
 mod stdout_rule;
@@ -39,6 +40,8 @@ enum Command {
     /// vendored terminal core — see `fmt` for why that is not a matter of
     /// taste.
     Fmt,
+    /// Compare the pinned OMP TUI and native HTML through the real application.
+    OmpParity(omp_parity::OmpParityArgs),
     /// Build a tagged release and install it on the machines in
     /// xtask/fleet.json.
     Fleet {
@@ -76,6 +79,7 @@ fn main() -> ExitCode {
         Command::Lint(arguments) => lint(&arguments),
         Command::Fmt => fmt(),
         Command::Fleet { command } => fleet::run(&command),
+        Command::OmpParity(arguments) => omp_parity::run(&arguments),
     }
 }
 

@@ -1,0 +1,182 @@
+name: OMP native HTML parity
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact Roost revision to exercise
+        required: false
+        type: string
+        default: ''
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Roost revision to exercise (empty uses this workflow revision)
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/target/omp-parity/browsers
+  BUN_INSTALL_CACHE_DIR: ${{ github.workspace }}/target/omp-parity/runner-bun-cache
+  # The merge job refuses shards whose count differs, so the matrix and every
+  # `--shard K/N` read this one value.
+  PARITY_SHARDS: '32'
+
+jobs:
+  build:
+    name: build Roost under test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - name: Reclaim runner disk
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet
+          df -h /
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-gates
+          add-job-id-key: false
+      - name: Install the pinned Dioxus builder
+        run: |
+          rustup target add wasm32-unknown-unknown
+          flock /tmp/roost-cargo.lock cargo install dioxus-cli --version 0.8.0-alpha.3 --locked
+      - name: Build actual coordinator, worker and keeper
+        run: flock /tmp/roost-cargo.lock cargo build -p roost-cli -p roost-keeper -p roost-worker
+      - name: Build actual production web distribution
+        run: |
+          flock /tmp/roost-cargo.lock dx build --release --profile wasm-release -p roost-web --platform web
+          test -f target/dx/roost-web/release/web/public/index.html
+          test -s target/dx/roost-web/release/web/public/styles/tailwind.css
+      - name: Package the product under test
+        run: tar -cf roost-under-test.tar target/debug/roost target/debug/roost-worker target/debug/roost-keeper target/dx/roost-web/release/web/public
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omp-parity-product-${{ github.run_id }}-${{ github.run_attempt }}
+          path: roost-under-test.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  shard:
+    name: shard ${{ matrix.shard }}
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-gates
+          add-job-id-key: false
+          save-if: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.4'
+      - name: Install isolated parity dependencies
+        run: bun install --cwd deploy/omp/parity --frozen-lockfile --ignore-scripts
+      - name: Guard source ownership and patch identity
+        run: bun test deploy/omp/parity/source.test.ts
+      - name: Install Chromium and its system dependencies
+        run: bun run --cwd deploy/omp/parity playwright install --with-deps chromium
+      - name: Install controlled native-audio runtime dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2t64 libpulse0 libopus0
+      - name: Prepare exact OMP source and published native binding
+        run: flock /tmp/roost-cargo.lock cargo xtask omp-parity --prepare-source
+      - name: Check harness invariants against the prepared source
+        working-directory: deploy/omp/parity
+        run: bun test
+      - uses: actions/download-artifact@v4
+        with:
+          name: omp-parity-product-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Unpack the product under test
+        run: tar -xf roost-under-test.tar && rm roost-under-test.tar
+      - name: Compare the canonical TUI and native HTML through Roost
+        run: >-
+          flock /tmp/roost-cargo.lock cargo xtask omp-parity --
+          --output target/omp-parity/shard-runs
+          --shard ${{ matrix.shard }}/${{ env.PARITY_SHARDS }}
+          --jobs 2
+      - name: Collect the shard result
+        if: always()
+        run: |
+          mkdir -p target/omp-parity/shard-result
+          for run in target/omp-parity/shard-runs/run-*; do
+            for file in summary.json selection.json source.json inventory.json results.json coverage.json bootstrap-or-suite-error.json; do
+              if [ -f "$run/$file" ]; then cp "$run/$file" target/omp-parity/shard-result/; fi
+            done
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: omp-parity-shard-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/omp-parity/shard-result
+          retention-days: 7
+          if-no-files-found: error
+      - name: Preserve parity diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: omp-parity-failure-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            target/omp-parity/shard-runs/**
+            !target/omp-parity/shard-runs/*/runner-home/**
+
+  merge:
+    name: merge full coverage
+    needs: shard
+    if: always() && (needs.shard.result == 'success' || needs.shard.result == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-gates
+          add-job-id-key: false
+          save-if: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.4'
+      - name: Install isolated parity dependencies
+        run: bun install --cwd deploy/omp/parity --frozen-lockfile --ignore-scripts
+      - name: Prepare exact OMP source and published native binding
+        run: flock /tmp/roost-cargo.lock cargo xtask omp-parity --prepare-source
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: omp-parity-shard-*-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/omp-parity/shards
+      - name: Require every shard and the complete coverage claim
+        run: |
+          shards=()
+          for shard in $(seq 1 "$PARITY_SHARDS"); do
+            shards+=(--merge "target/omp-parity/shards/omp-parity-shard-${shard}-${{ github.run_id }}-${{ github.run_attempt }}")
+          done
+          flock /tmp/roost-cargo.lock cargo xtask omp-parity -- --output target/omp-parity/merged "${shards[@]}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: omp-parity-coverage-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            target/omp-parity/merged/*/summary.json
+            target/omp-parity/merged/*/coverage.json
+            target/omp-parity/merged/*/bootstrap-or-suite-error.json

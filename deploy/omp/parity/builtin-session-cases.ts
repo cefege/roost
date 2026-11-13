@@ -1,0 +1,40 @@
+import type { BuiltinCase } from "./scenario";
+import { commandCase, dismissThenSend, effect, pathStatus, send } from "./builtin-steps";
+
+export const sessionCases: BuiltinCase[] = [
+  commandCase("todo-lifecycle", "/todo append parity", "Appended to Todos: Parity", [
+    send("/todo start parity", "Started: Parity", [effect("builtin.todos", "in_progress", "/0/tasks/0/status")]),
+    send("/todo done parity", "Marked completed: Parity", [effect("builtin.todos", "completed", "/0/tasks/0/status")]),
+    send("/todo drop parity", "Marked abandoned: Parity", [effect("builtin.todos", "abandoned", "/0/tasks/0/status")]),
+    pathStatus("/todo export parity-todos.md", "Wrote todos to", [effect("builtin.workspace-file", true, "/parity-todos.md/exists")]),
+    send("/todo copy", "Copied todos as Markdown to clipboard."),
+    send("/todo rm parity", "Removed: Parity", [effect("builtin.todos", [], "/0/tasks")]),
+    pathStatus("/todo import parity-todos.md", "Imported 1 phase(s), 1 task(s) from"),
+    send("/todo rm", "Cleared all todos.", [effect("builtin.todos", [])]),
+    send("/todo", "No todos. Use /todo append <task> to start one."),
+    send("/todo start absent", 'No task matched "absent". Use /todo to list current tasks.'),
+  ]),
+  commandCase("todo-help-alias", "/todo help", "Usage: /todo <verb> [args]", [
+    send("/todo ?", "Usage: /todo <verb> [args]"),
+  ]),
+  commandCase("session-info", "/session info", "Parity session", [dismissThenSend("/session invalid", "Usage: /session [info|delete|pin [account]]")]),
+  commandCase("session-pin-empty", "/session pin absent", "No stored OAuth accounts for"),
+  commandCase("jobs-empty", "/jobs kill all", "No running background jobs to cancel.", [send("/jobs kill absent", 'No running background job with id "absent".'), send("/jobs kill", "Usage: /jobs kill <id>|all"), send("/jobs invalid", "Usage: /jobs [full|kill <id>|kill all]")]),
+  commandCase("usage-reset-empty", "/usage reset absent", "No provider accounts found. Use /login to add one.", [send("/usage invalid", "Usage: /usage [show|reset [provider/credential-id|provider/active]]")]),
+  commandCase("stats-invalid", "/stats --parity-invalid", "Unknown option: --parity-invalid. Usage: /stats [--port <port>] [--host <host>]"),
+  commandCase("changelog-invalid", "/changelog invalid", "Usage: /changelog [full|last [N]]"),
+  commandCase("hotkeys", "/hotkeys", "Send message", [dismissThenSend("/retry", "Nothing to retry")]),
+  commandCase("tools", "/tools", "read", [send("/force read", "Next turn forced to use read.", [effect("builtin.session", "read", "/forcedTool")])]),
+  commandCase("context", "/context", "Context", [dismissThenSend("/retry", "Nothing to retry")]),
+  ...["extensions", "status"].map(token => commandCase(token, `/${token}`, "Extension Control Center", [dismissThenSend("/reload-plugins", "Plugins reloaded.")])),
+  commandCase("agents", "/agents", "Agents", [dismissThenSend("/retry", "Nothing to retry")]),
+  commandCase("git", "/git", "parity.txt", [dismissThenSend("/retry", "Nothing to retry")]),
+  commandCase("local-error", "/local absent", "Local file not found: local://absent"),
+  ...["hub", "subagents"].map(token => commandCase(token, `/${token}`, "Activity", [dismissThenSend("/retry", "Nothing to retry")])),
+  ...["branch", "rewind"].map(token => commandCase(token, `/${token}`, "Parity seed question", [dismissThenSend("/retry", "Nothing to retry")])),
+  commandCase("fork-invalid", "/fork invalid", "Usage: /fork [pane|window|tab]"),
+  commandCase("tree", "/tree", "Parity seed question", [dismissThenSend("/retry", "Nothing to retry")]),
+  commandCase("login-callback-absent", "/login parity-invalid", "No OAuth login is waiting for a manual callback."),
+  commandCase("logout-unknown", "/logout parity-invalid", "Unknown OAuth provider: parity-invalid"),
+  commandCase("mcp-unknown", "/mcp invalid", "Unknown subcommand: invalid. Type /mcp help for usage."),
+];

@@ -29,3 +29,6 @@ mockups/
 
 # Compiled by dx from crates/roost-web/tailwind.css; never hand-edited.
 crates/roost-web/assets/styles/tailwind.css
+
+# Dependencies for the isolated OMP terminal/HTML acceptance runner.
+/deploy/omp/parity/node_modules/
