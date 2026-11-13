@@ -1,11 +1,14 @@
 # OMP runtime and command-UI parity
 
-Releases from `v3.0.5` ship the pinned standalone OMP fork for every supported
+Release packages ship the pinned standalone OMP fork for every supported
 worker platform. Installers, fleet installation and self-update verify its
 digest and stage `omp` (`omp.exe` on Windows) beside `roost` and `roost-keeper`
 under `versions/<tag>/bin/`. The worker selects that release-owned sibling
 before project or user executables. Global OMP installations and credentials
 under `~/.omp` are not replaced.
+
+Each conversation's dedicated process receives `--cwd` before ACP starts.
+`session/new.cwd` alone does not bind the native UI's process-wide project state.
 
 The source identity is [`source.json`](source.json):
 
@@ -14,11 +17,12 @@ The source identity is [`source.json`](source.json):
 - [`command-ui-parity.patch`](command-ui-parity.patch), applied on top
 
 `bun deploy/omp/runtime.ts` prepares that exact source, provisions its matching
-published native binding, compiles a standalone executable and verifies its ACP
-initialization in an isolated home. Outputs and digests are under
-`target/omp-runtime/`; `.github/workflows/omp-runtime.yml` builds all five native
-assets before publication. `bun deploy/omp/runtime-smoke.ts <binary>` verifies
-an already-built executable without rebuilding.
+published native binding and compiles a standalone executable. Its isolated
+smoke verifies ACP capabilities, session creation, semantic UI opening and
+the rendered workspace while starting outside that directory. Outputs and
+digests are under `target/omp-runtime/`; `.github/workflows/omp-runtime.yml`
+builds all five native assets before publication.
+`bun deploy/omp/runtime-smoke.ts <binary>` verifies an already-built executable.
 
 Source builds without a sibling retain project/PATH lookup. They still require
 the patched fork; stock OMP and alternative runtimes are unsupported.

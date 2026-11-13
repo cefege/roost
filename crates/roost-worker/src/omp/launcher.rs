@@ -106,7 +106,14 @@ impl OmpLauncher for ProcessLauncher {
         let catalog = CatalogReadiness::install(&self.data_dir)?;
         let agent = AcpAgent::new(
             AcpAgentConfig::new(path)
-                .args(["acp", "--approval-mode", "yolo", "--extension"])
+                .args([
+                    "--cwd",
+                    cwd,
+                    "acp",
+                    "--approval-mode",
+                    "yolo",
+                    "--extension",
+                ])
                 .arg(catalog.extension_path.to_string_lossy())
                 .env(
                     "ROOST_OMP_CATALOG_STATUS",

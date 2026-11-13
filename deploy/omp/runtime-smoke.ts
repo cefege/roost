@@ -1,49 +1,44 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
+import { createHome, isolatedEnvironment } from "./parity/runtime";
 
 export async function smokeRuntime(binary: string): Promise<void> {
   const home = await mkdtemp(join(tmpdir(), "roost-omp-smoke-"));
   try {
-    const env: Record<string, string> = {};
-    for (const [key, value] of Object.entries(process.env)) {
-      if (value !== undefined && !/^(PI_|OMP_|ROOST_|XDG_)/i.test(key)) env[key] = value;
-    }
-    Object.assign(env, {
-      HOME: home,
-      USERPROFILE: home,
-      APPDATA: join(home, "appdata"),
-      LOCALAPPDATA: join(home, "localappdata"),
-      XDG_CACHE_HOME: join(home, "cache"),
-      XDG_CONFIG_HOME: join(home, "config"),
-      XDG_DATA_HOME: join(home, "data"),
-      PI_CODING_AGENT_DIR: join(home, "agent"),
-      TMPDIR: home,
-      TMP: home,
-      TEMP: home,
-    });
-    const child = Bun.spawn([binary, "acp", "--approval-mode", "yolo"], {
-      cwd: home, env, stdin: "pipe", stdout: "pipe", stderr: "pipe",
+    await createHome(home);
+    const workspace = join(home, `ws-${crypto.randomUUID().slice(0, 6)}`);
+    await mkdir(workspace);
+    const child = Bun.spawn([binary, "--cwd", workspace, "acp", "--approval-mode", "yolo"], {
+      // ACP's transport starts outside the workspace; the CLI must bind native UI too.
+      cwd: join(home, "tmp"),
+      env: isolatedEnvironment(home, {
+        APPDATA: join(home, "appdata"),
+        LOCALAPPDATA: join(home, "localappdata"),
+      }),
+      stdin: "pipe", stdout: "pipe", stderr: "pipe",
     });
     const stderr = new Response(child.stderr).text();
+    const request = (id: number, method: string, params: object) => {
+      child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+      child.stdin.flush();
+    };
     let timer: NodeJS.Timeout | undefined;
     let failure: unknown;
     try {
-      child.stdin.write(`${JSON.stringify({
-        jsonrpc: "2.0", id: 1, method: "initialize",
-        params: {
-          protocolVersion: 1,
-          clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true },
-          clientInfo: { name: "roost-runtime-proof", version: "1" },
-        },
-      })}\n`);
-      child.stdin.flush();
+      request(1, "initialize", {
+        protocolVersion: 1,
+        clientCapabilities: { _meta: { commandUi: { version: 1, protocol: "tsp" } } },
+        clientInfo: { name: "roost-runtime-proof", version: "1" },
+      });
       const response = (async () => {
         const reader = child.stdout.pipeThrough(new TextDecoderStream()).getReader();
         let pending = "";
+        let opened = false;
+        let renderedWorkspace = false;
         for (;;) {
           const next = await reader.read();
-          if (next.done) throw new Error("OMP closed stdout before initialize completed.");
+          if (next.done) throw new Error("OMP closed stdout before its native workspace rendered.");
           pending += next.value;
           let newline: number;
           while ((newline = pending.indexOf("\n")) !== -1) {
@@ -51,18 +46,36 @@ export async function smokeRuntime(binary: string): Promise<void> {
             pending = pending.slice(newline + 1);
             if (!line) continue;
             const message = JSON.parse(line);
-            if (message.id !== 1) continue;
-            if (message.error) throw new Error(`OMP initialize returned an error: ${JSON.stringify(message.error)}`);
-            const capability = message.result?.agentCapabilities?._meta?.commandUi;
-            if (capability?.version !== 1 || capability?.protocol !== "tsp") {
-              throw new Error(`OMP initialize returned an incompatible commandUi capability: ${JSON.stringify(capability)}`);
+            if (message.error) throw new Error(`OMP request failed: ${JSON.stringify(message.error)}`);
+            if (message.id === 1) {
+              const capability = message.result?.agentCapabilities?._meta?.commandUi;
+              if (capability?.version !== 1 || capability?.protocol !== "tsp") {
+                throw new Error(`OMP returned an incompatible commandUi capability: ${JSON.stringify(capability)}`);
+              }
+              request(2, "session/new", { cwd: workspace, mcpServers: [] });
             }
-            return;
+            if (message.id === 2) {
+              if (typeof message.result?.sessionId !== "string") throw new Error("OMP did not create a session.");
+              request(3, "_omp/ui/open", {
+                sessionId: message.result.sessionId,
+                transportId: "release-runtime-proof",
+                cols: 160, rows: 50, dark: true, reduceMotion: true,
+              });
+            }
+            if (message.id === 3) {
+              if (message.result?.version !== 1) throw new Error("OMP did not open its semantic UI.");
+              opened = true;
+            }
+            if (message.method === "_omp/ui/message"
+              && JSON.stringify(message.params?.message?.body)?.includes(basename(workspace))) {
+              renderedWorkspace = true;
+            }
+            if (opened && renderedWorkspace) return;
           }
         }
       })();
       const timeout = Promise.withResolvers<never>();
-      timer = setTimeout(() => timeout.reject(new Error("OMP initialize timed out after 60 seconds.")), 60_000);
+      timer = setTimeout(() => timeout.reject(new Error("OMP native workspace UI timed out after 60 seconds.")), 60_000);
       await Promise.race([response, timeout.promise]);
     } catch (error) {
       failure = error;

@@ -4895,3 +4895,19 @@ same-tag installation must remain repairable.
 `a_missing_bundled_runtime_repairs_the_same_release_without_bypassing_the_retry_window`.
 Every published native runtime also passes isolated ACP initialization with the
 required semantic capability.
+
+### OMP native UI shows the temporary directory instead of the conversation folder
+
+**Symptom** — chat connects and the sidebar names the right folder, but OMP's
+native status line shows the worker's temporary directory.
+
+**Wrong** — send only `session/new.cwd`. ACP's transport starts the process in
+a temporary directory; the native UI also consumes project state initialized
+before that session request.
+
+**Right** — bind the conversation's dedicated process with `--cwd` before ACP
+starts, while retaining the session's explicit `cwd`.
+
+**Guard** — `deploy/omp/runtime-smoke.ts` starts the real compiled fork outside
+its requested workspace, opens its semantic UI and requires that workspace in
+the native render. Omitting the launch binding fails this check.
