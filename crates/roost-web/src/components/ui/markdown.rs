@@ -37,8 +37,9 @@ const MARKDOWN_PROSE: &str = "min-w-0 wrap-break-word text-sm leading-relaxed te
      [&_blockquote]:text-muted-foreground \
      [&_hr]:my-4 [&_hr]:border-0 [&_hr]:border-t [&_hr]:border-border \
      [&_table]:block [&_table]:overflow-x-auto [&_table]:border-collapse \
-     [&_th]:border-b [&_th]:border-border [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:align-top [&_th]:font-semibold \
-     [&_td]:border-b [&_td]:border-border [&_td]:px-3 [&_td]:py-2 [&_td]:text-left [&_td]:align-top \
+     [&_th]:border-b [&_th]:border-border [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:align-top [&_th]:font-semibold [&_th]:whitespace-nowrap \
+     [&_td]:border-b [&_td]:border-border [&_td]:px-3 [&_td]:py-2 [&_td]:text-left [&_td]:align-top [&_td]:wrap-anywhere \
+     [&_td:first-child]:wrap-normal [&_td:first-child_code]:whitespace-nowrap \
      [&_img]:max-w-full [&_img]:h-auto";
 
 #[component]

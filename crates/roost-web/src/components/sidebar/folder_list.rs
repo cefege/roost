@@ -1,6 +1,8 @@
-//! The Folders navigation tree, newest activity first, with stock Sidenav parts.
+//! The Folders navigation tree, in the browser's manual order, with stock Sidenav parts.
 //! Filtering projects matching terminal and agent destinations without folder
 //! headers. This component also owns the sidebar keyboard cursor's row order.
+
+use std::rc::Rc;
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
@@ -11,7 +13,7 @@ use roost_client_core::store::selectors::{session_by_id, session_folder_key};
 use roost_client_core::store::sidebar::SidebarIntent;
 use roost_client_core::store::sidebar::folder_group_filter::filter_folder_groups_for_store;
 use roost_client_core::store::sidebar::folder_groups::{
-    FolderGroup, build_folder_groups, filter_folder_groups,
+    FolderGroup, build_folder_groups, filter_folder_groups, order_folder_groups,
 };
 use roost_protocol::wire::{Session, SessionKind};
 
@@ -43,9 +45,11 @@ pub fn FolderList(active: bool, query: String) -> Element {
     let pump = use_store();
     let compact = crate::components::layout::window_size::use_is_compact();
     let path = use_location();
+    let mut dragged_folder = use_signal(|| None::<String>);
     let core = pump.core();
     let (
         groups,
+        folder_keys,
         filtered_ids,
         active_folder_key,
         cursor_id,
@@ -56,10 +60,15 @@ pub fn FolderList(active: bool, query: String) -> Element {
         let store = core.store();
         let now_ms = i64::try_from(core.clock().now_ms()).unwrap_or(i64::MAX);
         let all = build_folder_groups(store, &BrowserWorkerPaths, now_ms);
-        let visible: Vec<FolderGroup> = all
+        let mut visible: Vec<FolderGroup> = all
             .into_iter()
             .filter(|group| !is_chat_folder(&group.spawn_cwd))
             .collect();
+        order_folder_groups(&mut visible, store.sidebar.memory.folder_order());
+        let folder_keys = visible
+            .iter()
+            .map(|group| group.key.clone())
+            .collect::<Vec<_>>();
         let folder_matches = filter_folder_groups(&visible, &query);
         let folder_match_keys: Vec<&str> = folder_matches
             .iter()
@@ -98,6 +107,7 @@ pub fn FolderList(active: bool, query: String) -> Element {
         let cursor_id = store.sidebar.cursor.cursor_session_id().map(str::to_owned);
         (
             groups,
+            folder_keys,
             filtered_ids,
             active_folder_key,
             cursor_id,
@@ -105,6 +115,14 @@ pub fn FolderList(active: bool, query: String) -> Element {
             visible_session_ids_by_folder,
         )
     };
+    let folder_keys = Rc::new(folder_keys);
+    let observed_keys = Rc::clone(&folder_keys);
+    let observe_pump = pump.clone();
+    use_effect(use_reactive((&observed_keys,), move |(keys,)| {
+        observe_pump.dispatch(ClientEvent::Sidebar(SidebarIntent::ObserveFolders(
+            keys.as_ref().clone(),
+        )));
+    }));
     let filtering = has_active_filter(&query);
     let visible_ids: Vec<String> = if filtering {
         filtered_ids.clone()
@@ -155,6 +173,26 @@ pub fn FolderList(active: bool, query: String) -> Element {
                                     cursor: !compact
                                         && !group.lead_id.is_empty()
                                         && cursor_id.as_deref() == Some(group.lead_id.as_str()),
+                                    dragging_folder: dragged_folder.read().is_some(),
+                                    on_drag_start: {
+                                        let folder_key = group.key.clone();
+                                        move |()| dragged_folder.set(Some(folder_key.clone()))
+                                    },
+                                    on_drag_end: move |()| dragged_folder.set(None),
+                                    on_drop_folder: {
+                                        let target = group.key.clone();
+                                        let keys = Rc::clone(&folder_keys);
+                                        let drop_pump = pump.clone();
+                                        move |()| {
+                                            if let Some(source) = dragged_folder.take() {
+                                                drop_pump.dispatch(ClientEvent::Sidebar(SidebarIntent::ObserveFolders(keys.as_ref().clone())));
+                                                drop_pump.dispatch(ClientEvent::Sidebar(SidebarIntent::MoveFolder {
+                                                    source,
+                                                    target: target.clone(),
+                                                }));
+                                            }
+                                        }
+                                    },
                                     group: group.clone(),
                                     SidenavMenuSub {
                                         FolderConversationRows {

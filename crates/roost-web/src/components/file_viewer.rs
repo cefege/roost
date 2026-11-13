@@ -16,6 +16,9 @@ pub mod dom;
 pub mod state;
 pub mod states;
 
+#[cfg(test)]
+mod loading_tests;
+
 use std::cell::Cell;
 use std::rc::Rc;
 

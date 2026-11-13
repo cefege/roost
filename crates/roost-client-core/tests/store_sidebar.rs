@@ -11,7 +11,7 @@ use roost_client_core::platform::MemoryKeyValueStore;
 use roost_client_core::store::paths::ExactWorkerPaths;
 use roost_client_core::store::sidebar::folder_group_filter::filter_folder_groups_for_store;
 use roost_client_core::store::sidebar::folder_groups::{
-    FolderGroup, build_folder_groups, filter_folder_groups,
+    FolderGroup, build_folder_groups, filter_folder_groups, order_folder_groups,
 };
 use roost_client_core::store::sidebar::{SidebarCursor, SidebarMemory};
 use sidebar_support::{FIRST_FP, SECOND_FP, SESSION_A, SESSION_B, seeded, session};
@@ -61,6 +61,17 @@ fn shrinking_the_order_clamps_the_highlight_into_range() {
 }
 
 #[test]
+fn reordering_rows_keeps_the_highlight_on_the_same_session() {
+    let mut cursor = SidebarCursor::default();
+    cursor.set_ordered_session_ids(ids(&["a", "b", "c"]));
+    cursor.move_cursor(1);
+    cursor.set_ordered_session_ids(ids(&["b", "c", "a"]));
+    assert_eq!(cursor.cursor_session_id(), Some("a"));
+    cursor.move_cursor(-1);
+    assert_eq!(cursor.cursor_session_id(), Some("c"));
+}
+
+#[test]
 fn a_visit_stores_the_restore_path_and_the_folders_last_session() {
     let storage = MemoryKeyValueStore::new();
     let mut memory = SidebarMemory::load(&storage);
@@ -98,6 +109,50 @@ fn the_folder_map_keys_by_machine_and_folder_and_the_newest_visit_wins() {
         Some(SESSION_B)
     );
     assert_eq!(memory.last_session_for_folder(SECOND_FP, "/a"), None);
+}
+
+#[test]
+fn folder_order_survives_activity_reordering_and_reload() {
+    let storage = MemoryKeyValueStore::new();
+    let mut memory = SidebarMemory::load(&storage);
+    let mut core = seeded(
+        &[
+            session(SESSION_A, FIRST_FP, "/tmp/a", 1_000),
+            session(SESSION_B, FIRST_FP, "/tmp/b", 2_000),
+        ],
+        &[(FIRST_FP, "First worker")],
+        &[],
+    );
+    let mut groups = build_folder_groups(core.store(), &ExactWorkerPaths, 5_000);
+    order_folder_groups(&mut groups, memory.folder_order());
+    let original: Vec<String> = groups.iter().map(|group| group.key.clone()).collect();
+    assert!(memory.observe_folders(&storage, &original));
+    assert!(memory.move_folder(&storage, &original[1], &original[0]));
+    let reloaded = SidebarMemory::load(&storage);
+    assert_eq!(
+        reloaded.folder_order(),
+        [original[1].clone(), original[0].clone()]
+    );
+
+    core.store_mut()
+        .last_activity_ms
+        .insert(SESSION_A.into(), 9_000);
+    let mut after = build_folder_groups(core.store(), &ExactWorkerPaths, 10_000);
+    order_folder_groups(&mut after, reloaded.folder_order());
+    assert_eq!(
+        after.iter().map(|group| &group.key).collect::<Vec<_>>(),
+        vec![&original[1], &original[0]]
+    );
+    let mut reloaded = reloaded;
+    assert!(reloaded.observe_folders(&storage, &ids(&["new-folder"])));
+    assert_eq!(
+        reloaded.folder_order(),
+        [
+            original[1].clone(),
+            original[0].clone(),
+            "new-folder".into()
+        ]
+    );
 }
 
 #[test]
@@ -248,4 +303,29 @@ fn agent_conversations_join_and_create_folder_groups() {
         ["agent-only", "agent-child"],
         "the matching child remains reachable with parent context"
     );
+    core.store_mut().agent_chat.conversations.insert(
+        "agent-second".into(),
+        summary("agent-second", "/tmp/repo", 10_000),
+    );
+    let before = build_folder_groups(core.store(), &ExactWorkerPaths, 10_000);
+    let before = before
+        .iter()
+        .find(|group| group.spawn_cwd == "/tmp/repo")
+        .unwrap();
+    assert_eq!(
+        before.agent_conversation_ids,
+        ["agent-mixed", "agent-second"]
+    );
+    core.store_mut()
+        .agent_chat
+        .conversations
+        .get_mut("agent-mixed")
+        .unwrap()
+        .updated_ms = 20_000;
+    let after = build_folder_groups(core.store(), &ExactWorkerPaths, 20_000);
+    let after = after
+        .iter()
+        .find(|group| group.spawn_cwd == "/tmp/repo")
+        .unwrap();
+    assert_eq!(after.agent_conversation_ids, before.agent_conversation_ids);
 }

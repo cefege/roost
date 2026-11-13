@@ -1,0 +1,8 @@
+{
+  "name": "file-preview-loading",
+  "path": "/tmp/export.txt",
+  "worker_fp": "aa11bb22cc33dd44",
+  "byte_size": 36,
+  "lines": ["Viewer smoke", "Small real worker file"],
+  "steps": ["pending", "loading", "text"]
+}

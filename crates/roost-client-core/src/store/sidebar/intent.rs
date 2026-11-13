@@ -33,6 +33,10 @@ pub enum SidebarIntent {
     },
     /// The Folders panel's rendered row order; empty while it is inactive.
     PublishCursorTargets(Vec<String>),
+    /// Record folders as they become visible, preserving previous positions.
+    ObserveFolders(Vec<String>),
+    /// Move one folder to another folder's position.
+    MoveFolder { source: String, target: String },
     /// ↑/↓ by `delta` rows.
     MoveCursor(i32),
     /// A live terminal is on screen.
@@ -58,6 +62,8 @@ impl SidebarIntent {
             Self::RevealForSearch { .. } => "reveal_for_search",
             Self::RecordNavigation { .. } => "record_navigation",
             Self::PublishCursorTargets(_) => "publish_cursor_targets",
+            Self::ObserveFolders(_) => "observe_folders",
+            Self::MoveFolder { .. } => "move_folder",
             Self::MoveCursor(_) => "move_cursor",
             Self::RememberVisit { .. } => "remember_visit",
         }
@@ -89,6 +95,10 @@ pub fn apply_sidebar_intent(
         SidebarIntent::PublishCursorTargets(ids) => {
             store.sidebar.cursor.set_ordered_session_ids(ids.clone())
         }
+        SidebarIntent::ObserveFolders(keys) => store.sidebar.memory.observe_folders(storage, keys),
+        SidebarIntent::MoveFolder { source, target } => {
+            store.sidebar.memory.move_folder(storage, source, target)
+        }
         SidebarIntent::MoveCursor(delta) => store.sidebar.cursor.move_cursor(*delta),
         SidebarIntent::RememberVisit {
             session_id,
@@ -103,6 +113,8 @@ pub fn apply_sidebar_intent(
     let cursor_or_memory = matches!(
         intent,
         SidebarIntent::PublishCursorTargets(_)
+            | SidebarIntent::ObserveFolders(_)
+            | SidebarIntent::MoveFolder { .. }
             | SidebarIntent::MoveCursor(_)
             | SidebarIntent::RememberVisit { .. }
     );

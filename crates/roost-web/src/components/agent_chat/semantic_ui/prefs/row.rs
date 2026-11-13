@@ -58,7 +58,14 @@ pub(super) fn pref_row(
     let focus_row = row_id.clone();
     let can_focus_row = editing.is_none() && !focused_now && !disabled;
     let focus_send = send;
-    rsx! {div{class:if focused_now{"flex items-center justify-between gap-2 border-b border-ring py-2"}else{"flex items-center justify-between gap-2 border-b border-border py-2"},title:disabled_reason,onfocusin:move |_|if can_focus_row {focus_send.call(event("select",&focus_surface,&focus_id,json!({"item":focus_row})));},
+    rsx! {div{class:match (focused_now, kind) {
+        (true, "switch")=>"flex items-center justify-between gap-2 border-b border-ring py-2",
+        (false, "switch")=>"flex items-center justify-between gap-2 border-b border-border py-2",
+        (true, "multi")=>"flex flex-col items-stretch justify-between gap-2 border-b border-ring py-2 sm:flex-row sm:items-start",
+        (false, "multi")=>"flex flex-col items-stretch justify-between gap-2 border-b border-border py-2 sm:flex-row sm:items-start",
+        (true, _)=>"flex flex-col items-stretch justify-between gap-2 border-b border-ring py-2 sm:flex-row sm:items-center",
+        (false, _)=>"flex flex-col items-stretch justify-between gap-2 border-b border-border py-2 sm:flex-row sm:items-center",
+    },title:disabled_reason,onfocusin:move |_|if can_focus_row {focus_send.call(event("select",&focus_surface,&focus_id,json!({"item":focus_row})));},
         "data-omp-setting": row_id.clone(),
         "data-omp-control": kind,
         if focused_now { PrefsRevealFocus { row_id: row_id.clone() } }

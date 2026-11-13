@@ -18,12 +18,15 @@ pub const LAST_TERMINAL_PATH_KEY: &str = "roost.lastTerminalPath";
 pub const LAST_SESSION_BY_FOLDER_KEY: &str = "roost.lastSessionByFolder";
 /// The per-machine last-workspace key prefix.
 pub const LAST_WORKSPACE_KEY_PREFIX: &str = "roost.lastWorkspaceId.";
+/// The browser's manual Folders order.
+pub const FOLDER_ORDER_KEY: &str = "roost.sidebar.folderOrder";
 
 /// The sidebar's persisted memory, loaded once per document.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SidebarMemory {
     recent: Vec<String>,
     session_by_folder: BTreeMap<String, String>,
+    folder_order: Vec<String>,
     last_path_written: Option<String>,
 }
 
@@ -52,9 +55,14 @@ impl SidebarMemory {
                     .collect()
             })
             .unwrap_or_default();
+        let folder_order = storage
+            .get(FOLDER_ORDER_KEY)
+            .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+            .unwrap_or_default();
         Self {
             recent,
             session_by_folder,
+            folder_order,
             last_path_written: None,
         }
     }
@@ -62,6 +70,49 @@ impl SidebarMemory {
     /// The MRU stack, newest first.
     pub fn recent(&self) -> &[String] {
         &self.recent
+    }
+
+    /// Folder keys in their persisted order, including temporarily absent folders.
+    pub fn folder_order(&self) -> &[String] {
+        &self.folder_order
+    }
+
+    /// Append newly observed folders without disturbing any existing position.
+    pub fn observe_folders(&mut self, storage: &dyn KeyValueStore, keys: &[String]) -> bool {
+        let mut changed = false;
+        for key in keys {
+            if !self.folder_order.contains(key) {
+                self.folder_order.push(key.clone());
+                changed = true;
+            }
+        }
+        if changed {
+            self.persist_folder_order(storage);
+        }
+        changed
+    }
+
+    /// Move a folder to the target's position without dropping absent keys.
+    pub fn move_folder(&mut self, storage: &dyn KeyValueStore, source: &str, target: &str) -> bool {
+        let Some(from) = self.folder_order.iter().position(|key| key == source) else {
+            return false;
+        };
+        let Some(to) = self.folder_order.iter().position(|key| key == target) else {
+            return false;
+        };
+        if from == to {
+            return false;
+        }
+        let key = self.folder_order.remove(from);
+        self.folder_order.insert(to, key);
+        self.persist_folder_order(storage);
+        true
+    }
+
+    fn persist_folder_order(&self, storage: &dyn KeyValueStore) {
+        if let Ok(encoded) = serde_json::to_string(&self.folder_order) {
+            storage.set(FOLDER_ORDER_KEY, &encoded);
+        }
     }
 
     /// Move `session_id` to the top of the stack, deduped and capped, and

@@ -32,7 +32,7 @@ pub(super) fn multi_control(
     let surface = surface.to_owned();
     let row_id = row_id.to_owned();
     rsx! {
-        div { class: "flex max-w-1/2 flex-col gap-2",
+        div { class: "flex min-w-0 max-w-full flex-col gap-2 sm:max-w-1/2",
             if ordered && !values.is_empty() {
                 div { class: "flex flex-wrap gap-1",
                     for (idx, value) in values.iter().enumerate() {
@@ -102,7 +102,7 @@ pub(super) fn multi_control(
                         let item = row_id.clone();
                         let current_values = std::rc::Rc::clone(&values);
                         rsx! {
-                            label { class: "inline-flex items-center gap-2 text-sm",
+                            label { class: "inline-flex min-w-0 items-start gap-2 text-sm",
                                 Checkbox {
                                     checked,
                                     disabled,
@@ -114,7 +114,7 @@ pub(super) fn multi_control(
                                         send.call(event("change", &sf, &event_id, json!({"item":item,"value":next})));
                                     },
                                 }
-                                span { class: "flex flex-col",
+                                span { class: "flex min-w-0 flex-col",
                                     span { "{label}" }
                                     if let Some(detail) = detail { span { class: "text-xs text-muted-foreground", "{detail}" } }
                                 }

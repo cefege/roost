@@ -4854,3 +4854,21 @@ forwards the admitted params unchanged.
 **Guard** — `open_dimensions_and_nested_event_depth_are_bounded` in
 `crates/roost-coord/src/agent/omp/rpc_ui/tests.rs` (`hour12` boolean admitted,
 non-boolean rejected).
+
+### File preview panics when a read completes
+
+**Symptom** — `/export` opens a preview stuck at “Loading file…”. Dioxus
+panics in `mount.rs` with a zero-length dynamic-slot index, even for a
+36-byte text file.
+
+**Wrong** — delay loading, hide download controls, or wrap the preview body.
+The renderer can still walk a sibling's new scope output using old mount
+slots, or a cached fragment child using its updated mount.
+
+**Right** — placement edge scans keep committed vnode/mount pairs throughout
+root, fragment and component recursion. The pinned `dioxus-core` patch
+propagates `EdgeScan` and reads fragment children from their mounted views.
+Live edge scans keep their existing semantics.
+
+**Guard** — `file_viewer::loading_tests::loaded_preview_paints_file_lines_when_download_controls_appear`,
+driven by `protocol/conformance/dom-placement/file-preview-loading.json`.

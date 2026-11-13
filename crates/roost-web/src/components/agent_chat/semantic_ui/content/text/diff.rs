@@ -1,5 +1,6 @@
-//! Native `diff` blocks: structured hunks or unified text, with old/new line
-//! gutters, gap rows between regions, tone colours and full-source copy.
+//! Native `diff` blocks parse structured hunks or unified text once.
+//! The content dispatcher calls this renderer; split and unified modes share
+//! numbered rows, gap markers, tone colours and full-source copy.
 
 use super::super::prop_text;
 use super::copy::CopyButton;
@@ -7,6 +8,9 @@ use super::copy::CopyButton;
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::semantic_ui::OmpUiNode;
 use serde_json::Value;
+
+#[path = "diff_split.rs"]
+mod split;
 
 pub(super) fn render(node: &OmpUiNode) -> Element {
     let text = prop_text(node, "text");
@@ -19,6 +23,12 @@ pub(super) fn render(node: &OmpUiNode) -> Element {
     let path = prop_text(node, "path");
     let lang = prop_text(node, "lang");
     let label = if !path.is_empty() { path } else { lang };
+    let wrap = node.p.get("wrap").and_then(Value::as_bool).unwrap_or(false);
+    let text_layout = if wrap {
+        "min-w-0 whitespace-pre-wrap wrap-anywhere"
+    } else {
+        "whitespace-pre"
+    };
     rsx! {
         div { class: "flex min-w-0 flex-col rounded-none border border-border",
             div { class: "flex min-w-0 items-center justify-between gap-2 border-b border-border px-2 py-1",
@@ -27,6 +37,9 @@ pub(super) fn render(node: &OmpUiNode) -> Element {
                 }
                 CopyButton { text: copy }
             }
+            if node.p.get("mode").and_then(Value::as_str) == Some("split") {
+                {split::render(&rows, wrap)}
+            } else {
             pre { class: "m-0 overflow-x-auto bg-terminal p-2 font-mono text-xs leading-5 text-terminal-foreground",
                     for (index, row) in rows.iter().enumerate() {
                         div {
@@ -40,10 +53,11 @@ pub(super) fn render(node: &OmpUiNode) -> Element {
                                 if let Some(number) = row.new { "{number}" } else { "" }
                             }
                             span { class: "w-4 flex-none select-none text-center", "{row.sign}" }
-                            span { class: "min-w-0 whitespace-pre", "{row.content}" }
+                            span { class: "{text_layout}", "{row.content}" }
                         }
                     }
                 }
+            }
         }
     }
 }

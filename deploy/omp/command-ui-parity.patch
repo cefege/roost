@@ -1446,10 +1446,18 @@ index 6a5b7e8c2b..df3a4fd41a 100644
  			if (options?.historyRecordId !== undefined) this.#historyPanel?.markCopied(options.historyRecordId, answer);
  			else if (inlineRequest && this.#visible && this.#activeRequest === inlineRequest)
 diff --git a/packages/coding-agent/src/modes/controllers/command-controller.ts b/packages/coding-agent/src/modes/controllers/command-controller.ts
-index a45781a34f..4166f12061 100644
+index a45781a34f..8510c8a55b 100644
 --- a/packages/coding-agent/src/modes/controllers/command-controller.ts
 +++ b/packages/coding-agent/src/modes/controllers/command-controller.ts
-@@ -98,9 +98,7 @@ import {
+@@ -1,6 +1,7 @@
+ import * as fs from "node:fs/promises";
+ import * as os from "node:os";
+ import * as path from "node:path";
++import { pathToFileURL } from "node:url";
+ import { CompactionCancelledError, type CompactionOutcome } from "@oh-my-pi/pi-agent-core/compaction";
+ import {
+ 	getEnvApiKey,
+@@ -98,9 +99,7 @@ import {
  	renderChangelogEntries,
  	selectChangelogEntries,
  } from "../../utils/changelog";
@@ -1459,7 +1467,7 @@ index a45781a34f..4166f12061 100644
  import { resumeCommand } from "../../utils/resume-command";
  import { setSessionTerminalTitle } from "../../utils/title-generator";
  import {
-@@ -354,7 +352,7 @@ export class CommandController {
+@@ -354,7 +353,7 @@ export class CommandController {
  	}
  
  	openInBrowser(urlOrPath: string): void {
@@ -1468,7 +1476,16 @@ index a45781a34f..4166f12061 100644
  	}
  
  	async handleExportCommand(text: string): Promise<void> {
-@@ -384,9 +382,10 @@ export class CommandController {
+@@ -369,7 +368,7 @@ export class CommandController {
+ 			// subagents) from a focused view, otherwise the main session.
+ 			const filePath = await this.ctx.viewSession.exportToHtml(outputPath, useUserThemes);
+ 			this.ctx.showStatus(`Session exported to: ${filePath}`);
+-			this.openInBrowser(filePath);
++			this.openInBrowser(pathToFileURL(path.resolve(filePath)).href);
+ 		} catch (error: unknown) {
+ 			this.ctx.showError(`Failed to export session: ${error instanceof Error ? error.message : "Unknown error"}`);
+ 		}
+@@ -384,9 +383,10 @@ export class CommandController {
  			// Lazy: the stats dashboard (server + sqlite) loads on demand only,
  			// matching src/cli/stats-cli.ts, to keep CLI startup fast.
  			const { formatStatsDashboardUrl, startServer } = await import("@oh-my-pi/omp-stats");
@@ -1482,7 +1499,7 @@ index a45781a34f..4166f12061 100644
  			this.ctx.showStatus(`Trace: ${url}`);
  		} catch (error: unknown) {
  			this.ctx.showError(`Failed to open trace: ${error instanceof Error ? error.message : "Unknown error"}`);
-@@ -412,7 +411,7 @@ export class CommandController {
+@@ -412,7 +412,7 @@ export class CommandController {
  			const doc = sidecarPath
  				? `${formatted}\n\n---\nLLM request JSON: ${sidecarPath}\nThis file persists on disk and may contain raw context/secrets — treat accordingly.`
  				: formatted;
@@ -1491,7 +1508,7 @@ index a45781a34f..4166f12061 100644
  			const statusParts = ["Session copied to clipboard"];
  			if (sidecarPath) statusParts.push(`LLM request JSON: ${sidecarPath}`);
  			if (sidecarError) statusParts.push(`LLM request JSON unavailable: ${sidecarError}`);
-@@ -437,7 +436,7 @@ export class CommandController {
+@@ -437,7 +437,7 @@ export class CommandController {
  				this.ctx.showError("No messages to dump yet.");
  				return;
  			}
@@ -1500,7 +1517,7 @@ index a45781a34f..4166f12061 100644
  			this.ctx.showStatus([...formatDumpArchiveReport(archive), "Archive path copied to clipboard"].join("\n"));
  		} catch (error: unknown) {
  			this.ctx.showError(
-@@ -446,7 +445,7 @@ export class CommandController {
+@@ -446,7 +446,7 @@ export class CommandController {
  		}
  	}
  
@@ -1509,7 +1526,7 @@ index a45781a34f..4166f12061 100644
  		try {
  			const advisorHistory = this.ctx.session.formatAdvisorHistoryAsText({ compact: !isRaw });
  			if (advisorHistory === null) {
-@@ -457,7 +456,7 @@ export class CommandController {
+@@ -457,7 +457,7 @@ export class CommandController {
  				this.ctx.showError("Advisor has no history yet.");
  				return;
  			}
@@ -1518,7 +1535,7 @@ index a45781a34f..4166f12061 100644
  			this.ctx.showStatus("Advisor history copied to clipboard");
  		} catch (error: unknown) {
  			this.ctx.showError(
-@@ -708,7 +707,7 @@ export class CommandController {
+@@ -708,7 +708,7 @@ export class CommandController {
  			}
  		}
  
@@ -1527,7 +1544,7 @@ index a45781a34f..4166f12061 100644
  	}
  
  	static readonly #advisorStatusGlyph: Record<string, string> = {
-@@ -1475,6 +1474,22 @@ export class CommandController {
+@@ -1475,6 +1475,22 @@ export class CommandController {
  	}
  
  	async #handleForkTerminalCommand(placement: "pane" | "window"): Promise<void> {
@@ -1940,10 +1957,10 @@ index 2a6fafa2fa..e42fea76b7 100644
  		this.#animationInterval = setInterval(() => {
  			if (this.#visualizer !== visualizer) return;
 diff --git a/packages/coding-agent/src/modes/controllers/mcp-command-controller.ts b/packages/coding-agent/src/modes/controllers/mcp-command-controller.ts
-index efe903597a..e17752006c 100644
+index efe903597a..69e9384a28 100644
 --- a/packages/coding-agent/src/modes/controllers/mcp-command-controller.ts
 +++ b/packages/coding-agent/src/modes/controllers/mcp-command-controller.ts
-@@ -63,9 +63,7 @@ import {
+@@ -63,17 +63,15 @@ import {
  import type { MCPAuthChallenge, MCPConfigFile, MCPServerConfig, MCPServerConnection } from "../../mcp/types";
  import { shortenPath } from "@oh-my-pi/pi-tui/render/render-utils";
  import { urlHyperlinkAlways } from "@oh-my-pi/pi-tui/render";
@@ -1953,7 +1970,112 @@ index efe903597a..e17752006c 100644
  import { ChatBlock } from "@oh-my-pi/pi-tui/chrome/chat-block";
  import { DynamicBorder } from "@oh-my-pi/pi-tui/chrome/dynamic-border";
  import { MCPAddWizard } from "@oh-my-pi/pi-tui/overlays/mcp-add-wizard";
-@@ -861,24 +859,15 @@ export class MCPCommandController {
+ import { TranscriptBlock } from "@oh-my-pi/pi-tui/chrome/transcript-container";
+ import { parseCommandArgs } from "../../utils/command-args";
+ import { theme } from "@oh-my-pi/pi-tui/theme";
+-import { col, span, text } from "@oh-my-pi/pi-tui/native/describe";
+-import type { NativeNode } from "@oh-my-pi/pi-tui/native/node";
++import { col, node, span, text } from "@oh-my-pi/pi-tui/native/describe";
++import type { DescribeContext, NativeNode } from "@oh-my-pi/pi-tui/native/node";
+ import type { InteractiveModeContext } from "../types";
+ import { groupBySource, parseRemoveArgs, readScopeFlag, showCommandMessage } from "./command-controller-shared";
+ 
+@@ -85,6 +83,59 @@ const MCP_TEST_ESCAPE_GRACE_MS = 5_000;
+ /** MCP OAuth Esc handlers mapped to the handler each one restores when its flow unwinds. */
+ const mcpOAuthEscapeOriginals = new WeakMap<() => void, (() => void) | undefined>();
+ 
++type McpHelpRow = { command: string; description: string; gap?: number | "next-line" };
++
++const MCP_HELP_ROWS: readonly McpHelpRow[] = [
++	{ command: "/mcp add", description: "Add a new MCP server (interactive wizard)" },
++	{ command: "/mcp add <name> [--scope project|user] [--url <url> --transport http|sse] [--token <token>] [-- <command...>]", description: "" },
++	{ command: "/mcp list", description: "List all configured MCP servers" },
++	{ command: "/mcp remove <name> [--scope project|user]", description: "Remove an MCP server (default: project)", gap: 4 },
++	{ command: "/mcp test <name>", description: "Test connection to an MCP server" },
++	{ command: "/mcp reauth <name>", description: "Reauthorize OAuth for an MCP server" },
++	{ command: "/mcp unauth <name>", description: "Remove OAuth auth from an MCP server" },
++	{ command: "/mcp enable <name>", description: "Enable an MCP server" },
++	{ command: "/mcp disable <name>", description: "Disable an MCP server" },
++	{ command: "/mcp smithery-search <keyword> [--scope project|user] [--limit <1-100>] [--semantic]", description: "Search Smithery registry and deploy from picker", gap: "next-line" },
++	{ command: "/mcp smithery-login", description: "Login to Smithery and cache API key" },
++	{ command: "/mcp smithery-logout", description: "Remove cached Smithery API key" },
++	{ command: "/mcp reconnect <name>", description: "Reconnect to a specific MCP server" },
++	{ command: "/mcp reload", description: "Force reload and rediscover MCP runtime tools" },
++	{ command: "/mcp resources", description: "List available resources from connected servers" },
++	{ command: "/mcp prompts", description: "List available prompts from connected servers" },
++	{ command: "/mcp notifications", description: "Show notification capabilities and subscription state" },
++	{ command: "/mcp help", description: "Show this help message" },
++];
++
++const MCP_HELP_INTRO = "Manage Model Context Protocol (MCP) servers for external tool integrations.";
++
++class McpHelpReport extends Text {
++	readonly #native: NativeNode;
++
++	constructor() {
++		const lines = MCP_HELP_ROWS.map(({ command, description, gap }) => {
++			if (!description) return `  ${command}`;
++			const separator = gap === "next-line" ? "\n                        " : " ".repeat(gap ?? 22 - command.length);
++			return `  ${command}${separator}${description}`;
++		});
++		super([MCP_HELP_INTRO, "", theme.fg("accent", "Commands:"), ...lines].join("\n"), 0, 0);
++		this.#native = col([
++			text(MCP_HELP_INTRO),
++			text([span("Commands:", "accent")]),
++			node("table", {
++				cols: [{ id: "command" }, { id: "description" }],
++				rows: MCP_HELP_ROWS.map(({ command, description }, index) => ({
++					id: `r${index}`,
++					cells: { command, description },
++				})),
++			}),
++		]);
++	}
++
++	override describe(cx: DescribeContext): NativeNode {
++		return cx.supports("table") ? this.#native : super.describe(cx);
++	}
++}
++
+ /**
+  * Hint block for an in-flight `/mcp test`. It remains active until settlement
+  * seals its final text, after which TranscriptContainer can retire it as an
+@@ -397,33 +448,7 @@ export class MCPCommandController {
+ 	 * Show help text
+ 	 */
+ 	#showHelp(): void {
+-		const helpText = [
+-			"Manage Model Context Protocol (MCP) servers for external tool integrations.",
+-			"",
+-			theme.fg("accent", "Commands:"),
+-			"  /mcp add              Add a new MCP server (interactive wizard)",
+-			"  /mcp add <name> [--scope project|user] [--url <url> --transport http|sse] [--token <token>] [-- <command...>]",
+-			"  /mcp list             List all configured MCP servers",
+-			"  /mcp remove <name> [--scope project|user]    Remove an MCP server (default: project)",
+-			"  /mcp test <name>      Test connection to an MCP server",
+-			"  /mcp reauth <name>    Reauthorize OAuth for an MCP server",
+-			"  /mcp unauth <name>    Remove OAuth auth from an MCP server",
+-			"  /mcp enable <name>    Enable an MCP server",
+-			"  /mcp disable <name>   Disable an MCP server",
+-			"  /mcp smithery-search <keyword> [--scope project|user] [--limit <1-100>] [--semantic]",
+-			"                        Search Smithery registry and deploy from picker",
+-			"  /mcp smithery-login   Login to Smithery and cache API key",
+-			"  /mcp smithery-logout  Remove cached Smithery API key",
+-			"  /mcp reconnect <name> Reconnect to a specific MCP server",
+-			"  /mcp reload           Force reload and rediscover MCP runtime tools",
+-			"  /mcp resources        List available resources from connected servers",
+-			"  /mcp prompts          List available prompts from connected servers",
+-			"  /mcp notifications    Show notification capabilities and subscription state",
+-			"  /mcp help             Show this help message",
+-			"",
+-		].join("\n");
+-
+-		this.#showReport("MCP Server Management", helpText);
++		this.ctx.showCommandReport({ title: "MCP Server Management", body: new McpHelpReport() });
+ 	}
+ 
+ 	#parseAddCommand(text: string): MCPAddParsed {
+@@ -861,24 +886,15 @@ export class MCPCommandController {
  					block.addChild(new Text(theme.fg("muted", MCP_MANUAL_LOGIN_TIP), 1, 0));
  					block.addChild(new Spacer(1));
  					block.addChild(new Text(theme.fg("accent", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"), 1, 0));
@@ -1983,7 +2105,7 @@ index efe903597a..e17752006c 100644
  					this.ctx.ui.requestRender();
  				},
  				onProgress: message => {
-@@ -2092,12 +2081,7 @@ export class MCPCommandController {
+@@ -2092,12 +2108,7 @@ export class MCPCommandController {
  				"",
  			].join("\n"),
  		);
@@ -5050,6 +5172,48 @@ index 14e294aa2e..7ca949ba52 100644
  								text([
  									span("HTTP SSE providers populate this view while a model response is streaming.", "muted"),
  								]),
+diff --git a/packages/tui/src/apps/git/git-tui.ts b/packages/tui/src/apps/git/git-tui.ts
+index 82ff3b2313..326f70af32 100644
+--- a/packages/tui/src/apps/git/git-tui.ts
++++ b/packages/tui/src/apps/git/git-tui.ts
+@@ -966,11 +966,14 @@ class GitTuiComponent implements Component {
+ 						),
+ 					body,
+ 				]),
+-				{ role: "omp.app.git.main" },
++				{ role: "omp.app.git.main", grow: 1, basis: 0 },
+ 			);
+-			return node(narrow ? "col" : "row", { role: narrow ? "omp.app.git-narrow" : "omp.app.git" }, [
++			const sidebar = narrow
++				? side
++				: { ...side, p: { ...side.p, basis: 0.3, min: { w: "30ch" }, max: { w: "48ch" }, shrink: 0 } };
++			return node(narrow ? "col" : "row", { gap: "md", role: narrow ? "omp.app.git-narrow" : "omp.app.git" }, [
+ 				keyed(main, "main"),
+-				keyed(side, "side"),
++				keyed(sidebar, "side"),
+ 			]);
+ 		});
+ 	}
+@@ -1089,9 +1092,9 @@ class GitTuiComponent implements Component {
+ 			row(
+ 				[
+ 					row(left, { gap: "sm", align: "center", role: "omp.app.git.where" }),
+-					row(right, { gap: "sm", align: "center", role: "omp.app.git.tools" }),
++					row(right, { gap: "sm", wrap: true, align: "center", role: "omp.app.git.tools" }),
+ 				],
+-				{ justify: "between", align: "center", role: "omp.app.git.bar" },
++				{ gap: "sm", wrap: true, justify: "between", align: "center", role: "omp.app.git.bar" },
+ 			),
+ 			"bar",
+ 		);
+@@ -1108,6 +1111,7 @@ class GitTuiComponent implements Component {
+ 					text: unifiedDiff(doc, this.#pane.mode === "file"),
+ 					path: doc.filePath,
+ 					mode: this.#pane.mode === "split" ? "split" : "unified",
++					wrap: this.#pane.wrap,
+ 					role: "omp.app.git.diff",
+ 				},
+ 				undefined,
 diff --git a/packages/tui/src/apps/live-visualizer.ts b/packages/tui/src/apps/live-visualizer.ts
 index bf1cbf9e70..877dee3694 100644
 --- a/packages/tui/src/apps/live-visualizer.ts
@@ -6351,7 +6515,7 @@ index 73471c68df..aa82e67636 100644
  		}
  		if (hasPrefsOption(component)) return { row: id, option: component.prefsOption };
 diff --git a/packages/tui/src/native/backend.ts b/packages/tui/src/native/backend.ts
-index d7a06d8b72..78242bd7e8 100644
+index d7a06d8b72..39e0f2cf26 100644
 --- a/packages/tui/src/native/backend.ts
 +++ b/packages/tui/src/native/backend.ts
 @@ -32,14 +32,18 @@ import {
@@ -6576,7 +6740,21 @@ index d7a06d8b72..78242bd7e8 100644
  				this.#host.requestRender();
  				return;
  			}
-@@ -860,8 +915,8 @@ export class NativeBackend {
+@@ -835,11 +890,12 @@ export class NativeBackend {
+ 		// Explicit sends must address the live editor, not a stale or invented
+ 		// descendant id that merely shares the component's namespace.
+ 		if (event.ev === "send" && (!this.#live || reconciler.focusTarget(target.component) !== event.id)) return;
++		if ((event.ev === "select" || event.ev === "activate") && reconciler.isRetiredListItem(event.id, event.item)) return;
+ 		// A list's items are nodes (`<list>/<key>`, or a component's root id) and
+ 		// map back to their described key. Data-first kinds (picker, prefs) send
+ 		// the program's own item ids (model ids, paths), which pass through.
+ 		const item = (id: string): string =>
+-			id.startsWith(`${event.id}/`) || id.startsWith(`${event.id}.`) || !id.includes(".")
++			reconciler.isItemOf(event.id, id)
+ 				? reconciler.itemKey(id)
+ 				: id;
+ 		let ui: NativeUiEvent;
+@@ -860,8 +916,8 @@ export class NativeBackend {
  				ui = { type: "change", key: target.keypath, item: event.item, value: event.value };
  				break;
  			case "edit": {
@@ -6587,7 +6765,7 @@ index d7a06d8b72..78242bd7e8 100644
  				break;
  			}
  			case "undo":
-@@ -882,25 +937,41 @@ export class NativeBackend {
+@@ -882,25 +938,41 @@ export class NativeBackend {
  	#overlayNode(overlay: NativeOverlay): NativeChild {
  		if (overlay.component.nativeSheet?.(this.#cx)) return overlay.component;
  		const own = overlay.component.nativeOverlay;
@@ -6739,6 +6917,19 @@ index f0987a089d..39b468398a 100644
  /** `value` as an integer offset in `[0, max]` (anything non-finite is 0). */
  export function clampTextOffset(value: number, max: number): number {
  	return Number.isFinite(value) ? Math.min(Math.max(Math.trunc(value), 0), max) : 0;
+diff --git a/packages/tui/src/native/overlay.ts b/packages/tui/src/native/overlay.ts
+index 4e465bd060..fa1a9e381f 100644
+--- a/packages/tui/src/native/overlay.ts
++++ b/packages/tui/src/native/overlay.ts
+@@ -246,7 +246,7 @@ export function segmentedTabs(p: TspProps<"tabs">, key: string): NativeNode {
+ /** A row of {@link actionButton}s (role `omp.actions`); `null` entries become the spacer that end-aligns what follows. */
+ export function actionBar(buttons: readonly (NativeNode | null)[], key = "actions"): NativeNode {
+ 	const children = buttons.map(button => button ?? node("spacer", { grow: 1 }));
+-	return node("row", { role: "omp.actions", gap: "sm", align: "center" }, children, key);
++	return node("row", { role: "omp.actions", gap: "sm", align: "center", wrap: true }, children, key);
+ }
+ 
+ /** Spans of an annotation callout: a dim `label:` then the note. */
 diff --git a/packages/tui/src/native/picker.ts b/packages/tui/src/native/picker.ts
 index 13b9624796..0346b69831 100644
 --- a/packages/tui/src/native/picker.ts
@@ -6819,10 +7010,281 @@ index 13b9624796..0346b69831 100644
  	}
  }
 diff --git a/packages/tui/src/native/reconcile.ts b/packages/tui/src/native/reconcile.ts
-index a8da2c9dc8..7d483bd645 100644
+index a8da2c9dc8..c14ddb85fc 100644
 --- a/packages/tui/src/native/reconcile.ts
 +++ b/packages/tui/src/native/reconcile.ts
-@@ -924,7 +924,7 @@ export class Reconciler {
+@@ -4,11 +4,8 @@
+  * Ids. Every component instance gets a stable base-36 id (its root node's
+  * wire id); a node nested inside it gets `<base>.<keypath>`, where the
+  * keypath joins each level's `key` (or child index) with `/`. Ids therefore
+- * derive from the description itself, so the reconciler keeps no per-node
+- * table: its whole memory is, per mounted component, the node object the
+- * component last returned (which the component itself retains as its memo),
+- * the component boundaries and hoisted overlays found inside it, and
+- * rows-fallback bookkeeping.
++ * derive from the description itself. Only paths exceeding the wire limit
++ * have an allocated alias; ordinary nodes need no per-node table.
+  *
+  * Diffing. Reference-equal nodes are skipped without walking; component
+  * boundaries inside them are still visited through the recorded boundary
+@@ -210,6 +207,10 @@ export class Reconciler {
+ 	#cx: DescribeContext | undefined;
+ 	#states = new Map<Component, CompState>();
+ 	#byId = new Map<string, CompState>();
++	#aliases = new Map<string, { id: string; live: boolean }>();
++	#identities = new Map<string, string>();
++	#anchorRefs = new Map<string, { full: string; anchor: Record<string, unknown> }>();
++	#nextAlias = 0n;
+ 	#frame = 0;
+ 	#ops: TspOp[] = [];
+ 	#dels: Entry[] = [];
+@@ -304,9 +305,10 @@ export class Reconciler {
+ 		for (const id of this.#settles) this.#ops.push(["settle", id]);
+ 		for (const [id, at] of this.#reveals) this.#ops.push(["reveal", id, at]);
+ 		if (cx.feature("scroll")) for (const [id, by] of this.#scrolls) this.#ops.push(["scroll", id, by]);
+-		const ops = this.#ops;
++		const ops = this.#gone.size === 0 ? this.#ops : this.#ops.filter(op => !this.#touchesGone(op));
++		this.#updateAliases(ops);
+ 		this.#ops = [];
+-		return this.#gone.size === 0 ? ops : ops.filter(op => !this.#touchesGone(op));
++		return ops;
+ 	}
+ 
+ 	/**
+@@ -329,13 +331,21 @@ export class Reconciler {
+ 			}
+ 		}
+ 		for (const portal of this.#prevPortals) this.#dropSubtree(portal);
+-		this.#prevPortals = [];
+ 		this.#regions = { main: regions.main, dock: EMPTY_ENTRIES, layer: EMPTY_ENTRIES };
++		this.#updateAliases([
++			...regions.dock.map(entry => ["del", entry.id] as TspOp),
++			...regions.layer.map(entry => ["del", entry.id] as TspOp),
++			...this.#prevPortals.map(entry => ["del", entry.id] as TspOp),
++		]);
++		this.#prevPortals = [];
+ 		this.#readd = ["dock", "layer"];
+ 	}
+ 
+ 	/** The component and keypath that described wire node `id`. */
+ 	target(id: string): NativeTarget | null {
++		const identity = this.#identityFor(id);
++		if (identity === null) return null;
++		id = identity;
+ 		const dot = id.indexOf(".");
+ 		const state = this.#byId.get(dot === -1 ? id : id.slice(0, dot));
+ 		if (!state) return null;
+@@ -355,6 +365,9 @@ export class Reconciler {
+ 	 * node contains it, innermost first (empty for an unknown id).
+ 	 */
+ 	owners(id: string): Component[] {
++		const identity = this.#identityFor(id);
++		if (identity === null) return [];
++		id = identity;
+ 		const dot = id.indexOf(".");
+ 		const out: Component[] = [];
+ 		for (let state = this.#byId.get(dot === -1 ? id : id.slice(0, dot)) ?? null; state; state = state.container) {
+@@ -365,12 +378,152 @@ export class Reconciler {
+ 
+ 	/** The key a list item node was described with (its key, else its child index). */
+ 	itemKey(id: string): string {
++		id = this.#identityFor(id) ?? id;
+ 		const dot = id.indexOf(".");
+ 		if (dot === -1) return this.#byId.get(id)?.node?.key ?? id;
+ 		const slash = id.lastIndexOf("/");
+ 		return unescapeKey(id.slice(Math.max(dot, slash) + 1));
+ 	}
+ 
++	/** Whether an item wire id belongs to this node rather than a data-first value. */
++	isItemOf(parent: string, item: string): boolean {
++		const parentId = this.#identityFor(parent);
++		const itemId = this.#identityFor(item);
++		if (parentId === null || itemId === null) return false;
++		return itemId.startsWith(`${parentId}/`) || itemId.startsWith(`${parentId}.`) || !item.includes(".");
++	}
++
++	/** List items are node ids; data-first controls instead own arbitrary item strings. */
++	isRetiredListItem(parent: string, item: string): boolean {
++		if (!item.startsWith("~") || this.#identityFor(item) !== null) return false;
++		const full = this.#identityFor(parent);
++		if (full === null) return false;
++		const dot = full.indexOf(".");
++		const state = this.#byId.get(dot < 0 ? full : full.slice(0, dot));
++		if (!state) return false;
++		const root = state.node ?? (state.weak?.deref() as NativeNode | undefined);
++		if (!root || typeof root.k !== "string") return false;
++		if (dot < 0) return root.k === "list";
++		const targetPath = full.slice(dot + 1);
++		const find = (node: NativeNode, path: string): boolean => {
++			for (const entry of this.#entries(node.c, path, state.owner, false, null)) {
++				if (entry.comp !== undefined) continue;
++				if (entry.keypath === targetPath) return entry.node.k === "list";
++				if (targetPath.startsWith(`${entry.keypath}/`) && find(entry.node, entry.keypath)) return true;
++			}
++			return false;
++		};
++		return find(root, "");
++	}
++
++	#identityFor(id: string): string | null {
++		if (!id.startsWith("~")) return id;
++		const identity = this.#identities.get(id);
++		return identity && this.#aliases.get(identity)?.live ? identity : null;
++	}
++
++	#wireId(base: string, path: string): string {
++		const identity = nodeId(base, path);
++		if (identity.length <= 85 || Buffer.byteLength(identity, "utf8") <= 256) return identity;
++		let alias = this.#aliases.get(identity);
++		if (!alias) {
++			alias = { id: `~${(this.#nextAlias++).toString(36)}`, live: false };
++			this.#aliases.set(identity, alias);
++			this.#identities.set(alias.id, identity);
++		}
++		return alias.id;
++	}
++
++	/** Apply subtree lifetimes without retaining ordinary nodes or walking memoized trees. */
++	#updateAliases(ops: TspOp[]): void {
++		if (this.#aliases.size === 0) return;
++		const deleted = new Map<string, number>();
++		const added = new Map<string, number>();
++		const identity = (id: string) => this.#identities.get(id) ?? id;
++		const anchor = (holder: string, value: unknown): void => {
++			if (typeof value !== "object" || value === null) {
++				this.#anchorRefs.delete(holder);
++				return;
++			}
++			const props = value as Record<string, unknown>;
++			const target = typeof props.caret === "string" ? props.caret : props.node;
++			const full = typeof target === "string" ? this.#identities.get(target) : undefined;
++			if (full) this.#anchorRefs.set(holder, { full, anchor: props });
++			else this.#anchorRefs.delete(holder);
++		};
++		const add = (node: TspNode, index: number): void => {
++			if (this.#identities.has(node.id) || this.#anchorRefs.has(node.id)) added.set(node.id, index);
++			if (node.k === "overlay") {
++				anchor(node.id, node.p?.anchor);
++				if (this.#anchorRefs.has(node.id)) added.set(node.id, index);
++			}
++			for (const child of node.c ?? []) add(child, index);
++		};
++		for (let index = 0; index < ops.length; index++) {
++			const op = ops[index]!;
++			if (op[0] === "del") deleted.set(identity(op[1]), index);
++			else if (op[0] === "add") add(op[4], index);
++			else if (op[0] === "set" && Object.hasOwn(op[2], "anchor")) anchor(op[1], op[2].anchor);
++		}
++		const removedAt = (full: string): number => {
++			let path = full;
++			let removed = -1;
++			const dot = full.indexOf(".");
++			while (true) {
++				removed = Math.max(removed, deleted.get(path) ?? -1);
++				const slash = path.lastIndexOf("/");
++				if (slash > dot) {
++					if (path[slash + 1] === "^") break;
++					path = path.slice(0, slash);
++				} else {
++					if (dot < 0 || path[dot + 1] === "^") break;
++					path = path.slice(0, dot);
++					removed = Math.max(removed, deleted.get(path) ?? -1);
++					break;
++				}
++			}
++			return removed;
++		};
++		for (const [holder] of this.#anchorRefs) {
++			const full = identity(holder);
++			const dot = full.indexOf(".");
++			const owner = dot < 0 ? full : full.slice(0, dot);
++			if (removedAt(full) > (added.get(holder) ?? -1) || (!RESERVED_IDS.has(owner) && !this.#byId.has(owner))) {
++				this.#anchorRefs.delete(holder);
++			}
++		}
++		const references = new Map<string, string[]>();
++		for (const [holder, ref] of this.#anchorRefs) {
++			const holders = references.get(ref.full) ?? [];
++			holders.push(holder);
++			references.set(ref.full, holders);
++		}
++		for (const [full, alias] of this.#aliases) {
++			const removed = removedAt(full);
++			const inserted = added.get(alias.id) ?? -1;
++			const owner = full.slice(0, full.indexOf("."));
++			const wasLive = alias.live;
++			alias.live = (wasLive && removed < 0) || inserted > removed;
++			if (!RESERVED_IDS.has(owner) && !this.#byId.has(owner)) alias.live = false;
++			if (alias.live) continue;
++			const holders = references.get(full);
++			if (!holders) {
++				this.#aliases.delete(full);
++				this.#identities.delete(alias.id);
++			} else if (wasLive) {
++				this.#identities.delete(alias.id);
++				alias.id = `~${(this.#nextAlias++).toString(36)}`;
++				this.#identities.set(alias.id, full);
++				for (const holder of holders) {
++					const ref = this.#anchorRefs.get(holder)!;
++					const key = "caret" in ref.anchor ? "caret" : "node";
++					ref.anchor = { ...ref.anchor, [key]: alias.id };
++					ops.push(["set", holder, { anchor: ref.anchor }]);
++				}
++			}
++		}
++	}
++
+ 	/** Wire id of the first `editor`/`input` `component` describes (for `focus`), or null. */
+ 	focusTarget(component: Component): string | null {
+ 		const state = this.#states.get(component);
+@@ -426,7 +579,7 @@ export class Reconciler {
+ 			} else if (hoist && (entry.node.k === "overlay" || entry.node.k === "picker")) {
+ 				const path = entry.keypath;
+ 				const portalPath = keypath === "" ? `^${path}` : `${keypath}/^${path.slice(keypath.length + 1)}`;
+-				found = this.#findEditorIn(entry.node, nodeId(owner.base, portalPath), portalPath, owner, depth, false);
++				found = this.#findEditorIn(entry.node, this.#wireId(owner.base, portalPath), portalPath, owner, depth, false);
+ 			} else {
+ 				found = this.#findEditorIn(entry.node, entry.id, entry.keypath, owner, depth, hoist);
+ 			}
+@@ -475,7 +628,7 @@ export class Reconciler {
+ 				used.add(path);
+ 			}
+ 			const entry: NodeEntry = {
+-				id: nodeId(owner.base, path),
++				id: this.#wireId(owner.base, path),
+ 				node: child,
+ 				owner,
+ 				keypath: path,
+@@ -489,7 +642,7 @@ export class Reconciler {
+ 					const portalPath = keypath === "" ? `^${path}` : `${keypath}/^${path.slice(keypath.length + 1)}`;
+ 					const portal: NodeEntry = {
+ 						...entry,
+-						id: nodeId(owner.base, portalPath),
++						id: this.#wireId(owner.base, portalPath),
+ 						keypath: portalPath,
+ 						hoist: false,
+ 					};
+@@ -765,9 +918,9 @@ export class Reconciler {
+ 				const anchor = props?.anchor;
+ 				if (owner.state === null || typeof anchor !== "object" || anchor === null) return props;
+ 				if ("caret" in anchor && typeof anchor.caret === "string")
+-					return { ...props, anchor: { caret: nodeId(owner.base, anchor.caret) } };
++					return { ...props, anchor: { caret: this.#wireId(owner.base, anchor.caret) } };
+ 				if ("node" in anchor && typeof anchor.node === "string")
+-					return { ...props, anchor: { ...anchor, node: nodeId(owner.base, anchor.node) } };
++					return { ...props, anchor: { ...anchor, node: this.#wireId(owner.base, anchor.node) } };
+ 				return props;
+ 			}
+ 			default:
+@@ -860,6 +1013,7 @@ export class Reconciler {
+ 
+ 	/** The component whose description holds node `parent` in the document (null: region, root, or `layer` via hoisting). */
+ 	#containerOf(parent: string): CompState | null {
++		parent = this.#identities.get(parent) ?? parent;
+ 		if (parent.includes("^")) return null;
+ 		const dot = parent.indexOf(".");
+ 		return this.#byId.get(dot === -1 ? parent : parent.slice(0, dot)) ?? null;
+@@ -924,7 +1078,7 @@ export class Reconciler {
  		return state;
  	}
  
@@ -6831,7 +7293,7 @@ index a8da2c9dc8..7d483bd645 100644
  	#resolve(state: CompState): NativeNode {
  		const comp = state.comp;
  		const describe = comp.describe;
-@@ -936,6 +936,9 @@ export class Reconciler {
+@@ -936,6 +1090,9 @@ export class Reconciler {
  			const node = describe.call(comp, this.#cx!);
  			if (node) return node;
  		}
@@ -6841,6 +7303,23 @@ index a8da2c9dc8..7d483bd645 100644
  		this.#rows++;
  		const cols = Math.max(1, this.#cx!.cols);
  		const lines = comp.render(cols);
+@@ -1000,9 +1157,13 @@ export class Reconciler {
+ 	/** Replay an unchanged component's walk: visit its boundaries, re-offer its overlays. */
+ 	#revisitComponent(state: CompState, settled: boolean): void {
+ 		const walk: Walk = { owner: state.owner, inner: null, settled, hoist: true };
+-		for (const item of state.inner) {
+-			if (item.comp === undefined) this.#framePortals.push(item.portal);
+-			else this.#visitChild(item.comp, item.parent, item.before, item.before, walk);
++		for (let index = 0; index < state.inner.length; index++) {
++			const item = state.inner[index]!;
++			if (item.comp === undefined) {
++				const portal = { ...item.portal, id: this.#wireId(item.portal.owner.base, item.portal.keypath) };
++				state.inner[index] = { portal };
++				this.#framePortals.push(portal);
++			} else this.#visitChild(item.comp, item.parent, item.before, item.before, walk);
+ 		}
+ 	}
+ 
 diff --git a/packages/tui/src/native/spans.ts b/packages/tui/src/native/spans.ts
 index 779b06156c..f93c7ccf4a 100644
 --- a/packages/tui/src/native/spans.ts
@@ -7097,7 +7576,7 @@ index a2ec31a18a..d14ca16577 100644
  			icon: "users",
  			size: "lg",
 diff --git a/packages/tui/src/overlays/agents-hub.ts b/packages/tui/src/overlays/agents-hub.ts
-index 8026389796..c07da00e2b 100644
+index 8026389796..9f9cfd7857 100644
 --- a/packages/tui/src/overlays/agents-hub.ts
 +++ b/packages/tui/src/overlays/agents-hub.ts
 @@ -29,7 +29,14 @@ import {
@@ -7136,6 +7615,15 @@ index 8026389796..c07da00e2b 100644
  		const target = event.key.slice(event.key.lastIndexOf("/") + 1);
  		const pick = pickerEvent(event);
  		if (pick) {
+@@ -1465,7 +1485,7 @@ export class AgentsHubComponent implements Component {
+ 				columns: entry.kind === "source" ? AGENT_COLUMNS : [...AGENT_COLUMNS, SOURCE_COLUMN],
+ 				items: this.#rows.map(rowDef => this.#pickerItem(rowDef)),
+ 				selected: selectedRow ? listRowId(selectedRow) : null,
+-				total: entry.kind === "source" && entry.source ? counts[entry.source] : this.#allAgents.length,
++				total: (entry.kind === "source" && entry.source ? counts[entry.source] : this.#allAgents.length) + 1,
+ 				state: this.#loadError ? "error" : "ready",
+ 				message: this.#loadError ?? undefined,
+ 				strip: strip
 diff --git a/packages/tui/src/overlays/composer-shape-preview.ts b/packages/tui/src/overlays/composer-shape-preview.ts
 index a4a308691d..8e86bcd18b 100644
 --- a/packages/tui/src/overlays/composer-shape-preview.ts
@@ -7247,6 +7735,28 @@ index 90d5034dbe..a7b876dcf9 100644
  	resetSelection(): void {
  		this.#menu.moveToBoundary("first");
  		this.#scrollOffset = 0;
+diff --git a/packages/tui/src/overlays/extensions/inspector-panel.ts b/packages/tui/src/overlays/extensions/inspector-panel.ts
+index 1159f71bb8..9abf5a4bb5 100644
+--- a/packages/tui/src/overlays/extensions/inspector-panel.ts
++++ b/packages/tui/src/overlays/extensions/inspector-panel.ts
+@@ -8,7 +8,7 @@
+ import * as os from "node:os";
+ import type { TspSpan, TspText } from "@oh-my-pi/pi-wire";
+ import type { Component } from "../../tui";
+-import { code, col, compact, keyed, kv, node, span, stableKey, text } from "../../native/describe";
++import { col, compact, keyed, kv, md, node, span, stableKey, text } from "../../native/describe";
+ import type { NativeChild, NativeNode } from "../../native/node";
+ import { visibleWidth, wrapTextWithAnsi } from "../../utils";
+ import { KeyValueList } from "../../components/key-value-list";
+@@ -237,7 +237,7 @@ export class InspectorPanel implements Component {
+ 		const lines = sanitizeDisplayText(raw).split("\n");
+ 		const cut = !this.#expanded && lines.length > PREVIEW_LINE_BUDGET;
+ 		const shown = cut ? lines.slice(0, PREVIEW_LINE_BUDGET - 1) : lines;
+-		const children: NativeChild[] = [code(shown.join("\n"), { lang: "md", wrap: true })];
++		const children: NativeChild[] = [md(shown.join("\n"))];
+ 		if (cut) children.push(this.#nativeMore(lines.length - shown.length, "lines"));
+ 		return this.#nativeSection(heading, children);
+ 	}
 diff --git a/packages/tui/src/overlays/history-search.ts b/packages/tui/src/overlays/history-search.ts
 index 67730eb136..4eff5de2c5 100644
 --- a/packages/tui/src/overlays/history-search.ts
@@ -7455,7 +7965,7 @@ index cdf7be174f..e647cce3d0 100644
  				size: "md",
  				modal: true,
 diff --git a/packages/tui/src/overlays/logout-account-selector.ts b/packages/tui/src/overlays/logout-account-selector.ts
-index fbb50adc84..f5f6f63c90 100644
+index fbb50adc84..0f5f17d7e6 100644
 --- a/packages/tui/src/overlays/logout-account-selector.ts
 +++ b/packages/tui/src/overlays/logout-account-selector.ts
 @@ -145,7 +145,7 @@ export class LogoutAccountSelectorComponent extends OverlayPanel {
@@ -7467,6 +7977,14 @@ index fbb50adc84..f5f6f63c90 100644
  				subtitle: "Pick the account to sign out",
  				icon: "key-round",
  				noun: "accounts",
+@@ -157,7 +157,6 @@ export class LogoutAccountSelectorComponent extends OverlayPanel {
+ 					id: String(account.credentialId),
+ 					label: account.label,
+ 					...(account.detail ? { detail: account.detail } : {}),
+-					badges: [{ text: account.type === "oauth" ? "login" : "api key" }],
+ 				}))),
+ 				current: this.#accounts.filter(account => account.active).map(account => String(account.credentialId)),
+ 				selected: this.#menu.selectedKey ?? null,
 diff --git a/packages/tui/src/overlays/model-browser.ts b/packages/tui/src/overlays/model-browser.ts
 index cb527268af..af7579e427 100644
 --- a/packages/tui/src/overlays/model-browser.ts
@@ -7741,8 +8259,21 @@ index 15830ea411..74073f982a 100644
  		const ev = pickerEvent(event, PICKER_KEY);
  		if (ev?.kind === "action") {
  			if (ev.act === "confirm") this.#confirmSelection();
+diff --git a/packages/tui/src/overlays/plan-review-overlay.ts b/packages/tui/src/overlays/plan-review-overlay.ts
+index 2c6520339c..b623ab849b 100644
+--- a/packages/tui/src/overlays/plan-review-overlay.ts
++++ b/packages/tui/src/overlays/plan-review-overlay.ts
+@@ -1651,7 +1651,7 @@ export class PlanReviewOverlay implements Component {
+ 			buttons.push(actionButton("Cancel", "cancel", cancelKeyId ? { keys: cancelKeyId } : {}));
+ 		}
+ 		if (buttons.length === 0) return undefined;
+-		return node("row", { role: "omp.plan.tools", gap: "sm", align: "center", justify: "end" }, buttons, "tools");
++		return node("row", { role: "omp.plan.tools", gap: "sm", align: "center", justify: "end", wrap: true }, buttons, "tools");
+ 	}
+ 
+ 	handleNativeEvent(event: NativeUiEvent): void {
 diff --git a/packages/tui/src/overlays/plugin-settings.ts b/packages/tui/src/overlays/plugin-settings.ts
-index d823792450..8e01b630af 100644
+index d823792450..f8c1ac9230 100644
 --- a/packages/tui/src/overlays/plugin-settings.ts
 +++ b/packages/tui/src/overlays/plugin-settings.ts
 @@ -35,23 +35,29 @@ const PLUGIN_CONFIGURE: TspPrefsControl = { k: "action", label: "Configure", act
@@ -7802,7 +8333,37 @@ index d823792450..8e01b630af 100644
  	};
  }
  
-@@ -375,10 +386,6 @@ export class PluginListComponent extends OverlayPanel {
+@@ -296,6 +307,7 @@ function findEntryByValue(entries: ReadonlyArray<PluginListEntry>, value: string
+ export class PluginListComponent extends OverlayPanel {
+ 	readonly #selectList: SelectList;
+ 	#native: NativeNode | undefined;
++	readonly #emptySummary?: NativeNode;
+ 
+ 	constructor(
+ 		private readonly entries: ReadonlyArray<PluginListEntry>,
+@@ -305,6 +317,21 @@ export class PluginListComponent extends OverlayPanel {
+ 		this.addChild(new Spacer(1));
+ 
+ 		if (entries.length === 0) {
++			this.#emptySummary = col(
++				[
++					text([span("No plugins installed", "muted")]),
++					node("kv", {
++						items: [
++							{ k: "Install npm plugins", v: [span("omp plugin install <package>", "code")] },
++							{
++								k: "Install marketplace plugins",
++								v: [span("omp plugin install <name>@<marketplace>", "code")],
++							},
++						],
++					}),
++				],
++				{ role: "omp.prefs.summary" },
++			);
+ 			this.addChild(new Text(theme.fg("muted", "No plugins installed"), 0, 0));
+ 			this.addChild(new Spacer(1));
+ 			this.addChild(new Text(theme.fg("dim", "Install npm plugins:        omp plugin install <package>"), 0, 0));
+@@ -375,13 +402,10 @@ export class PluginListComponent extends OverlayPanel {
  			};
  		});
  		return {
@@ -7813,7 +8374,34 @@ index d823792450..8e01b630af 100644
  			sections: rows.length > 0 ? [{ id: "installed", title: "Installed", rows }] : [],
  			focus: this.#selectList.getSelectedItem()?.value ?? null,
  			editing: null,
-@@ -592,11 +599,7 @@ export class PluginDetailComponent extends OverlayPanel {
++			summary: this.#emptySummary,
+ 		};
+ 	}
+ 
+@@ -398,20 +422,8 @@ export class PluginListComponent extends OverlayPanel {
+ 	override describe(_cx: DescribeContext): NativeNode {
+ 		if (this.#native) return this.#native;
+ 		const body =
+-			this.entries.length === 0
+-				? [
+-						text([span("No plugins installed", "muted")]),
+-						node("kv", {
+-							items: [
+-								{ k: "Install npm plugins", v: [span("omp plugin install <package>", "code")] },
+-								{
+-									k: "Install marketplace plugins",
+-									v: [span("omp plugin install <name>@<marketplace>", "code")],
+-								},
+-							],
+-						}),
+-						hintsRow([actionHint("tui.select.cancel", "go back")]),
+-					]
++			this.#emptySummary
++				? [this.#emptySummary, hintsRow([actionHint("tui.select.cancel", "go back")])]
+ 				: [
+ 						this.#selectList,
+ 						hintsRow([actionHint("tui.select.confirm", "configure"), actionHint("tui.select.cancel", "go back")]),
+@@ -592,11 +604,7 @@ export class PluginDetailComponent extends OverlayPanel {
  
  	/** This plugin's settings as a native page section. */
  	prefsPage(): PluginPrefsPage {
@@ -7826,7 +8414,7 @@ index d823792450..8e01b630af 100644
  	}
  
  	/** A native page event on this plugin's settings. */
-@@ -624,6 +627,8 @@ export interface MarketplacePluginDetailCallbacks {
+@@ -624,6 +632,8 @@ export interface MarketplacePluginDetailCallbacks {
   */
  export class MarketplacePluginDetailComponent extends OverlayPanel {
  	#settingsList!: SettingsFormField;
@@ -7835,7 +8423,7 @@ index d823792450..8e01b630af 100644
  
  	constructor(
  		private plugin: InstalledPluginSummary,
-@@ -668,6 +673,7 @@ export class MarketplacePluginDetailComponent extends OverlayPanel {
+@@ -668,6 +678,7 @@ export class MarketplacePluginDetailComponent extends OverlayPanel {
  		this.title = plugin.id;
  		const subtitleParts = [`[${plugin.scope}]`];
  		if (plugin.shadowedBy) subtitleParts.push(`${theme.status.shadowed} shadowed by ${plugin.shadowedBy}`);
@@ -7843,7 +8431,7 @@ index d823792450..8e01b630af 100644
  
  		const items: SettingItem[] = [
  			{
-@@ -679,24 +685,19 @@ export class MarketplacePluginDetailComponent extends OverlayPanel {
+@@ -679,24 +690,19 @@ export class MarketplacePluginDetailComponent extends OverlayPanel {
  			},
  			...configItems,
  		];
@@ -7877,7 +8465,7 @@ index d823792450..8e01b630af 100644
  			items,
  			maxVisible: Math.min(items.length, 10),
  			settingsTheme: getSettingsListTheme(),
-@@ -727,13 +728,9 @@ export class MarketplacePluginDetailComponent extends OverlayPanel {
+@@ -727,13 +733,9 @@ export class MarketplacePluginDetailComponent extends OverlayPanel {
  		this.#settingsList.handleInput(data);
  	}
  
@@ -7893,7 +8481,7 @@ index d823792450..8e01b630af 100644
  	}
  
  	/** A native page event on this plugin's settings. */
-@@ -940,7 +937,7 @@ export class PluginSettingsComponent extends Container {
+@@ -940,7 +942,7 @@ export class PluginSettingsComponent extends Container {
  		) {
  			return view.prefsPage();
  		}
@@ -7977,7 +8565,7 @@ index 3bd514449e..757a797602 100644
  			if (filtering) this.#closeFilter();
  			else this.deps.onCancel();
 diff --git a/packages/tui/src/overlays/session-info-overlay.ts b/packages/tui/src/overlays/session-info-overlay.ts
-index 102aad0062..e158f8e607 100644
+index 102aad0062..a0b6ac60fd 100644
 --- a/packages/tui/src/overlays/session-info-overlay.ts
 +++ b/packages/tui/src/overlays/session-info-overlay.ts
 @@ -5,12 +5,10 @@ import { OverlayPanel, PanelDivider, PanelRows } from "../chrome/overlay-box";
@@ -8069,6 +8657,15 @@ index 102aad0062..e158f8e607 100644
  		return described;
  	}
  
+@@ -323,7 +314,7 @@ export class SessionInfoOverlay implements Component {
+ 		}
+ 		return node(
+ 			"row",
+-			{ align: "start", wrap: true, role: "omp.info.stats" },
++			{ align: "start", gap: "lg", wrap: true, role: "omp.info.stats" },
+ 			columns
+ 				.filter(column => column.children.length > 0)
+ 				.map((column, i) => node("col", { role: "omp.info.column" }, column.children, `c${i}`)),
 @@ -331,43 +322,6 @@ export class SessionInfoOverlay implements Component {
  		);
  	}
@@ -10314,7 +10911,7 @@ index 28dbb77467..ff208eae81 100644
  		expect(copyAct).not.toBe("copy");
  		click(copyAct!);
 diff --git a/packages/tui/test/native/backend.test.ts b/packages/tui/test/native/backend.test.ts
-index 7974ebb60d..9d4661651c 100644
+index 7974ebb60d..7b74b05880 100644
 --- a/packages/tui/test/native/backend.test.ts
 +++ b/packages/tui/test/native/backend.test.ts
 @@ -1,14 +1,25 @@
@@ -10461,6 +11058,38 @@ index 7974ebb60d..9d4661651c 100644
  	it("keeps at most `credits` frames unacknowledged and coalesces changes made while blocked", async () => {
  		const stream = new Probe(md("", { stream: true }));
  		harness = await TspHarness.start(tui => tui.addChild(stream), { credits: 2, autoAck: false });
+@@ -136,6 +256,31 @@ describe("native backend", () => {
+ 		expect(other.events).toEqual([]);
+ 	});
+ 
++	it("routes long list selections and activations to their original values after a reorder", async () => {
++		const keys = [`${"🙂/".repeat(100)}first`, `${"🙂/".repeat(100)}second`];
++		const list = (order: string[]) =>
++			node("list", { selected: order[0] }, order.map(key => node("item", { label: key }, undefined, key)), "list");
++		const probe = new Probe(node("col", {}, [list(keys)]));
++		harness = await TspHarness.start(tui => tui.addChild(probe));
++		const h = harness;
++		const listId = `${nativeComponentId(probe)}.list`;
++		const ids = h.byId(listId)!.c!.map(item => item.id);
++		expect(ids.every(id => Buffer.byteLength(id, "utf8") <= 256)).toBe(true);
++		h.event({ ev: "select", sf: h.terminal.surface!, id: listId, item: ids[0]! });
++		probe.current = node("col", {}, [list([keys[1]!, keys[0]!])]);
++		await h.render();
++		expect(h.byId(listId)?.c?.map(item => item.id)).toEqual([ids[1], ids[0]]);
++		h.event({ ev: "activate", sf: h.terminal.surface!, id: listId, item: ids[1]! });
++		probe.current = node("col", {}, [list([keys[1]!])]);
++		await h.render();
++		h.event({ ev: "select", sf: h.terminal.surface!, id: listId, item: ids[0]! });
++		expect(probe.events).toEqual([
++			{ type: "select", key: "list", item: keys[0] },
++			{ type: "activate", key: "list", item: keys[1] },
++		]);
++		expect(h.errors).toEqual([]);
++	});
++
+ 	it("falls back to the row renderer when the terminal never answers hello", async () => {
+ 		const text = new Probe(node("text", { text: "unused" }));
+ 		harness = await TspHarness.start(tui => tui.addChild(text), { reply: false });
 diff --git a/packages/tui/test/native/editor-chrome.test.ts b/packages/tui/test/native/editor-chrome.test.ts
 new file mode 100644
 index 0000000000..9ac715af1c
@@ -10727,6 +11356,126 @@ index e2e13ed5e5..2646571fdb 100644
 +		expect(editor.getExpandedText()).toBe("Keep draft [Image #1]");
 +	});
 +});
+diff --git a/packages/tui/test/native/reconcile.test.ts b/packages/tui/test/native/reconcile.test.ts
+index a01b8033c1..0020d34cf8 100644
+--- a/packages/tui/test/native/reconcile.test.ts
++++ b/packages/tui/test/native/reconcile.test.ts
+@@ -178,6 +178,115 @@ describe("Reconciler", () => {
+ 		expect(doc.get(base)?.c?.map(child => child.id)).toEqual(["d", "a", "b", "c"].map(key => `${base}.${key}`));
+ 	});
+ 
++	it("keeps long Unicode keyed nodes bounded, stable, routable and retired across reorders", () => {
++		const comp = new Described();
++		const keys = [`${"界/".repeat(100)}a`, `${"界/".repeat(100)}b`];
++		const list = (order: string[], selected: string) =>
++			node("list", { selected }, order.map(key => node("item", { label: key }, undefined, key)));
++		const regions = { main: [comp], dock: [], layer: [] };
++		const reconciler = new Reconciler("s:t");
++		const doc = new TspDocument("s:t");
++		comp.current = list(keys, keys[1]!);
++		const first = reconciler.reconcile(regions, cx);
++		apply(doc, 1, first);
++		const base = nativeComponentId(comp);
++		const items = doc.get(base)!.c!;
++		const ids = items.map(item => item.id);
++		expect(ids[0]).not.toBe(ids[1]);
++		expect(ids.every(id => Buffer.byteLength(id, "utf8") <= 256)).toBe(true);
++		expect(doc.get(base)?.p?.selected).toBe(ids[1]);
++		expect(first).toContainEqual(["reveal", ids[1], "nearest"]);
++		expect(reconciler.itemKey(ids[0]!)).toBe(keys[0]!);
++		expect(reconciler.target(ids[1]!)?.keypath).toBe(keys[1]!);
++		comp.current = list([keys[1]!, keys[0]!], keys[0]!);
++		const moved = reconciler.reconcile(regions, cx);
++		apply(doc, 2, moved);
++		expect(doc.get(base)?.c?.map(item => item.id)).toEqual([ids[1], ids[0]]);
++		expect(moved.some(op => op[0] === "move")).toBe(true);
++		expect(doc.get(base)?.p?.selected).toBe(ids[0]);
++		comp.current = list([], "");
++		apply(doc, 3, reconciler.reconcile(regions, cx));
++		expect(reconciler.target(ids[0]!)).toBeNull();
++		comp.current = list(keys, keys[0]!);
++		apply(doc, 4, reconciler.reconcile(regions, cx));
++		expect(doc.get(base)?.c?.[0]?.id).not.toBe(ids[0]);
++		expect(reconciler.target(ids[0]!)).toBeNull();
++	});
++
++	it("retains deep aliased fields through settlement and detachment, and rewrites overlay anchors", () => {
++		const comp = new Described();
++		const segment = "長".repeat(50);
++		const fieldPath = `${segment}/${segment}/field`;
++		comp.current = node("col", {}, [
++			node("col", {}, [node("col", {}, [node("input", { text: "draft" }, undefined, "field")], segment)], segment),
++			node("overlay", { anchor: { caret: fieldPath } }, [node("text", { text: "hint" })], "hint"),
++		]);
++		settleNative(comp);
++		const regions = { main: [comp], dock: [], layer: [] };
++		const reconciler = new Reconciler("s:t");
++		const doc = new TspDocument("s:t");
++		apply(doc, 1, reconciler.reconcile(regions, cx));
++		const field = reconciler.focusTarget(comp)!;
++		expect(Buffer.byteLength(field, "utf8")).toBeLessThanOrEqual(256);
++		expect(doc.get("layer")?.c?.[0]?.p?.anchor).toEqual({ caret: field });
++		expect(reconciler.target(field)?.keypath).toBe(fieldPath);
++		apply(doc, 2, reconciler.reconcile(regions, cx));
++		expect(reconciler.focusTarget(comp)).toBe(field);
++		reconciler.detachLive();
++		doc.close();
++		apply(doc, 3, reconciler.reconcile(regions, cx));
++		expect(doc.get(field)?.p?.text).toBe("draft");
++		expect(reconciler.focusTarget(comp)).toBe(field);
++	});
++
++	it("uses the same bounded child id for a deep card header", () => {
++		const comp = new Described();
++		const key = "界".repeat(100);
++		comp.current = node("col", {}, [
++			node("card", {}, [node("text", { text: "heading" }, undefined, "head")], key),
++		]);
++		const reconciler = new Reconciler("s:t");
++		const doc = new TspDocument("s:t");
++		apply(doc, 1, reconciler.reconcile({ main: [comp], dock: [], layer: [] }, cx));
++		const card = doc.get(nativeComponentId(comp))!.c![0]!;
++		expect(Buffer.byteLength(card.id, "utf8")).toBeLessThanOrEqual(256);
++		expect(card.p?.head).toBe(card.c![0]!.id);
++		expect(Buffer.byteLength(card.c![0]!.id, "utf8")).toBeLessThanOrEqual(256);
++	});
++
++	it("keeps forward anchors stable and replaces their alias when the referenced node retires", () => {
++		const comp = new Described();
++		const key = "界".repeat(100);
++		const overlay = node("overlay", { anchor: { caret: key } }, [], "hint");
++		const description = (present: boolean) =>
++			node("col", {}, present ? [overlay, node("input", { text: "draft" }, undefined, key)] : [overlay]);
++		const regions = { main: [comp], dock: [], layer: [] };
++		const reconciler = new Reconciler("s:t");
++		const doc = new TspDocument("s:t");
++		comp.current = description(false);
++		apply(doc, 1, reconciler.reconcile(regions, cx));
++		const anchor = (): string => {
++			const value = doc.get("layer")!.c![0]!.p!.anchor;
++			if (typeof value !== "object" || value === null || !("caret" in value) || typeof value.caret !== "string") {
++				throw new Error("missing caret anchor");
++			}
++			return value.caret;
++		};
++		const initial = anchor();
++		expect(reconciler.target(initial)).toBeNull();
++		comp.current = description(true);
++		apply(doc, 2, reconciler.reconcile(regions, cx));
++		expect(reconciler.focusTarget(comp)).toBe(initial);
++		comp.current = description(false);
++		apply(doc, 3, reconciler.reconcile(regions, cx));
++		const replacement = anchor();
++		expect(replacement).not.toBe(initial);
++		expect(reconciler.target(initial)).toBeNull();
++		comp.current = description(true);
++		apply(doc, 4, reconciler.reconcile(regions, cx));
++		expect(reconciler.focusTarget(comp)).toBe(replacement);
++	});
++
+ 	it("streams growing primary text as an append of the new tail only", () => {
+ 		const comp = new Described();
+ 		comp.current = node("md", { text: "Hello", stream: true });
 diff --git a/packages/tui/test/native/theme-palette.test.ts b/packages/tui/test/native/theme-palette.test.ts
 new file mode 100644
 index 0000000000..b0b311090c
@@ -11617,7 +12366,7 @@ index c0bff9e546..4f59452b6f 100644
  		expect(written("notes.txt", "plain")).toBeUndefined();
  	});
 diff --git a/packages/wire/src/tsp.ts b/packages/wire/src/tsp.ts
-index 20300da376..bf6fc40ce1 100644
+index 20300da376..f09ff7b819 100644
 --- a/packages/wire/src/tsp.ts
 +++ b/packages/wire/src/tsp.ts
 @@ -28,7 +28,13 @@ export const TSP_DEFAULT_APC_LIMIT = 65_536;
@@ -11710,7 +12459,15 @@ index 20300da376..bf6fc40ce1 100644
  }
  export interface TspCodeProps {
  	text?: string;
-@@ -379,6 +419,7 @@ export interface TspListProps {
+@@ -258,6 +298,7 @@ export interface TspDiffProps {
+ 	/** A language overriding the one `path` gives. */
+ 	lang?: string;
+ 	mode?: "unified" | "split" | "auto";
++	wrap?: boolean;
+ }
+ export interface TspAnsiProps {
+ 	/** Raw terminal output (SGR, OSC 8, `\r`, `\b` allowed). */
+@@ -379,6 +420,7 @@ export interface TspListProps {
  	filter?: string;
  	empty?: TspText;
  	max?: { lines: number } | number;
@@ -11718,7 +12475,7 @@ index 20300da376..bf6fc40ce1 100644
  	virtual?: boolean;
  }
  export interface TspItemProps {
-@@ -393,6 +434,7 @@ export interface TspTabsProps {
+@@ -393,6 +435,7 @@ export interface TspTabsProps {
  	items: readonly { id: string; label: TspText }[];
  	active?: string;
  	/** `underline` (default): an accent underline under the active tab; `segmented`: a well with a raised thumb. */
@@ -11726,7 +12483,7 @@ index 20300da376..bf6fc40ce1 100644
  	variant?: "underline" | "segmented";
  }
  /**
-@@ -410,6 +452,7 @@ export interface TspButtonProps {
+@@ -410,6 +453,7 @@ export interface TspButtonProps {
  	/** `md` 28px (bars, heads, forms), `sm` 22px (inline, rows). */
  	size?: "sm" | "md";
  	/** A pressed toggle. */
@@ -11734,7 +12491,7 @@ index 20300da376..bf6fc40ce1 100644
  	on?: boolean;
  	/** Dimmed and inert; a string is the reason, shown as the tooltip. */
  	disabled?: boolean | string;
-@@ -422,34 +465,97 @@ export interface TspEditorDecoration {
+@@ -422,34 +466,97 @@ export interface TspEditorDecoration {
  	s: string;
  	fx?: TspEffect;
  }
@@ -11833,7 +12590,7 @@ index 20300da376..bf6fc40ce1 100644
  }
  export interface TspSegProps {
  	spans?: readonly TspSpan[];
-@@ -464,11 +570,37 @@ export type TspOverlayAnchor =
+@@ -464,11 +571,37 @@ export type TspOverlayAnchor =
  	| "center"
  	| "top"
  	| "bottom"
@@ -11871,7 +12628,7 @@ index 20300da376..bf6fc40ce1 100644
  	modal?: boolean;
  	head?: TspText;
  }
-@@ -597,6 +729,9 @@ export interface TspPickerProps {
+@@ -597,6 +730,9 @@ export interface TspPickerProps {
  	query?: string | null;
  	/** Caret as a UTF-16 offset into `query`; absent puts it at the end. */
  	cursor?: number;
@@ -11881,7 +12638,7 @@ index 20300da376..bf6fc40ce1 100644
  	placeholder?: string;
  	scopes?: readonly TspPickerScope[];
  	scope?: string;
-@@ -699,17 +834,32 @@ export interface TspPrefsProps {
+@@ -699,17 +835,32 @@ export interface TspPrefsProps {
  		disabled?: string;
  	}[];
  	page: string;
@@ -11918,7 +12675,7 @@ index 20300da376..bf6fc40ce1 100644
  }
  
  /**
-@@ -878,9 +1028,16 @@ export interface TspChartProps {
+@@ -878,9 +1029,16 @@ export interface TspChartProps {
  	/** Row labels (weekdays); empty strings skip a label. */
  	rows?: readonly string[];
  	/** Per-cell tooltips, same shape as `cells` (omit for none). */
@@ -11936,7 +12693,7 @@ index 20300da376..bf6fc40ce1 100644
  	/**
  	 * bars/spark: fixed value domain. Without them the low end is 0 and the
  	 * high end the largest series or mark value.
-@@ -947,19 +1104,29 @@ export interface TspPropsByKind {
+@@ -947,19 +1105,29 @@ export interface TspPropsByKind {
  
  /**
   * Props of a node of kind `K`: its kind-specific props plus the common ones.
@@ -11972,7 +12729,7 @@ index 20300da376..bf6fc40ce1 100644
  }[TspKind];
  
  /** Kinds whose primary text the `text` and `splice` ops address (the `text` prop). */
-@@ -1051,7 +1218,7 @@ export type TspReply =
+@@ -1051,7 +1219,7 @@ export type TspReply =
  /** Verb `e`: terminal → program events. */
  export type TspEvent =
  	| { ev: "ack"; sf: string; s: number }
@@ -11981,7 +12738,7 @@ index 20300da376..bf6fc40ce1 100644
  	| { ev: "theme"; dark: boolean }
  	| { ev: "motion"; reduce: boolean }
  	| { ev: "visible"; sf?: string; visible: boolean }
-@@ -1068,11 +1235,25 @@ export type TspEvent =
+@@ -1068,11 +1236,25 @@ export type TspEvent =
  			value: boolean | number | string | readonly string[] | null;
  	  }
  	/**

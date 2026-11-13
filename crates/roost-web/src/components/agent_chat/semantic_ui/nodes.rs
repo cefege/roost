@@ -141,7 +141,7 @@ fn try_render_node<'a>(
                     .or_else(|| node.p.get("label"))
                     .map(text_value)
                     .unwrap_or_default();
-                rsx! {p{role:"status",class:"text-sm","{text}"}}
+                rsx! {p{role:"status",class:"min-w-0 whitespace-pre-wrap wrap-anywhere text-sm","{text}"}}
             }
             _ => {
                 let kind = &node.k;

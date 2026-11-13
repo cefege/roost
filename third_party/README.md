@@ -35,3 +35,9 @@ Rules for anything in this directory:
   margins, a per-row Roost prompt mark, and a listener hook for dropped CSI
   sequences with program-input noise logged at debug, and `simdutf` made optional
   so no C++ is compiled.
+
+- **`dioxus-core/`** — crates.io `dioxus-core` 0.8.0-alpha.3 (MIT OR Apache-2.0).
+  Placement edge scans preserve committed vnode/mount pairs across nested
+  fragments and components. The preview loading transition is pinned by
+  `roost-web`'s `file_viewer::loading_tests` and the `dom-placement` vector;
+  [`dioxus-core/ROOST-PATCHES.md`](dioxus-core/ROOST-PATCHES.md) records the patch.

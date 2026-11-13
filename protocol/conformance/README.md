@@ -105,3 +105,11 @@ The runner is `crates/roost-term/tests/terminal_core_vectors.rs`; it drives
 `RioCore` and asserts every field of `expected`, then prints the
 outstanding divergences so a run cannot be read as "everything matches v2"
 when it does not.
+
+## DOM placement
+
+`dom-placement/file-preview-loading.json` drives the real preview header and
+body through pending registry, loading read, and text completion. Its file
+lines must paint when download controls appear in the same update. The native
+runner is `roost-web`'s `file_viewer::loading_tests`; it guards the vendored
+Dioxus placement walk, not a second implementation of that walk.

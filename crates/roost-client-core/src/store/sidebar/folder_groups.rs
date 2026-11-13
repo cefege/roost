@@ -186,15 +186,22 @@ pub fn build_folder_groups_from(
         }
     }
     for (key, mut conversations) in agent_buckets {
-        conversations.sort_by_key(|row| std::cmp::Reverse(row.updated_ms));
-        let Some(newest) = conversations.first() else {
+        conversations
+            .sort_by(|left, right| (left.created_ms, &left.id).cmp(&(right.created_ms, &right.id)));
+        if conversations.is_empty() {
             continue;
-        };
+        }
         let group = if let Some(index) = groups.iter().position(|group| group.key == key) {
             let Some(group) = groups.get_mut(index) else {
                 continue;
             };
-            group.latest_activity = group.latest_activity.max(newest.updated_ms);
+            group.latest_activity = group.latest_activity.max(
+                conversations
+                    .iter()
+                    .map(|row| row.updated_ms)
+                    .max()
+                    .unwrap_or(0),
+            );
             group.agent_conversation_ids = conversations.iter().map(|row| row.id.clone()).collect();
             group
         } else {
@@ -225,6 +232,18 @@ pub fn build_folder_groups_from(
     }
     groups.sort_by_key(|group| std::cmp::Reverse(group.latest_activity));
     groups
+}
+
+/// Apply the sidebar's remembered order; unseen folders append by stable key.
+pub fn order_folder_groups(groups: &mut [FolderGroup], order: &[String]) {
+    groups.sort_by(|left, right| {
+        let left_index = order.iter().position(|key| key == &left.key);
+        let right_index = order.iter().position(|key| key == &right.key);
+        left_index
+            .unwrap_or(usize::MAX)
+            .cmp(&right_index.unwrap_or(usize::MAX))
+            .then_with(|| left.key.cmp(&right.key))
+    });
 }
 
 /// Keep a folder when every normalized query term occurs in its name, machine

@@ -25,8 +25,7 @@ pub(super) fn FolderConversationRows(
         let core = core.borrow();
         let conversations = &core.store().agent_chat.conversations;
         let mut roots = Vec::new();
-        let mut children_by_parent =
-            std::collections::BTreeMap::<String, Vec<(i64, String)>>::new();
+        let mut children_by_parent = std::collections::BTreeMap::<String, Vec<String>>::new();
         for id in &conversation_ids {
             let Some(conversation) = conversations
                 .get(id.as_str())
@@ -42,23 +41,11 @@ pub(super) fn FolderConversationRows(
                 children_by_parent
                     .entry(parent.to_owned())
                     .or_default()
-                    .push((conversation.updated_ms, conversation.id.clone()));
+                    .push(conversation.id.clone());
             } else {
-                roots.push((conversation.updated_ms, conversation.id.clone()));
+                roots.push(conversation.id.clone());
             }
         }
-        roots.sort_by_key(|(updated_ms, _)| std::cmp::Reverse(*updated_ms));
-        let roots = roots.into_iter().map(|(_, id)| id).collect::<Vec<_>>();
-        let children_by_parent = children_by_parent
-            .into_iter()
-            .map(|(parent, mut children)| {
-                children.sort_by_key(|(updated_ms, _)| std::cmp::Reverse(*updated_ms));
-                (
-                    parent,
-                    children.into_iter().map(|(_, id)| id).collect::<Vec<_>>(),
-                )
-            })
-            .collect::<std::collections::BTreeMap<_, _>>();
         (roots, std::rc::Rc::new(children_by_parent))
     };
     let active_agent_id = active_agent_id.map(std::rc::Rc::new);

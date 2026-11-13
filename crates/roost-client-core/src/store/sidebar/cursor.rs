@@ -15,7 +15,7 @@ pub struct SidebarCursor {
 }
 
 impl SidebarCursor {
-    /// Publish the rendered row order, clamping the highlight into range.
+    /// Publish row order, keeping the highlighted session or clamping if removed.
     ///
     /// An unchanged order is a no-op, so a rebuild that re-publishes the same
     /// rows does not repaint every row's `data-cursor`.
@@ -23,7 +23,10 @@ impl SidebarCursor {
         if self.ids == ids {
             return false;
         }
-        self.index = match (self.index, ids.len()) {
+        let preserved_index = self
+            .cursor_session_id()
+            .and_then(|selected| ids.iter().position(|id| id == selected));
+        self.index = match (preserved_index.or(self.index), ids.len()) {
             (_, 0) => None,
             (Some(index), len) if index >= len => Some(len - 1),
             (index, _) => index,

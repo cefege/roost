@@ -70,6 +70,7 @@ pub(super) fn choice_control(
                     on_open_change: move |open| if !disabled { send.call(event("action", &open_surface, &open_id, json!({"act":if open {"edit"} else {"close"},"value":open_row}))); },
                     PopoverTrigger { size: ButtonSize::Sm, disabled, aria_label: label.to_owned(), "{shown}" }
                     PopoverContent {
+                        class: Some("min-h-0".into()),
                         div {
                             inert: disabled.then_some(true),
                             onkeydown: move |key: KeyboardEvent| {
@@ -84,7 +85,7 @@ pub(super) fn choice_control(
                                 should_filter: false,
                                 handles_keys: false,
                                 highlighted,
-                                CommandList {
+                                CommandList { class: "min-h-0",
                                     for option in options.into_iter().flatten() {
                                         {
                                             let option_value = option.get("value").and_then(Value::as_str).unwrap_or_default().to_owned();

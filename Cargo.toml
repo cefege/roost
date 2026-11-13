@@ -191,6 +191,8 @@ unimplemented = "deny"
 # third_party/rio_vt/ROOST-PATCHES.md.
 [patch.crates-io]
 rio-vt = { path = "third_party/rio_vt" }
+# Placement must keep committed vnode shapes paired with their mounted slots.
+dioxus-core = { path = "third_party/dioxus-core" }
 
 # The native binaries. Optimised, but without whole-program LTO and with
 # parallel codegen: under `lto = true` + `codegen-units = 1` any one-crate

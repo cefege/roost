@@ -58,6 +58,11 @@ pub(super) fn NativeRegions(
     } else {
         overlay_render::modal_dialogs(&overlays, show_host_services, send)
     };
+    let content_width = if screen {
+        "w-full min-w-0"
+    } else {
+        "mx-auto w-full max-w-reading min-w-0"
+    };
 
     let content = rsx! {
         div {
@@ -88,10 +93,10 @@ pub(super) fn NativeRegions(
                         }
                     }
                 },
-                div { class: "mx-auto w-full max-w-reading min-w-0 px-4 py-3", {main} }
+                div { class: "{content_width} px-4 py-3", {main} }
             }
             div {
-                class: "relative mx-auto w-full max-w-reading min-w-0 max-h-full shrink-0",
+                class: "relative {content_width} max-h-full shrink-0",
                 "data-omp-dock": true,
                 div { class: "max-h-full overflow-y-auto border-t border-border px-4 pt-2 pb-3 flex flex-col-reverse", {dock} }
             }

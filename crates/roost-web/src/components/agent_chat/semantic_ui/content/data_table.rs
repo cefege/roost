@@ -34,18 +34,17 @@ pub(super) fn render(node: &OmpUiNode) -> Element {
 fn key_values(node: &OmpUiNode) -> Element {
     let items = node.p.get("items").and_then(Value::as_array);
     let inline = node.p.get("layout").and_then(Value::as_str) == Some("inline");
-    // OMP's grid layout prints each key beside its value in an aligned key column.
     let class = if inline {
         "flex flex-wrap gap-x-4 gap-y-1 text-sm"
     } else {
-        "grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm"
+        "grid min-w-0 grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_minmax(0,1fr)]"
     };
     rsx! {
         dl { class,
             for item in items.into_iter().flatten() {
                 { rsx! {
                       dt { class: "text-muted-foreground", {render_spans(item.get("k"), "")} }
-                      dd { class: "min-w-0 break-all", {render_spans(item.get("v"), "")} }
+                      dd { class: "min-w-0 wrap-anywhere", {render_spans(item.get("v"), "")} }
                   }
                 }
             }

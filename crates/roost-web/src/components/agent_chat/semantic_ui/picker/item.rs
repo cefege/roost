@@ -104,6 +104,7 @@ pub(super) fn picker_item(
             send.call(event(verb, &key_sf, &key_event_id, json!({"item": key_choice})));
         },
         div{class:if layout=="cards"{"flex min-w-0 flex-col items-start gap-1"}else{"flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1"},span{class:"flex min-w-0 items-center gap-2 {indent}",if let Some(status)=dot{StatusDot{status}}if let Some(mark)=mark{Badge{variant:BadgeVariant::Secondary,class:Some("shrink-0".into()),"{mark}"}}if let Some(icon)=icon{Badge{variant:BadgeVariant::Muted,class:Some("shrink-0 text-xs".into()),"{icon}"}}if let Some(role)=role{Badge{variant:BadgeVariant::Muted,class:Some("text-xs".into()),"{role}"}}if let Some(node_kind)=node_kind{Badge{variant:BadgeVariant::Outline,class:Some("text-xs".into()),"{node_kind}"}}{render_picker_label(&label,item_hits,mono)}}
+            if is_current { Badge { variant: BadgeVariant::Secondary, class: Some("shrink-0".into()), "Current" } }
             if let Some(detail)=detail {span{class:"text-xs text-muted-foreground","{detail}"}}
             if let Some(facts)=item.get("facts").and_then(Value::as_object) {{render_picker_facts(facts,columns,surface,id,&item_id)}}
             if let Some(open_label)=is_open.map(|is_open|if is_open{"Open"}else{"Closed"}) {Badge{variant:if open_label=="Open"{BadgeVariant::Secondary}else{BadgeVariant::Muted},class:Some("text-xs".into()),"{open_label}"}}

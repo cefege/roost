@@ -18,6 +18,24 @@
   font-display: swap;
 }
 
+/* A glyph-only first face bypasses generic-font tofu without changing text metrics. */
+@font-face {
+  font-family: 'Roost Symbols';
+  src: url('/fonts/JetBrainsMonoNerdFontMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+2300-23FF, U+E000-F8FF, U+F0000-FFFFD, U+100000-10FFFD;
+}
+@font-face {
+  font-family: 'Roost Symbols';
+  src: url('/fonts/JetBrainsMonoNerdFontMono-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+2300-23FF, U+E000-F8FF, U+F0000-FFFFD, U+100000-10FFFD;
+}
+
 /* Terminal palette bridge → Roost theme engine.
    Cell spans use --term-color-0..15; point those names at the canonical theme
    tokens so an existing grid repaints without rebuilding row DOM.

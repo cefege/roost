@@ -157,11 +157,21 @@ fn modal_dialog(slot: &OverlaySlot, show_prompts: bool, send: EventHandler<Value
     let title = slot.title.clone();
     let visible = slot.head_visible;
     let fullscreen = slot.shape.fullscreen;
+    // Placement writes viewport coordinates after mount; animating top or size
+    // would temporarily move a viewport-filling panel outside its bounds.
     let panel = match (fullscreen, slot.shape.size) {
-        (true, _) => "flex min-h-0 flex-col overflow-auto pt-12",
-        (_, OverlaySize::Sm) => "flex min-h-0 flex-col overflow-auto pt-12 max-w-sm",
-        (_, OverlaySize::Lg) => "flex min-h-0 flex-col overflow-auto pt-12 max-w-3xl",
-        _ => "flex min-h-0 flex-col overflow-auto pt-12 max-w-lg",
+        (true, _) => {
+            "flex min-h-0 flex-col overflow-auto overscroll-y-contain pt-12 transition-opacity"
+        }
+        (_, OverlaySize::Sm) => {
+            "flex min-h-0 flex-col overflow-auto overscroll-y-contain pt-12 transition-opacity max-w-sm"
+        }
+        (_, OverlaySize::Lg) => {
+            "flex min-h-0 flex-col overflow-auto overscroll-y-contain pt-12 transition-opacity max-w-3xl"
+        }
+        _ => {
+            "flex min-h-0 flex-col overflow-auto overscroll-y-contain pt-12 transition-opacity max-w-lg"
+        }
     };
     let header_class = if visible { "" } else { "sr-only" };
     rsx! {

@@ -11,6 +11,10 @@ use roost_protocol::wire::agent_chat::OmpWorkerEvent;
 use serde_json::{Value, json};
 use tokio::{sync::mpsc, time::Instant};
 
+#[cfg(test)]
+#[path = "lifecycle_tests.rs"]
+mod tests;
+
 impl UiState {
     pub fn session_state(
         &mut self,
@@ -138,6 +142,12 @@ impl UiState {
                     self.receipts.complete(request_id, Some(message), emitter);
                 }
             }
+        }
+        // UI frames emitted by the handler precede its response on ACP. Flush
+        // that ordered batch now instead of waiting for the streaming tick;
+        // internal frame acknowledgements have no browser request identity.
+        if !request_id.is_empty() && matches!(method, "input" | "event") {
+            emitter.flush();
         }
     }
 

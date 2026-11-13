@@ -82,6 +82,45 @@ fn rejects_duplicate_ids_and_bad_sequences_without_mutation() {
 }
 
 #[test]
+fn oversized_autocomplete_id_rejects_frame_and_fences_later_frames() {
+    let mut document = OmpUiDocument::default();
+    open(&mut document);
+    first_native_frame(&mut document);
+    document
+        .apply_message(&json!({"verb":"f","body":{"sf":"s:0","s":2,"ops":[
+            ["text","entry","append","/resume /long/path"]
+        ]}}))
+        .unwrap();
+    let accepted = document.surfaces["s:0"].clone();
+    let oversized_id = format!("list/{}", "a".repeat(377));
+    assert_eq!(
+        document.apply_message(&json!({"verb":"f","body":{"sf":"s:0","s":3,"ops":[
+            ["add","popup","layer",null,{"id":"popup","k":"overlay","c":[
+                {"id":oversized_id,"k":"item"}
+            ]}]
+        ]}})),
+        Err(OmpUiDocumentError::Invalid("id"))
+    );
+    assert_eq!(
+        document.apply_message(&json!({"verb":"f","body":{"sf":"s:0","s":4,"ops":[]}})),
+        Err(OmpUiDocumentError::Sequence)
+    );
+    assert_eq!(document.surfaces["s:0"], accepted);
+    document
+        .apply_message(&json!({"verb":"f","body":{"sf":"s:0","s":3,"ops":[
+            ["add","popup","layer",null,{"id":"popup","k":"overlay","c":[
+                {"id":"list/opaque-1","k":"item"}
+            ]}]
+        ]}}))
+        .unwrap();
+    document
+        .apply_message(&json!({"verb":"f","body":{"sf":"s:0","s":4,"ops":[
+            ["del","popup"]
+        ]}}))
+        .unwrap();
+}
+
+#[test]
 fn accepts_native_blob_body_and_headers() {
     let mut document = OmpUiDocument::default();
     document

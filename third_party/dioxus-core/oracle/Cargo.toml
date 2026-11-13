@@ -1,0 +1,16 @@
+[package]
+name = "dioxus-renderer-oracle"
+version = "0.8.0-alpha.3"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+dioxus-core = { path = "..", version = "=0.8.0-alpha.3" }
+pretty_assertions = "1"
+
+[dev-dependencies]
+dioxus = "=0.8.0-alpha.3"
+
+[patch.crates-io]
+dioxus-core = { path = ".." }

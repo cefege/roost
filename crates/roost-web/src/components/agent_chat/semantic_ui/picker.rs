@@ -55,7 +55,6 @@ pub(super) fn render_picker(
     let selected = props.get("selected").and_then(Value::as_str);
     let total = props.get("total").and_then(Value::as_u64);
     let current = props.get("current").and_then(Value::as_array);
-    let in_use = current.map(|values| values.iter().map(text_value).collect::<Vec<_>>().join(", "));
     let scope = props.get("scope").and_then(Value::as_str);
     let tab = props.get("tab").and_then(Value::as_str);
     let layout = props
@@ -113,10 +112,19 @@ pub(super) fn render_picker(
         "flex min-h-0 max-h-[min(60dvh,36rem)] flex-col gap-1 overscroll-contain"
     };
     let show_preview = props.get("preview").and_then(Value::as_str) != Some("none");
+    let picker_layout = if show_preview
+        && !node.c.is_empty()
+        && props.get("preview").and_then(Value::as_str) == Some("side")
+    {
+        "grid min-w-0 grid-cols-1 items-start gap-4 md:grid-cols-2"
+    } else {
+        "flex min-w-0 flex-col gap-3"
+    };
     let focus_id = id.clone();
     let focus_sf = sf.clone();
     let focus_send = send;
-    rsx! { div { class: "flex min-w-0 flex-col gap-3", onfocusin:move |_|focus_send.call(event("focus",&focus_sf,&focus_id,json!({}))),
+    rsx! { div { class: "{picker_layout}", onfocusin:move |_|focus_send.call(event("focus",&focus_sf,&focus_id,json!({}))),
+        div { class: "flex min-w-0 flex-col gap-3",
         if let Some(title)=title { h2 { class: "text-lg font-semibold", "{title}" } }
         if let Some(subtitle)=subtitle { p { class: "text-sm text-muted-foreground", "{subtitle}" } }
         if show_query { super::query::NativeQuery { key:"{sf}/{id}", id:id.clone(), surface:sf.clone(), text:query.unwrap_or_default().to_owned(), cursor:props.get("cursor").and_then(Value::as_u64).and_then(|cursor|usize::try_from(cursor).ok()), edit_ack:props.get("queryAck").cloned(), placeholder:placeholder.clone(), send } }
@@ -150,7 +158,7 @@ pub(super) fn render_picker(
                 let sid=id.clone();let ssf=sf.clone();
                 rsx! { Tabs { value:active, handles_keys:false,
                     on_value_change:move |choice:String|send.call(event("action",&ssf,&sid,json!({"act":"tab","value":choice}))),
-                    TabsList { class:Some("h-auto max-w-full flex-wrap".into()), aria_label:Some("Picker views".into()),
+                    TabsList { class:Some("group-data-[orientation=Horizontal]/tabs:h-auto max-w-full flex-wrap".into()), aria_label:Some("Picker views".into()),
                         for value in tabs {
                             {let choice=value.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();let label=value.get("label").map(text_value).unwrap_or_else(||choice.clone());rsx!{TabsTrigger{key:"{choice}",value:choice,has_panel:false,"{label}"}}}
                         }
@@ -165,7 +173,6 @@ pub(super) fn render_picker(
         else if state=="error" { p { role:"alert", class:"text-sm text-destructive", "{error_message}" } }
         else {
             if let Some(total)=total { p { class:"text-xs text-muted-foreground", "{item_count} of {total}" } }
-            if let Some(in_use)=in_use { p { class:"text-xs text-muted-foreground", "In use: {in_use}" } }
             Command { class:"h-auto w-full overflow-visible", should_filter:false, handles_keys:false,
                 CommandList { id:list_id.clone(), role:"listbox", aria_label:Some(list_label), tabindex:Some("-1".into()), class:Some(list_class.into()),
                     aria_active_descendant:if list_active{selected_dom.clone()}else{None},
@@ -218,6 +225,9 @@ pub(super) fn render_picker(
                 }
             }
         }
-        if show_preview { for child in &node.c { {render_node(child,surface,&send,blobs)} } }
+        }
+        if show_preview { div { class: "flex min-w-0 flex-col gap-3",
+            for child in &node.c { {render_node(child,surface,&send,blobs)} }
+        } }
     } }
 }

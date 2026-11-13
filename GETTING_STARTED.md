@@ -559,6 +559,13 @@ Pairing is what authorizes a device. Network reachability, a VPN membership, or
 a login your front door performs on its own does not authorize a phone as a
 Roost device.
 
+## Sidebar folders
+
+The Folders view keeps folders in a browser-local order. Drag a folder onto
+another to move it; the order survives reloads, and new folders append.
+Activity does not reorder folders or their conversation rows. Recent remains
+chronological.
+
 ## Turn on agent notifications
 
 Terminals running a coding agent show their state (working / needs input /

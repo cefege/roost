@@ -52,6 +52,8 @@ catalogue rows and indexes. A null `set` value removes a property. Picker
 props with null does not undo their entries. Bounds: 2 MiB per message, 32 MiB per
 document, 20,000 nodes, 128 levels and 128 surfaces. Opening a view does not submit
 a prompt. Adoption/reconnect rebuilds a complete document before deltas resume.
+Opaque UI IDs are limited to 256 UTF-8 bytes. OMP aliases longer native identities
+without truncating filesystem paths or changing their event-routing targets.
 
 HTML renders the supplied semantic nodes with stock UI components. Nonmodal
 autocomplete leaves its editor active; modal sheets and screen surfaces own focus
@@ -64,9 +66,14 @@ Private host services and receipts are fenced by conversation, authenticated
 device, tab, view and worker-owned transport generation. Clipboard text and URLs
 never enter transcript events or logs. Browser permission refusal leaves a real
 Copy/Open action pending; only a confirmed effect is acknowledged. Host-service
-input/event success receipts wait for durable semantic frames; `receipt=false`
-success stays silent, but an asynchronous host rejection still reports a private
-failure. Closing/replacing a view cancels its pending effects.
+input/event success receipts wait for durable semantic frames. Interactive
+completion flushes its ordered frame batch before replying instead of waiting
+for the unsolicited-update batching interval. `receipt=false` success stays silent,
+but an asynchronous host rejection still reports a private failure.
+Closing/replacing a view cancels its pending effects.
+Exported HTML opens through an authenticated worker-file route. The exporter
+normalizes its known filesystem result to a `file:` URI; it never treats a
+worker's localhost as the browser's localhost.
 `/quit` detaches the semantic view without deleting its conversation or stopping
 the worker. The pane offers an explicit reopen action, which reconstructs a fresh
 transport and document. Viewport callbacks and teardown read that current identity.
@@ -131,6 +138,19 @@ Copy actions retain complete source text even when its paint is clamped.
 Thinking headers that reference child IDs resolve to those children and are not
 duplicated in the body. Native reveal/scroll requests remain surface-local,
 bounded and transient; applying one never substitutes a second selection model.
+
+HTML text keeps its existing system metrics. A bundled glyph-only Nerd Font face
+precedes both sans and monospace families for technical symbols and private-use
+characters; it excludes ordinary text. OMP's composer, status and keyboard hints
+must not depend on locally installed symbol fonts.
+
+Screen surfaces use the available width; chat retains its reading-width limit.
+A picker's `preview: "side"` appears beside the list on desktop and below it on
+phones. Current rows have a visible marker, not an opaque session-ID heading.
+Diffs honor `mode` and `wrap`, including paired split replacements without
+pairing across context lines or hunk boundaries. Settings search follows the
+focused result's section, and non-switch controls stack below their labels on
+narrow screens.
 
 ACP transcript events remain durable for snapshots, history and nonvisual clients.
 Tool IDs identify mutable entries; returned raw-output details preserve execution

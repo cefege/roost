@@ -34,6 +34,7 @@ pub(super) fn render_prefs(
     let query = props.get("query").and_then(Value::as_str);
     let editing = props.get("editing").filter(|value| !value.is_null());
     let focused = props.get("focus").and_then(Value::as_str);
+    let active_page = search_focus_page(props.get("sections"), query, focused).unwrap_or(page);
     let capture_keys = editing
         .and_then(|value| value.get("row"))
         .and_then(Value::as_str)
@@ -77,7 +78,7 @@ pub(super) fn render_prefs(
             {
                 let target=tab.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
                 let label=tab.get("label").map(text_value).unwrap_or_else(||target.clone());
-                let active=page==target;
+                let active=active_page==target;
                 let disabled=tab.get("disabled").is_some_and(|value|!value.is_null()&&value!=false);
                 let reason=tab.get("disabled").and_then(Value::as_str);
                 let icon=tab.get("icon").and_then(Value::as_str).map(|name|super::content::render_icon(name,"size-4"));
@@ -104,6 +105,28 @@ pub(super) fn render_prefs(
         // An open option picker is a child of the prefs node, outside any row; it carries the row it edits so its items stay attributable to that setting.
         if !node.c.is_empty() { div { class: "contents", "data-omp-setting": focused.map(str::to_owned), for child in &node.c { {super::render_node(child,surface,&send,blobs)} } } }
     } }
+}
+
+fn search_focus_page<'a>(
+    sections: Option<&'a Value>,
+    query: Option<&str>,
+    focused: Option<&str>,
+) -> Option<&'a str> {
+    let focused = focused.filter(|_| query.is_some_and(|text| !text.is_empty()))?;
+    sections?
+        .as_array()?
+        .iter()
+        .find(|section| {
+            section
+                .get("rows")
+                .and_then(Value::as_array)
+                .is_some_and(|rows| {
+                    rows.iter()
+                        .any(|row| row.get("id").and_then(Value::as_str) == Some(focused))
+                })
+        })?
+        .get("page")?
+        .as_str()
 }
 
 type PageHeading = (String, String, Option<Element>);
@@ -151,5 +174,43 @@ fn strip_hit_count(label: &str) -> String {
             name.to_owned()
         }
         _ => label.to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::search_focus_page;
+    use serde_json::json;
+
+    #[test]
+    fn search_tab_follows_the_focused_result() {
+        let props = json!({"sections": [
+            {"page": "model", "rows": [{"id": "externalThinking"}]},
+            {"page": "context", "rows": [{"id": "compaction.methodOrder"}]}
+        ]});
+        assert_eq!(
+            search_focus_page(
+                props.get("sections"),
+                Some("thinking"),
+                Some("externalThinking")
+            ),
+            Some("model")
+        );
+        assert_eq!(
+            search_focus_page(
+                props.get("sections"),
+                Some("order"),
+                Some("compaction.methodOrder")
+            ),
+            Some("context")
+        );
+        assert_eq!(
+            search_focus_page(props.get("sections"), Some("order"), None),
+            None
+        );
+        assert_eq!(
+            search_focus_page(props.get("sections"), Some(""), Some("externalThinking")),
+            None
+        );
     }
 }

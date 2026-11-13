@@ -34,7 +34,16 @@ use crate::session_naming::rel_time_since;
 
 /// A folder row.
 #[component]
-pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool, children: Element) -> Element {
+pub fn FolderRow(
+    group: FolderGroup,
+    selected: bool,
+    cursor: bool,
+    dragging_folder: bool,
+    on_drag_start: EventHandler<()>,
+    on_drag_end: EventHandler<()>,
+    on_drop_folder: EventHandler<()>,
+    children: Element,
+) -> Element {
     let pump = use_store();
     let navigate = use_navigate();
     let compact = use_is_compact();
@@ -121,6 +130,27 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool, children: Ele
             "data-selected": if selected { "focused" } else { "" },
             "data-cursor": cursor.then_some("on"),
             "data-notify-target": ringing,
+            draggable: "true",
+            ondragstart: move |event: DragEvent| {
+                event.stop_propagation();
+                prepare_folder_drag(&event);
+                on_drag_start.call(());
+            },
+            ondragend: move |event: DragEvent| {
+                event.stop_propagation();
+                on_drag_end.call(());
+            },
+            ondragover: move |event: DragEvent| {
+                if dragging_folder {
+                    accept_folder_drag(&event);
+                }
+            },
+            ondrop: move |event: DragEvent| {
+                if dragging_folder {
+                    accept_folder_drag(&event);
+                    on_drop_folder.call(());
+                }
+            },
             oncontextmenu: move |event: MouseEvent| {
                 event.prevent_default();
                 event.stop_propagation();
@@ -220,4 +250,31 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool, children: Ele
             }
         }
     }
+}
+
+fn prepare_folder_drag(event: &DragEvent) {
+    #[cfg(target_arch = "wasm32")]
+    if let Some(transfer) = native_drag_transfer(event) {
+        transfer.set_effect_allowed("move");
+        let _ = transfer.set_data("application/x-roost-folder", "folder");
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = event;
+}
+
+fn accept_folder_drag(event: &DragEvent) {
+    event.prevent_default();
+    event.stop_propagation();
+    #[cfg(target_arch = "wasm32")]
+    if let Some(transfer) = native_drag_transfer(event) {
+        // The page-wide file/link guard rejects a drag until its owner claims it.
+        transfer.set_drop_effect("move");
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn native_drag_transfer(event: &DragEvent) -> Option<web_sys::DataTransfer> {
+    use dioxus::web::WebEventExt;
+    let native: web_sys::DragEvent = event.try_as_web_event()?;
+    native.data_transfer()
 }
