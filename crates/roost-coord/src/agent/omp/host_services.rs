@@ -10,6 +10,8 @@
 #[path = "host_service_kind.rs"]
 mod kind;
 use kind::HostServiceKind;
+#[path = "host_fork.rs"]
+pub(super) mod fork;
 
 use super::host_reply::bounded_error;
 pub(crate) use super::host_reply::{HostReply, reply};
@@ -20,7 +22,7 @@ use crate::coord_core::CoordCore;
 use crate::events::bus_messages::UiBusMsg;
 use crate::serve::now_ms;
 use roost_proto as proto;
-use roost_protocol::native_dashboard::{capability_path, parse_dashboard_origin};
+use roost_protocol::native_dashboard::{DashboardOpen, capability_path};
 
 /// One clipboard payload or URL per prompt; matches the browser inbox so
 /// neither side accepts what the other refuses.
@@ -96,22 +98,27 @@ pub async fn accept_request(
         match host_store::delete_pending(&core.services.db, &request.service_id, &conversation.id)
             .await
         {
-            Ok(true) => publish(
-                core,
-                &admission.fingerprint,
-                &admission.tab_id,
-                proto::OmpHostServiceFrame {
-                    service_id: request.service_id,
-                    origin_request_id: request.origin_request_id,
-                    conversation_id: conversation.id,
-                    view_id: admission.view_id,
-                    transport_id: admission.transport_id,
-                    kind: kind.wire().to_owned(),
-                    value: String::new(),
-                    cancelled: true,
-                    ..Default::default()
-                },
-            ),
+            Ok(true) => {
+                if matches!(kind, HostServiceKind::OpenFork) {
+                    let _ = fork::finish(core, &conversation.id, &request.service_id, false).await;
+                }
+                publish(
+                    core,
+                    &admission.fingerprint,
+                    &admission.tab_id,
+                    proto::OmpHostServiceFrame {
+                        service_id: request.service_id,
+                        origin_request_id: request.origin_request_id,
+                        conversation_id: conversation.id,
+                        view_id: admission.view_id,
+                        transport_id: admission.transport_id,
+                        kind: kind.wire().to_owned(),
+                        value: String::new(),
+                        cancelled: true,
+                        ..Default::default()
+                    },
+                );
+            }
             Ok(false) => tracing::debug!(conversation_id = %conversation.id,
                 service_id = %request.service_id,
                 "OMP host service cancellation had no pending prompt"),
@@ -140,7 +147,7 @@ pub async fn accept_request(
         }
     }
     let dashboard_target = if matches!(kind, HostServiceKind::OpenStatsDashboard) {
-        parse_dashboard_origin(&request.value)
+        DashboardOpen::parse(&request.value)
     } else {
         None
     };
@@ -158,8 +165,25 @@ pub async fn accept_request(
     };
     match host_store::insert_pending(&core.services.db, &pending, now).await {
         Ok(true) => {
+            let fork_value = if matches!(kind, HostServiceKind::OpenFork) {
+                match fork::prepare(core, &conversation, &pending, &request.value).await {
+                    Ok(value) => Some(value),
+                    Err(error) => {
+                        let _ = host_store::delete_pending(
+                            &core.services.db,
+                            &pending.service_id,
+                            &conversation.id,
+                        )
+                        .await;
+                        tracing::warn!(conversation_id=%conversation.id, %error, "OMP fork child bootstrap failed");
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
             let value = match dashboard_target {
-                Some(target) => {
+                Some((open, target)) => {
                     let capability = DashboardCapability {
                         service_id: pending.service_id.clone(),
                         conversation_id: pending.conversation_id.clone(),
@@ -168,6 +192,7 @@ pub async fn accept_request(
                         tab_id: pending.tab_id.clone(),
                         view_id: pending.view_id.clone(),
                         transport_id: pending.transport_id.clone(),
+                        resource_id: open.resource_id,
                         target,
                         expires_ms: 0,
                         window_start_ms: 0,
@@ -189,9 +214,9 @@ pub async fn accept_request(
                         );
                         return;
                     };
-                    capability_path(&token)
+                    format!("{}{}", capability_path(&token), open.fragment)
                 }
-                None => request.value,
+                None => fork_value.unwrap_or(request.value),
             };
             publish(
                 core,

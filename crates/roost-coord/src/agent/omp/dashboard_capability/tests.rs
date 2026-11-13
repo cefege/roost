@@ -12,6 +12,7 @@ fn capability(service_id: &str, transport: &str) -> DashboardCapability {
         tab_id: "tab".into(),
         view_id: "view".into(),
         transport_id: transport.into(),
+        resource_id: "a".repeat(64),
         target: DashboardTarget {
             host: "127.0.0.1".into(),
             identity_host: "127.0.0.1".into(),

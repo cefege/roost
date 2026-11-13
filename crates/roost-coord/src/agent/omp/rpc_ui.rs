@@ -41,6 +41,8 @@ struct OpenParams {
     _dark: bool,
     #[serde(rename = "reduceMotion")]
     _reduce_motion: bool,
+    #[serde(default, rename = "hour12")]
+    _hour12: Option<bool>,
     #[serde(default)]
     reset: bool,
     #[serde(default)]

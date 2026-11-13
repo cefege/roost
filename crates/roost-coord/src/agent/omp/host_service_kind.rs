@@ -2,12 +2,15 @@
 //! The private coordinator router uses this before creating a pending effect.
 //! Stats origins share the protocol's local-dashboard URL parser.
 
-use roost_protocol::native_dashboard::parse_dashboard_origin;
+use roost_protocol::native_dashboard::DashboardOpen;
+use roost_protocol::wire::agent_chat::OmpLiveAudioRequest;
 #[derive(Clone, Copy)]
 pub(super) enum HostServiceKind {
     CopyText,
     OpenUrl,
     OpenStatsDashboard,
+    OpenFork,
+    LiveAudio,
 }
 
 impl HostServiceKind {
@@ -16,6 +19,8 @@ impl HostServiceKind {
             "copy_text" => Some(Self::CopyText),
             "open_url" => Some(Self::OpenUrl),
             "open_stats_dashboard" => Some(Self::OpenStatsDashboard),
+            "open_fork" => Some(Self::OpenFork),
+            "live_audio" => Some(Self::LiveAudio),
             _ => None,
         }
     }
@@ -24,6 +29,8 @@ impl HostServiceKind {
             Self::CopyText => "copy_text",
             Self::OpenUrl => "open_url",
             Self::OpenStatsDashboard => "open_stats_dashboard",
+            Self::OpenFork => "open_fork",
+            Self::LiveAudio => "live_audio",
         }
     }
     pub(super) fn value_is_safe(&self, value: &str) -> bool {
@@ -49,7 +56,9 @@ impl HostServiceKind {
                 let scheme = value[..colon].to_ascii_lowercase();
                 scheme.len() == 1 || matches!(scheme.as_str(), "http" | "https" | "mailto" | "file")
             }
-            Self::OpenStatsDashboard => parse_dashboard_origin(value).is_some(),
+            Self::OpenStatsDashboard => DashboardOpen::parse(value).is_some(),
+            Self::OpenFork => roost_protocol::native_fork::ForkOpen::parse(value).is_some(),
+            Self::LiveAudio => OmpLiveAudioRequest::parse_json(value).is_ok(),
         }
     }
 }

@@ -87,7 +87,8 @@ pub async fn serve(State(state): State<Arc<ListenerState>>, request: Request) ->
             token.to_owned(),
             origin,
             lease,
-        );
+        )
+        .await;
     }
     let admission = state.services.omp.dashboards.begin_request(token, now_ms());
     match admission {
@@ -180,6 +181,7 @@ async fn forward(
         } else {
             STANDARD.encode(body)
         },
+        stream: None,
     };
     match worker_request(
         &services,
@@ -224,12 +226,18 @@ async fn worker_request(
         })?;
     let frame = ClientControlFrame::StatsDashboardHttp {
         request_id: pending.request_id().to_owned(),
+        resource: roost_protocol::native_dashboard::ResourceKey {
+            conversation_id: capability.conversation_id.clone(),
+            transport_id: capability.transport_id.clone(),
+            resource_id: capability.resource_id.clone(),
+        },
         host: capability.target.host.clone(),
         port: capability.target.port,
         method: request.method,
         path: request.path,
         headers: request.headers,
         body_base64: request.body_base64,
+        stream: request.stream,
         trace_id: None,
     };
     let downstream = CoordWorkerDownstream::BrowserCommand {
@@ -265,10 +273,6 @@ struct HeaderMapBuilder {
 }
 
 impl HeaderMapBuilder {
-    fn insert(&mut self, name: header::HeaderName, value: HeaderValue) {
-        self.headers.insert(name, value);
-    }
-
     fn new(origin: &str) -> Self {
         let mut headers = axum::http::HeaderMap::new();
         headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));

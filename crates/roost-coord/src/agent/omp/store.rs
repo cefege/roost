@@ -11,6 +11,7 @@ use sqlx::Row;
 pub struct OmpConversation {
     pub id: String,
     pub title: String,
+    pub parent_id: Option<String>,
     pub worker_fp: String,
     pub worker_label: String,
     pub cwd: String,
@@ -192,6 +193,7 @@ fn decode(row: &sqlx::any::AnyRow) -> Result<OmpConversation, sqlx::Error> {
     Ok(OmpConversation {
         id: row.try_get("id")?,
         title: row.try_get("title")?,
+        parent_id: row.try_get("parent_id")?,
         worker_fp: row.try_get("worker_fp")?,
         worker_label: row.try_get("worker_label")?,
         cwd: row.try_get("cwd")?,

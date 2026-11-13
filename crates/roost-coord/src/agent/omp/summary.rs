@@ -35,7 +35,7 @@ pub fn summary(
             .and_then(split_omp_model),
         thinking_level: conversation.override_values.thinking_level.clone(),
         mode: "normal".into(),
-        parent_id: None,
+        parent_id: conversation.parent_id.clone(),
         agent: None,
         advisor: false,
         run_state: conversation.run_state,

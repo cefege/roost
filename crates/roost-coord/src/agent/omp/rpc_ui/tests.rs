@@ -55,6 +55,18 @@ fn open_dimensions_and_nested_event_depth_are_bounded() {
         )
         .is_err()
     );
+    assert!(
+        parse_action(
+            r#"{"method":"open","params":{"cols":80,"rows":24,"dark":true,"reduceMotion":false,"hour12":true}}"#
+        )
+        .is_ok()
+    );
+    assert!(
+        parse_action(
+            r#"{"method":"open","params":{"cols":80,"rows":24,"dark":true,"reduceMotion":false,"hour12":"yes"}}"#
+        )
+        .is_err()
+    );
     let mut event = serde_json::json!({});
     for _ in 0..34 {
         event = serde_json::json!([event]);

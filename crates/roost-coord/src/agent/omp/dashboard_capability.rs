@@ -25,9 +25,7 @@ pub const MAX_CAPABILITIES: usize = 64;
 /// One capability's request budget window, and how many requests it funds.
 pub const REQUEST_WINDOW_MS: i64 = 10_000;
 pub const MAX_REQUESTS_PER_WINDOW: u32 = 600;
-/// Concurrent status streams one capability may hold. Each stream polls the
-/// worker once a second, so this bound is what stops one token from buying
-/// unbounded sustained work.
+/// Concurrent real upstream event streams one capability may hold.
 pub const MAX_ACTIVE_STREAMS_PER_CAPABILITY: u32 = 2;
 /// Concurrent non-stream requests one capability may hold. A partial upload
 /// occupies its slot for the request lifetime, so this bound is what stops one
@@ -44,6 +42,7 @@ pub struct DashboardCapability {
     pub tab_id: String,
     pub view_id: String,
     pub transport_id: String,
+    pub resource_id: String,
     pub target: DashboardTarget,
     pub expires_ms: i64,
     pub(super) window_start_ms: i64,

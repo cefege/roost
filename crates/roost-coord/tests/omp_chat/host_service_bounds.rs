@@ -148,3 +148,110 @@ async fn an_untracked_typed_edit_failure_receipt_is_delivered_once_and_never_cre
         "an untracked success credit reached the browser"
     );
 }
+
+#[tokio::test]
+async fn live_audio_signaling_is_private_transient_and_consumed_once() {
+    use roost_coord::agent::omp::rpc_ui::handle_agent_omp_ui;
+    use serde_json::json;
+
+    let fixture = AgentFixture::new("omp-live-audio-route").await;
+    let (_worker, mut downstream) = register_worker(&fixture, "worker-epoch");
+    let caller = caller_on(&fixture, "tab-a");
+    let conversation_id = create(&fixture).await;
+    open_view(
+        &fixture,
+        &caller,
+        &conversation_id,
+        "view-a",
+        "",
+        "open-1",
+        &mut downstream,
+    )
+    .await;
+    set_live_transport(&fixture, &conversation_id, "nonce-a", &mut downstream).await;
+    admit_input(
+        &fixture,
+        &caller,
+        &conversation_id,
+        "view-a",
+        "nonce-a",
+        "input-1",
+        &mut downstream,
+    )
+    .await;
+    let (seen, _subscription) = seen_bus(&fixture);
+    let value = json!({
+        "op":"prepare","peerId":"adbd487b-df30-46da-b899-b40016b15775",
+    })
+    .to_string();
+    for (service, payload) in [("invalid-live", "{}"), ("prepare-live", value.as_str())] {
+        host_services::accept_request(
+            &fixture.core,
+            WORKER_A,
+            service_request(
+                &fixture,
+                ServiceRequest {
+                    conversation: &conversation_id,
+                    view: "view-a",
+                    transport: "nonce-a",
+                    service,
+                    origin: "input-1",
+                    kind: "live_audio",
+                    value: payload,
+                    cancelled: false,
+                },
+            ),
+        )
+        .await;
+    }
+    assert_eq!(seen.lock().unwrap().len(), 1);
+    let stored: String =
+        sqlx::query_scalar("SELECT kind FROM omp_host_services WHERE conversation_id=$1")
+            .bind(&conversation_id)
+            .fetch_one(fixture.database().pool())
+            .await
+            .unwrap();
+    assert_eq!(stored, "live_audio");
+    let reply = |tab: &str, request_id: &str| proto::AgentOmpUiRequest {
+        conversation_id: conversation_id.clone(),
+        request_id: request_id.into(),
+        action_json: json!({
+            "method":"host_reply",
+            "params":{"serviceId":"prepare-live","accepted":true,"value":"v=0\r\n"},
+        })
+        .to_string(),
+        view_id: "view-a".into(),
+        tab_id: tab.into(),
+        transport_id: "nonce-a".into(),
+        ..Default::default()
+    };
+    let other_tab = caller_on(&fixture, "tab-b");
+    assert!(
+        handle_agent_omp_ui(&fixture.core, &other_tab, reply("tab-b", "foreign-reply"),)
+            .await
+            .is_err()
+    );
+    handle_agent_omp_ui(&fixture.core, &caller, reply("tab-a", "live-reply"))
+        .await
+        .expect("the owning view receives its SDP");
+    let CoordWorkerDownstream::OmpUi(frame) = receive(&mut downstream).await else {
+        panic!("expected native host reply");
+    };
+    let payload: serde_json::Value = serde_json::from_str(&frame.action_json).unwrap();
+    assert_eq!(payload["params"]["value"], "v=0\r\n");
+    assert_eq!(frame.view_id, "view-a");
+    assert_eq!(frame.transport_id, "nonce-a");
+    assert_eq!(
+        frame.client_id,
+        format!("{}:view-a", fixture.caller.principal.fingerprint())
+    );
+    assert!(
+        handle_agent_omp_ui(
+            &fixture.core,
+            &caller,
+            reply("tab-a", "duplicate-live-reply"),
+        )
+        .await
+        .is_err()
+    );
+}
