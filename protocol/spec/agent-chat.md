@@ -32,6 +32,18 @@ UI extension (`agentCapabilities._meta.commandUi = {version:1,protocol:"tsp"}`).
 the worker supplies the canonical ACP session identity. `/models`, `/resume`, and
 `/settings` are OMP's actual terminal workflows, not Roost-authored forms. Session
 switches update the saved resume identity, cwd and canonical history.
+The worker's `initialize` declares `clientCapabilities._meta.commandUi =
+{version:1,protocol:"tsp"}`; OMP then builds the session as a TSP transcript
+client (`tuiTranscript`), which keeps the terminal's system-prompt visuals,
+reaction and `out://` instructions, and the reaction/`out://` features, in
+force exactly as in the TUI. The context meter then counts the same prompt.
+A closed ```mermaid fence reaches the client as `md.p.mermaid: [{src, ascii}]`
+(the terminal's own ASCII drawing at the surface width, no ANSI) and a closed
+top-level ```svg fence, including auto-graph charts and svg writes, as
+`md.p.svg: [{src, doc}]` (the figure tokens resolved to the shown palette). The
+browser draws a fence whose trimmed source equals `src` from its drawing, svg
+as a data-URL image, and shows any other fence, such as one still streaming,
+as code.
 
 `OmpUiDocument` is the only TSP fold. Frames apply atomically against contiguous
 surface sequences; a rejected operation rolls back all touched nodes, properties,
