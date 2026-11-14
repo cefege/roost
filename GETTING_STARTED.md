@@ -715,6 +715,14 @@ release immediately on selected fleet hosts. It downloads and verifies only
 their platform assets and the shared web bundle; other platforms need not be
 published.
 
+**Terminal-only cutover (`v3.0.10`).** Earlier agent-enabled workers require an
+OMP asset their updater still expects, but terminal-only releases no longer
+publish. Bootstrap each affected worker from a terminal-only checkout with
+`cargo xtask fleet install --version v3.0.10 --host <name>`. An offline worker
+needs this once it returns; later terminal-only releases follow automatically.
+Returning to an agent-enabled release requires its installer and runtime bundle;
+the terminal-only updater does not stage that retired runtime.
+
 Our managed deployment fleet is Linux/macOS only. `roost-win` is excluded
 from `xtask/fleet.json`; routine releases do not deploy, recover or re-enroll
 it. Its existing installation is left untouched. Windows binaries and CI
