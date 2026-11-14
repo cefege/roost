@@ -89,10 +89,87 @@ pub(crate) fn merge_list_answer(
         storage.set(FOLDER_ORDER_KEY, &value);
     }
     for key in storage.stamped_keys() {
-        if !remote_keys.contains(key.as_str()) {
+        if is_synced_key(&key) && !remote_keys.contains(key.as_str()) {
             storage.mark_dirty(&key);
             counts.queued += 1;
         }
     }
     counts
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use std::rc::Rc;
+
+    use crate::store::prefs::PrefDefaults;
+    use crate::{
+        ClientCore, ClientEvent, Effect, MemoryClock, MemoryEpochClock, MemoryKeyValueStore,
+        RpcCall, RpcResult,
+    };
+
+    use super::*;
+
+    #[test]
+    fn retired_local_stamps_cannot_block_a_supported_preference_upload() {
+        let local = Rc::new(MemoryKeyValueStore::new());
+        let epoch = Rc::new(MemoryEpochClock::starting_at(100));
+        let order = r#"["worker:/second","worker:/first"]"#;
+        {
+            let previous = ClientStateStore::new(local.clone(), epoch.clone());
+            for (key, value) in [
+                ("roost.agent.draft.c-retired", "unsent draft"),
+                (FOLDER_ORDER_KEY, order),
+            ] {
+                previous.apply_remote(&ClientStateEntry {
+                    key: key.to_owned(),
+                    value: value.to_owned(),
+                    updated_ms: 100,
+                });
+            }
+        }
+        let storage = Rc::new(ClientStateStore::new(local, epoch));
+        let mut core = ClientCore::new(
+            Rc::new(MemoryClock::new()),
+            storage,
+            "tab-upgraded",
+            &PrefDefaults::default(),
+        );
+        core.handle(ClientEvent::DialRequested);
+        let call_id = core
+            .handle(ClientEvent::SyncLinkOpened {
+                generation: 1,
+                socket_id: "socket-upgraded".to_owned(),
+                process_epoch: "epoch-upgraded".to_owned(),
+            })
+            .into_iter()
+            .find_map(|effect| match effect {
+                Effect::Rpc(RpcCall::ClientStateList { call_id }) => Some(call_id),
+                _ => None,
+            })
+            .unwrap();
+        core.handle(ClientEvent::RpcResultReceived(
+            RpcResult::ClientStateListed {
+                call_id,
+                entries: Vec::new(),
+            },
+        ));
+        core.handle(ClientEvent::Sweep { now_ms: 0 });
+        let batches: Vec<_> = core
+            .handle(ClientEvent::Sweep { now_ms: 1_000 })
+            .into_iter()
+            .filter_map(|effect| match effect {
+                Effect::Rpc(RpcCall::ClientStateSet { entries, .. }) => Some(entries),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            batches,
+            vec![vec![ClientStateEntry {
+                key: FOLDER_ORDER_KEY.to_owned(),
+                value: order.to_owned(),
+                updated_ms: 100,
+            }]]
+        );
+    }
 }

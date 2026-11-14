@@ -32,6 +32,21 @@ serving the router alone does not receive `pg_notify`.
 `an_unstamped_browser_order_seeds_only_an_account_without_an_order`, and
 `sync_ws_socket::a_folder_order_write_reaches_other_devices_before_domain_hydration`.
 
+### Retired local preferences block supported settings after an upgrade
+
+**Symptom** — `ClientStateSet` returns `invalid_argument: key is not a synced
+client-state key`; valid terminal settings and folder order remain unsynced.
+
+**Wrong** — queue every locally stamped key omitted from the server's list.
+An upgraded profile retains stamps for retired agent drafts; the server omits
+those keys and rejects the entire batch when the browser uploads them again.
+
+**Right** — apply the shared synced-key allowlist to local bootstrap candidates,
+just as remote entries and new local writes do. Retired stamps remain inert;
+supported local writes still upload.
+
+**Guard** — `client::client_state::merge::tests::retired_local_stamps_cannot_block_a_supported_preference_upload`.
+
 ## Store subscription and component lifecycle
 
 ### SPA projector hand-mirrors the shared event fold
