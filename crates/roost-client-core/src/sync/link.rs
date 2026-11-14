@@ -79,13 +79,11 @@ pub enum SyncDomain {
     Pair,
     /// Audit rows.
     Audit,
-    /// Built-in agent conversations and transcripts.
-    Agent,
 }
 
 impl SyncDomain {
     /// Every domain, in the coordinator's own order.
-    pub const ALL: [SyncDomain; 8] = [
+    pub const ALL: [SyncDomain; 7] = [
         SyncDomain::Terminal,
         SyncDomain::Workers,
         SyncDomain::Workspaces,
@@ -93,7 +91,6 @@ impl SyncDomain {
         SyncDomain::Mcp,
         SyncDomain::Pair,
         SyncDomain::Audit,
-        SyncDomain::Agent,
     ];
 
     /// The protobuf enum value. Never renumbered: a coordinator and a client that
@@ -107,7 +104,6 @@ impl SyncDomain {
             Self::Mcp => 6,
             Self::Pair => 7,
             Self::Audit => 9,
-            Self::Agent => 10,
         }
     }
 
@@ -121,7 +117,6 @@ impl SyncDomain {
             Self::Mcp => "SYNC_DOMAIN_MCP",
             Self::Pair => "SYNC_DOMAIN_PAIR",
             Self::Audit => "SYNC_DOMAIN_AUDIT",
-            Self::Agent => "agent",
         }
     }
 }

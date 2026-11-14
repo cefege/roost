@@ -232,10 +232,7 @@ impl Harness {
         let cells = TableCellDelivery::new(CellEmitter::new(), Arc::clone(&table));
         let emitter = cells.emitter();
         let delivery: Arc<Mutex<dyn ChannelDelivery>> =
-            Arc::new(Mutex::new(TableChannelDelivery::new(
-                Arc::clone(&emitter),
-                Arc::new(roost_worker::session::terminal_changed::TerminalChangedHooks::default()),
-            )));
+            Arc::new(Mutex::new(TableChannelDelivery::new(Arc::clone(&emitter))));
         let capacity = TerminalCoreCapacity::new(TerminalCoreCapacityOptions {
             effective_memory_ceiling_bytes: 64 << 30,
             boot_rss_bytes: 0,

@@ -76,10 +76,7 @@ fn stack(channel_number: i64) -> Stack {
         .expect("the table takes the record");
     let cells = TableCellDelivery::new(CellEmitter::new(), Arc::clone(&table));
     let emitter = cells.emitter();
-    let ingest = TableChannelDelivery::new(
-        Arc::clone(&emitter),
-        Arc::new(roost_worker::session::terminal_changed::TerminalChangedHooks::default()),
-    );
+    let ingest = TableChannelDelivery::new(Arc::clone(&emitter));
     Stack {
         _fixture: fixture,
         table,

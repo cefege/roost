@@ -1,5 +1,4 @@
-//! The query half of navigation search: normalize once, match every term, and
-//! order the rows that want attention.
+//! The query half of navigation search: normalize once and match every term.
 //!
 //! Split from the projection because the two change for different reasons: a new
 //! field on a session is a projection change, and a new matching rule is a query
@@ -12,7 +11,7 @@
 //! requiring one field to contain the whole phrase is what makes a filter feel
 //! broken.
 
-use crate::store::navigation::{NavigationSearchDocument, attention_rank};
+use crate::store::navigation::NavigationSearchDocument;
 
 /// Normalize a query or a document's search text, once, for every consumer.
 ///
@@ -63,22 +62,6 @@ pub fn filter_navigation_search_documents<'a>(
         .collect()
 }
 
-/// The rows that want attention, in the order an operator should answer them.
-///
-/// Selects WITHOUT acknowledging: navigation stays the seen-state owner, and a
-/// filter that marked rows seen would make the attention list empty the moment it
-/// was opened.
-pub fn attention_navigation_documents(
-    documents: &[NavigationSearchDocument],
-) -> Vec<&NavigationSearchDocument> {
-    let mut attention: Vec<&NavigationSearchDocument> = documents
-        .iter()
-        .filter(|document| document.agent_attention.is_some())
-        .collect();
-    attention.sort_by(|left, right| compare_attention_documents(left, right));
-    attention
-}
-
 /// Whether a document matches an already-split, already-normalized term list.
 ///
 /// The term list comes from [`navigation_search_terms`], so a caller that filters
@@ -87,21 +70,4 @@ pub fn document_matches_terms(document: &NavigationSearchDocument, terms: &[Stri
     terms
         .iter()
         .all(|term| document.search_text.contains(term.as_str()))
-}
-
-/// A session an operator cannot reach cannot be answered, so an unavailable
-/// worker's row sinks below every reachable one whatever its level. Recency is
-/// the BROWSER'S arrival counter, never a worker clock: worker wall clocks are
-/// unsynchronized, and one machine running minutes ahead would otherwise own the
-/// top of the list.
-fn compare_attention_documents(
-    left: &NavigationSearchDocument,
-    right: &NavigationSearchDocument,
-) -> std::cmp::Ordering {
-    u8::from(!left.available)
-        .cmp(&u8::from(!right.available))
-        .then_with(|| attention_rank(left).cmp(&attention_rank(right)))
-        .then_with(|| right.agent_unseen.cmp(&left.agent_unseen))
-        .then_with(|| right.agent_arrival.cmp(&left.agent_arrival))
-        .then_with(|| left.session_id.cmp(&right.session_id))
 }

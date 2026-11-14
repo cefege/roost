@@ -36,10 +36,7 @@ impl Scratch {
     pub fn new(label: &str) -> Self {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let ordinal = NEXT.fetch_add(1, Ordering::Relaxed);
-        // `/tmp`, not `std::env::temp_dir()`: the agent report server binds a
-        // Unix socket in this root, a socket path must fit `sun_path` (104
-        // bytes on macOS), and macOS's per-user `$TMPDIR` spends about half of
-        // that before this directory is named.
+        // Keep paths short enough for Unix sockets on macOS.
         let root = Path::new("/tmp").join(format!(
             "roost-credential-{label}-{}-{ordinal}",
             std::process::id()

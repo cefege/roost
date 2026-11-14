@@ -89,12 +89,10 @@ pub fn editor_style(
     format!("--term-chat-growth: {growth}; transform: {transform}; padding-bottom: {padding};")
 }
 
-/// `data-composer-reserve`: the compact editor keeps the portaled terminal
-/// composer's resting row. An agent tab carries its composer inline in the
-/// deck slot, so it shifts for the keyboard but reserves nothing.
+/// The compact editor keeps the portaled terminal composer's resting row.
 #[must_use]
 pub fn reserves_terminal_composer(pathname: &str, keyboard_resize: bool) -> bool {
-    keyboard_shift(is_terminal_path(pathname), keyboard_resize) && !pathname.starts_with("/a/")
+    keyboard_shift(is_terminal_path(pathname), keyboard_resize)
 }
 
 /// `data-keyboard-shift`: set on a terminal route unless the reader opted into
@@ -139,10 +137,7 @@ pub fn shows_mobile_top_bar(compact: bool, pathname: &str, terminal_route: bool)
 /// v2's terminal-route test for the shell: a prefix, so a terminal route that
 /// has not resolved yet still shifts for the keyboard.
 pub fn is_terminal_path(pathname: &str) -> bool {
-    pathname.starts_with("/s/")
-        || pathname.starts_with("/t/")
-        || pathname.starts_with("/w/")
-        || pathname.starts_with("/a/")
+    pathname.starts_with("/s/") || pathname.starts_with("/t/") || pathname.starts_with("/w/")
 }
 
 /// Where the drawer stands when the route or the size class changes.
@@ -236,9 +231,7 @@ mod editor_style_tests {
     }
 
     #[test]
-    fn an_agent_tab_shifts_for_the_keyboard_but_reserves_nothing() {
-        assert!(keyboard_shift(is_terminal_path("/a/7"), false));
-        assert!(!reserves_terminal_composer("/a/7", false));
+    fn terminal_composer_respects_keyboard_resize() {
         assert!(reserves_terminal_composer("/s/abc", false));
         assert!(!reserves_terminal_composer("/s/abc", true));
     }

@@ -1,6 +1,6 @@
 //! Bus payload → `FirehoseFrame` for the domains whose bus message is already a
 //! domain value: durable sessions, workspaces, tasks, MCP relays, pair
-//! requests, audit rows, agent status and terminal titles.
+//! requests, audit rows and terminal titles.
 //!
 //! Ported from `apps/coord/src/sync/sync-feed-frames.ts:169-393`. Each function
 //! is TOTAL where v2's was partial: `workspaceFrame`, `mcpFrame` and
@@ -19,21 +19,18 @@ use roost_proto::__buffa::oneof::pair_request_delta_proto::Kind as PairKind;
 use roost_proto::__buffa::oneof::task_delta_proto::Kind as TaskKind;
 use roost_proto::__buffa::oneof::workspace_delta_proto::Kind as WorkspaceKind;
 use roost_proto::{
-    AgentStatusFrame, AuditRow as PbAuditRow, ClipboardHistoryFrame, FirehoseFrame, McpRelayEvent,
+    AuditRow as PbAuditRow, ClipboardHistoryFrame, FirehoseFrame, McpRelayEvent,
     McpStreamMessageProto, PairCompleted, PairRequest, PairRequestDeltaProto, TaskDeltaProto,
     TerminalClipboardEntry, TerminalClipboardFrame, TerminalCommandFinishedFrame,
     TerminalTitleFrame, Workspace as PbWorkspace, WorkspaceDeltaProto, WorkspaceSessionsSet,
 };
-use roost_protocol::wire::{
-    AgentStatusUpdate, McpRelayDelta, McpStreamMessage, WorkspaceDelta, event_to_proto,
-};
+use roost_protocol::wire::{McpRelayDelta, McpStreamMessage, WorkspaceDelta, event_to_proto};
 
-pub use super::agent_frames::{agent_chat_events_frame, agent_conversation_frame};
 use crate::events::bus_messages::{
     AuditRow, PairRequestDelta, SessionBell, SessionBusMessage, SessionClipboardWrite,
     SessionCommandFinished, SessionTitleUpdate, TaskBusMsg, TaskBusMsgKind,
 };
-use crate::sync_ws::feed::{FeedFrame, FeedRefusal, as_f64, as_u32, as_u64};
+use crate::sync_ws::feed::{FeedFrame, FeedRefusal, as_u32, as_u64};
 
 /// One durable session event as the frame a browser folds.
 ///
@@ -210,36 +207,6 @@ pub fn pair_frame(delta: &PairRequestDelta) -> FeedFrame {
         frame: Some(Frame::PairRequestDelta(Box::new(PairRequestDeltaProto {
             kind: Some(kind),
             ..PairRequestDeltaProto::default()
-        }))),
-        ..FirehoseFrame::default()
-    })
-}
-
-/// One agent status update as its frame.
-///
-/// An inactive update is a DELETE for the browser's retained row, not a state,
-/// and `active` is what says which -- so the flag travels rather than being
-/// inferred from an empty agent id.
-pub fn agent_status_frame(status: &AgentStatusUpdate) -> FeedFrame {
-    let common = &status.common;
-    FeedFrame::of(FirehoseFrame {
-        frame: Some(Frame::AgentStatus(Box::new(AgentStatusFrame {
-            session_id: common.session_id.as_str().to_owned(),
-            agent_id: common.agent_id.as_str().to_owned(),
-            state: common.state.as_str().to_owned(),
-            message: common.message.clone(),
-            revision: as_u64(common.revision),
-            completed_revision: as_u64(common.completed_revision),
-            updated_at: as_f64(common.updated_at),
-            active: status.active,
-            status_epoch: common
-                .status_epoch
-                .as_ref()
-                .map(|epoch| epoch.as_str().to_owned()),
-            occupant_id: common.occupant_id.as_ref().map(|id| id.as_str().to_owned()),
-            source: common.source.map(|source| source.as_str().to_owned()),
-            occupant_exited: common.occupant_exited,
-            ..AgentStatusFrame::default()
         }))),
         ..FirehoseFrame::default()
     })

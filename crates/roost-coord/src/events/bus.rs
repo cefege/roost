@@ -29,10 +29,8 @@
 //! ONE DELIBERATE DIFFERENCE, AND ITS VISIBLE CONSEQUENCE. The listener list is
 //! snapshotted under the lock and the callbacks run after it is released, where v2
 //! held its (single-threaded, lock-free) set for the whole loop. Holding a mutex
-//! across a subscriber callback is a lock-order cycle waiting for the first hub
-//! that fans out into another bus -- and `agent-status-hub` subscribes to
-//! `sessionBus` and publishes to `agentStatusBus` today, so that cycle is a fact
-//! about the existing call graph rather than a hypothetical.
+//! across a subscriber callback creates a lock-order cycle when a subscriber
+//! publishes to another bus.
 //!
 //! **The visible consequence, which is not a bug:** a listener that unsubscribes
 //! *during* a fan-out still receives that one message, where v2's live `Set`

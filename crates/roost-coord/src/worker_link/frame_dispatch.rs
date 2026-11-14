@@ -31,7 +31,7 @@ use crate::workers::registry::mark_generation_ready;
 /// (`worker_link::connection`), which is the only thing that knows when a frame
 /// may be released.
 pub struct WorkerFrameDispatcher {
-    /// The process state, reached through the core the agent-status hub wants.
+    /// The shared process state.
     pub(super) core: CoordCore,
     /// This socket's generation: the fence, the barrier, and the sender.
     pub(super) handle: Arc<WorkerHandle>,

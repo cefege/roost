@@ -26,29 +26,6 @@ impl std::fmt::Debug for UiBusMsg {
                 .field("target_socket_id", target_socket_id)
                 .field("correlation_id", correlation_id)
                 .finish(),
-            Self::OmpHostService {
-                fingerprint,
-                tab_id,
-                frame,
-            } => formatter
-                .debug_struct("UiBusMsg::OmpHostService")
-                .field("fingerprint", fingerprint)
-                .field("tab_id", tab_id)
-                .field("service_id", &frame.service_id)
-                .field("origin_request_id", &frame.origin_request_id)
-                .finish(),
-            Self::OmpUiActionReceipt {
-                fingerprint,
-                tab_id,
-                frame,
-            } => formatter
-                .debug_struct("UiBusMsg::OmpUiActionReceipt")
-                .field("fingerprint", fingerprint)
-                .field("tab_id", tab_id)
-                .field("origin_request_id", &frame.origin_request_id)
-                .field("after_seq", &frame.after_seq)
-                .field("failed", &!frame.error.is_empty())
-                .finish(),
         }
     }
 }

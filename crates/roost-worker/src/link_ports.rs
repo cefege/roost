@@ -7,7 +7,6 @@
 
 use std::sync::Arc;
 
-use roost_proto::DAgentPrompt;
 use roost_proto::DKeeperUpdatePrepare;
 use roost_proto::{
     AttachmentTransferStatus, DAttachmentChunk, DAttachmentDirectStatusRequest,
@@ -117,8 +116,8 @@ pub trait LinkLifecyclePort: Send + Sync + std::fmt::Debug {
 
 /// Several owners of the link's lifecycle behind the one port the link calls.
 /// v2's `CoordLinkDeps` callbacks each reach several owners —
-/// `coord-link-deps.ts` `onSnapshotReady` replays terminal metadata, resumes
-/// the cell sink AND resends agent status — in registration order.
+/// `coord-link-deps.ts` `onSnapshotReady` replays terminal metadata and resumes
+/// the cell sink in registration order.
 #[derive(Debug)]
 pub struct LinkLifecycles {
     owners: Vec<Arc<dyn LinkLifecyclePort>>,
@@ -181,20 +180,6 @@ pub trait DirectTerminalPort: Send + Sync + std::fmt::Debug {
     fn direct_retire(&self, request: &DTerminalDirectRetire);
 }
 
-/// Status-fenced agent prompts. v2 `onAgentPrompt`. Implemented by
-/// `agents::prompt_port::AgentPromptOwner`.
-pub trait AgentPromptPort: Send + Sync + std::fmt::Debug {
-    /// Work-budget reservation happens synchronously in this call; the future
-    /// resolves to the ONE `input-result`, or `None` when the session id is not
-    /// one the wire can carry and the dispatcher sends nothing.
-    fn write_prompt(
-        &self,
-        request: DAgentPrompt,
-        budget: RequestBudget,
-        fence: LinkFence,
-    ) -> OwnerFuture<Option<InputResult>>;
-}
-
 /// Attachment peers. v2 `onLocalAttachmentPeerOffer`,
 /// `onLocalAttachmentPeerCancel`. Implemented by
 /// `attachments::direct_owners::AttachmentDirect`.
@@ -236,18 +221,6 @@ pub trait KeeperUpdatePort: Send + Sync + std::fmt::Debug {
     ) -> OwnerFuture<Result<serde_json::Value, String>>;
 }
 
-/// Worker-owned OMP conversations carried over ACP.
-pub trait OmpPort: Send + Sync + std::fmt::Debug {
-    fn open(&self, request: roost_proto::DOmpOpen);
-    fn prompt(&self, request: roost_proto::DOmpPrompt);
-    fn cancel(&self, request: roost_proto::DOmpCancel);
-    fn respond(&self, request: roost_proto::DOmpRespond);
-    fn set_mode(&self, request: roost_proto::DOmpSetMode);
-    fn ui(&self, request: roost_proto::DOmpUi);
-    fn ack(&self, request: roost_proto::DOmpEventsAck);
-    fn close(&self, request: roost_proto::DOmpClose);
-}
-
 /// Coordinator-driven live host metrics: a subscription starts or stops sampling.
 pub trait LiveMetricsPort: Send + Sync + std::fmt::Debug {
     fn subscription(&self, request: roost_proto::DLiveMetricsSubscription);
@@ -263,10 +236,8 @@ pub struct DownstreamOwners {
     pub lifecycle: Arc<dyn LinkLifecyclePort>,
     pub local_terminal: Arc<dyn LocalTerminalGrantPort>,
     pub direct: Option<Arc<dyn DirectTerminalPort>>,
-    pub agent_prompt: Arc<dyn AgentPromptPort>,
     pub attachment_peers: Option<Arc<dyn AttachmentPeerPort>>,
     pub attachments: Arc<dyn AttachmentLinkPort>,
     pub keeper_update: Arc<dyn KeeperUpdatePort>,
-    pub omp: Option<Arc<dyn OmpPort>>,
     pub live_metrics: Option<Arc<dyn LiveMetricsPort>>,
 }

@@ -95,25 +95,6 @@ message WRefreshJwt { string jwt = 1; }
 message WCellGrid { uint32 channel_id = 1; PbCellGridFrame frame = 2; }
 message WCellGridChunk { uint32 channel_id = 1; PbCellGridChunk chunk = 2; }
 
-// Volatile agent runtime metadata. The worker owns revision ordering; this
-// frame is never placed in the durable event outbox. `occupant_exited` marks a
-// row the occupant's last process already left behind: it survives only to
-// carry a completion, and no viewer that has acknowledged that completion has
-// anything left to show.
-message WAgentStatus {
-  string session_id = 1;
-  string agent_id = 2;
-  string state = 3;
-  optional string message = 4;
-  uint64 revision = 5;
-  uint64 completed_revision = 6;
-  double updated_at = 7;
-  bool active = 8;
-  optional string status_epoch = 9;
-  optional string occupant_id = 10;
-  optional string source = 11;
-  bool occupant_exited = 12;
-}
 // Durable Windows update-broker progress. Progress is journal-backed on the
 // worker host and replayed after a worker reconnect; sequence is monotonic per
 // job. A terminal frame is retained with the journal rather than inferred from
@@ -280,45 +261,12 @@ message WLiveMetrics {
   LiveHostSnapshot snapshot = 1;
 }
 
-message WOmpEvents {
-  string conversation_id = 1;
-  // Fresh for each worker-side conversation actor.
-  string run_id = 2;
-  // Sequence of events_json[0]; events are contiguous within run_id.
-  uint64 first_seq = 3;
-  // Each entry is OmpWorkerEvent JSON.
-  repeated string events_json = 4;
-}
-
-// A user-triggered request for a browser-owned effect. This control bypasses
-// the durable OMP transcript and is addressed to one authenticated UI view.
-message WOmpHostServiceRequest {
-  string conversation_id = 1;
-  string service_id = 2;
-  string origin_request_id = 3;
-  string client_id = 4;
-  string view_id = 5;
-  string transport_id = 6;
-  string kind = 7;
-  string value = 8;
-  bool cancelled = 9;
-}
-
-// Native input/event completion, fenced behind its durable UI frames.
-message WOmpUiActionReceipt {
-  string conversation_id = 1;
-  string origin_request_id = 2;
-  string client_id = 3;
-  string view_id = 4;
-  string transport_id = 5;
-  string error = 6;
-}
 
 message CoordWorkerUp {
-  reserved 4, 5, 8, 9, 13, 15;
-  reserved "viewport_result", "transfer_line", "transfer_done";
-  reserved 33, 34, 35;
-  reserved "agent_tool_output", "agent_tool_result", "agent_job_result";
+  reserved 4, 5, 8, 9, 13, 14, 15, 33, 34, 35, 37, 38, 39;
+  reserved "viewport_result", "transfer_line", "transfer_done",
+      "agent_tool_output", "agent_tool_result", "agent_job_result",
+      "agent_status", "omp_events", "omp_host_service_request", "omp_ui_action_receipt";
   oneof frame {
     WHello hello = 1;
     WPong pong = 2;
@@ -328,7 +276,6 @@ message CoordWorkerUp {
     WBinary binary = 10;
     WRefreshJwt refresh_jwt = 11;
     WCellGrid cell_grid = 12;
-    WAgentStatus agent_status = 14;
     WInputResult input_result = 16;
     WTerminalStreamResult terminal_stream_result = 17;
     WCellGridChunk cell_grid_chunk = 18;
@@ -345,9 +292,6 @@ message CoordWorkerUp {
     WLocalAttachmentPeerError local_attachment_peer_error = 28;
     WAttachmentDirectStatus attachment_direct_status = 29;
     WLiveMetrics live_metrics = 36;
-    WOmpEvents omp_events = 37;
-    WOmpHostServiceRequest omp_host_service_request = 38;
-    WOmpUiActionReceipt omp_ui_action_receipt = 39;
   }
   reserved 31, 32;
 }
@@ -624,69 +568,12 @@ message DTerminalDirectRetire {
 // and re-sends active:true after a worker reconnects while subscribers remain.
 message DLiveMetricsSubscription { bool active = 1; }
 
-message DOmpImage {
-  string mime_type = 1;
-  bytes data = 2;
-}
-message DOmpPrompt {
-  string conversation_id = 1;
-  string request_id = 2;
-  string cwd = 3;
-  // Empty starts a new OMP session.
-  string acp_session_id = 4;
-  string text = 5;
-  repeated DOmpImage images = 6;
-  repeated string file_paths = 7;
-  // Resolved provider/id; empty leaves OMP's own model.
-  string model = 8;
-  // Resolved thinking level; empty leaves OMP's own setting.
-  string thinking_level = 9;
-  string mode = 10;
-}
-message DOmpCancel { string conversation_id = 1; }
-message DOmpEventsAck {
-  string conversation_id = 1;
-  string run_id = 2;
-  uint64 seq = 3;
-}
-message DOmpClose { string conversation_id = 1; }
-message DOmpOpen {
-  string conversation_id = 1;
-  string cwd = 2;
-  string acp_session_id = 3;
-}
-
-message DOmpRespond {
-  string conversation_id = 1;
-  string request_id = 2;
-  string action = 3;
-  string content_json = 4;
-}
-message DOmpSetMode {
-  string conversation_id = 1;
-  string request_id = 2;
-  string mode = 3;
-  string cwd = 4;
-  string acp_session_id = 5;
-}
-message DOmpUi {
-  string conversation_id = 1;
-  string request_id = 2;
-  string action_json = 3;
-  string cwd = 4;
-  string acp_session_id = 5;
-  string client_id = 6;
-  string view_id = 7;
-  string tab_id = 8;
-  string transport_id = 9;
-  bool receipt = 10;
-}
 message CoordWorkerDown {
-  reserved 11;
-  reserved "viewport_request";
-  reserved 37, 38, 39, 40, 41;
-  reserved "agent_tool_call", "agent_tool_cancel", "agent_conversation_closed",
-      "agent_tool_background", "agent_jobs_abort";
+  reserved 11, 16, 37, 38, 39, 40, 41, 43, 44, 45, 46, 47, 48, 49, 50;
+  reserved "viewport_request", "agent_tool_call", "agent_tool_cancel",
+      "agent_conversation_closed", "agent_tool_background", "agent_jobs_abort",
+      "agent_prompt", "omp_prompt", "omp_cancel", "omp_events_ack", "omp_close",
+      "omp_open", "omp_respond", "omp_set_mode", "omp_ui";
   oneof frame {
     DHelloAck hello_ack = 1;
     DPing ping = 2;
@@ -703,7 +590,6 @@ message CoordWorkerDown {
     DTerminalSnapshotRequest terminal_snapshot_request = 14;
     DUpdateBroker update_broker = 30;
     DKeeperUpdatePrepare keeper_update_prepare = 15;
-    DAgentPrompt agent_prompt = 16;
     DTerminalPipelineSnapshotRequest terminal_pipeline_snapshot = 17;
     DTerminalViewRelay terminal_view_relay = 18;
     DTerminalViewSocketClosed terminal_view_socket_closed = 19;
@@ -720,28 +606,10 @@ message CoordWorkerDown {
     DLocalAttachmentGrantRevoke local_attachment_grant_revoke = 31;
     DAttachmentDirectStatusRequest attachment_direct_status_request = 32;
     DLiveMetricsSubscription live_metrics = 42;
-    DOmpPrompt omp_prompt = 43;
-    DOmpCancel omp_cancel = 44;
-    DOmpEventsAck omp_events_ack = 45;
-    DOmpClose omp_close = 46;
-    DOmpOpen omp_open = 47;
-    DOmpRespond omp_respond = 48;
-    DOmpSetMode omp_set_mode = 49;
-    DOmpUi omp_ui = 50;
   }
   reserved 33, 34, 35, 36;
 }
 
-message DAgentPrompt {
-  string request_id = 1;
-  string session_id = 2;
-  uint64 input_seq = 3;
-  string expected_status_epoch = 4;
-  string expected_occupant_id = 5;
-  uint64 expected_revision = 6;
-  string text = 7;
-  uint32 budget_ms = 8;
-}
 
 service WorkerService {
   rpc Attach(stream CoordWorkerUp) returns (stream CoordWorkerDown);

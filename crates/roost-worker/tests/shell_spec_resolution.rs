@@ -5,8 +5,8 @@
 //! downstream of it, so the security case here opens a REAL PTY through a REAL
 //! keeper and reads the environment out of the child: a strip that is missing,
 //! applied to the wrong copy of the spec, or case-sensitive all fail there and
-//! nowhere else. What the overlay and the worker's `ROOST_` namespace contribute
-//! is `shell_spec_overlay`'s.
+//! nowhere else. The worker's `ROOST_` namespace is covered by
+//! `shell_spec_environment`.
 //!
 //! The rest is the resolution contract: a folder that is materialised, a shell
 //! that is resolved, terminal and locale variables that are set rather than

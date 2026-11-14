@@ -6,8 +6,6 @@
 
 #[path = "add_machine_enrollment.rs"]
 mod add_machine_enrollment;
-#[path = "agent_skill_document.rs"]
-mod agent_skill_document;
 #[path = "api_coordinator_calls.rs"]
 mod api_coordinator_calls;
 #[path = "api_verb_dispatch.rs"]
@@ -108,7 +106,5 @@ mod update_release_tree;
 mod update_replace_bytes;
 #[path = "update_self_replace.rs"]
 mod update_self_replace;
-#[path = "worker_boot_resolution.rs"]
-mod worker_boot_resolution;
 #[path = "worker_subcommand_boot.rs"]
 mod worker_subcommand_boot;

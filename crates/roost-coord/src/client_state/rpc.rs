@@ -47,6 +47,12 @@ pub async fn handle_client_state_set(
     let rows = apply_set(&core.services.db, &account_id, request.entries)
         .await
         .map_err(|error| refuse("set", error))?;
+    if !rows.is_empty() {
+        core.services
+            .cluster
+            .notify(crate::cluster::notify::CLIENT_STATE_CHANNEL, &account_id)
+            .await;
+    }
     tracing::debug!(
         target: "client_state",
         operation = "set",

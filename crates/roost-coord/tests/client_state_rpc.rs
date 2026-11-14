@@ -15,7 +15,7 @@ use roost_protocol::client_state::{
 use workspaces_support::{WorkspacesFixture, machine_caller};
 
 const DEVICE_FP: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
-const DRAFT_PREFIX: &str = "roost.agent.draft.";
+const WORKSPACE_PREFIX: &str = "roost.lastWorkspaceId.";
 const PANE_LAYOUT: &str = "roost.paneLayout.v1";
 
 /// A device of the fixture's own self-hosted account: the client-state rows
@@ -134,7 +134,7 @@ async fn an_equal_stamp_takes_the_incoming_write() {
 async fn a_batch_over_the_entry_cap_is_rejected_whole() {
     let fixture = WorkspacesFixture::new("client-state-batch-cap").await;
     let entries: Vec<ClientStateEntry> = (0..=MAX_BATCH_ENTRIES)
-        .map(|index| entry(&format!("{DRAFT_PREFIX}b{index}"), "x", 1))
+        .map(|index| entry(&format!("{WORKSPACE_PREFIX}b{index}"), "x", 1))
         .collect();
     assert_eq!(entries.len(), MAX_BATCH_ENTRIES + 1);
 
@@ -163,7 +163,7 @@ async fn a_key_outside_the_allowlist_rejects_the_whole_batch() {
 #[tokio::test]
 async fn a_key_over_256_bytes_is_rejected() {
     let fixture = WorkspacesFixture::new("client-state-key-length").await;
-    let long_key = format!("{DRAFT_PREFIX}{}", "k".repeat(MAX_KEY_BYTES));
+    let long_key = format!("{WORKSPACE_PREFIX}{}", "k".repeat(MAX_KEY_BYTES));
     assert!(long_key.len() > MAX_KEY_BYTES);
 
     assert_eq!(
@@ -191,7 +191,7 @@ async fn a_value_over_256_kib_is_rejected() {
 async fn the_key_cap_rejects_the_batch_that_would_exceed_it() {
     let fixture = WorkspacesFixture::new("client-state-key-cap").await;
     let fill: Vec<ClientStateEntry> = (0..MAX_KEYS_PER_ACCOUNT)
-        .map(|index| entry(&format!("{DRAFT_PREFIX}k{index}"), "v0", 1))
+        .map(|index| entry(&format!("{WORKSPACE_PREFIX}k{index}"), "v0", 1))
         .collect();
     for batch in fill.chunks(MAX_BATCH_ENTRIES) {
         set(&fixture, batch.to_vec())
@@ -200,8 +200,8 @@ async fn the_key_cap_rejects_the_batch_that_would_exceed_it() {
     }
     assert_eq!(list(&fixture).await.len(), MAX_KEYS_PER_ACCOUNT);
 
-    let existing_key = format!("{DRAFT_PREFIX}k0");
-    let overflow_key = format!("{DRAFT_PREFIX}overflow");
+    let existing_key = format!("{WORKSPACE_PREFIX}k0");
+    let overflow_key = format!("{WORKSPACE_PREFIX}overflow");
     let overflow = vec![
         entry(&existing_key, "changed", 2),
         entry(&overflow_key, "x", 2),

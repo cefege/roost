@@ -8,8 +8,6 @@
 
 pub mod attachment_target;
 pub use attachment_target::AttachmentTargetId;
-pub mod agent_chat;
-pub mod agent_status;
 pub mod brand;
 #[cfg(test)]
 mod brand_tests;
@@ -28,11 +26,6 @@ pub mod task;
 pub mod worker;
 pub mod workspace;
 
-pub use agent_status::{
-    AGENT_ID_MAX_LENGTH, AGENT_STATUS_MESSAGE_MAX_LENGTH, AgentId, AgentOccupantId,
-    AgentRuntimeState, AgentStatus, AgentStatusFields, AgentStatusIdentity, AgentStatusSource,
-    AgentStatusUpdate, StatusEpoch, is_identified_agent_status,
-};
 pub use brand::{ChannelId, McpRelayId, SessionId, TaskId, TraceId, WorkerFp, WorkspaceId};
 pub use event::{SessionEvent, SessionMap, fold_all, fold_event};
 pub use event_proto::{DecodedEvent, event_to_proto, proto_to_event};

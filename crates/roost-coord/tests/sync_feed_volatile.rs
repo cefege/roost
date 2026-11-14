@@ -237,19 +237,12 @@ fn a_ui_apply_reaches_only_the_socket_that_acknowledged_it() {
          counts while dropping every live UI frame"
     );
     assert!(
-        ui_bus_frame(
-            &apply,
-            &UiViewer::browser("socket-1", "fingerprint", "tab-1")
-        )
-        .is_none(),
+        ui_bus_frame(&apply, &UiViewer::browser("socket-1")).is_none(),
         "an acknowledged apply is addressed to the socket that acknowledged it, \
          so another browser must not execute this tab's layout"
     );
-    let addressed = ui_bus_frame(
-        &apply,
-        &UiViewer::browser("socket-2", "fingerprint", "tab-1"),
-    )
-    .expect("the acking socket gets it");
+    let addressed =
+        ui_bus_frame(&apply, &UiViewer::browser("socket-2")).expect("the acking socket gets it");
     match oneof_of(&addressed) {
         Frame::UiCommand(sent) => {
             assert_eq!(sent.target_tab_id, "tab-1");
@@ -266,7 +259,7 @@ fn a_ui_apply_reaches_only_the_socket_that_acknowledged_it() {
 
     // A legacy command has no addressee, so it broadcasts to every browser.
     for socket in ["socket-1", "socket-2"] {
-        let broadcast = ui_bus_frame(&legacy, &UiViewer::browser(socket, "fingerprint", "tab-1"))
+        let broadcast = ui_bus_frame(&legacy, &UiViewer::browser(socket))
             .expect("a legacy command reaches every browser");
         match oneof_of(&broadcast) {
             Frame::UiCommand(sent) => {

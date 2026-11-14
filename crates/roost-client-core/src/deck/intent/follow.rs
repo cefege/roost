@@ -24,13 +24,8 @@ pub(super) fn observe(
         clear_spotlight(store);
     }
     let stale_spotlight = store.spotlight.session_id().is_some_and(|tab_id| {
-        if let Some(conversation_id) = tab_id.strip_prefix("agent:") {
-            !store.agent_chat.conversations.contains_key(conversation_id)
-                || store.pending_closes.contains(tab_id)
-        } else {
-            crate::store::selectors::session_by_id(store, tab_id)
-                .is_none_or(|session| session.status != roost_protocol::wire::SessionStatus::Open)
-        }
+        crate::store::selectors::session_by_id(store, tab_id)
+            .is_none_or(|session| session.status != roost_protocol::wire::SessionStatus::Open)
     });
     if stale_spotlight {
         clear_spotlight(store);

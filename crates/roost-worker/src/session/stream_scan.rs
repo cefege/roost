@@ -1,8 +1,6 @@
-//! Pure terminal byte-stream scanners: alt-screen transitions, OSC 7 cwd, and
-//! the OSC title/progress agent detection falls back to. The only caller is
-//! `super::scrollback`; nothing here reads a session, writes a session, or
-//! touches a core. Depends on nothing but the standard library — and on nothing
-//! that depends on it back.
+//! Pure terminal byte-stream scanners for alt-screen transitions and OSC 7 cwd.
+//! The only caller is `super::scrollback`; nothing here reads or writes a
+//! session or touches a core. Depends only on the standard library.
 //!
 //! They are separate from the append policy because they are the one part of it
 //! with no state: a scanner is a function of the carried prefix plus the new
@@ -34,9 +32,6 @@ pub const MODE_CARRY_MAX: usize = 7;
 /// A whole sequence is `ESC ] 7 ; file://<host>/<percent-encoded-path> BEL`, and
 /// paths beyond a kilobyte are noise rather than a folder.
 pub const OSC7_CARRY_MAX: usize = 1024;
-
-/// The longest unterminated OSC 0/2 or OSC 9 body kept for the next chunk.
-pub const AGENT_OSC_CARRY_MAX: usize = 1024;
 
 const OSC7_PREFIX: &[u8] = b"\x1b]7;";
 
@@ -134,84 +129,6 @@ pub fn scan_osc7(combined: &[u8]) -> Osc7Scan {
     }
 }
 
-/// One OSC title/progress scan's result.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct AgentOscScan {
-    /// The last complete OSC 0/2 title, stripped of control bytes.
-    pub title: Option<String>,
-    /// The last complete OSC 9 `4;…` progress body.
-    pub progress: Option<String>,
-    /// The unparsed tail, at most [`AGENT_OSC_CARRY_MAX`] bytes.
-    pub carry: Vec<u8>,
-}
-
-/// The most title text a session retains, in UTF-16 code units.
-///
-/// Capped in code units rather than scalars because the value is user-visible
-/// text a front end truncates again for display, and a half-cut surrogate pair
-/// is a `U+FFFD` in a window title.
-pub const AGENT_OSC_TITLE_MAX: usize = 256;
-
-/// The most progress text a session retains, in the same unit.
-pub const AGENT_OSC_PROGRESS_MAX: usize = 64;
-
-/// Scan `combined` for the OSC 0/2 title and OSC 9 `4;` progress bodies.
-///
-/// Every other OSC code is skipped without consuming its body, so an unrelated
-/// OSC cannot swallow a title that follows it in the same chunk.
-pub fn scan_agent_osc(combined: &[u8]) -> AgentOscScan {
-    let mut scan = AgentOscScan::default();
-    let mut cursor = 0;
-    while cursor < combined.len() {
-        let Some(start) = find(combined, b"\x1b]", cursor) else {
-            break;
-        };
-        let body = start + 2;
-        let Some((terminator, width)) = first_terminator(combined, body) else {
-            let carry_from = start.max(combined.len().saturating_sub(AGENT_OSC_CARRY_MAX));
-            scan.carry = combined[carry_from..].to_vec();
-            return scan;
-        };
-        let payload = String::from_utf8_lossy(&combined[body..terminator]);
-        let (code, value) = match payload.split_once(';') {
-            Some((code, value)) => (code, value),
-            None => (payload.as_ref(), ""),
-        };
-        match code {
-            "0" | "2" => scan.title = Some(take_text(value, AGENT_OSC_TITLE_MAX)),
-            "9" => {
-                if let Some(progress) = value.strip_prefix("4;") {
-                    scan.progress = Some(take_text(progress, AGENT_OSC_PROGRESS_MAX));
-                }
-            }
-            _ => {}
-        }
-        cursor = terminator + width;
-    }
-    // A lone trailing ESC is the only prefix of a sequence the next chunk can
-    // complete, and keeping it costs one byte; keeping any longer tail would
-    // mean re-reporting a title that was already reported.
-    if combined.last() == Some(&0x1b) {
-        scan.carry = vec![0x1b];
-    }
-    scan
-}
-
-/// A body with its control bytes removed and at most `max` code units kept.
-fn take_text(value: &str, max: usize) -> String {
-    let mut kept = String::with_capacity(value.len().min(max));
-    for character in value.chars().filter(|c| {
-        let code = *c as u32;
-        !(code < 0x20 || code == 0x7f)
-    }) {
-        if kept.len() + character.len_utf16() > max {
-            break;
-        }
-        kept.push(character);
-    }
-    kept
-}
-
 /// The worker's canonical cwd for an OSC 7 payload, or `None` when the payload
 /// is not a `file://` URL this worker can hold.
 ///
@@ -283,13 +200,7 @@ fn hex_digit(byte: u8) -> Option<u8> {
 }
 
 /// The first `BEL`, or the first `ESC \`, at or after `from`, with its width.
-///
-/// An `ESC` that is not `ST` ends the search with no terminator. That is the
-/// right answer for a CWD and the wrong one for a title, which is why there are
-/// two of these: a folder payload interrupted by a stray escape is a sequence
-/// something else broke, and reporting the half of it we saw would be a guess,
-/// while a title routinely contains a CSI and stopping at it would mean a
-/// prompt that set its window title never got one.
+/// A stray `ESC` interrupts a cwd payload rather than reporting a partial path.
 fn terminator_after(combined: &[u8], from: usize) -> Option<(usize, usize)> {
     for at in from..combined.len() {
         match combined[at] {
@@ -297,19 +208,6 @@ fn terminator_after(combined: &[u8], from: usize) -> Option<(usize, usize)> {
             0x1b => {
                 return (combined.get(at + 1) == Some(&b'\\')).then_some((at, 2));
             }
-            _ => {}
-        }
-    }
-    None
-}
-
-/// The first `BEL` or `ESC \` at or after `from`, whichever comes first, with a
-/// bare `ESC` passing over rather than ending the search.
-fn first_terminator(combined: &[u8], from: usize) -> Option<(usize, usize)> {
-    for at in from..combined.len() {
-        match combined[at] {
-            0x07 => return Some((at, 1)),
-            0x1b if combined.get(at + 1) == Some(&b'\\') => return Some((at, 2)),
             _ => {}
         }
     }

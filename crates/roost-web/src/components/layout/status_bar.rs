@@ -1,5 +1,5 @@
-//! The desktop status bar: the active session's
-//! machine, its agent, the session's context, and the fleet counts. Ported from
+//! The desktop status bar: the active session's machine and context,
+//! plus the fleet counts. Ported from
 //! `apps/web/src/components/layout/WorkbenchStatusBar.tsx`.
 //!
 //! It projects state the store ALREADY holds. Nothing here is invented: there is
@@ -15,18 +15,12 @@
 //! pure and still tested, and the item returns the moment a health source exists
 //! to feed it; nothing has to be re-derived when it does.
 //!
-//! The agent word IS shown, because it has a real source:
-//! `roost_client_core`'s own presentation table, so the status bar and the
-//! agent sidebar chips cannot spell "needs input" two ways.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use dioxus::prelude::*;
 use roost_client_core::ClientCore;
-use roost_client_core::client::agents::{
-    AgentStatusLevel, agent_status_presentation, derive_agent_status_level,
-};
 use roost_client_core::store::navigation::worker_online;
 use roost_protocol::wire::SessionStatus;
 
@@ -62,8 +56,6 @@ pub struct StatusReadings {
     pub coordinator: CoordinatorState,
     /// The active session's machine, when the route names a session.
     pub machine: Option<Reading>,
-    /// The active session's agent, when it has a status worth showing.
-    pub agent: Option<Reading>,
     /// The active session's title and folder, as one string.
     pub context: Option<String>,
     /// How many sessions are open.
@@ -104,7 +96,6 @@ pub fn StatusBar() -> Element {
     let readings = read_status(&path, &core, now_ms);
     let coordinator = readings.coordinator;
     let machine = readings.machine.clone();
-    let agent = readings.agent.clone();
     let context = readings.context.clone();
     // The focused session's shell variables (OSC 1337 SetUserVar) ride the
     // bar: the sidebar's folder rows aggregate sessions and the tab is narrow.
@@ -131,14 +122,6 @@ pub fn StatusBar() -> Element {
                     span {
                         class: "inline-flex min-w-0 shrink-0 items-center gap-1 whitespace-nowrap tabular-nums max-[960px]:hidden",
                         "data-testid": "workbench-status-worker",
-                        StatusDot { status: reading.status.clone() }
-                        span { {reading.label} }
-                    }
-                }
-                if let Some(reading) = agent {
-                    span {
-                        class: "inline-flex min-w-0 shrink-0 items-center gap-1 whitespace-nowrap tabular-nums max-[960px]:hidden",
-                        "data-testid": "workbench-status-agent",
                         StatusDot { status: reading.status.clone() }
                         span { {reading.label} }
                     }
@@ -235,25 +218,9 @@ fn read_status(path: &str, core: &Rc<RefCell<ClientCore>>, now_ms: i64) -> Statu
             },
         })
     });
-    let agent = active.and_then(|session| {
-        let status = store.agent_status.status(&session.id)?;
-        let level = derive_agent_status_level(
-            Some(status),
-            Some(store.agent_seen.acknowledged_revision(status)),
-        );
-        if level == AgentStatusLevel::Unknown {
-            return None;
-        }
-        let presentation = agent_status_presentation(level);
-        Some(Reading {
-            label: presentation.label.to_string(),
-            status: agent_dot_status(presentation.dot_status).to_string(),
-        })
-    });
     StatusReadings {
         coordinator,
         machine,
-        agent,
         context,
         open_sessions,
         workers_online,
@@ -262,20 +229,6 @@ fn read_status(path: &str, core: &Rc<RefCell<ClientCore>>, now_ms: i64) -> Statu
             .coord_identity
             .as_ref()
             .map(|identity| identity.git_sha.chars().take(7).collect()),
-    }
-}
-
-/// The design-system status an agent level's dot shows.
-///
-/// The core's `AgentDotStatus` is a four-member vocabulary of its own; this is
-/// the one place it is spelled as the status names the dot's stylesheet knows,
-/// so the mapping is stated once instead of at every call site.
-fn agent_dot_status(dot: roost_client_core::client::agents::AgentDotStatus) -> &'static str {
-    match dot {
-        roost_client_core::client::agents::AgentDotStatus::Warn => "warn",
-        roost_client_core::client::agents::AgentDotStatus::Ok => "ok",
-        roost_client_core::client::agents::AgentDotStatus::Info => "info",
-        roost_client_core::client::agents::AgentDotStatus::Idle => "idle",
     }
 }
 
@@ -288,7 +241,6 @@ mod tests {
         StatusReadings {
             coordinator: CoordinatorState::Synced,
             machine: None,
-            agent: None,
             context: None,
             open_sessions: open,
             workers_online: online,
@@ -319,22 +271,6 @@ mod tests {
     }
 
     #[test]
-    fn every_agent_dot_status_is_a_name_the_dot_stylesheet_knows() {
-        for dot in [
-            roost_client_core::client::agents::AgentDotStatus::Warn,
-            roost_client_core::client::agents::AgentDotStatus::Ok,
-            roost_client_core::client::agents::AgentDotStatus::Info,
-            roost_client_core::client::agents::AgentDotStatus::Idle,
-        ] {
-            let name = agent_dot_status(dot);
-            assert!(
-                crate::components::ui::status::status_dot_token_known(name).is_some(),
-                "{name} is not a status the dot styles a rule for"
-            );
-        }
-    }
-
-    #[test]
     fn a_booted_client_with_no_link_reads_as_unreachable_rather_than_nothing() {
         // A boot has no link yet and no identity, and the item is still drawn.
         // An item that VANISHES is indistinguishable from a healthy one, which
@@ -353,7 +289,6 @@ mod tests {
         let core = ClientCore::in_memory("tab-test");
         let readings = read_status("/settings/machines", &Rc::new(RefCell::new(core)), 1_000);
         assert_eq!(readings.machine, None);
-        assert_eq!(readings.agent, None);
         assert_eq!(readings.context, None);
     }
 

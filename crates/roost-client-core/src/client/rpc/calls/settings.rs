@@ -8,7 +8,6 @@
 //! tested. Ports `apps/web/src/components/Settings/*.tsx` and the `coordClient`
 //! calls they make.
 
-pub mod agent_config;
 pub mod attachments;
 pub mod audit;
 pub mod bootstrap;

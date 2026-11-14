@@ -10,9 +10,9 @@
 //! [`super::downstream::Dispatcher`] and the off-loop frames arrive on the
 //! [`crate::uplink`]. What is here is what those cannot express between them,
 //! and it is split along that seam — `durable.rs` owns the rows, `volatile.rs`
-//! the terminal metadata producer, `agent_status.rs` the agent-status outbox,
-//! `cell_sink.rs` the coordinator's cell receiver, `browser.rs` the command
-//! pump, and `reconnect_loop.rs` the loop over dials.
+//! the terminal metadata producer, `cell_sink.rs` the coordinator's cell
+//! receiver, `browser.rs` the command pump, and `reconnect_loop.rs` the loop
+//! over dials.
 //! Ports v2 `apps/worker/src/transport/coord-link.ts`.
 
 use std::collections::VecDeque;
@@ -34,7 +34,6 @@ use super::downstream::Dispatcher;
 use super::link_wire::LinkWire;
 use super::reconnect::{Escalation, ReconnectPolicy};
 use super::snapshot_source::SnapshotSource;
-pub mod agent_status;
 pub mod browser;
 pub mod cell_sink;
 pub mod durable;
@@ -127,9 +126,6 @@ pub struct LinkLoop {
     pub(super) terminal_metadata_negotiated: bool,
     /// The pending compact-metadata record per channel. `volatile.rs` owns it.
     pub(super) terminal_metadata: volatile::TerminalMetadataLane,
-    /// v2 `coord-link-agent-status.ts`'s outbox; `link_drain` drains it after
-    /// the durable rows and ahead of the outbox lanes.
-    pub(super) agent_statuses: agent_status::AgentStatusOutbox,
     pub(super) outbox: Outbox,
     pub(super) pump: Pump,
     pub(super) policy: ReconnectPolicy,
@@ -212,7 +208,6 @@ impl LinkLoop {
             dispatcher,
             terminal_metadata_negotiated: false,
             terminal_metadata: volatile::TerminalMetadataLane::default(),
-            agent_statuses: agent_status::AgentStatusOutbox::default(),
             credential,
             outbox: Outbox::default(),
             pump: Pump::new(),
@@ -360,10 +355,6 @@ pub enum AdmitRefusal {
     #[error(transparent)]
     Outbox(#[from] AdmitError),
 
-    #[error(
-        "an unidentified agent status names no session or occupant, so no reader could place it"
-    )]
-    UnidentifiedAgentStatus,
     #[error("a {label} frame did not encode: {reason}")]
     Unencodable { label: String, reason: String },
 }

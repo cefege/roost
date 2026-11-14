@@ -1,12 +1,9 @@
 //! A folder destination composed from the stock Sidenav menu parts.
-//! The link resolves the remembered terminal or first agent; supporting badges
+//! The link resolves the remembered terminal; supporting badges
 //! keep machine, activity, git and port context outside the destination link.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
-use roost_client_core::client::agents::status_policy::{
-    AgentStatusLevel, agent_status_presentation, format_agent_status_counts,
-};
 use roost_client_core::store::selectors::{session_by_id, session_folder_key};
 use roost_client_core::store::sidebar::SidebarIntent;
 use roost_client_core::store::sidebar::folder_groups::{FolderGroup, pr_check_glyph};
@@ -15,7 +12,6 @@ use roost_protocol::wire::SessionStatus;
 use super::folder_row_context_menu::{FolderMenuTarget, FolderRowContextMenu};
 use super::rel_time_tick::use_rel_time_now;
 use super::row_chips::{BranchChip, PortChip, PrBadgeChip};
-use crate::components::agents::agent_status_indicator::agent_dot_status_name;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::machines::machine_identity_mark::MachineIdentityMark;
 use crate::components::notifications::notify_target::{
@@ -96,11 +92,7 @@ pub fn FolderRow(
         )
     });
     let href = if group.session_ids.is_empty() {
-        group
-            .agent_conversation_ids
-            .first()
-            .map(|id| crate::routes::agent_href(id))
-            .unwrap_or_else(|| crate::routes::browse_href(&group.spawn_fp))
+        crate::routes::browse_href(&group.spawn_fp)
     } else {
         format!("/s/{target_id}")
     };
@@ -123,13 +115,6 @@ pub fn FolderRow(
     };
     let more_target = menu_target.clone();
     let has_sessions = !group.session_ids.is_empty();
-    let rollup = group.agent_status;
-    let show_rollup = rollup.total > 0 && rollup.level != AgentStatusLevel::Unknown;
-    let rollup_variant = match rollup.level {
-        AgentStatusLevel::Blocked => BadgeVariant::Warning,
-        AgentStatusLevel::Done => BadgeVariant::Success,
-        _ => BadgeVariant::Secondary,
-    };
     rsx! {
         SidenavMenuItem {
             class: if drag_source {
@@ -244,16 +229,6 @@ pub fn FolderRow(
                     span { title: panes_title,
                         Badge { variant: BadgeVariant::Outline, size: BadgeSize::Sm,
                             "{pane_count} terminal"
-                        }
-                    }
-                }
-                if show_rollup {
-                    span { "data-testid": "folder-agent-status-{group.key}",
-                        Badge { variant: rollup_variant, size: BadgeSize::Sm, class: "gap-1",
-                            StatusDot {
-                                status: agent_dot_status_name(agent_status_presentation(rollup.level).dot_status).to_owned(),
-                            }
-                            "{format_agent_status_counts(&rollup.counts)}"
                         }
                     }
                 }

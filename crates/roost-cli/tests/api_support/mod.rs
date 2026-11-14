@@ -25,26 +25,15 @@
 // fixture in is not this file's to decide.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use connectrpc::Spec;
 use connectrpc::handler::handler_fn;
 use connectrpc::service::ConnectRpcService;
-use roost_proto::buffa::{Inline, MessageField};
 use roost_proto::{
-    AgentPromptWaitOutcome, AgentStatusGetRequest, AgentStatusGetResponse, AgentStatusListRequest,
-    AgentStatusListResponse, AgentStatusView, AgentStatusWaitRequest, AgentStatusWaitResponse,
     PbCellRow, PbCellSpan, SessionsGetScrollbackCellsRequest, SessionsGetScrollbackCellsResponse,
     SessionsListRequest, SessionsListResponse, Worker, WorkersListRequest, WorkersListResponse,
 };
 
-/// The status a session's agent is in, fenced to a named occupant.
-///
-/// A UUID because the generated `AgentStatusView` validates `session_id` as
-/// one: a fixture the coordinator's own validation rejects cannot exercise
-/// the CLI it exists to test. A separate value from `status_epoch` and
-/// `occupant_id`, which are different concepts carrying their own ids.
+/// A session identifier used by the terminal fixtures.
 pub const SESSION_ID: &str = "33333333-3333-4333-8333-333333333333";
 
 /// What this process's coordinator answers.
@@ -57,69 +46,7 @@ pub struct Fixture {
     pub workers: Vec<Worker>,
     pub routable_fps: Vec<String>,
     pub sessions: Vec<roost_proto::Session>,
-    /// What `AgentStatusGet` answers on its first read, and on its second. The
-    /// second is what `agent-wait` reports, so a test can move the agent
-    /// between the two reads.
-    pub first_status: Option<AgentStatusView>,
-    pub second_status: Option<AgentStatusView>,
-    pub wait_outcome: Option<AgentPromptWaitOutcome>,
     pub scrollback_rows: Vec<String>,
-    // The read counter that pairs `first_status` with `second_status` is NOT a
-    // canned value and does not live here — it belongs to the router, which is
-    // what serves the reads. As a field it had to be private, and one private
-    // field makes ..Default::default() illegal from every test outside this
-    // module, so nine call sites could not build a fixture at all.
-}
-
-impl Fixture {
-    /// A status an agent is in, fenced to a named occupant.
-    #[must_use]
-    pub fn status(state: &str, revision: u64) -> AgentStatusView {
-        Self::status_fenced(
-            state,
-            revision,
-            "11111111-1111-4111-8111-111111111111",
-            "22222222-2222-4222-8222-222222222222",
-        )
-    }
-
-    /// The same status under a LATER occupant, which is what a replacement
-    /// looks like on the wire. `same_agent_status_occupant` compares the
-    /// epoch AND the occupant, so both have to move; a fixture built only from
-    /// `status` carries one identity forever and cannot express a wait whose
-    /// occupant was replaced, which is why that branch had no coverage.
-    #[must_use]
-    pub fn status_after_replacement(state: &str, revision: u64) -> AgentStatusView {
-        Self::status_fenced(
-            state,
-            revision,
-            "33333333-3333-4333-8333-333333333331",
-            "33333333-3333-4333-8333-333333333332",
-        )
-    }
-
-    fn status_fenced(
-        state: &str,
-        revision: u64,
-        status_epoch: &str,
-        occupant_id: &str,
-    ) -> AgentStatusView {
-        AgentStatusView {
-            session_id: SESSION_ID.to_string(),
-            agent_id: "omp".to_string(),
-            state: state.to_string(),
-            message: None,
-            revision,
-            completed_revision: revision,
-            updated_at: 1_700_000_000.0,
-            active: true,
-            status_epoch: Some(status_epoch.to_string()),
-            occupant_id: Some(occupant_id.to_string()),
-            source: Some("integration".to_string()),
-            promptable: true,
-            ..Default::default()
-        }
-    }
 }
 
 /// Bind a loopback listener, mount the fixture's methods, and serve until the
@@ -142,14 +69,7 @@ pub async fn serve(fixture: Fixture) -> (String, tokio::task::JoinHandle<()>) {
 fn router(fixture: Fixture) -> connectrpc::Router {
     let workers = fixture.clone();
     let sessions = fixture.clone();
-    let status = fixture.clone();
-    let listed = fixture.clone();
-    let scrollback = fixture.clone();
-    let wait = fixture;
-    // Shared across requests by the `AgentStatusGet` handler, so "the first read
-    // and the second read" is a property of the served conversation rather than
-    // of the canned values a test hands in.
-    let status_reads = Arc::new(AtomicUsize::new(0));
+    let scrollback = fixture;
     let mut router = connectrpc::Router::new();
     router = mount(
         router,
@@ -173,50 +93,6 @@ fn router(fixture: Fixture) -> connectrpc::Router {
             async move {
                 Ok(connectrpc::Response::new(SessionsListResponse {
                     sessions: sessions.sessions.clone(),
-                    ..Default::default()
-                }))
-            }
-        }),
-    );
-    router = mount(
-        router,
-        roost_proto::COORDINATOR_SERVICE_AGENT_STATUS_GET_SPEC,
-        handler_fn(move |_ctx, _request: AgentStatusGetRequest| {
-            let status = status.clone();
-            let status_reads = Arc::clone(&status_reads);
-            async move {
-                Ok(connectrpc::Response::new(AgentStatusGetResponse {
-                    status: field(if status_reads.fetch_add(1, Ordering::SeqCst) == 0 {
-                        status.first_status.clone()
-                    } else {
-                        status.second_status.clone().or(status.first_status.clone())
-                    }),
-                    ..Default::default()
-                }))
-            }
-        }),
-    );
-    router = mount(
-        router,
-        roost_proto::COORDINATOR_SERVICE_AGENT_STATUS_LIST_SPEC,
-        handler_fn(move |_ctx, _request: AgentStatusListRequest| {
-            let listed = listed.clone();
-            async move {
-                Ok(connectrpc::Response::new(AgentStatusListResponse {
-                    statuses: listed.first_status.clone().into_iter().collect(),
-                    ..Default::default()
-                }))
-            }
-        }),
-    );
-    router = mount(
-        router,
-        roost_proto::COORDINATOR_SERVICE_AGENT_STATUS_WAIT_SPEC,
-        handler_fn(move |_ctx, _request: AgentStatusWaitRequest| {
-            let wait = wait.clone();
-            async move {
-                Ok(connectrpc::Response::new(AgentStatusWaitResponse {
-                    outcome: outcome_name(wait.wait_outcome),
                     ..Default::default()
                 }))
             }
@@ -276,29 +152,4 @@ where
     router
         .route(spec.service(), spec.method(), handler)
         .with_spec(spec)
-}
-
-/// The published wait outcome name, matched as the generated variant rather
-/// than as the wire number.
-fn outcome_name(outcome: Option<AgentPromptWaitOutcome>) -> String {
-    match outcome {
-        Some(AgentPromptWaitOutcome::Matched) => "matched",
-        Some(AgentPromptWaitOutcome::TimedOut) => "timed_out",
-        Some(AgentPromptWaitOutcome::OccupantChanged) => "occupant_changed",
-        Some(AgentPromptWaitOutcome::SessionClosed) => "session_closed",
-        Some(AgentPromptWaitOutcome::PromptStalled) => "prompt_stalled",
-        // The product refuses this one (`wait_outcome_name` maps UNSPECIFIED to
-        // "a wait outcome this build does not know"), so the fake must never
-        // publish it. It renders to a name no real outcome collides with,
-        // which makes a coordinator that did publish it fail the assertion
-        // instead of reading as a timeout.
-        Some(AgentPromptWaitOutcome::AGENT_PROMPT_WAIT_OUTCOME_UNSPECIFIED) => "unspecified",
-        None => "timed_out",
-    }
-    .to_string()
-}
-
-/// A present-or-absent message field, which is how the contract models one.
-fn field(view: Option<AgentStatusView>) -> MessageField<AgentStatusView, Inline<AgentStatusView>> {
-    view.map_or_else(MessageField::none, MessageField::some)
 }

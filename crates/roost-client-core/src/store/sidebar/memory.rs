@@ -1,8 +1,6 @@
-//! Browser-local "where was I" memory the sidebar writes: the MRU session
-//! stack, the last terminal viewed plus the last session per folder, and the
-//! last workspace per machine. Ports `apps/web/src/lib/sidebarRecent.ts`,
-//! `apps/web/src/lib/lastVisited.ts` and `apps/web/src/lib/lastWorkspace.ts`.
-//! Row clicks write it; FolderList, MainPane and the boot redirect read it.
+//! Sidebar navigation memory and the account's manual folder order.
+//! Row clicks and folder drags write it; sidebar projections and boot read it.
+//! Discovery order stays local so opening a device cannot overwrite a drag.
 
 use std::collections::BTreeMap;
 
@@ -18,8 +16,9 @@ pub const LAST_TERMINAL_PATH_KEY: &str = "roost.lastTerminalPath";
 pub const LAST_SESSION_BY_FOLDER_KEY: &str = "roost.lastSessionByFolder";
 /// The per-machine last-workspace key prefix.
 pub const LAST_WORKSPACE_KEY_PREFIX: &str = "roost.lastWorkspaceId.";
-/// The browser's manual Folders order.
+/// The account's manual Folders order.
 pub const FOLDER_ORDER_KEY: &str = "roost.sidebar.folderOrder";
+const OBSERVED_FOLDERS_KEY: &str = "roost.sidebar.observedFolders";
 
 /// The sidebar's persisted memory, loaded once per document.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -55,10 +54,19 @@ impl SidebarMemory {
                     .collect()
             })
             .unwrap_or_default();
-        let folder_order = storage
+        let mut folder_order = storage
             .get(FOLDER_ORDER_KEY)
             .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
             .unwrap_or_default();
+        let observed: Vec<String> = storage
+            .get(OBSERVED_FOLDERS_KEY)
+            .and_then(|raw| serde_json::from_str(&raw).ok())
+            .unwrap_or_default();
+        for key in observed {
+            if !folder_order.contains(&key) {
+                folder_order.push(key);
+            }
+        }
         Self {
             recent,
             session_by_folder,
@@ -87,7 +95,7 @@ impl SidebarMemory {
             }
         }
         if changed {
-            self.persist_folder_order(storage);
+            self.persist_folder_order(storage, OBSERVED_FOLDERS_KEY);
         }
         changed
     }
@@ -105,13 +113,13 @@ impl SidebarMemory {
         }
         let key = self.folder_order.remove(from);
         self.folder_order.insert(to, key);
-        self.persist_folder_order(storage);
+        self.persist_folder_order(storage, FOLDER_ORDER_KEY);
         true
     }
 
-    fn persist_folder_order(&self, storage: &dyn KeyValueStore) {
+    fn persist_folder_order(&self, storage: &dyn KeyValueStore, key: &str) {
         if let Ok(encoded) = serde_json::to_string(&self.folder_order) {
-            storage.set(FOLDER_ORDER_KEY, &encoded);
+            storage.set(key, &encoded);
         }
     }
 

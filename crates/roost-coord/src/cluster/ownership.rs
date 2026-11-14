@@ -83,7 +83,6 @@ pub async fn run(
     internal_url: String,
     notifier: Arc<ClusterNotifier>,
     state: Arc<OwnershipState>,
-    agent: Arc<crate::agent::AgentService>,
     mut shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let mut notices = notifier.subscribe();
@@ -91,7 +90,6 @@ pub async fn run(
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     if db.backend() == DbBackend::Sqlite {
         state.set_owner(true);
-        agent.join_cluster();
         tracing::info!(instance_id, "coordinator link ownership acquired");
     }
 
@@ -113,7 +111,6 @@ pub async fn run(
             Ok(Tick::Acquired) => {
                 last_renewed = now;
                 tracing::info!(instance_id, "coordinator link ownership acquired");
-                agent.join_cluster();
             }
             Ok(Tick::Following) => {}
             Ok(Tick::Lost) => {

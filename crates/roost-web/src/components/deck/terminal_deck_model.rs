@@ -13,7 +13,6 @@ use roost_client_core::deck::{
     mobile_tab_ids, park_size_by_session, slot_by_session, spotlight_pane, spotlight_rect,
 };
 use roost_client_core::store::layout::{PaneLayout, PaneRect};
-use roost_client_core::store::paths::folder_key_of;
 use roost_client_core::store::selectors::{
     deck_tab_ids_for_folder, session_by_id, session_folder_key,
 };
@@ -84,23 +83,6 @@ pub fn deck_folder_for(store: &Store, paths: &dyn WorkerPaths, session: &Session
     }
 }
 
-/// The folder bucket an agent conversation belongs to.
-pub fn deck_folder_for_agent(
-    store: &Store,
-    paths: &dyn WorkerPaths,
-    conversation: &roost_protocol::wire::agent_chat::ConversationSummary,
-) -> DeckFolder {
-    let worker_os = store
-        .workers
-        .get(&conversation.worker_fp)
-        .map(|worker| worker.os.as_str());
-    let folder_key = folder_key_of(paths, worker_os, &conversation.worker_fp, &conversation.cwd);
-    DeckFolder {
-        live_session_ids: deck_tab_ids_for_folder(store, paths, &folder_key),
-        folder_key,
-    }
-}
-
 /// Derive the frame.
 pub fn deck_frame(store: &Store, paths: &dyn WorkerPaths, inputs: &DeckInputs<'_>) -> DeckFrame {
     let followed = deck_session_id(
@@ -109,44 +91,14 @@ pub fn deck_frame(store: &Store, paths: &dyn WorkerPaths, inputs: &DeckInputs<'_
         inputs.retained_session_id,
     );
     let followed_session = followed.as_deref().and_then(|id| session_by_id(store, id));
-    let followed_agent = followed
-        .as_deref()
-        .and_then(|id| id.strip_prefix("agent:"))
-        .and_then(|id| store.agent_chat.conversations.get(id));
-    let folder = followed_session
-        .map(|session| deck_folder_for(store, paths, session))
-        .or_else(|| {
-            followed_agent.map(|conversation| {
-                let worker_os = store
-                    .workers
-                    .get(&conversation.worker_fp)
-                    .map(|worker| worker.os.as_str());
-                let folder_key =
-                    folder_key_of(paths, worker_os, &conversation.worker_fp, &conversation.cwd);
-                DeckFolder {
-                    folder_key: folder_key.clone(),
-                    live_session_ids: deck_tab_ids_for_folder(store, paths, &folder_key),
-                }
-            })
-        });
-    let new_terminal_folder = followed_session.map_or_else(
-        || {
-            followed_agent.map_or_else(String::new, |conversation| {
-                let worker_os = store
-                    .workers
-                    .get(&conversation.worker_fp)
-                    .map(|worker| worker.os.as_str());
-                short_worker_path(worker_os, &conversation.cwd)
-            })
-        },
-        |session| {
-            let worker_os = store
-                .workers
-                .get(session.worker_fp.as_str())
-                .map(|worker| worker.os.as_str());
-            short_worker_path(worker_os, &session.cwd)
-        },
-    );
+    let folder = followed_session.map(|session| deck_folder_for(store, paths, session));
+    let new_terminal_folder = followed_session.map_or_else(String::new, |session| {
+        let worker_os = store
+            .workers
+            .get(session.worker_fp.as_str())
+            .map(|worker| worker.os.as_str());
+        short_worker_path(worker_os, &session.cwd)
+    });
     let layout = folder
         .as_ref()
         .map(|folder| store.deck.resolve_layout(folder));
@@ -202,21 +154,7 @@ fn open_sessions_oldest_first(store: &Store) -> Vec<String> {
     open.sort_by(|left, right| {
         (left.created_at, left.id.as_str()).cmp(&(right.created_at, right.id.as_str()))
     });
-    let mut tab_ids = open
-        .into_iter()
+    open.into_iter()
         .map(|session| session.id.as_str().to_owned())
-        .collect::<Vec<_>>();
-    let mut conversations: Vec<_> = store
-        .agent_chat
-        .conversations
-        .values()
-        .filter(|conversation| !conversation.is_native())
-        .collect();
-    conversations.sort_by_key(|conversation| std::cmp::Reverse(conversation.updated_ms));
-    tab_ids.extend(
-        conversations
-            .into_iter()
-            .map(|conversation| roost_client_core::deck::agent_tab_id(&conversation.id)),
-    );
-    tab_ids
+        .collect()
 }

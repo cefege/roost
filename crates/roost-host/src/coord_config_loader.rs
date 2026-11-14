@@ -22,7 +22,7 @@ use crate::env::EnvSource;
 use crate::paths::{coord_data_dir, coord_log_dir};
 
 mod sources;
-use sources::{agent_endpoint_overrides, coordinator_database};
+use sources::coordinator_database;
 
 /// The listen address, defaulting to loopback.
 pub const ENV_COORDINATOR_BIND: &str = "ROOST_COORDINATOR_BIND";
@@ -86,10 +86,6 @@ pub const ENV_COORD_TERMINAL_MEMORY_BUDGET_BYTES: &str = "ROOST_COORD_TERMINAL_M
 
 /// Exactly `0` or `1`: whether the direct WebRTC terminal carrier is offered.
 pub const ENV_TERMINAL_PEER_ENABLED: &str = "ROOST_TERMINAL_PEER_ENABLED";
-
-/// A JSON object of provider id → base URL overriding the agent harness's
-/// provider endpoints, e.g. `{"anthropic":"http://127.0.0.1:9000"}`.
-pub const ENV_AGENT_ENDPOINT_OVERRIDES: &str = "ROOST_AGENT_ENDPOINT_OVERRIDES";
 
 /// A comma-separated list of operator-declared `stun:` URLs.
 pub const ENV_TERMINAL_PEER_STUN_URLS: &str = "ROOST_TERMINAL_PEER_STUN_URLS";
@@ -157,7 +153,6 @@ pub fn load_coord_config(
             env.get(ENV_COORDINATOR_PUBLIC_URL).as_deref(),
             ENV_COORDINATOR_PUBLIC_URL,
         )?,
-        agent_endpoint_overrides: Some(agent_endpoint_overrides(env)?),
         terminal_memory_budget_bytes: integer_env(env, ENV_COORD_TERMINAL_MEMORY_BUDGET_BYTES)?,
         terminal_peer_enabled: Some(parse_terminal_peer_enabled(
             env.get(ENV_TERMINAL_PEER_ENABLED).as_deref(),

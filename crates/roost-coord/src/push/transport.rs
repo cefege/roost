@@ -6,8 +6,7 @@
 //! here that substitution is a trait, which is the same seam with a name a
 //! reader can grep for. [`WebPushTransport`] is the production half, ported
 //! from `ensureConfigured` and the `webpush.sendNotification` call in
-//! `push-sender.ts:22-37,99-112`; `serve.rs` builds it once at boot and hands
-//! it to `PushTransitions`.
+//! `push-sender.ts:22-37,99-112`; `serve.rs` builds it once at boot.
 //!
 //! WHY THE ERROR CARRIES A STATUS AND NOT AN ENUM. `push-sender.ts:52-61`
 //! reaches for `statusCode` on whatever the transport threw, because the
@@ -42,9 +41,7 @@ pub const VAPID_SUBJECT: &str = "mailto:roost@local";
 
 /// How long a push service may hold a message for an offline device.
 ///
-/// 60 seconds (`push-sender.ts:12`). Long enough for a phone on a slow link to
-/// surface it, short enough that an agent that finished ten minutes ago does
-/// not wake a device to say so.
+/// Long enough for a slow device to receive it without holding stale messages.
 pub const TTL_SECONDS: u32 = 60;
 
 /// How long one delivery attempt may take before it is abandoned.

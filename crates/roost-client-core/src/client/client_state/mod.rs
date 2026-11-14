@@ -15,4 +15,4 @@ mod sync;
 pub use entry::ClientStateEntry;
 pub use store::ClientStateStore;
 pub use sync::ClientStateSync;
-pub(crate) use sync::{request_list, settle_result, sweep};
+pub(crate) use sync::{refresh, request_list, settle_result, sweep};

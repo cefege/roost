@@ -277,7 +277,7 @@ pub struct SessionBell {
     pub session_id: String,
 }
 
-/// Volatile coding-agent and UI control traffic.
+/// Volatile UI control traffic.
 ///
 /// `state` upserts a tab's reported state, `command` is a legacy control that
 /// retains publication-count delivery, and `apply` is the acknowledged form
@@ -312,18 +312,6 @@ pub enum UiBusMsg {
         /// The command.
         command: UiCommand,
     },
-    /// An ephemeral browser-host request addressed to one device tab.
-    OmpHostService {
-        fingerprint: String,
-        tab_id: String,
-        frame: roost_proto::OmpHostServiceFrame,
-    },
-    /// A private native-action receipt, fenced by the canonical chat sequence.
-    OmpUiActionReceipt {
-        fingerprint: String,
-        tab_id: String,
-        frame: roost_proto::OmpUiActionReceiptFrame,
-    },
 }
 
 /// A clipboard history mutation, delivered to every install-wide Sync link.
@@ -357,21 +345,4 @@ pub enum ClipboardHistoryChangeKind {
     Added,
     Removed,
     Cleared,
-}
-
-/// One agent conversation projection change for install-wide Sync subscribers.
-#[derive(Debug, Clone, PartialEq)]
-pub struct AgentConversationUpdate {
-    pub conversation_id: String,
-    pub removed: bool,
-    pub conversation: Option<roost_protocol::wire::agent_chat::ConversationSummary>,
-    pub host_connected: Option<bool>,
-}
-
-/// One ordered agent transcript event batch.
-#[derive(Debug, Clone, PartialEq)]
-pub struct AgentChatEventsUpdate {
-    pub conversation_id: String,
-    pub seq: u64,
-    pub events_json: String,
 }

@@ -30,46 +30,14 @@ const fn assets(platform: Platform) -> [(&'static str, &'static str); 2] {
     }
 }
 
-/// Published releases from 3.0.5 onward include the OMP fork.
-pub(super) fn bundles_omp(tag: &str) -> Result<bool, String> {
-    let core = tag
-        .trim_start_matches(['v', 'V'])
-        .split(['-', '+'])
-        .next()
-        .unwrap_or("");
-    let numbers = core
-        .split('.')
-        .map(str::parse::<u64>)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| format!("invalid release tag {tag:?}"))?;
-    let [major, minor, patch]: [u64; 3] = numbers
-        .try_into()
-        .map_err(|_| format!("invalid release tag {tag:?}"))?;
-    Ok([major, minor, patch] >= [3, 0, 5])
-}
-
-fn omp_asset(platform: Platform) -> (String, &'static str) {
-    let roost = assets(platform)[0].0;
-    (
-        roost.replacen("roost", "roost-omp", 1),
-        if platform == Platform::Windows {
-            "omp.exe"
-        } else {
-            "omp"
-        },
-    )
-}
-
 /// Download `tag`'s release for `platforms` into `target/fleet/<tag>/` unless
 /// a complete copy is already there, and record the commit the tag names.
 pub fn fetch_release(tag: &str, platforms: &[Platform]) -> Result<(), String> {
     let out = super::release_dir(tag);
     if out.join("manifest.json").is_file()
-        && platforms.iter().all(|platform| {
-            let dir = out.join(platform.artifact_dir());
-            dir.is_dir()
-                && (!bundles_omp(tag).unwrap_or(true) || dir.join(omp_asset(*platform).1).is_file())
-        })
+        && platforms
+            .iter()
+            .all(|platform| out.join(platform.artifact_dir()).is_dir())
     {
         return Ok(());
     }
@@ -91,9 +59,6 @@ pub fn fetch_release(tag: &str, platforms: &[Platform]) -> Result<(), String> {
                 .iter()
                 .map(|(asset, _)| (*asset).to_owned()),
         );
-        if bundles_omp(tag)? {
-            patterns.push(omp_asset(platform).0);
-        }
     }
     let mut gh = Command::new("gh");
     gh.args(["release", "download", tag, "-R", REPOSITORY, "-D"])
@@ -120,11 +85,6 @@ pub fn fetch_release(tag: &str, platforms: &[Platform]) -> Result<(), String> {
         std::fs::create_dir_all(&dir).map_err(|error| format!("{}: {error}", dir.display()))?;
         for (asset, binary) in assets(platform) {
             std::fs::rename(download.join(asset), dir.join(binary))
-                .map_err(|error| format!("{asset}: {error}"))?;
-        }
-        if bundles_omp(tag)? {
-            let (asset, binary) = omp_asset(platform);
-            std::fs::rename(download.join(&asset), dir.join(binary))
                 .map_err(|error| format!("{asset}: {error}"))?;
         }
     }

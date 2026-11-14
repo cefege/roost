@@ -21,6 +21,7 @@ use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use futures_util::SinkExt as _;
 
 use crate::services::CoordServices;
+use crate::sync_ws::client_state_changes;
 use crate::sync_ws::commands_layout::settle_layout_result;
 use crate::sync_ws::driver::{LinkClose, SOCKET_WRITE_TIMEOUT_MS, now_ms};
 use crate::sync_ws::ingress::{IngressEffect, accept_client_frame, refuse_text_frame};
@@ -144,6 +145,9 @@ async fn serve_until_closed(
                 Some(Ok(Message::Close(_)) | Err(_)) | None => return None,
             },
             () = ack_deadline => link.lock().enforce_ack_deadline(now_ms()),
+            () = client_state_changes::changed(&mut opened.client_state_changes) => {
+                link.lock().send_control(&client_state_changes::invalidation_frame(), now_ms());
+            }
             () = link.woken() => {}
             _ = keepalive.tick() => link.lock().send_keepalive(now_ms()),
         }

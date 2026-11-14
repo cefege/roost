@@ -18,7 +18,6 @@ pub mod global_search;
 
 use serde::{Deserialize, Serialize};
 
-use crate::native_dashboard::HttpHeader;
 use crate::wire::AttachmentTargetId;
 use crate::wire::brand::{SessionId, TraceId};
 
@@ -153,12 +152,6 @@ pub enum ClientControlFrame {
     Mkdir {
         request_id: String,
         path: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        trace_id: Option<TraceId>,
-    },
-    #[serde(rename = "list-skills")]
-    ListSkills {
-        request_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         trace_id: Option<TraceId>,
     },
@@ -335,32 +328,6 @@ pub enum ClientControlFrame {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         trace_id: Option<TraceId>,
     },
-    /// One request for the native stats dashboard listening on this worker's
-    /// loopback. Only a coordinator capability may construct it; the host,
-    /// port and path are the ones the native `/stats` helper named, and the
-    /// worker validates them again before dialling.
-    #[serde(rename = "stats-dashboard-http")]
-    StatsDashboardHttp {
-        request_id: String,
-        resource: crate::native_dashboard::ResourceKey,
-        /// The reported native host: a loopback, wildcard or locally
-        /// assigned address the worker must prove before dialling.
-        host: String,
-        port: u16,
-        /// `GET`, `HEAD` or `POST`.
-        method: String,
-        /// An absolute upstream path, query included.
-        path: String,
-        #[serde(default)]
-        headers: Vec<HttpHeader>,
-        /// Standard base64, empty when the request has no body.
-        #[serde(default)]
-        body_base64: String,
-        #[serde(default)]
-        stream: Option<crate::native_dashboard::StreamRequest>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        trace_id: Option<TraceId>,
-    },
 }
 
 impl ClientControlFrame {
@@ -379,7 +346,6 @@ impl ClientControlFrame {
             Self::AttachmentProbe { .. } => "attachment-probe",
             Self::ListDir { .. } => "list-dir",
             Self::Mkdir { .. } => "mkdir",
-            Self::ListSkills { .. } => "list-skills",
             Self::GitDiff { .. } => "git-diff",
             Self::SetTitle { .. } => "set-title",
             Self::CursorPos { .. } => "cursor-pos",
@@ -394,7 +360,6 @@ impl ClientControlFrame {
             Self::DiagTerminalCapture { .. } => "diag-terminal-capture",
             Self::DiagSnapshot { .. } => "diag-snapshot",
             Self::RespawnIfMissing { .. } => "respawn-if-missing",
-            Self::StatsDashboardHttp { .. } => "stats-dashboard-http",
         }
     }
 }

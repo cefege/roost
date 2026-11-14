@@ -150,11 +150,6 @@ fn check_meta(
     domain_generation: u64,
 ) -> Result<(), DecodeRefusal> {
     match arm.lane {
-        // Agent frames are emitted before this client slice can project them;
-        // accept their global sequence so the stream can advance.
-        ArmLane::Control if arm.name == "agent_conversation" || arm.name == "agent_chat_events" => {
-            Ok(())
-        }
         ArmLane::Control if delivery_seq != 0 || domain != 0 || domain_generation != 0 => {
             Err(DecodeRefusal::SequencedControl {
                 arm: arm.name,
@@ -199,6 +194,7 @@ fn map_arm(frame: Frame, domain_generation: u64) -> Result<SyncFrame, String> {
         Frame::UiState(_) => Ok(SyncFrame::UiState),
         Frame::UiCommand(value) => Ok(SyncFrame::UiCommand { command: *value }),
         Frame::Keepalive(_) => Ok(SyncFrame::Keepalive),
+        Frame::ClientStateChanged(_) => Ok(SyncFrame::ClientStateChanged),
         Frame::CoordinatorRelocation(value) => Ok(control::coordinator_relocation(*value)),
         Frame::Sessions(value) => terminal::sessions_json(&value.payload_json),
         Frame::SessionEvent(value) => terminal::session_event(&value),
@@ -222,7 +218,6 @@ fn map_arm(frame: Frame, domain_generation: u64) -> Result<SyncFrame, String> {
             title: value.title,
         }),
         Frame::LastActivity(value) => Ok(terminal::last_activity(*value)),
-        Frame::AgentStatus(value) => Ok(terminal::agent_status(*value)),
         Frame::AuditRow(value) => Ok(registry::audit_row(*value)),
         Frame::WorkspaceDelta(value) => registry::workspace_delta(*value),
         Frame::TaskDelta(value) => registry::task_delta(*value),
@@ -230,27 +225,6 @@ fn map_arm(frame: Frame, domain_generation: u64) -> Result<SyncFrame, String> {
         Frame::WorkerPresence(value) => registry::worker_presence(*value),
         Frame::WorkerRoutable(value) => registry::worker_routable(*value),
         Frame::PairRequestDelta(value) => registry::pair_request_delta(*value),
-        Frame::AgentConversation(value) => {
-            let conversation = value
-                .conversation
-                .as_option()
-                .map(roost_protocol::wire::agent_chat::conversation_from_proto);
-            Ok(SyncFrame::AgentConversation {
-                conversation_id: value.conversation_id,
-                removed: value.removed,
-                conversation,
-                host_connected: value.host_connected,
-            })
-        }
-        Frame::AgentChatEvents(value) => {
-            let events = serde_json::from_str(&value.events_json)
-                .map_err(|error| format!("invalid agent chat events JSON: {error}"))?;
-            Ok(SyncFrame::AgentChatEvents {
-                conversation_id: value.conversation_id,
-                seq: value.seq,
-                events,
-            })
-        }
         Frame::WorkerLiveMetrics(value) => {
             roost_protocol::proto_adapters::live_metrics_proto::worker_live_metrics_frame_from_proto(
                 &value,
@@ -258,82 +232,7 @@ fn map_arm(frame: Frame, domain_generation: u64) -> Result<SyncFrame, String> {
             .map(|frame| SyncFrame::WorkerLiveMetrics { frame })
             .map_err(|error| error.to_string())
         }
-        Frame::OmpHostService(value) => Ok(SyncFrame::OmpHostService {
-            service: omp_host_service(*value)?,
-        }),
-        Frame::OmpUiActionReceipt(value) => Ok(SyncFrame::OmpUiActionReceipt {
-            receipt: omp_ui_action_receipt(*value)?,
-        }),
     }
-}
-
-/// Check the bounded, privacy-relevant shape of one host-service frame.
-fn omp_host_service(
-    value: roost_proto::OmpHostServiceFrame,
-) -> Result<crate::client::agent_chat::OmpHostService, String> {
-    use crate::client::agent_chat::{
-        MAX_HOST_SERVICE_VALUE_BYTES, OmpHostService, OmpHostServiceKind,
-    };
-    if value.service_id.is_empty()
-        || value.conversation_id.is_empty()
-        || value.view_id.is_empty()
-        || value.transport_id.is_empty()
-    {
-        return Err("host service frame is missing its identity".to_owned());
-    }
-    let kind = OmpHostServiceKind::from_wire(&value.kind)
-        .ok_or_else(|| "host service frame carried an unknown kind".to_owned())?;
-    if value.value.len() > MAX_HOST_SERVICE_VALUE_BYTES {
-        return Err("host service value exceeds the browser bound".to_owned());
-    }
-    if value.cancelled && !value.value.is_empty() {
-        return Err("cancelled host service carried a value".to_owned());
-    }
-    if !value.cancelled && value.value.is_empty() {
-        return Err("host service request carried no value".to_owned());
-    }
-    if !value.cancelled && kind == OmpHostServiceKind::LiveAudio {
-        roost_protocol::wire::agent_chat::OmpLiveAudioRequest::parse_json(&value.value)
-            .map_err(str::to_owned)?;
-    }
-    if !value.cancelled && kind == OmpHostServiceKind::OpenFork {
-        let target = roost_protocol::native_fork::ForkTarget::parse(&value.value)
-            .ok_or_else(|| "invalid OMP fork placement binding".to_owned())?;
-        if target.parent_conversation_id != value.conversation_id {
-            return Err("OMP fork placement belongs to another parent".to_owned());
-        }
-    }
-    Ok(OmpHostService {
-        service_id: value.service_id,
-        origin_request_id: value.origin_request_id,
-        conversation_id: value.conversation_id,
-        view_id: value.view_id,
-        transport_id: value.transport_id,
-        kind,
-        value: value.value.into(),
-        cancelled: value.cancelled,
-    })
-}
-
-/// Check the identity a receipt must carry to be matchable at all.
-fn omp_ui_action_receipt(
-    value: roost_proto::OmpUiActionReceiptFrame,
-) -> Result<crate::client::agent_chat::OmpUiActionReceipt, String> {
-    if value.origin_request_id.is_empty()
-        || value.conversation_id.is_empty()
-        || value.view_id.is_empty()
-        || value.transport_id.is_empty()
-    {
-        return Err("OMP action receipt is missing its identity".to_owned());
-    }
-    Ok(crate::client::agent_chat::OmpUiActionReceipt {
-        origin_request_id: value.origin_request_id,
-        conversation_id: value.conversation_id,
-        view_id: value.view_id,
-        transport_id: value.transport_id,
-        after_seq: value.after_seq,
-        error: value.error,
-    })
 }
 
 fn clipboard_history(value: roost_proto::ClipboardHistoryFrame) -> Result<SyncFrame, String> {

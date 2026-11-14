@@ -1,5 +1,4 @@
-//! The navigation index: one row per session, one normalizer on both sides of a
-//! filter, and the agent vocabulary mapped rather than re-derived.
+//! The navigation index: one row per terminal and one search normalizer.
 //!
 //! The search page, the sidebar filter and the command palette read this ONE
 //! projection, so a second derivation of "what is this session called" or "is its
@@ -20,10 +19,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use roost_client_core::ClientCore;
-use roost_client_core::store::navigation::query::attention_navigation_documents;
 use roost_client_core::store::navigation::{
-    AgentStatusFacts, NavigationSearchAttention, NavigationSources, attention_for_level_token,
-    project_navigation_search_documents, session_href, worker_online,
+    NavigationSources, project_navigation_search_documents, session_href, worker_online,
 };
 use roost_client_core::store::optimistic_spawn::{ClientOnlySession, begin_optimistic_spawn};
 use roost_client_core::store::paths::ExactWorkerPaths;
@@ -88,27 +85,9 @@ fn worker(fingerprint: &str, last_seen_ms: i64) -> Worker {
     }
 }
 
-/// The agent facts as their owner resolved them. This file never derives them.
-fn facts(level_token: &str, unseen: bool, arrival: u64) -> AgentStatusFacts {
-    AgentStatusFacts {
-        level_token: Some(level_token.to_owned()),
-        attention: match level_token {
-            "blocked" => Some(NavigationSearchAttention::Blocked),
-            "done" => Some(NavigationSearchAttention::Done),
-            _ => None,
-        },
-        unseen,
-        agent_id: Some("claude".to_owned()),
-        message: Some(format!("{level_token} message")),
-        updated_at_ms: None,
-        arrival,
-    }
-}
-
 fn sources<'a>(
     sessions: &'a SessionMap,
     workers: &'a BTreeMap<String, Worker>,
-    agent_status: &'a BTreeMap<String, AgentStatusFacts>,
     terminal_titles: &'a BTreeMap<String, String>,
     last_activity: &'a BTreeMap<String, i64>,
     routable: Option<&'a BTreeSet<String>>,
@@ -120,7 +99,6 @@ fn sources<'a>(
         workspaces: &[],
         terminal_titles,
         last_activity_ms: last_activity,
-        agent_status,
         routable_worker_fps: routable,
         now_ms: 1_700_000_000_000,
         paths: &ExactWorkerPaths,
@@ -147,11 +125,9 @@ fn a_projected_row_carries_every_field_a_search_can_match() {
     titles.insert(SESSION_ONE.to_owned(), "vim api".to_owned());
     let mut activity = BTreeMap::new();
     activity.insert(SESSION_ONE.to_owned(), 1_700_000_500_000_i64);
-    let status = BTreeMap::new();
     let documents = project_navigation_search_documents(&sources(
         &sessions,
         &workers,
-        &status,
         &titles,
         &activity,
         None,
@@ -200,11 +176,9 @@ fn a_session_with_no_title_of_its_own_is_named_after_its_folder() {
     let workers = BTreeMap::new();
     let empty: BTreeMap<String, String> = BTreeMap::new();
     let no_activity = BTreeMap::new();
-    let status = BTreeMap::new();
     let documents = project_navigation_search_documents(&sources(
         &sessions,
         &workers,
-        &status,
         &empty,
         &no_activity,
         None,
@@ -213,28 +187,6 @@ fn a_session_with_no_title_of_its_own_is_named_after_its_folder() {
     // The strict path codec computes no basename, so the fallback is the one the
     // contract names rather than an empty label.
     assert_eq!(documents[0].display_title, "shell");
-}
-
-#[test]
-fn every_agent_level_token_maps_onto_exactly_one_attention_state() {
-    // The five tokens the agent-status owner emits, and nothing else.
-    assert_eq!(
-        attention_for_level_token("blocked"),
-        Some(NavigationSearchAttention::Blocked)
-    );
-    assert_eq!(
-        attention_for_level_token("done"),
-        Some(NavigationSearchAttention::Done)
-    );
-    assert_eq!(attention_for_level_token("working"), None);
-    assert_eq!(attention_for_level_token("idle"), None);
-    assert_eq!(attention_for_level_token("unknown"), None);
-    assert_eq!(attention_for_level_token(""), None);
-    assert_eq!(
-        attention_for_level_token("Blocked"),
-        None,
-        "the vocabulary is frozen lowercase"
-    );
 }
 
 #[test]
@@ -258,52 +210,11 @@ fn reachability_is_the_routable_set_when_there_is_one_and_freshness_before_it() 
 }
 
 #[test]
-fn a_row_carries_the_agent_facts_its_owner_resolved_and_derives_none_of_them() {
-    let sessions = session_map(vec![session(SESSION_ONE, "/home/dev/api", 100)]);
-    let workers = BTreeMap::new();
-    let empty: BTreeMap<String, String> = BTreeMap::new();
-    let no_activity = BTreeMap::new();
-    let mut status = BTreeMap::new();
-    status.insert(SESSION_ONE.to_owned(), facts("blocked", true, 17));
-    let documents = project_navigation_search_documents(&sources(
-        &sessions,
-        &workers,
-        &status,
-        &empty,
-        &no_activity,
-        None,
-        &[],
-    ));
-    let row = &documents[0];
-    assert_eq!(row.agent_status.as_deref(), Some("blocked"));
-    assert_eq!(
-        row.agent_attention,
-        Some(NavigationSearchAttention::Blocked)
-    );
-    assert!(row.agent_unseen);
-    assert_eq!(
-        row.agent_arrival, 17,
-        "the browser's counter, not a worker clock"
-    );
-    assert_eq!(row.agent_message.as_deref(), Some("blocked message"));
-    assert!(
-        row.search_text.contains("claude"),
-        "the agent id is searchable"
-    );
-    assert_eq!(
-        attention_navigation_documents(&documents).len(),
-        1,
-        "a row whose owner said it wants attention is selected by the filter, not acknowledged by it"
-    );
-}
-
-#[test]
 fn a_placeholder_this_browser_minted_is_projected_alongside_the_real_rows() {
     let sessions = session_map(vec![session(SESSION_ONE, "/home/dev/api", 100)]);
     let workers = BTreeMap::new();
     let empty: BTreeMap<String, String> = BTreeMap::new();
     let no_activity = BTreeMap::new();
-    let status = BTreeMap::new();
     let mut core = client();
     let placeholders = core.store_mut().spawns.client_only_sessions();
     assert!(placeholders.is_empty());
@@ -321,7 +232,6 @@ fn a_placeholder_this_browser_minted_is_projected_alongside_the_real_rows() {
     let documents = project_navigation_search_documents(&sources(
         &sessions,
         &workers,
-        &status,
         &empty,
         &no_activity,
         None,
@@ -338,7 +248,6 @@ fn a_placeholder_this_browser_minted_is_projected_alongside_the_real_rows() {
         .expect("the placeholder is projected");
     assert_eq!(placeholder.cwd, "/home/dev/web");
     assert!(placeholder.available);
-    assert_eq!(placeholder.agent_attention, None);
     assert_eq!(
         documents[0].session_id, placeholder.session_id,
         "the newest row sorts first, and the placeholder is the newest thing here"

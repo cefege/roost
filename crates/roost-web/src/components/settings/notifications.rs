@@ -1,11 +1,6 @@
-//! Settings → Interface → Notifications: how loudly an agent interrupts.
-//!
-//! Ports `apps/web/src/components/Settings/NotificationsPane.tsx`. The five
-//! switches are per-browser preferences in `roost_client_core::store::prefs`.
-//! The Desktop switch additionally asks for the browser's permission inside
-//! the click and subscribes this browser through `crate::web_push`; its
-//! preference turns on only once both have succeeded. A sound switch turned on
-//! previews its cue through `notification_tone`.
+//! Settings → Interface → Notifications for terminal events.
+//! Preferences are per-browser; desktop delivery requires browser permission
+//! and a coordinator push subscription. Sound previews on user interaction.
 
 use std::rc::Rc;
 
@@ -18,9 +13,7 @@ use roost_client_core::client::rpc::calls::settings::push::GetPushConfig;
 use roost_client_core::store::prefs::notify::NotifyPref;
 use roost_client_core::store::shell_intent::ShellIntent;
 
-use crate::components::notifications::agent_notifications::notification_tone::{
-    TonePlayer, previewed_kind,
-};
+use crate::components::notifications::notification_tone::{DONE_CUE, TonePlayer};
 use crate::components::ui::{
     Card, CardContent, CardHeader, CardTitle, FieldError, Icon, IconType, SwitchRow,
 };
@@ -46,12 +39,9 @@ pub fn NotificationsPane() -> Element {
     let load_pump = pump.clone();
     let in_app_pump = pump.clone();
     let desktop_pump = pump.clone();
-    let title_pump = pump.clone();
-    let blocked_pump = pump.clone();
     let done_pump = pump.clone();
     let command_finished_pump = pump.clone();
     let tones = use_hook(|| Rc::new(TonePlayer::default()));
-    let blocked_tones = Rc::clone(&tones);
     let desktop = DesktopPushSignals {
         coordinator_available: use_signal(|| false),
         permission: use_signal(current_permission),
@@ -78,9 +68,9 @@ pub fn NotificationsPane() -> Element {
                 CardContent { class: "flex items-center gap-4",
                     Icon { icon: IconType::Bell, class: "size-6 text-primary" }
                     div { class: "min-w-0 flex-1",
-                        div { class: "text-base font-medium", "Agent notifications" }
+                        div { class: "text-base font-medium", "Terminal notifications" }
                         div { class: "text-sm text-muted-foreground",
-                            "Know when a background coding agent needs input or finishes. Saved per browser."
+                            "Choose how terminal events notify you. Saved per browser."
                         }
                     }
                 }
@@ -91,7 +81,7 @@ pub fn NotificationsPane() -> Element {
                     SwitchRow {
                         test_id: Some("notify-in-app-toggle".to_owned()),
                         headline: "In-app toasts".to_owned(),
-                        support: Some("Show a delayed toast with a View action when a background agent needs input or finishes.".to_owned()),
+                        support: Some("Show toasts for background terminal notifications and completed commands.".to_owned()),
                         checked: prefs.in_app,
                         on_checked_change: move |value| set_pref(&in_app_pump, NotifyPref::InApp, value),
                     }
@@ -116,29 +106,15 @@ pub fn NotificationsPane() -> Element {
                     checked: prefs.command_finished,
                     on_checked_change: move |value| set_pref(&command_finished_pump, NotifyPref::CommandFinished, value),
                 }
-                SwitchRow {
-                    test_id: Some("notify-title-badge-toggle".to_owned()),
-                    headline: "Tab title badge".to_owned(),
-                    support: Some("Prefix the Roost tab title with the number of unseen needs-input and finished states.".to_owned()),
-                    checked: prefs.title_badge,
-                    on_checked_change: move |value| set_pref(&title_pump, NotifyPref::TitleBadge, value),
-                }
                 }
             }
             Card {
                 CardHeader { CardTitle { "Sound" } }
                 CardContent { class: "flex flex-col gap-3",
                 SwitchRow {
-                    test_id: Some("notify-blocked-sound-toggle".to_owned()),
-                    headline: "Sound when input is needed".to_owned(),
-                    support: Some("Play two short ascending tones after a background agent starts waiting for you.".to_owned()),
-                    checked: prefs.blocked_sound,
-                    on_checked_change: move |value| set_sound_pref(&blocked_pump, &blocked_tones, NotifyPref::BlockedSound, value),
-                }
-                SwitchRow {
                     test_id: Some("notify-done-sound-toggle".to_owned()),
                     headline: "Sound when finished".to_owned(),
-                    support: Some("Play a short tone after a background agent or terminal command completes.".to_owned()),
+                    support: Some("Play a short tone after a background terminal command completes.".to_owned()),
                     checked: prefs.done_sound,
                     on_checked_change: move |value| set_sound_pref(&done_pump, &tones, NotifyPref::DoneSound, value),
                 }
@@ -161,8 +137,8 @@ fn set_pref(pump: &Pump, pref: NotifyPref, value: bool) {
 /// just chose.
 fn set_sound_pref(pump: &Pump, tones: &TonePlayer, pref: NotifyPref, value: bool) {
     set_pref(pump, pref, value);
-    if let Some(kind) = previewed_kind(pref).filter(|_| value) {
-        tones.play(kind);
+    if value {
+        tones.play_notes(&DONE_CUE);
     }
 }
 

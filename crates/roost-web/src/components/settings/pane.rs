@@ -4,16 +4,13 @@
 
 use dioxus::prelude::*;
 
-use super::agent_launcher::AgentLauncherPane;
 use super::attachments::AttachmentsPane;
 use super::audit::AuditLogPane;
 use super::connection::ConnectionPane;
 use super::devices::DevicesPane;
 use super::machines::MachinesPane;
-use super::mcp::McpPane;
 use super::metrics::MetricsPane;
 use super::notifications::NotificationsPane;
-use super::omp_settings::OmpSettingsPane;
 use super::terminal::TerminalPane;
 use super::theme::ThemePane;
 use super::voice::VoicePane;
@@ -26,9 +23,6 @@ pub fn SettingsPane(id: &'static str) -> Element {
             "machines" => rsx! { MachinesPane {} },
             "connection" => rsx! { ConnectionPane {} },
             "devices" => rsx! { DevicesPane {} },
-            "omp" => rsx! { OmpSettingsPane {} },
-            "launcher" => rsx! { AgentLauncherPane {} },
-            "mcp" => rsx! { McpPane {} },
             "voice" => rsx! { VoicePane {} },
             "terminal" => rsx! { TerminalPane {} },
             "notifications" => rsx! { NotificationsPane {} },

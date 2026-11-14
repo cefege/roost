@@ -28,51 +28,14 @@ pub struct BrowserLink {
 
 impl BrowserLink {
     /// A link over a running pump that answers through `uplink`.
-    ///
-    /// Ordinary commands retain their ordering. Dashboard HTTP has a bounded
-    /// owned lane because an actual SSE read waits for the SDK heartbeat.
     pub fn connect(deps: Arc<Deps>, uplink: Uplink, stop: StopRequests) -> Self {
         let (inbound, mut inbound_rx) = tokio::sync::mpsc::unbounded_channel::<FencedCommand>();
         let pump = tokio::spawn(async move {
-            let mut dashboards = tokio::task::JoinSet::new();
-            loop {
-                tokio::select! {
-                    result = dashboards.join_next(), if !dashboards.is_empty() => {
-                        if let Some(Err(error)) = result {
-                            tracing::error!(%error, "stats dashboard request task failed");
-                        }
-                    }
-                    command = inbound_rx.recv() => {
-                        let Some((command, fence)) = command else { break; };
-                        if let roost_protocol::wire::control::ClientControlFrame::StatsDashboardHttp { resource, host, port, .. } = &command.frame {
-                            let refusal = if !deps.dashboard.is_registered(resource, host, *port) {
-                                Some("the OMP stats resource is no longer registered")
-                            } else if dashboards.len() >= 64 {
-                                Some("the worker has too many active dashboard requests")
-                            } else { None };
-                            if let Some(reason) = refusal {
-                                for frame in crate::browser_commands::refuse(&command,
-                                    crate::browser_commands::Refusal::failed("stats-dashboard-http", reason)) {
-                                    uplink.send_fenced(&fence, frame);
-                                }
-                                continue;
-                            }
-                            let deps = Arc::clone(&deps);
-                            let uplink = uplink.clone();
-                            dashboards.spawn(async move {
-                                for frame in crate::browser_commands::dispatch(&command, &deps).await {
-                                    uplink.send_fenced(&fence, frame);
-                                }
-                            });
-                        } else {
-                            for frame in crate::browser_commands::dispatch(&command, &deps).await {
-                                uplink.send_fenced(&fence, frame);
-                            }
-                        }
-                    }
+            while let Some((command, fence)) = inbound_rx.recv().await {
+                for frame in crate::browser_commands::dispatch(&command, &deps).await {
+                    uplink.send_fenced(&fence, frame);
                 }
             }
-            dashboards.shutdown().await;
             tracing::info!("the browser command pump stopped");
         });
         supervise_pump(pump, stop);

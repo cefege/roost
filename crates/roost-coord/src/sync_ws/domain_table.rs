@@ -12,10 +12,9 @@ use roost_proto::SyncDomain;
 
 use super::retained_frame::RetainedFrame;
 
-/// How many Sync domains exist. Eight, one per non-`UNSPECIFIED` value in
-/// `roost.v1.SyncDomain`; the table is fixed-size so a domain's state is an
-/// index rather than a hash lookup on the send path.
-pub const DOMAIN_SLOTS: usize = 8;
+/// How many Sync domains exist, one per non-`UNSPECIFIED` value.
+/// The table is fixed-size so a domain's state is an index on the send path.
+pub const DOMAIN_SLOTS: usize = 7;
 
 /// The slot `UNSPECIFIED` maps to, which is past the table and therefore never
 /// indexed. A total mapping is what lets the terminal half of the session name
@@ -33,7 +32,6 @@ pub const fn domain_slot(domain: SyncDomain) -> usize {
         SyncDomain::Mcp => 4,
         SyncDomain::Pair => 5,
         SyncDomain::Audit => 6,
-        SyncDomain::Agent => 7,
         SyncDomain::Unspecified => UNSPECIFIED_SLOT,
     }
 }
@@ -162,7 +160,6 @@ pub(in crate::sync_ws) const fn domain_at_slot(slot: usize) -> SyncDomain {
         4 => SyncDomain::Mcp,
         5 => SyncDomain::Pair,
         6 => SyncDomain::Audit,
-        7 => SyncDomain::Agent,
         _ => SyncDomain::Unspecified,
     }
 }

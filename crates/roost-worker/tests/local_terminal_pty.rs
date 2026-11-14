@@ -21,7 +21,6 @@ use local_terminal_support::{
 use roost_proto::__buffa::oneof::local_terminal_server_frame::Frame as ServerFrame;
 use roost_protocol::wire::brand::{SessionId, TraceId, WorkerFp};
 use roost_term::{CellEmitState, RioCore};
-use roost_worker::agents::environment::AgentReportSite;
 use roost_worker::event_store::{DurableEventKind, Journal};
 use roost_worker::link_ports::LocalTerminalGrantPort;
 use roost_worker::local_terminal::{LocalTerminalDoor, LocalTerminalDoorDeps};
@@ -65,10 +64,6 @@ async fn a_granted_loopback_socket_writes_to_a_real_pty() {
             .await
             .unwrap(),
     );
-    let agent_report = AgentReportSite {
-        data_dir: root.clone(),
-        configured: None,
-    };
     let stack = session_stack::build(
         WorkerFp::try_from(WORKER_FP).unwrap(),
         Arc::clone(&pool),
@@ -77,7 +72,6 @@ async fn a_granted_loopback_socket_writes_to_a_real_pty() {
         &root,
         WORKER_FP.to_owned(),
         WORKER_EPOCH,
-        &agent_report,
     )
     .expect("this host can build a session layer");
     let reservation = stack

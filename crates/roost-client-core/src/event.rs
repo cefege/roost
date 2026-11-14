@@ -278,35 +278,10 @@ pub enum ClientEvent {
         request_id: String,
     },
 
-    /// This profile has looked at one session's agent row.
-    ///
-    /// The HOST says only that the reader has seen the row; the core resolves
-    /// which revision that is, because the row is volatile and a host that
-    /// named a revision would be naming a value it read through a projection
-    /// it does not own. Acknowledging is what lets a RELEASED occupant's row
-    /// retire, and until it does the row is a dead agent the reader has already
-    /// been told about.
-    AgentStatusSeen {
-        /// The session whose row was seen.
-        session_id: String,
-    },
-    /// Another tab on this profile wrote its acknowledgement ledger.
-    ///
-    /// A second tab is not a second reader; it is the same profile looking at
-    /// the same fleet, and its acknowledgements are this tab's acknowledgements
-    /// too. Without the merge, a row retired in one tab lingers in the other and
-    /// notifies twice.
-    AgentSeenMerged {
-        /// The other tab's encoded ledger, in the `roost.agentSeen.v2` shape.
-        encoded: String,
-    },
-
     /// A sidebar action (`store::sidebar::intent`).
     Sidebar(crate::store::sidebar::SidebarIntent),
     /// A shell action (`store::shell_intent`).
     Shell(crate::store::shell_intent::ShellIntent),
-    /// A built-in agent transcript was loaded or forgotten by its surface.
-    AgentChat(crate::client::agent_chat::AgentChatIntent),
     /// A terminal-deck gesture or observation (`deck::intent`).
     Deck(crate::deck::DeckIntent),
 
@@ -356,11 +331,8 @@ impl ClientEvent {
             Self::CarrierTransportObserved { .. } => "carrier_transport_observed",
             Self::WorkerRetired { .. } => "worker_retired",
             Self::SearchPageReceived { .. } => "search_page_received",
-            Self::AgentStatusSeen { .. } => "agent_status_seen",
-            Self::AgentSeenMerged { .. } => "agent_seen_merged",
             Self::Sidebar(_) => "sidebar",
             Self::Shell(_) => "shell",
-            Self::AgentChat(_) => "agent_chat",
             Self::Deck(_) => "deck",
             Self::Sweep { .. } => "sweep",
             Self::TerminalViewIdMinted { .. } => "terminal_view_id_minted",

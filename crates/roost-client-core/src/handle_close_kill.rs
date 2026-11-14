@@ -10,7 +10,7 @@ use crate::store::Store;
 use crate::store::pending_close::sweep_pending_closes;
 use crate::store::toasts::{ToastId, ToastKind, ToastOptions, ToastSource, add_toast};
 
-/// Issue one delete or graceful terminal kill per expired close.
+/// Issue one graceful terminal kill per expired close.
 pub(crate) fn issue_due_kills(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
     for tab_id in sweep_pending_closes(store, now_ms) {
         issue_kill(store, tab_id, false, out);
@@ -20,20 +20,12 @@ pub(crate) fn issue_due_kills(store: &mut Store, now_ms: u64, out: &mut Vec<Effe
 fn issue_kill(store: &mut Store, tab_id: String, force: bool, out: &mut Vec<Effect>) {
     let call_id = store.next_call_id();
     store.pending_closes.begin_kill(call_id, tab_id.clone());
-    if let Some(conversation_id) = tab_id.strip_prefix("agent:") {
-        tracing::info!(target: "close", call_id, conversation_id, "deleting closed agent conversation");
-        out.push(Effect::Rpc(RpcCall::AgentChatDelete {
-            call_id,
-            conversation_id: conversation_id.to_owned(),
-        }));
-    } else {
-        tracing::info!(target: "close", call_id, session_id = %tab_id, force, "killing closed session");
-        out.push(Effect::Rpc(RpcCall::SessionsKill {
-            call_id,
-            session_id: tab_id,
-            force,
-        }));
-    }
+    tracing::info!(target: "close", call_id, session_id = %tab_id, force, "killing closed session");
+    out.push(Effect::Rpc(RpcCall::SessionsKill {
+        call_id,
+        session_id: tab_id,
+        force,
+    }));
 }
 
 /// Fold a close answer. Returns whether `result` answered a pending close.
@@ -51,7 +43,6 @@ pub(crate) fn settle_kill(
         force: false,
         ..
     } = result
-        && !tab_id.starts_with("agent:")
     {
         tracing::info!(target: "close", session_id = %tab_id, "graceful kill refused; forcing");
         issue_kill(store, tab_id, true, out);

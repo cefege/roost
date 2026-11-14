@@ -26,7 +26,7 @@ const LARGE_PAYLOAD: usize = 1_200_000;
 
 // v2 sync-ws-keepalive-upgrade.test.ts: an admitted upgrade answers 101 and
 // echoes `roost-auth`, never the credential; the v2 socket opens with the
-// `subscribed` barrier naming this process's epoch and all eight domains.
+// `subscribed` barrier naming this process's epoch and all seven domains.
 #[tokio::test]
 async fn an_admitted_sync_upgrade_switches_protocols_and_echoes_only_the_marker() {
     let fixture = SyncFixture::start("upgrade").await;
@@ -45,7 +45,7 @@ async fn an_admitted_sync_upgrade_switches_protocols_and_echoes_only_the_marker(
         subscribed.process_epoch,
         fixture.services.feed.process_epoch()
     );
-    assert_eq!(subscribed.generations.len(), 8);
+    assert_eq!(subscribed.generations.len(), 7);
     let audit = subscribed
         .generations
         .iter()
@@ -215,39 +215,72 @@ async fn a_v1_socket_is_live_and_sequenced_only_with_flow() {
     assert_eq!(close_code(&mut sequenced, EXPECT).await, Some(Some(1008)));
 }
 
-// The built-in agent's two buses reach a browser socket once the Agent domain
-// is ready, in publish order, tagged with the Agent domain.
 #[tokio::test]
-async fn agent_frames_flow_once_the_agent_domain_is_ready() {
-    let fixture = SyncFixture::start("agent").await;
-    let (_fp, token) = fixture.enroll_browser(10).await;
-    let mut socket = fixture.dial_sync("flow=1&sync_v=2", &token).await.socket();
-    let subscribed = read_subscribed(&mut socket).await;
-    let generation = generation_of(&subscribed, SyncDomain::Agent);
-    send_client_frame(
-        &mut socket,
-        &subscribed.socket_id,
-        None,
-        Some(domain_ready(SyncDomain::Agent, generation)),
-    )
-    .await;
-    tokio::time::sleep(QUIET).await;
-    fixture.publish_agent_chat("conversation-1", 4);
-    fixture.publish_agent_conversation_removed("conversation-2");
-
-    let events = next_firehose(&mut socket, EXPECT)
+async fn a_folder_order_write_reaches_other_devices_before_domain_hydration() {
+    let fixture = SyncFixture::start("folder-order-sync").await;
+    let (_, writer_token) = fixture.enroll_browser(71).await;
+    let (_, reader_token) = fixture.enroll_browser(72).await;
+    let mut unsubscribed = fixture
+        .dial_sync("flow=1&sync_v=2", &reader_token)
         .await
-        .expect("an agent chat frame");
-    assert_eq!(events.domain.as_known(), Some(SyncDomain::Agent));
-    let Some(Frame::AgentChatEvents(batch)) = events.frame else {
-        panic!("expected agent chat events, got {:?}", events.frame);
-    };
-    assert_eq!(
-        (batch.conversation_id.as_str(), batch.seq),
-        ("conversation-1", 4)
+        .socket();
+    read_subscribed(&mut unsubscribed).await;
+    let mut writer = fixture
+        .dial_sync("flow=1&sync_v=2&client_state=1", &writer_token)
+        .await
+        .socket();
+    let mut reader = fixture
+        .dial_sync("flow=1&sync_v=2&client_state=1", &reader_token)
+        .await
+        .socket();
+    read_subscribed(&mut writer).await;
+    read_subscribed(&mut reader).await;
+    let client = reqwest::Client::new();
+    let endpoint = format!("http://{}/roost.v1.CoordinatorService", fixture.address);
+    let order = r#"["worker:/second","worker:/first"]"#;
+    let response = client
+        .post(format!("{endpoint}/ClientStateSet"))
+        .header("connect-protocol-version", "1")
+        .header("content-type", "application/json")
+        .bearer_auth(&writer_token)
+        .body(
+            serde_json::json!({
+                "entries": [{
+                    "key": "roost.sidebar.folderOrder",
+                    "value": order,
+                    "updatedMs": "500"
+                }]
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200, "{}", response.text().await.unwrap());
+    for socket in [&mut writer, &mut reader] {
+        let frame = next_firehose(socket, EXPECT).await.unwrap();
+        assert!(matches!(frame.frame, Some(Frame::ClientStateChanged(_))));
+        assert_eq!(frame.delivery_seq, 0);
+        assert_eq!(frame.domain_generation, 0);
+    }
+    assert!(
+        next_firehose(&mut unsubscribed, QUIET).await.is_none(),
+        "a socket without a notification subscription must not receive a new control arm"
     );
-    let removal = next_firehose(&mut socket, EXPECT)
+    let response = client
+        .post(format!("{endpoint}/ClientStateList"))
+        .header("connect-protocol-version", "1")
+        .header("content-type", "application/json")
+        .bearer_auth(&reader_token)
+        .body("{}")
+        .send()
         .await
-        .expect("an agent conversation frame");
-    assert!(matches!(&removal.frame, Some(Frame::AgentConversation(row)) if row.removed));
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let state: serde_json::Value = serde_json::from_str(&response.text().await.unwrap()).unwrap();
+    assert_eq!(state["entries"][0]["value"], order);
+    assert!(
+        next_firehose(&mut reader, QUIET).await.is_none(),
+        "reading remote state must not broadcast another change"
+    );
 }

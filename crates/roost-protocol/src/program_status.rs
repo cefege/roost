@@ -2,8 +2,7 @@
 //! doing (working, blocked, done, error) and the table that keeps them. The
 //! worker owns one table per channel; the coordinator and browser replace their
 //! copy from the worker's snapshot. The record rules live only in this table so
-//! every holder applies the same ones, and nothing here is shared with agent
-//! status, which has its own registry.
+//! every holder applies the same ones.
 
 use std::collections::BTreeMap;
 

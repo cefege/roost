@@ -3,9 +3,8 @@
 //! Connect client in `roost-proto`, on `api::credentials` for where to point
 //! and what to present, and on the worker's coordinator TLS roots for https.
 //!
-//! NOTHING HERE NAMES A METHOD. Every call site writes
-//! `api.stub().sessions_list(..)` or `api.stub().agent_status_get(..)`: the
-//! generated method, whose spec carries the service and method names. A path
+//! NOTHING HERE NAMES A METHOD. Every call site uses the generated method,
+//! whose spec carries the service and method names. A path
 //! typed as a string would be a second hand-maintained copy of a name the
 //! generator owns, and the copy is what goes stale — a `.proto` rename would
 //! leave the literal compiling and answering 404 at the moment an operator is
@@ -31,10 +30,8 @@ use crate::command_error::CommandFailure;
 
 /// How long one coordinator call may take before it counts as unanswered.
 ///
-/// Generous, because the calls behind `agent-wait` and `attach` are the two
-/// that legitimately take a while: a wait is bounded by its own `--timeout`,
-/// which the coordinator enforces, and an upload is bounded by its size. This
-/// is a bound on this process's patience, not on the work.
+/// Generous enough for uploads, which are bounded by their size. This is a
+/// bound on this process's patience, not on the work.
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// A coordinator this command can address.

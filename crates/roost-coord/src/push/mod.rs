@@ -1,7 +1,6 @@
-//! Web Push: the three subscription RPCs, the VAPID identity they share with
-//! delivery, and the bounded dispatch a delayed agent transition fans out
-//! through. Owned by the coordinator; `rpc` mounts the handlers and the agents
-//! domain calls [`dispatch::fire_push_for_transition`].
+//! Web Push subscription RPCs, VAPID identity, and bounded delivery for
+//! terminal and pairing notifications. Owned by the coordinator; `rpc`
+//! mounts the subscription handlers.
 //!
 //! VAPID IS A COORDINATOR-GLOBAL IDENTITY, not a tenant setting. It lives in
 //! the `dashboard_id IS NULL` scope of `app_settings` and is read and written

@@ -8,17 +8,12 @@
 //! two synchronous arms in a sibling `impl` keeps the boxed-future machinery on
 //! one side of the line where it is worth paying for.
 //!
-//! The agent-status arm is v2's `agents/worker-agent-status-frame.ts` as well:
-//! it builds the update from the upstream frame and hands it to the hub, and
-//! the hub owns every question about whether the report may be applied.
-//!
 //! NEITHER ARM OWNS A SOCKET. Both resolve to synchronous coordinator state —
-//! the byte hub, the view hub, a bus, the pending-RPC table, or the agent tunnel
-//! registry — and neither can ask for a close it does not understand. An arm
+//! the byte hub, the view hub, a bus or the pending-RPC table — and neither can
+//! ask for a close it does not understand. An arm
 //! with no destination is `Refused`, which is the read loop's signal that this
 //! dispatcher did not handle the frame; it is not a claim that it was malformed.
 
-use roost_protocol::wire::agent_status::AgentStatusUpdate;
 use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 use roost_protocol::wire::{ChannelId, WorkerFp};
 
@@ -101,21 +96,6 @@ impl WorkerFrameDispatcher {
                     .apply_owner_projection(&worker, &projection);
                 DispatchOutcome::Handled
             }
-            CoordWorkerUpstream::AgentStatus(frame_status) => {
-                let update = AgentStatusUpdate {
-                    common: frame_status.status.common,
-                    active: frame_status.status.active,
-                };
-                let Ok(value) = serde_json::to_value(&update) else {
-                    return self.refuse(channel, "agent_status_has_no_wire_form");
-                };
-                self.core
-                    .services
-                    .agents
-                    .status
-                    .accept_worker_status(&self.core, &worker, value);
-                DispatchOutcome::Handled
-            }
             CoordWorkerUpstream::LiveMetrics(snapshot) => {
                 self.core.services.buses.live_metrics_bus.publish(
                     roost_protocol::wire::live_metrics::WorkerLiveMetricsFrame {
@@ -165,36 +145,6 @@ impl WorkerFrameDispatcher {
             tracing::debug!(worker_fp = %worker, what = upstream.kind(),
                 "worker link: unready_rpc_result; dropped");
             return DispatchOutcome::Refused;
-        }
-        if matches!(upstream, CoordWorkerUpstream::OmpEvents(_)) {
-            return if self.core.services.omp.receive(worker_fp, upstream) {
-                DispatchOutcome::Handled
-            } else {
-                self.refuse(channel, "omp_frame_unroutable")
-            };
-        }
-        match &upstream {
-            CoordWorkerUpstream::OmpHostServiceRequest(request) => {
-                let core = self.core.clone();
-                let worker_fp = worker.to_string();
-                let request = request.clone();
-                tokio::spawn(async move {
-                    crate::agent::omp::host_services::accept_request(&core, &worker_fp, request)
-                        .await;
-                });
-                return DispatchOutcome::Handled;
-            }
-            CoordWorkerUpstream::OmpUiActionReceipt(receipt) => {
-                let core = self.core.clone();
-                let worker_fp = worker.to_string();
-                let receipt = receipt.clone();
-                tokio::spawn(async move {
-                    crate::agent::omp::host_services::accept_receipt(&core, &worker_fp, receipt)
-                        .await;
-                });
-                return DispatchOutcome::Handled;
-            }
-            _ => {}
         }
         let pending = self.core.services.scrollback.pending();
         match upstream {

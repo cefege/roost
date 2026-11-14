@@ -12,7 +12,6 @@ use roost_client_core::deck::{
 };
 use roost_client_core::store::Session;
 use roost_client_core::store::selectors::session_by_id;
-use roost_protocol::wire::agent_chat::ConversationSummary;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
@@ -45,18 +44,10 @@ struct MountedTerminal {
     style: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-struct MountedAgent {
-    tab_id: String,
-    conversation: ConversationSummary,
-    slot: Option<TerminalSessionSlot>,
-    style: String,
-}
 type DeckRenderSnapshot = (
     DeckFrame,
     Option<DeckNavigation>,
     BTreeMap<String, Session>,
-    BTreeMap<String, ConversationSummary>,
     bool,
 );
 
@@ -84,7 +75,7 @@ pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) ->
     let desktop_strip_height = (measure.desktop_strip_height)();
     let retained_id = retained.read().clone();
     let swipe_now = swipe.read().clone();
-    let (frame, navigation, sessions, conversations, store_spotlight_active): DeckRenderSnapshot = {
+    let (frame, navigation, sessions, store_spotlight_active): DeckRenderSnapshot = {
         let core = pump.core();
         let core = core.borrow();
         let store = core.store();
@@ -110,24 +101,10 @@ pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) ->
             .iter()
             .filter_map(|id| session_by_id(store, id).map(|session| (id.clone(), session.clone())))
             .collect();
-        let conversations = frame
-            .open_session_ids
-            .iter()
-            .filter_map(|tab_id| {
-                let id = tab_id.strip_prefix("agent:")?;
-                store
-                    .agent_chat
-                    .conversations
-                    .get(id)
-                    .cloned()
-                    .map(|conversation| (tab_id.clone(), conversation))
-            })
-            .collect();
         (
             frame,
             store.deck.navigation().cloned(),
             sessions,
-            conversations,
             store.spotlight.session_id().is_some(),
         )
     };
@@ -186,35 +163,13 @@ pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) ->
             })
         })
         .collect();
-    let agents: Vec<MountedAgent> = mounted_ids
-        .iter()
-        .filter_map(|tab_id| {
-            let conversation = conversations.get(tab_id)?.clone();
-            let slot = frame.slots.get(tab_id).cloned();
-            let style = terminal_session_style(
-                slot.as_ref(),
-                frame.park_sizes.get(tab_id).copied(),
-                size,
-                frame.strip_height,
-                compact,
-            )
-            .merged(&swipe_style_for(swipe_now.as_ref(), tab_id, size.w))
-            .css();
-            Some(MountedAgent {
-                tab_id: tab_id.clone(),
-                conversation,
-                slot,
-                style,
-            })
-        })
-        .collect();
     let multi_pane = if frame.view.panes.len() > 1 {
         "true"
     } else {
         "false"
     };
     let deck_style = format!(
-        "flex: 1; position: relative; overflow: hidden; background: var(--term-bg); touch-action: {}; transform: translate3d(0, calc(0px - var(--term-chat-growth, 0px)), 0);",
+        "flex: 1; position: relative; overflow: hidden; background: var(--term-bg); touch-action: {};",
         if compact { "pan-y" } else { "auto" },
     );
     use_deck_chords(DeckChordState {
@@ -240,7 +195,6 @@ pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) ->
         frame.followed_session_id.clone(),
     );
     let pointer_ops = operations.clone();
-    let focus_ops = operations.clone();
     let attach = measure.clone();
     let dismiss_pump = pump.clone();
 
@@ -253,29 +207,14 @@ pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) ->
             style: deck_style,
             onmounted: move |event: MountedEvent| attach.attach(event.data()),
             onpointerdown: move |event: PointerEvent| pointer_ops.deck_pointer_down(&event),
-            onfocusin: move |event: FocusEvent| focus_ops.deck_focus_in(&event),
             if frame.open_session_ids.is_empty() {
                 div { class: "absolute inset-0 flex items-center justify-center text-muted-foreground", "No session selected." }
             }
-            // Each keyed slot list sits in its own `contents` box. As bare
-            // siblings, an empty terminal list left the first agent slot of a
-            // cold `/a/<id>` load with no anchor, and dioxus-core 0.8.0-alpha.3
-            // panicked in `Mount::anchor_slot` (mount.rs:242).
             div { class: "contents",
                 for terminal in terminals {
                     TerminalSlot {
                         key: "{terminal.session.id.as_str()}",
                         terminal,
-                        surface_visible,
-                        spotlight_active,
-                    }
-                }
-            }
-            div { class: "contents",
-                for agent in agents {
-                    AgentSlot {
-                        key: "{agent.tab_id}",
-                        agent,
                         surface_visible,
                         spotlight_active,
                     }
@@ -332,60 +271,6 @@ fn TerminalSlot(
                 spotlit,
                 surface_visible,
                 surface_active: !spotlight_active || spotlit,
-            }
-        }
-    }
-}
-
-#[component]
-fn AgentSlot(agent: MountedAgent, surface_visible: bool, spotlight_active: bool) -> Element {
-    let pump = use_store();
-    let slot = agent.slot.as_ref();
-    let pane_id = slot.map_or_else(String::new, |slot| slot.pane_id.clone());
-    let focused = slot.is_some_and(|slot| slot.focused);
-    let spotlit = slot.is_some_and(|slot| slot.spotlit);
-    let hidden = !surface_visible || slot.is_none() || (spotlight_active && !spotlit);
-    let is_fork_parent = pump
-        .core()
-        .borrow()
-        .store()
-        .agent_chat
-        .conversations
-        .values()
-        .any(|conversation| conversation.parent_id.as_deref() == Some(&agent.conversation.id));
-    rsx! {
-        div {
-            class: "group-data-[multi-pane=false]/deck:after:hidden data-[spotlit=true]:after:hidden group-data-[resizing=true]/deck:after:shadow-none data-[focused=true]:after:absolute data-[focused=true]:after:inset-0 data-[focused=true]:after:z-[4] data-[focused=true]:after:pointer-events-none data-[focused=true]:after:content-[''] data-[focused=true]:after:rounded-md data-[focused=true]:after:border-[calc(var(--workbench-border-width)*3)] data-[focused=true]:after:border-solid data-[focused=true]:after:border-ring data-[focused=true]:after:shadow-lg focus-visible:outline-[calc(var(--workbench-border-width)*3)] focus-visible:outline-solid focus-visible:outline-ring focus-visible:-outline-offset-[calc(var(--workbench-border-width)*3)]",
-            "data-testid": "agent-slot-{agent.conversation.id}",
-            "data-pane-slot": "true",
-            "data-pane": "true",
-            "data-pane-id": pane_id,
-            "data-focused": if focused { "true" } else { "false" },
-            "data-spotlit": spotlit.then_some("true"),
-            "data-omp-conversation": agent.conversation.id.clone(),
-            "data-omp-fork-child": agent.conversation.parent_id.as_ref().map(|_| agent.conversation.id.clone()),
-            "data-omp-fork-parent": is_fork_parent.then(|| agent.conversation.id.clone()),
-            style: agent.style,
-            aria_hidden: hidden,
-            div { class: "flex h-full min-h-0 flex-col",
-                if spotlit {
-                    div { class: "flex shrink-0 items-center gap-2 border-b border-border bg-card px-4",
-                        span { class: "min-w-0 flex-1 truncate text-sm font-medium",
-                            "{crate::components::agent_chat::display_conversation_title(&agent.conversation.title)}"
-                        }
-                        crate::components::agent_chat::AgentChatHeader {
-                            conversation: agent.conversation.clone(),
-                            online: None,
-                            pump: pump.clone(),
-                        }
-                    }
-                }
-                div { class: "min-h-0 flex-1",
-                    crate::components::agent_chat::AgentChatSurface {
-                        conversation_id: agent.conversation.id.clone(),
-                        active: !hidden,
-                    }
-                }
             }
         }
     }

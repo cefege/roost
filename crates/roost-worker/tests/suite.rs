@@ -4,46 +4,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::duplicate_mod)]
 
-#[path = "agent_manifest_rules.rs"]
-mod agent_manifest_rules;
-#[path = "agent_process_identity.rs"]
-mod agent_process_identity;
-#[path = "agent_prompt_control.rs"]
-mod agent_prompt_control;
-#[path = "agent_prompt_fences.rs"]
-mod agent_prompt_fences;
-#[path = "agent_prompt_foreground.rs"]
-mod agent_prompt_foreground;
-#[path = "agent_report_environment.rs"]
-mod agent_report_environment;
-#[path = "agent_report_named_pipe.rs"]
-mod agent_report_named_pipe;
-#[path = "agent_report_peer.rs"]
-mod agent_report_peer;
-#[path = "agent_report_server.rs"]
-mod agent_report_server;
-#[path = "agent_status_arbitration.rs"]
-mod agent_status_arbitration;
-#[path = "agent_status_exit_completion.rs"]
-mod agent_status_exit_completion;
-#[path = "agent_status_install_rollback.rs"]
-mod agent_status_install_rollback;
-#[path = "agent_status_installer.rs"]
-mod agent_status_installer;
-#[path = "agent_status_integration_ownership.rs"]
-mod agent_status_integration_ownership;
-#[path = "agent_status_link_e2e.rs"]
-mod agent_status_link_e2e;
-#[path = "agent_status_osc_transition.rs"]
-mod agent_status_osc_transition;
-#[path = "agent_status_peer_process_id.rs"]
-mod agent_status_peer_process_id;
-#[path = "agent_status_registry_identity.rs"]
-mod agent_status_registry_identity;
-#[path = "agent_status_screen_gate.rs"]
-mod agent_status_screen_gate;
-#[path = "agent_status_stable_transitions.rs"]
-mod agent_status_stable_transitions;
 #[path = "attachment_direct_socket.rs"]
 mod attachment_direct_socket;
 #[path = "attachment_grants.rs"]
@@ -190,16 +150,12 @@ mod keeper_update_preservation;
 mod keeper_update_terminal_freeze;
 #[path = "launch_and_channel_vocabulary.rs"]
 mod launch_and_channel_vocabulary;
-#[path = "link_agent_status.rs"]
-mod link_agent_status;
 #[path = "link_barrier.rs"]
 mod link_barrier;
 #[path = "link_dial.rs"]
 mod link_dial;
 #[path = "link_downstream_absent.rs"]
 mod link_downstream_absent;
-#[path = "link_downstream_agent_prompt.rs"]
-mod link_downstream_agent_prompt;
 #[path = "link_downstream_attachment_peer.rs"]
 mod link_downstream_attachment_peer;
 #[path = "link_downstream_attachments.rs"]
@@ -248,8 +204,6 @@ mod local_terminal_scrollback;
 mod local_terminal_socket;
 #[path = "local_terminal_socket_input.rs"]
 mod local_terminal_socket_input;
-#[path = "omp_owner.rs"]
-mod omp_owner;
 #[path = "open_session_credential.rs"]
 mod open_session_credential;
 #[path = "open_session_set.rs"]
@@ -306,8 +260,8 @@ mod session_resume_teardown;
 mod session_spawn;
 #[path = "session_vocabulary.rs"]
 mod session_vocabulary;
-#[path = "shell_spec_overlay.rs"]
-mod shell_spec_overlay;
+#[path = "shell_spec_environment.rs"]
+mod shell_spec_environment;
 #[path = "shell_spec_resolution.rs"]
 mod shell_spec_resolution;
 #[path = "shell_spec_windows.rs"]

@@ -9,9 +9,8 @@ use roost_client_core::ClientEvent;
 use roost_client_core::store::sidebar::SidebarIntent;
 
 use super::all_view::AllView;
-use super::recent_conversations::RecentConversations;
 use super::rel_time_tick::provide_rel_time_ticker;
-use super::sidebar_heading::{SidebarHeading, SidebarView};
+use super::sidebar_heading::SidebarHeading;
 use super::sidebar_new_terminal::SidebarNewTerminal;
 use super::sidebar_search::SidebarSearch;
 use crate::components::layout::window_size::use_is_compact;
@@ -40,7 +39,6 @@ pub fn SidebarRoot() -> Element {
         Route::Session { .. } | Route::Terminal { .. } | Route::Workspace { .. }
     );
     let mut query = use_signal(String::new);
-    let mut view = use_signal(SidebarView::default);
     let mut debounced = use_signal(String::new);
     let mut debounce_generation = use_signal(|| 0_u64);
     let ui = pump.core().borrow().store().ui;
@@ -87,7 +85,7 @@ pub fn SidebarRoot() -> Element {
     } else {
         !ui.sidebar_collapsed
     };
-    let folders_active = interactive && view() == SidebarView::Folders;
+    let folders_active = interactive;
     let close_drawer = pump.clone();
 
     rsx! {
@@ -110,10 +108,7 @@ pub fn SidebarRoot() -> Element {
                         }
                     }
                 }
-                SidebarHeading {
-                    view: view(),
-                    on_view_change: move |next: SidebarView| view.set(next),
-                }
+                SidebarHeading {}
                 SidebarSearch {
                     query: query(),
                     on_change: on_query_change,
@@ -121,15 +116,9 @@ pub fn SidebarRoot() -> Element {
                     shortcut_label: platform_shortcut_label(PlatformShortcut::SidebarSearch, "⌘F", platform).to_owned(),
                 }
                 div {
-                    class: if view() == SidebarView::Recent { "flex min-h-0 flex-1 flex-col" } else { "hidden" },
-                    "data-testid": "sidebar-recent-panel",
-                    inert: (!interactive || view() != SidebarView::Recent).then_some(true),
-                    RecentConversations { query: debounced() }
-                }
-                div {
-                    class: if view() == SidebarView::Folders { "flex min-h-0 flex-1 flex-col" } else { "hidden" },
+                    class: "flex min-h-0 flex-1 flex-col",
                     "data-testid": "sidebar-folders",
-                    inert: (!interactive || view() != SidebarView::Folders).then_some(true),
+                    inert: (!interactive).then_some(true),
                     AllView { active: folders_active, query: debounced() }
                 }
             if compact && terminal_route {

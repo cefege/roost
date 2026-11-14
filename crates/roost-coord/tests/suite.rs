@@ -4,30 +4,12 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::duplicate_mod)]
 
-#[path = "agent_config_rpc.rs"]
-mod agent_config_rpc;
-#[path = "agent_prompt_handlers.rs"]
-mod agent_prompt_handlers;
-#[path = "agent_prompt_status_wait.rs"]
-mod agent_prompt_status_wait;
-#[path = "agent_status_ordering.rs"]
-mod agent_status_ordering;
-#[path = "agent_status_push.rs"]
-mod agent_status_push;
-#[path = "agent_status_retirement.rs"]
-mod agent_status_retirement;
-#[path = "agent_status_rpc.rs"]
-mod agent_status_rpc;
-#[path = "agent_status_wait.rs"]
-mod agent_status_wait;
 #[path = "announced_barrier.rs"]
 mod announced_barrier;
 #[path = "announced_retention.rs"]
 mod announced_retention;
 #[path = "announced_socket.rs"]
 mod announced_socket;
-#[path = "archived_agent_isolation.rs"]
-mod archived_agent_isolation;
 #[path = "attachments_direct_handlers.rs"]
 mod attachments_direct_handlers;
 #[path = "attachments_direct_status_results.rs"]
@@ -144,8 +126,6 @@ mod middleware_security_headers;
 mod middleware_spa;
 #[path = "migration_history.rs"]
 mod migration_history;
-#[path = "omp_chat.rs"]
-mod omp_chat;
 #[path = "orphan_kills.rs"]
 mod orphan_kills;
 #[path = "pairing_approval_machine.rs"]
@@ -166,12 +146,6 @@ mod pairing_retention_lifetime;
 mod pairing_secrets;
 #[path = "public_redeem_through_gate.rs"]
 mod public_redeem_through_gate;
-#[path = "push_dispatch_fences.rs"]
-mod push_dispatch_fences;
-#[path = "push_dispatch_payload.rs"]
-mod push_dispatch_payload;
-#[path = "push_dispatch_targets.rs"]
-mod push_dispatch_targets;
 #[path = "push_pair_request.rs"]
 mod push_pair_request;
 #[path = "push_sender_bounds.rs"]
@@ -184,8 +158,6 @@ mod push_subscription_cap;
 mod push_subscription_rpc;
 #[path = "push_terminal_viewers.rs"]
 mod push_terminal_viewers;
-#[path = "push_transition_delivery.rs"]
-mod push_transition_delivery;
 #[path = "push_vapid_scope.rs"]
 mod push_vapid_scope;
 #[path = "push_web_push_transport.rs"]

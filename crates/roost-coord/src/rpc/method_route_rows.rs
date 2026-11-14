@@ -106,44 +106,6 @@ pub const ROWS_SESSIONS: &[MethodRoute] = &[
     route("McpPublish", "sessions", AuthRequirement::Device, PortStatus::Implemented),
 ];
 
-/// agent status, the fenced agent prompt, and agent configuration.
-///
-/// The five status and config methods are `Device`, and that is what the
-/// handler enforces: each opens with `require_account_device`
-/// (`agents/rpc_status.rs:50, 68, 95, 137, 151`). The gate is right to leave
-/// the fence out of them — a status read is scoped by the session id it names
-/// and `handle_agent_status_wait` refuses an unopenable session before it
-/// reveals whether one exists, which is the property
-/// `a_wait_never_becomes_an_oracle_for_which_sessions_exist` pins. `DevicePlusFence`
-/// would be a claim about a fence none of the five consults.
-#[rustfmt::skip]
-pub const ROWS_AGENTS: &[MethodRoute] = &[
-    route("SessionsPrompt", "agents", AuthRequirement::DevicePlusFence, PortStatus::Implemented),
-    route("AgentStatusGet", "agents", AuthRequirement::Device, PortStatus::Implemented),
-    route("AgentStatusList", "agents", AuthRequirement::Device, PortStatus::Implemented),
-    route("AgentStatusWait", "agents", AuthRequirement::Device, PortStatus::Implemented),
-    route("AgentConfigGet", "agents", AuthRequirement::Device, PortStatus::Implemented),
-    route("AgentConfigSet", "agents", AuthRequirement::Device, PortStatus::Implemented),
-];
-/// OMP agent conversations and their harness settings.
-#[rustfmt::skip]
-pub const ROWS_AGENT_CHAT: &[MethodRoute] = &[
-    route("AgentChatList", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
-    route("AgentChatCreate", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
-    route("AgentChatSubmit", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
-    route("AgentChatAbort", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
-    route("AgentChatWithdraw", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
-    route("AgentChatConfigure", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
-    route("AgentChatDelete", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
-    route("AgentChatSnapshot", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
-    route("AgentChatEvents", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
-    route("AgentOmpSettingsGet", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
-    route("AgentOmpSettingsSet", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
-    route("AgentOmpSessionOpen", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
-    route("AgentOmpUi", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
-    route("AgentOmpRespond", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
-];
-
 /// global session search across every worker.
 #[rustfmt::skip]
 pub const ROWS_SEARCH: &[MethodRoute] = &[
@@ -314,8 +276,6 @@ pub const ALL_TABLES: &[&[MethodRoute]] = &[
     ROWS_WORKERS,
     ROWS_DEPLOY,
     ROWS_SESSIONS,
-    ROWS_AGENTS,
-    ROWS_AGENT_CHAT,
     ROWS_SEARCH,
     ROWS_ATTACHMENTS,
     ROWS_CLIPBOARD,

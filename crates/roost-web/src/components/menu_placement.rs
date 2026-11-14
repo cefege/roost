@@ -1,7 +1,7 @@
 //! Where a popup anchored to a trigger goes so it always fits: above or below,
 //! whichever side has room, aligned to the trigger edge that keeps it inside
 //! its bounds, with a height cap that makes a long list scroll instead of
-//! running off the pane. Pure; `agent_chat::toolbar_menu` measures and calls it.
+//! running off the pane. The anchored panel measures and calls it.
 //! Positions come out in the containing block's coordinates, because a
 //! transformed deck is the containing block of every `position: fixed` popup.
 

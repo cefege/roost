@@ -54,7 +54,7 @@ pub enum ShellIntent {
         /// The new value.
         on: bool,
     },
-    /// Choose how loudly a blocked or finished agent interrupts.
+    /// Choose how notifications are delivered.
     SetNotifyPref {
         /// Which switch.
         pref: NotifyPref,

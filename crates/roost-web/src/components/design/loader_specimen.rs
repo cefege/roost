@@ -5,7 +5,6 @@
 
 use dioxus::prelude::*;
 
-use crate::components::agent_chat::working_row::WorkingRow;
 use crate::components::ui::Spinner;
 
 /// The spinner beside its label, then the working row with a sample intent.
@@ -17,7 +16,6 @@ pub fn LoaderSpecimen() -> Element {
                 Spinner { class: "size-4" }
                 span { class: "text-muted-foreground", "Spinner" }
             }
-            WorkingRow { label: "Reading config".to_string() }
         }
     }
 }

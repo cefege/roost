@@ -1,5 +1,5 @@
 //! The Folders navigation tree, in the browser's manual order, with stock Sidenav parts.
-//! Filtering projects matching terminal and agent destinations without folder
+//! Filtering projects matching terminal destinations without folder
 //! headers. This component also owns the sidebar keyboard cursor's row order.
 
 use std::rc::Rc;
@@ -11,13 +11,11 @@ use roost_client_core::store::navigation::query::normalize_navigation_search_que
 use roost_client_core::store::pending_close::is_pending_close;
 use roost_client_core::store::selectors::{session_by_id, session_folder_key};
 use roost_client_core::store::sidebar::SidebarIntent;
-use roost_client_core::store::sidebar::folder_group_filter::filter_folder_groups_for_store;
 use roost_client_core::store::sidebar::folder_groups::{
     FolderGroup, build_folder_groups, filter_folder_groups, order_folder_groups,
 };
 use roost_protocol::wire::{Session, SessionKind};
 
-use super::folder_conversations::FolderConversationRows;
 use super::folder_row::{FolderRow, folder_drop_position};
 use super::session_row::SessionRow;
 use crate::components::ui::empty::EmptyState;
@@ -34,15 +32,6 @@ use crate::router_state::use_location;
 #[path = "folder_motion.rs"]
 mod motion;
 
-/// Quick-chat folders live under this segment and never show as folders.
-pub const CHAT_FOLDER_SEGMENT: &str = "/.roost/chats/";
-
-/// Whether a cwd is a quick-chat scratch folder (v2 `lib/quickChat.ts`
-/// `isChatFolder`).
-pub fn is_chat_folder(cwd: &str) -> bool {
-    cwd.contains(CHAT_FOLDER_SEGMENT)
-}
-
 /// The list.
 #[component]
 pub fn FolderList(active: bool, query: String) -> Element {
@@ -58,17 +47,13 @@ pub fn FolderList(active: bool, query: String) -> Element {
         filtered_ids,
         active_folder_key,
         cursor_id,
-        active_agent_id,
         visible_session_ids_by_folder,
     ) = {
         let core = core.borrow();
         let store = core.store();
         let now_ms = i64::try_from(core.clock().now_ms()).unwrap_or(i64::MAX);
         let all = build_folder_groups(store, &BrowserWorkerPaths, now_ms);
-        let mut visible: Vec<FolderGroup> = all
-            .into_iter()
-            .filter(|group| !is_chat_folder(&group.spawn_cwd))
-            .collect();
+        let mut visible: Vec<FolderGroup> = all;
         order_folder_groups(&mut visible, store.sidebar.memory.folder_order());
         let folder_keys = visible
             .iter()
@@ -79,7 +64,7 @@ pub fn FolderList(active: bool, query: String) -> Element {
             .iter()
             .map(|group| group.key.as_str())
             .collect();
-        let groups = filter_folder_groups_for_store(store, &visible, &query);
+        let groups = filter_folder_groups(&visible, &query);
         let visible_session_ids_by_folder = groups
             .iter()
             .map(|group| {
@@ -105,10 +90,6 @@ pub fn FolderList(active: bool, query: String) -> Element {
         };
         let active_folder_key = active_session_for_path(store, &BrowserWorkerPaths, &path.read())
             .map(|session| session_folder_key(store, &BrowserWorkerPaths, session));
-        let active_agent_id = match crate::routes::Route::parse(&path.read()) {
-            crate::routes::Route::Agent { conversation_id } => Some(conversation_id),
-            _ => None,
-        };
         let cursor_id = store.sidebar.cursor.cursor_session_id().map(str::to_owned);
         (
             groups,
@@ -116,7 +97,6 @@ pub fn FolderList(active: bool, query: String) -> Element {
             filtered_ids,
             active_folder_key,
             cursor_id,
-            active_agent_id,
             visible_session_ids_by_folder,
         )
     };
@@ -153,9 +133,6 @@ pub fn FolderList(active: bool, query: String) -> Element {
                 .collect()
         }
     };
-    let has_filtered_agents = groups
-        .iter()
-        .any(|group| !group.agent_conversation_ids.is_empty());
     publish_cursor_targets(&pump, active, visible_ids);
 
     rsx! {
@@ -175,8 +152,7 @@ pub fn FolderList(active: bool, query: String) -> Element {
                             for group in groups {
                                 FolderRow {
                                     key: "{group.key}",
-                                    selected: active_folder_key.as_deref() == Some(group.key.as_str())
-                                        || active_agent_id.as_ref().is_some_and(|id| group.agent_conversation_ids.contains(id)),
+                                    selected: active_folder_key.as_deref() == Some(group.key.as_str()),
                                     cursor: !compact
                                         && !group.lead_id.is_empty()
                                         && cursor_id.as_deref() == Some(group.lead_id.as_str()),
@@ -236,14 +212,6 @@ pub fn FolderList(active: bool, query: String) -> Element {
                                     },
                                     group: group.clone(),
                                     SidenavMenuSub {
-                                        FolderConversationRows {
-                                            conversation_ids: group.agent_conversation_ids.clone(),
-                                            active_agent_id: active_agent_id.clone(),
-                                            nested: false,
-                                            search_result: false,
-                                            compact,
-                                            query: String::new(),
-                                        }
                                         if compact {
                                             for session_id in visible_session_ids_by_folder
                                                 .get(&group.key)
@@ -269,7 +237,7 @@ pub fn FolderList(active: bool, query: String) -> Element {
                         }
                     }
                     }
-                } else if filtered_ids.is_empty() && !has_filtered_agents {
+                } else if filtered_ids.is_empty() {
                     EmptyState {
                         icon: IconType::SearchX,
                         title: "No matches",
@@ -282,14 +250,6 @@ pub fn FolderList(active: bool, query: String) -> Element {
                                 SidenavGroupLabel {
                                     class: "flex min-w-0 items-center justify-between gap-2",
                                     {folder_group_heading(&group.name, &group.server)}
-                                }
-                                FolderConversationRows {
-                                    conversation_ids: group.agent_conversation_ids,
-                                    active_agent_id: active_agent_id.clone(),
-                                    nested: false,
-                                    search_result: true,
-                                    compact,
-                                    query: query.clone(),
                                 }
                                 for session_id in group.session_ids.iter().filter(|id| filtered_ids.contains(id)) {
                                     SessionRow {
@@ -344,13 +304,10 @@ fn has_active_filter(query: &str) -> bool {
     !normalize_navigation_search_query(query).is_empty()
 }
 
-/// A filtered row: a live shell session not waiting out a close and not a
-/// quick-chat scratch folder.
+/// A filtered row: a live shell session not waiting out a close.
 fn is_visible_space_session(store: &Store, session_id: &str) -> bool {
     session_by_id(store, session_id).is_some_and(|session: &Session| {
-        session.kind == SessionKind::Shell
-            && !is_pending_close(store, session_id)
-            && !is_chat_folder(&session.cwd)
+        session.kind == SessionKind::Shell && !is_pending_close(store, session_id)
     })
 }
 

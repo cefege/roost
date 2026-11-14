@@ -1,11 +1,8 @@
 //! The one reader of a `roost api` verb's arguments. Called by `api::verbs`,
 //! which re-exports it; depends on the verb table and on `command_error`.
 //!
-//! Every verb's arguments come through here, so a repeated option is refused
-//! the same way for all of them. That matters most where the options name
-//! states: a script that passes `--until working --until idle` has said two
-//! things, and picking one of them silently is how a wait ends in a state
-//! nobody asked for and exits 0.
+//! Every verb's arguments come through here, so repeated options are refused
+//! consistently rather than silently choosing the last value.
 //!
 //! WHY `--name value` AND `--name=value` BOTH PARSE. They are the same
 //! operator's intent written two ways, and v2 accepted both. A CLI that
@@ -223,39 +220,19 @@ fn record(
 mod tests {
     use super::{Invocation, parse};
     use crate::api::verbs::lookup;
-    use crate::command_error::{GENERIC_FAILURE, REJECTED_INVOCATION};
+    use crate::command_error::REJECTED_INVOCATION;
 
     fn argv(items: &[&str]) -> Vec<String> {
         items.iter().map(|item| (*item).to_string()).collect()
     }
 
     #[test]
-    fn a_required_option_is_refused_by_name() {
-        let spec = lookup("agent-wait").expect("agent-wait is registered");
-        let failure = parse(spec, &argv(&["session-1"])).expect_err("--until is required to wait");
-        assert_eq!(failure.code, REJECTED_INVOCATION);
-        assert_ne!(failure.code, GENERIC_FAILURE);
-        assert!(failure.message.contains("--until"), "{}", failure.message);
-    }
-
-    #[test]
     fn a_repeated_option_is_refused_rather_than_last_one_wins() {
-        let spec = lookup("agent-wait").expect("agent-wait is registered");
-        let failure = parse(
-            spec,
-            &argv(&[
-                "s",
-                "--until",
-                "working",
-                "--until",
-                "idle",
-                "--timeout",
-                "1s",
-            ]),
-        )
-        .expect_err("a repeated --until is two answers to one question");
+        let spec = lookup("cells").expect("cells is registered");
+        let failure = parse(spec, &argv(&["s", "--rows", "5", "--rows", "10"]))
+            .expect_err("a repeated --rows is two answers to one question");
         assert!(
-            failure.message.contains("duplicate --until"),
+            failure.message.contains("duplicate --rows"),
             "{}",
             failure.message
         );
@@ -263,26 +240,23 @@ mod tests {
 
     #[test]
     fn an_option_value_is_never_read_as_a_positional() {
-        let spec = lookup("agent-wait").expect("agent-wait is registered");
-        let parsed = parse(
-            spec,
-            &argv(&["s", "--until", "working,idle", "--timeout", "30s"]),
-        )
-        .expect("a separated option value belongs to the option");
+        let spec = lookup("cells").expect("cells is registered");
+        let parsed = parse(spec, &argv(&["s", "--rows", "30", "--end", "40"]))
+            .expect("a separated option value belongs to the option");
         assert_eq!(parsed.positionals, vec!["s".to_string()]);
-        assert_eq!(parsed.value("--until"), Ok("working,idle"));
-        assert_eq!(parsed.value("--timeout"), Ok("30s"));
+        assert_eq!(parsed.value("--rows"), Ok("30"));
+        assert_eq!(parsed.value("--end"), Ok("40"));
     }
 
     #[test]
     fn both_option_dialects_are_the_same_operator_intent() {
-        let spec = lookup("agent-wait").expect("agent-wait is registered");
-        let inline = parse(spec, &argv(&["s", "--until=working", "--timeout=1s"]))
+        let spec = lookup("cells").expect("cells is registered");
+        let inline = parse(spec, &argv(&["s", "--rows=30", "--end=40"]))
             .expect("the inline dialect is accepted");
-        let separated = parse(spec, &argv(&["s", "--until", "working", "--timeout", "1s"]))
+        let separated = parse(spec, &argv(&["s", "--rows", "30", "--end", "40"]))
             .expect("the separated dialect is accepted");
         assert_eq!(inline.positionals, separated.positionals);
-        assert_eq!(inline.value("--until"), separated.value("--until"));
+        assert_eq!(inline.value("--rows"), separated.value("--rows"));
     }
 
     #[test]
@@ -307,8 +281,8 @@ mod tests {
 
     #[test]
     fn a_verb_with_a_required_positional_refuses_a_missing_one() {
-        let spec = lookup("agent-status").expect("agent-status is registered");
-        let failure = parse(spec, &[]).expect_err("agent-status names a session");
+        let spec = lookup("kill").expect("kill is registered");
+        let failure = parse(spec, &[]).expect_err("kill names a session");
         assert!(failure.message.contains("missing"), "{}", failure.message);
     }
 

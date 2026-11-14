@@ -147,8 +147,6 @@ pub fn frame_meta_for(frame: &Frame) -> SyncFrameMeta {
         Frame::TerminalBell(bell) => session_keyed_meta(Some(&bell.session_id)),
         Frame::TerminalSignals(signals) => session_keyed_meta(Some(&signals.session_id)),
         Frame::LastActivity(activity) => session_keyed_meta(Some(&activity.session_id)),
-        Frame::AgentStatus(status) => session_keyed_meta(Some(&status.session_id)),
-        Frame::AgentConversation(_) | Frame::AgentChatEvents(_) => domain_meta(SyncDomain::Agent),
         Frame::WorkerPresence(_) | Frame::WorkerRoutable(_) => domain_meta(SyncDomain::Workers),
         Frame::WorkspaceDelta(_) => domain_meta(SyncDomain::Workspaces),
         Frame::TaskDelta(_) => domain_meta(SyncDomain::Tasks),
@@ -161,8 +159,7 @@ pub fn frame_meta_for(frame: &Frame) -> SyncFrameMeta {
         // produces the frame.
         Frame::UiState(_)
         | Frame::UiCommand(_)
-        | Frame::OmpHostService(_)
-        | Frame::OmpUiActionReceipt(_)
+        | Frame::ClientStateChanged(_)
         | Frame::Keepalive(_)
         | Frame::CoordinatorRelocation(_)
         | Frame::Subscribed(_)
@@ -185,7 +182,7 @@ fn domain_meta(domain: SyncDomain) -> SyncFrameMeta {
 }
 
 /// Session-keyed metadata: the terminal domain owns every session-keyed frame,
-/// including presence, title, activity and agent status.
+/// including presence, title and activity.
 /// Its frames go to `SyncDomain::Terminal`, the queue cells use, so they wait
 /// behind cells queued ahead of them.
 fn session_keyed_meta(session_id: Option<&str>) -> SyncFrameMeta {

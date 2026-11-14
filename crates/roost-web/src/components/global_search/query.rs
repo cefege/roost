@@ -1,34 +1,17 @@
-//! `/search`'s three route parameters, read out of the address bar and written
-//! back into it.
+//! `/search` route parameters, read from and written to the address bar.
 //!
-//! The search page has no form state of its own: `q`, `scope` and `case` ARE the
-//! route, so a result list a reader shares or returns to is the same list. That
-//! is why this is a codec over the location rather than three signals in the
-//! component — the component reads what this parses and writes what this
-//! serializes, and the URL is the only place either of them lives.
-//!
+//! The search page keeps its query and case setting in the route so shared
+//! links and browser history restore the same search.
+//! This codec reads and serializes those parameters.
 //! Ports the parameters of `apps/web/src/components/search/GlobalSearchPage.tsx:35-47`
 //! and its `updateRoute` at `:69-80`.
 use roost_client_core::client::global_search::GlobalSearchQuery;
 
 use crate::routes::{percent_decode, percent_encode};
 
-/// Which rows the page lists.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SearchScope {
-    /// Every session, plus retained terminal content.
-    #[default]
-    All,
-    /// Only the sessions whose agent wants attention. Content search is off:
-    /// a filter that answers "what needs me" is not a fleet-wide text scan.
-    Attention,
-}
-
 /// What `/search` is currently asking for.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SearchRouteQuery {
-    /// Which rows are listed.
-    pub scope: SearchScope,
     /// The literal typed into the field.
     pub text: String,
     /// Whether a match respects case.
@@ -52,13 +35,6 @@ impl SearchRouteQuery {
             let value = percent_decode(value).unwrap_or_else(|| value.to_owned());
             match key {
                 "q" if parsed.text.is_empty() => parsed.text = value,
-                "scope" => {
-                    parsed.scope = if value == "attention" {
-                        SearchScope::Attention
-                    } else {
-                        SearchScope::All
-                    };
-                }
                 "case" => parsed.case_sensitive = value == "1",
                 _ => {}
             }
@@ -67,18 +43,11 @@ impl SearchRouteQuery {
     }
 
     /// The content search this route asks the coordinator for.
-    ///
-    /// The attention scope clears it rather than sending nothing: a controller
-    /// left holding the previous query would keep publishing that query's rows
-    /// under a list that is now saying something else.
     #[must_use]
     pub fn content_query(&self) -> GlobalSearchQuery {
-        match self.scope {
-            SearchScope::All => GlobalSearchQuery {
-                query: self.text.clone(),
-                case_sensitive: self.case_sensitive,
-            },
-            SearchScope::Attention => GlobalSearchQuery::default(),
+        GlobalSearchQuery {
+            query: self.text.clone(),
+            case_sensitive: self.case_sensitive,
         }
     }
 
@@ -90,13 +59,10 @@ impl SearchRouteQuery {
     #[must_use]
     pub fn to_path(&self) -> String {
         let mut parameters: Vec<String> = Vec::new();
-        if self.scope == SearchScope::Attention {
-            parameters.push("scope=attention".to_owned());
-        }
         if !self.text.trim().is_empty() {
             parameters.push(format!("q={}", percent_encode(self.text.trim())));
         }
-        if self.scope == SearchScope::All && self.case_sensitive {
+        if self.case_sensitive {
             parameters.push("case=1".to_owned());
         }
         if parameters.is_empty() {
@@ -118,10 +84,7 @@ impl SearchRouteQuery {
     /// The one-line sentence under the field, which is also its label.
     #[must_use]
     pub fn search_label(&self) -> &'static str {
-        match self.scope {
-            SearchScope::All => "Search sessions and terminal content",
-            SearchScope::Attention => "Filter attention",
-        }
+        "Search sessions and terminal content"
     }
 }
 
@@ -154,16 +117,5 @@ mod tests {
         let query = SearchRouteQuery::default().with_text("a&b=c d");
         assert_eq!(query.to_path(), "/search?q=a%26b%3Dc%20d");
         assert_eq!(SearchRouteQuery::parse(&query.to_path()).text, "a&b=c d");
-    }
-
-    #[test]
-    fn the_attention_scope_searches_no_content() {
-        let query = SearchRouteQuery {
-            scope: SearchScope::Attention,
-            text: "blocked".to_owned(),
-            case_sensitive: true,
-        };
-        assert!(query.content_query().is_empty());
-        assert_eq!(query.to_path(), "/search?scope=attention&q=blocked");
     }
 }

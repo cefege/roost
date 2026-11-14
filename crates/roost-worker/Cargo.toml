@@ -5,11 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "The worker service: sessions, the keeper client, the durable outbox, the coordinator link, the local door, the WebRTC peer, and agent tracking. Never depends on roost-coord."
+description = "The worker service: sessions, the keeper client, the durable outbox, the coordinator link, the local door, and the WebRTC peer. Never depends on roost-coord."
 autotests = false
 
 [dependencies]
-agent-client-protocol = { workspace = true, features = ["process"] }
 anyhow.workspace = true
 async-compression.workspace = true
 base64.workspace = true
@@ -54,7 +53,6 @@ roost-term.workspace = true
 sqlx = { workspace = true, features = ["sqlite", "runtime-tokio", "macros", "migrate"] }
 str0m.workspace = true
 sysinfo.workspace = true
-unicode-normalization.workspace = true
 
 [dev-dependencies]
 tokio-util = { workspace = true, features = ["compat"] }

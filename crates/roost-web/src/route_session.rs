@@ -15,7 +15,6 @@ use roost_client_core::store::{Session, SessionStatus, WorkerPaths};
 
 use crate::routes::{Route, session_href};
 use crate::terminal_href::{decode_folder_path, worker_os};
-use roost_client_core::deck::agent_tab_id;
 
 /// Whether a route is one of the terminal routes (`/s`, `/t`, `/w`), whether
 /// or not it resolves to a session right now.
@@ -85,21 +84,13 @@ pub fn active_open_session_for_route<'store>(
         .filter(|session| session.status == SessionStatus::Open)
 }
 
-/// The route's deck identity, including agent conversations.
+/// The route's open terminal deck identity.
 pub fn active_deck_tab_for_route(
     store: &Store,
     paths: &dyn WorkerPaths,
     route: &Route,
 ) -> Option<String> {
-    match route {
-        Route::Agent { conversation_id }
-            if store.agent_chat.conversations.contains_key(conversation_id) =>
-        {
-            Some(agent_tab_id(conversation_id))
-        }
-        _ => active_open_session_for_route(store, paths, route)
-            .map(|session| session.id.as_str().to_owned()),
-    }
+    active_open_session_for_route(store, paths, route).map(|session| session.id.as_str().to_owned())
 }
 
 /// Where the view lands when `session` goes away: the newest still-open sibling

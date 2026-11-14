@@ -94,9 +94,8 @@ impl LinkLoop {
     /// socket's lanes go with it: the pong, every control frame (a reply to a
     /// request of the gone connection, pending terminal metadata the replay
     /// re-asserts), terminal frames the next connection re-baselines, and raw
-    /// metadata. A pending agent status survives in the agent-status outbox,
-    /// whose possibly-lost retirements replay first on the next link. The durable mirror
-    /// does not reset: a durable row that vanished on reconnect would be a hole
+    /// metadata. The durable mirror does not reset: a durable row that
+    /// vanished on reconnect would be a hole
     /// in the coordinator's record of what happened.
     pub(super) fn detach_link(&mut self) {
         let generation = self.uplink.link_detached();
@@ -115,7 +114,6 @@ impl LinkLoop {
         let terminal = self.outbox.discard(Lane::Terminal);
         let raw = self.outbox.discard(Lane::RawMetadata);
         self.forget_terminal_metadata();
-        self.agent_statuses.disconnect();
         tracing::info!(
             generation,
             liveness,

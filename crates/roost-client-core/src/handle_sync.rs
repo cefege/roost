@@ -69,8 +69,7 @@ pub fn is_control(frame: &SyncFrame) -> bool {
             | SyncFrame::UiCommand { .. }
             | SyncFrame::CoordinatorRelocation { .. }
             | SyncFrame::WorkerLiveMetrics { .. }
-            | SyncFrame::OmpHostService { .. }
-            | SyncFrame::OmpUiActionReceipt { .. }
+            | SyncFrame::ClientStateChanged
             | SyncFrame::Keepalive
     )
 }

@@ -25,8 +25,6 @@
 //!   answers releases the views it published;
 //! - the view heartbeat, so a pane that has gone quiet releases the session's
 //!   minimum size after the park grace instead of pinning it forever;
-//! - the agent-status acknowledgement write, and the retirement of the released
-//!   occupants this profile has already been told about;
 //! - the foreground liveness probe and its proof deadline, because a pane that
 //!   stopped painting has no other watchdog;
 //! - the transfer cards' stall and dismissal deadlines, so a finished upload's
@@ -66,27 +64,6 @@ pub fn handle_sweep(
     crate::handle_close_kill::issue_due_kills(store, now_ms, out);
 
     crate::store::transfers::sweep_transfers(store, now_ms);
-
-    // The acknowledgement ledger second, and for the same reason: one write per
-    // sweep no matter how many rows the reader looked at since the last one.
-    if store.agent_seen_dirty {
-        store.agent_seen_dirty = false;
-        out.push(Effect::PersistAgentSeen {
-            encoded: store.agent_seen.encode(),
-        });
-    }
-
-    // Retiring is here rather than on the frame because retirement is a
-    // CONVERSATION between two reports and an acknowledgement: a released
-    // occupant's row outlives the frame that released it until this profile has
-    // been told, and no single report can know that.
-    if !store
-        .agent_status
-        .retire_spent_released(&store.agent_seen)
-        .is_empty()
-    {
-        store.note_change();
-    }
 
     let session_ids: Vec<String> = store.terminal.keys().cloned().collect();
     for session_id in session_ids {

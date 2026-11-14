@@ -8,14 +8,13 @@
 use dioxus::prelude::*;
 use roost_client_core::store::browse_state::intent::BrowseIntent;
 
-use crate::components::browse::BrowseLaunchMode;
-use crate::components::browse::browse_mode_href;
 use crate::components::browse::dom;
 use crate::components::browse::listing;
 use crate::components::browse::picker::control_set::PickerControls;
 use crate::components::browse::picker::parts::{commit_new_folder, history_move, recents_header};
 use crate::components::browse::view::PickerReading;
 use crate::pump::Pump;
+use crate::routes::browse_href;
 
 /// Every control for one render of the page.
 #[allow(clippy::too_many_arguments)]
@@ -32,7 +31,6 @@ pub fn build_controls(
     server_menu_open: Signal<bool>,
     crumb_menu_open: Signal<bool>,
     navigate: EventHandler<String>,
-    launch_mode: BrowseLaunchMode,
 ) -> PickerControls {
     let view = &reading.view;
     let on_close = EventHandler::new(move |()| navigate.call("/".to_owned()));
@@ -80,9 +78,8 @@ pub fn build_controls(
             dom::focus_by_id(dom::NEW_FOLDER_ID);
         }
     });
-    let on_select_server = EventHandler::new({
-        move |target: String| navigate.call(browse_mode_href(&target, launch_mode))
-    });
+    let on_select_server =
+        EventHandler::new(move |target: String| navigate.call(browse_href(&target)));
     let on_toggle_server_menu = EventHandler::new({
         let mut open = server_menu_open;
         move |()| {
@@ -158,19 +155,6 @@ pub fn build_controls(
             );
         }
     });
-    let on_start_agent = EventHandler::new({
-        let pump = pump.clone();
-        let worker_fp = worker_fp.to_owned();
-        let folder = view.resolved.clone();
-        move |()| {
-            crate::components::agent_chat::launch_agent(
-                pump.clone(),
-                worker_fp.clone(),
-                folder.clone(),
-                navigate,
-            );
-        }
-    });
     let on_open_here = EventHandler::new({
         let pump = pump.clone();
         let worker_fp = worker_fp.to_owned();
@@ -182,16 +166,8 @@ pub fn build_controls(
     let on_pick_recent = EventHandler::new({
         let pump = pump.clone();
         let worker_fp = worker_fp.to_owned();
-        move |folder: String| match launch_mode {
-            BrowseLaunchMode::Agent => crate::components::agent_chat::launch_agent(
-                pump.clone(),
-                worker_fp.clone(),
-                folder,
-                navigate,
-            ),
-            BrowseLaunchMode::Terminal => {
-                listing::launch_terminal(pump.clone(), worker_fp.clone(), folder, navigate)
-            }
+        move |folder: String| {
+            listing::launch_terminal(pump.clone(), worker_fp.clone(), folder, navigate)
         }
     });
     let on_retry = EventHandler::new({
@@ -285,7 +261,6 @@ pub fn build_controls(
     let _ = compact;
     let _ = hide_middle;
     PickerControls {
-        launch_mode,
         crumb_views: crate::platform::worker_paths::palette::collapse_crumbs_to(
             &view.crumbs,
             *hide_middle.peek(),
@@ -322,7 +297,6 @@ pub fn build_controls(
         }),
         on_drill,
         on_retry,
-        on_start_agent,
         on_open_here,
         on_go_home: EventHandler::new(move |()| navigate.call("/".to_owned())),
         on_new_folder_name,

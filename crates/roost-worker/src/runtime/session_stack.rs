@@ -32,7 +32,6 @@ use std::sync::{Arc, Mutex};
 use roost_observability::clock::{EventClock, SystemClock};
 use roost_protocol::wire::brand::{SessionId, WorkerFp};
 
-use crate::agents::environment::{AgentReportEnvironment, AgentReportSite};
 use crate::attachments::media_dirs::SessionFolders;
 use crate::attachments::store_paths::AttachmentBase;
 use crate::browser_commands::search::Searches;
@@ -47,8 +46,7 @@ use crate::session::journal_sink::JournalSink;
 use crate::session::keeper_channels::KeeperChannels;
 use crate::session::lifecycle::{SessionManager, SessionTable};
 use crate::session::sinks::SessionEventSink;
-use crate::session::spawn::{SessionEnvironmentOverlay, ShellSpawner, ShellSpecResolver};
-use crate::session::terminal_changed::TerminalChangedHooks;
+use crate::session::spawn::{ShellSpawner, ShellSpecResolver};
 
 use super::cell_delivery::TableCellDelivery;
 use super::channel_delivery::TableChannelDelivery;
@@ -85,12 +83,6 @@ pub struct SessionStack {
     /// write two bootstrap rcfiles for the same session, and the shell that
     /// reads one of them is reading whichever wrote last.
     resolver: Arc<dyn ShellSpecResolver>,
-    /// The agent report endpoint every PTY is pointed at (v2 environment.ts);
-    /// the report server and the detector share it.
-    pub agent_environment: Arc<AgentReportEnvironment>,
-    /// v2 `setAgentStatusHooks.terminalChanged`: every chunk's channel, told
-    /// by the channel delivery; the agent detector installs the hook.
-    pub terminal_changed: Arc<TerminalChangedHooks>,
     /// Where every session's attachments land: the browser attachment
     /// commands and the upload owner and reaper read this one base, whose
     /// session folders are this stack's table.
@@ -101,9 +93,6 @@ pub struct SessionStack {
     /// The durable sink's change signal and the replay barrier: the link
     /// drains it, the boot reconcile awaits it before reading recovery data.
     pub durable_delivery: Arc<DurableDelivery>,
-    /// Stats resources registered by the actual ACP child and shared with HTTP.
-    pub dashboard_resources:
-        Arc<crate::browser_commands::native_dashboard::resources::DashboardResources>,
 }
 
 impl std::fmt::Debug for SessionStack {
@@ -149,7 +138,6 @@ pub fn build(
     log_dir: &std::path::Path,
     worker_fp_text: String,
     process_epoch: &str,
-    agent_report: &AgentReportSite,
 ) -> Result<SessionStack, StackError> {
     let table = Arc::new(SessionTable::default());
     let clock = Arc::new(SystemClock);
@@ -158,11 +146,7 @@ pub fn build(
     // this pairing is the reason the file exists.
     let cells = TableCellDelivery::new(CellEmitter::new(), Arc::clone(&table));
     let emitter = cells.emitter();
-    let terminal_changed = Arc::new(TerminalChangedHooks::default());
-    let ingest = Arc::new(Mutex::new(TableChannelDelivery::new(
-        Arc::clone(&emitter),
-        Arc::clone(&terminal_changed),
-    )));
+    let ingest = Arc::new(Mutex::new(TableChannelDelivery::new(Arc::clone(&emitter))));
     // The ONE search ledger, opened here because this is the only object that
     // outlives the call to `deps`. See the field's own doc for why it is a
     // field rather than something `deps` builds.
@@ -171,9 +155,6 @@ pub fn build(
     let durable_delivery = Arc::new(DurableDelivery::new());
     let events: Arc<dyn SessionEventSink> =
         Arc::new(JournalSink::new(outbox, Arc::clone(&durable_delivery)));
-    // v2 environment.ts: every PTY carries the report endpoint and its
-    // per-session capability, and a refused endpoint refuses the spawn.
-    let agent_environment = Arc::new(AgentReportEnvironment::resolve(agent_report));
     // ONE `map_err`, and the second closure is the bug that was here: it named
     // the parameter `error` and then logged `%reason`, which is bound in the
     // FIRST closure and not in scope inside the second. The log line and the
@@ -183,8 +164,7 @@ pub fn build(
             .map_err(|reason| {
                 tracing::error!(%reason, "the shell spec resolver could not be built for this host");
                 StackError::Platform(reason)
-            })?
-            .with_overlay(Arc::clone(&agent_environment) as Arc<dyn SessionEnvironmentOverlay>),
+            })?,
     );
     // The SAME pool answers both seams, and deliberately: `KeeperChannels` is
     // recovery (it can fail, and a fault ends an adoption) while
@@ -250,12 +230,9 @@ pub fn build(
         emitter,
         searches,
         resolver,
-        agent_environment,
-        terminal_changed,
         attachments,
         capture,
         durable_delivery,
-        dashboard_resources: Arc::new(Default::default()),
     })
 }
 
@@ -297,7 +274,6 @@ impl SessionStack {
             capture: Arc::clone(&self.capture),
             platform,
             searches: Arc::clone(&self.searches),
-            dashboard_resources: Arc::clone(&self.dashboard_resources),
         }
         .into_deps()
     }
@@ -313,8 +289,7 @@ pub fn attachment_root(data_dir: &std::path::Path) -> PathBuf {
     data_dir.join(ATTACHMENTS_DIR)
 }
 
-/// A session's uploads follow its shell: the live `cwd` OSC 7 keeps current,
-/// which is the folder an agent started from that shell treats as its project.
+/// A session's uploads follow its shell's live cwd from OSC 7.
 impl SessionFolders for SessionTable {
     fn session_folder(&self, session_id: &str) -> Option<PathBuf> {
         let session_id = SessionId::try_from(session_id).ok()?;

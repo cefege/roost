@@ -2,7 +2,7 @@
 //!
 //! A dispatcher is per SOCKET: v2 builds one per connection inside
 //! `worker-conn.ts`, and so does this. Everything it reaches — the event log, the
-//! byte hub, the pending-RPC table, the view hub, the agent-status hub — is per
+//! byte hub, the pending-RPC table and the view hub — is per
 //! PROCESS, so it arrives as one `Arc<CoordServices>`. What is per socket arrives
 //! as that socket's own `WorkerHandle`: the readiness barrier, the generation
 //! fence, and the sender the acknowledgements travel on. Two arguments, because
@@ -25,8 +25,7 @@ use crate::worker_link::frame_dispatch::WorkerFrameDispatcher;
 /// silent drop — the exact shape of the defect this slice exists to close.
 #[derive(Debug)]
 pub struct DispatcherFor {
-    /// The process state, wrapped so the agent-status hub can be reached the
-    /// way its one caller reaches it.
+    /// The process state shared by the dispatcher.
     core: CoordCore,
     /// THIS socket's generation. Never another worker's, never a fresh one.
     handle: Arc<WorkerHandle>,

@@ -19,7 +19,7 @@ pub use route_selection::{
 };
 pub use spawn::DeckSpawn;
 pub use state::{DeckNavigation, DeckPaneIds, DeckState};
-pub use tab::{DeckTab, agent_tab_id};
+pub use tab::DeckTab;
 pub use tab_badge::{DeckTabBadge, deck_tab_badge};
 pub use view::{
     DeckSize, DeckView, TerminalSessionSlot, deck_session_id, deck_view, mobile_tab_ids,

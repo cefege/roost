@@ -80,7 +80,6 @@ async fn postgres_replicas_elect_one_owner_release_and_detect_fencing() {
         "http://127.0.0.1:4113".into(),
         Arc::clone(&service_a.cluster),
         Arc::clone(&state_a),
-        Arc::clone(&service_a.agent),
         rx_a,
     )));
     wait_until(|| state_a.is_owner()).await;
@@ -103,7 +102,6 @@ async fn postgres_replicas_elect_one_owner_release_and_detect_fencing() {
         "http://127.0.0.1:4113".into(),
         Arc::clone(&service_b.cluster),
         Arc::clone(&state_b),
-        Arc::clone(&service_b.agent),
         rx_b,
     )));
     assert!(!state_b.is_owner());

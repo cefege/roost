@@ -105,7 +105,6 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     //    to mount; what this step owns is the bind and the refusal.
     let platform = supported_host_platform()
         .map_err(|error| anyhow::anyhow!("this host's platform is not one v3 runs on: {error}"))?;
-    crate::agents::install_integrations::install_agent_integrations_at_boot(platform).await;
     let door = LocalDoor::bind(Some(&door_bind())).await?;
 
     // 4. The durable outbox, opened BEFORE anything can write a session event
@@ -191,7 +190,6 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
         &boot.log_dir,
         boot.fingerprint.as_str().to_owned(),
         &boot.process_epoch,
-        &boot.agent_report,
     )?;
 
     // The channel-id counter moves PAST what the keeper still holds before any
@@ -223,7 +221,6 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     // the stack (moved in; reached as `owners.stack` from here on).
     let mut owners = super::owners::WorkerOwners::build(
         stack,
-        &boot.data_dir,
         &uplink,
         &boot.process_epoch,
         Arc::clone(&survivors),
@@ -342,7 +339,6 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     // down on the way out would be the one bug this architecture exists to
     // prevent. The door stops serving first (v2 `close()`), then the owners
     // release their sockets, routes and cadence.
-    owners.close_agent_report().await;
     door.close();
     owners.shutdown();
     drop(keeper);

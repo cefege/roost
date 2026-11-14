@@ -6,11 +6,10 @@
 ## Purpose
 
 An operator who opens Roost on another laptop lands where they left off: the
-pane layout, the last terminal, the sidebar's recent sessions, per-folder and
-per-machine memory, and unsent composer and agent drafts. Those values lived
-only in one browser's `localStorage` or `sessionStorage`. This contract stores
-the allowlisted subset on the coordinator, scoped to the account, and merges it
-into each browser on boot and reconnect.
+pane layout, the last terminal, the sidebar's recent sessions and manual folder
+order, per-folder and per-machine memory, and unsent composer drafts.
+The coordinator stores the allowlisted subset, scoped to the account. Browsers
+merge it on boot, reconnect and account-scoped live invalidation.
 
 ## Surfaces
 
@@ -25,11 +24,10 @@ into each browser on boot and reconnect.
 ## Allowlist
 
 Exact keys: `roost.paneLayout.v1`, `roost.lastSessionByFolder`,
-`roost.lastTerminalPath`, `roost.lastAgentConversation`, `roost.sidebar.recent`,
-`roost.composerDrafts.v1`.
+`roost.lastTerminalPath`, `roost.sidebar.recent`,
+`roost.sidebar.folderOrder`, `roost.composerDrafts.v1`.
 
-Prefixes (the suffix must be non-empty): `roost.lastWorkspaceId.`,
-`roost.agent.draft.`.
+Prefix (the suffix must be non-empty): `roost.lastWorkspaceId.`.
 
 Everything else is device-local and is never sent. In particular the device
 key, endpoint selection (`coordinatorUrl`, `coords`, `deploymentMode`,
@@ -64,6 +62,13 @@ writes made on two machines.
   is flushed, and a settled local value takes a differing remote value.
 - Non-allowlisted keys from the server are dropped and counted.
 
+Folder discovery writes only `roost.sidebar.observedFolders`, a device-local
+append-only ordering cache. An explicit drag writes `roost.sidebar.folderOrder`;
+remote manual order takes precedence over locally discovered folders. Activity
+never changes either order. An unstamped order from an older browser seeds an
+account only when its first successful List has no folder-order entry; otherwise
+the existing account order wins.
+
 ## Browser timing
 
 - Writes go to the local store immediately and mark the key dirty with a write
@@ -73,8 +78,10 @@ writes made on two machines.
 - A failed `ClientStateSet` parks its keys. A parked key does not retry on the
   timer: it waits for the next List (boot or reconnect) or for a newer local
   write to it.
-- A `ClientStateList` is issued once per sync link generation, so boot and
-  every reconnect pull.
+- A `ClientStateList` is issued on boot and every reconnect. A
+  `ClientStateChangedFrame` on Sync v2 requests another List immediately, even
+  before domain hydration. Invalidations during a pending List coalesce into
+  one trailing pull on the next sweep, so a commit racing that List is not lost.
 - `ClientCore::client_state_settled()` is true after the first merged List,
   or after 5000 ms with no answer. The landing page waits on it so an
   offline boot is never blocked.
@@ -84,10 +91,19 @@ writes made on two machines.
 `ClientStateList` and `ClientStateSet` require a browser account device
 (`require_account_device`). The account is the caller's `account_id`, or the
 self-hosted tenant account for a legacy-self-hosted browser. Workers are
-refused. Scope matches `agent_prompt_history`
-(`0007_prompt_history.sql`).
+refused.
 
-## Not in scope
+## Live delivery
 
-Live push between open browsers is not implemented: a second laptop sees a
-change on its next boot or reconnect.
+After a successful non-empty Set commits, the coordinator publishes an account
+id on the cluster notifier's `roost_client_state` channel. Postgres carries it
+across replicas; SQLite delivers in process. Only that account's authenticated
+Sync v2 browser sockets that subscribe with `client_state=1` receive the empty
+`ClientStateChangedFrame` (field 61). Workers, other accounts and unsubscribed
+sockets receive neither the notice nor state values. Notification subscription
+is explicit so cached browser builds never receive an unknown control arm.
+
+The frame is unsequenced control traffic, independent of domain readiness and
+never retained or replayed. Clients recover missed notices by pulling on
+reconnect; notifier reconnect and receiver lag also invalidate the affected
+sockets. State values remain behind the account-authorized List RPC.

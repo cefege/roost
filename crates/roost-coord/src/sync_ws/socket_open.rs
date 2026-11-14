@@ -22,6 +22,7 @@ use roost_proto::buffa::Message as _;
 use crate::auth::ws_auth_deadline::{REAUTH_CLOSE_CODE, REAUTH_CLOSE_REASON, reauth_expired};
 use crate::services::CoordServices;
 use crate::sync_ws::backfill::{BackfillTask, spawn_backfill};
+use crate::sync_ws::client_state_changes::ClientStateChanges;
 use crate::sync_ws::commands::ClientContext;
 use crate::sync_ws::commands_layout::register_layout_target;
 use crate::sync_ws::control_frames::subscribed_frame;
@@ -94,6 +95,7 @@ pub(in crate::sync_ws) struct OpenedSocket {
     open_handle: u64,
     /// The durable recovery above `since`, while it runs.
     backfill: Option<BackfillTask>,
+    pub client_state_changes: Option<ClientStateChanges>,
 }
 
 /// Open one admitted socket, or name the close it gets instead.
@@ -189,17 +191,19 @@ pub(in crate::sync_ws) async fn open_socket(
     }
     let viewer = match (scope.read_only, v2) {
         (true, _) => UiViewer::suppressed(),
-        (false, true) => UiViewer::browser(
-            socket_id.clone(),
-            caller.fingerprint.clone(),
-            scope.tab_id.clone().unwrap_or_default(),
-        ),
+        (false, true) => UiViewer::browser(socket_id.clone()),
         (false, false) => UiViewer {
             browser_ui: true,
             socket_id: None,
-            fingerprint: Some(caller.fingerprint.clone()),
-            tab_id: scope.tab_id.clone(),
         },
+    };
+    let client_state_changes = if scope.client_state_changes {
+        caller
+            .account_id
+            .as_ref()
+            .map(|account_id| ClientStateChanges::subscribe(account_id.clone(), &services.cluster))
+    } else {
+        None
     };
     let mut feed = LiveFeed::install(&link, &services.buses, viewer, scope.viewer_key.clone());
     if !v2 {
@@ -217,6 +221,7 @@ pub(in crate::sync_ws) async fn open_socket(
         layout_context: context,
         open_handle,
         backfill: None,
+        client_state_changes,
     };
     let mut opened = if v2 {
         announce_subscribed(socket, opened, services).await?

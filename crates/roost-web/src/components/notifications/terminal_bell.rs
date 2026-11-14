@@ -12,10 +12,10 @@ use roost_client_core::ClientEvent;
 use roost_client_core::store::prefs::TerminalBell;
 use roost_client_core::store::shell_intent::ShellIntent;
 
-use super::agent_notifications::notification_tone::{ToneNote, TonePlayer};
+use super::notification_tone::{ToneNote, TonePlayer};
 use crate::pump::use_store;
 
-/// One short, high, quiet note: a bell is a nudge, quieter than the agent cues.
+/// One short, high, quiet note for a terminal bell.
 pub const BELL_CUE: [ToneNote; 1] = [ToneNote {
     frequency_hz: 988.0,
     offset_s: 0.0,

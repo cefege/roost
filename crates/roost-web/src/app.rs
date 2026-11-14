@@ -75,7 +75,6 @@ pub fn surface_for(route: &Route) -> Surface {
     match route {
         Route::Home => Surface::Served(ServedSurface::Home),
         Route::Session { .. }
-        | Route::Agent { .. }
         | Route::Terminal { .. }
         | Route::Workspace { .. }
         | Route::File { .. }
@@ -178,7 +177,6 @@ pub fn GatedApp() -> Element {
             // surface, including `/design` and `/pair`, which render no
             // workbench at all.
             crate::ui_bridge::UiBridge {}
-            crate::components::settings::agent_launcher::AgentLauncherLoader {}
             AuthorizedShell { path }
             AuthorizedOverlays {}
         },
@@ -316,7 +314,6 @@ fn AuthorizedOverlays() -> Element {
         crate::components::notifications::NotificationDock {}
         crate::components::palette::CommandPalette {}
         crate::components::clipboard_sheet::ClipboardSheet {}
-        crate::components::agents::queue_task_dialog::QueueTaskDialogHost {}
     }
 }
 

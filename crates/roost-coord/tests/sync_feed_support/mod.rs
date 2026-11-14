@@ -38,9 +38,8 @@ use roost_proto::{
     FirehoseFrame, PbCellGridFrame, SyncClientFrame, SyncDomain, SyncDomainReadyCommand,
 };
 use roost_protocol::wire::{
-    AgentId, AgentRuntimeState, AgentStatusFields, AgentStatusUpdate, ChannelId, HostMetrics,
-    McpRelay, McpRelayId, McpRelayKind, SessionEvent, SessionId, SessionKind, WorkerFp, WorkerOs,
-    WorkerPresenceEvent, Workspace, WorkspaceDelta, WorkspaceId,
+    ChannelId, HostMetrics, McpRelay, McpRelayId, McpRelayKind, SessionEvent, SessionId,
+    SessionKind, WorkerFp, WorkerOs, WorkerPresenceEvent, Workspace, WorkspaceDelta, WorkspaceId,
 };
 
 /// A session id in the shape `SessionId` validates.
@@ -212,27 +211,6 @@ pub fn relay() -> McpRelay {
             .into_iter()
             .collect(),
         created_at_ms: 1_700_000_000_000,
-    }
-}
-
-/// An active agent status update: the current-value projection the terminal
-/// domain carries per session.
-pub fn agent_status() -> AgentStatusUpdate {
-    AgentStatusUpdate {
-        common: AgentStatusFields {
-            session_id: session(SESSION_A),
-            agent_id: AgentId::try_from("agent-1").expect("a non-empty id is valid"),
-            state: AgentRuntimeState::Working,
-            message: Some("compiling".to_owned()),
-            revision: 3,
-            completed_revision: 2,
-            updated_at: 1_700_000_000_000,
-            status_epoch: None,
-            occupant_id: None,
-            source: None,
-            occupant_exited: false,
-        },
-        active: true,
     }
 }
 

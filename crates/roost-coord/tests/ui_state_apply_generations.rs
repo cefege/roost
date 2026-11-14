@@ -136,29 +136,23 @@ async fn an_apply_reaches_exactly_the_named_live_browser_generation() {
     assert_eq!(*correlation_id, response.body.correlation_id);
 
     assert!(
-        ui_bus_frame(
-            message,
-            &UiViewer::browser("socket-named", "fingerprint", "tab-1")
-        )
-        .is_some(),
+        ui_bus_frame(message, &UiViewer::browser("socket-named")).is_some(),
         "the named generation receives the apply"
     );
     for (label, viewer) in [
         (
             "the sibling tab's generation",
-            UiViewer::browser("socket-sibling", "fingerprint", "tab-1"),
+            UiViewer::browser("socket-sibling"),
         ),
         (
             "a colliding tab id on another device",
-            UiViewer::browser("socket-collider", "fingerprint", "tab-1"),
+            UiViewer::browser("socket-collider"),
         ),
         (
             "a browser on no generation",
             UiViewer {
                 browser_ui: true,
                 socket_id: None,
-                fingerprint: None,
-                tab_id: None,
             },
         ),
         ("a feed with no UI capability", UiViewer::suppressed()),
@@ -223,7 +217,7 @@ async fn an_apply_naming_a_dead_generation_is_settled_and_never_broadcast() {
     assert!(
         ui_bus_frame(
             published_while_live.first().expect("the published apply"),
-            &UiViewer::browser("socket-1", "fingerprint", "tab-1")
+            &UiViewer::browser("socket-1")
         )
         .is_some(),
         "a dead generation's own apply reached it, and only it"
@@ -279,19 +273,11 @@ async fn an_apply_naming_a_dead_generation_is_settled_and_never_broadcast() {
         .first()
         .expect("exactly one apply is published");
     assert!(
-        ui_bus_frame(
-            successor_apply,
-            &UiViewer::browser("socket-2", "fingerprint", "tab-1")
-        )
-        .is_some(),
+        ui_bus_frame(successor_apply, &UiViewer::browser("socket-2")).is_some(),
         "the live generation receives its own apply"
     );
     assert!(
-        ui_bus_frame(
-            successor_apply,
-            &UiViewer::browser("socket-1", "fingerprint", "tab-1")
-        )
-        .is_none(),
+        ui_bus_frame(successor_apply, &UiViewer::browser("socket-1")).is_none(),
         "the generation that closed receives nothing"
     );
 

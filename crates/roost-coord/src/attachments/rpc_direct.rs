@@ -1,6 +1,6 @@
 //! The authenticated direct-attachment RPCs: mint one immutable grant, read one
 //! durable receipt, and negotiate one attachment peer. Grants bind to the
-//! authenticated terminal session or agent conversation and exact tab; no byte
+//! authenticated terminal session and exact tab; no byte
 //! crosses the coordinator here. Called by `rpc::service_impl`; ports the v2
 //! direct and peer handlers.
 
@@ -89,7 +89,7 @@ pub async fn handle_attachments_grant_direct(
     })
 }
 
-/// Read one upload's durable receipt from a terminal session or agent conversation.
+/// Read one upload's durable receipt from a terminal session.
 /// v2 `attachmentsDirectStatus`.
 pub async fn handle_attachments_direct_status(
     core: &CoordCore,
@@ -106,21 +106,11 @@ pub async fn handle_attachments_direct_status(
     }
     let target_id = AttachmentTargetId::try_from(request.session_id.as_str())
         .map_err(|_| attachment_grant_invalid("attachment status request is invalid"))?;
-    let worker_fp = if target_id.is_conversation() {
-        super::conversation_target::conversation_attachment_target(core, &target_id, None)
-            .await?
-            .ok_or_else(|| {
-                ConnectError::new(ErrorCode::NotFound, "attachment session is unavailable")
-            })?
-            .worker_fp
-            .to_string()
-    } else {
-        attachment_session_worker(&core.services.db, target_id.as_str())
-            .await?
-            .ok_or_else(|| {
-                ConnectError::new(ErrorCode::NotFound, "attachment session is unavailable")
-            })?
-    };
+    let worker_fp = attachment_session_worker(&core.services.db, target_id.as_str())
+        .await?
+        .ok_or_else(|| {
+            ConnectError::new(ErrorCode::NotFound, "attachment session is unavailable")
+        })?;
     let worker = current_routable_by_name(&core.services.workers, &worker_fp)
         .ok_or_else(|| attachment_grant_unavailable("attachment status worker is unavailable"))?;
     let status = core
@@ -187,18 +177,6 @@ async fn authorize_attachment_session(
     target_id: &AttachmentTargetId,
     expected_worker_fp: &str,
 ) -> Result<(), ConnectError> {
-    if target_id.is_conversation() {
-        super::conversation_target::conversation_attachment_target(
-            core,
-            target_id,
-            Some(expected_worker_fp),
-        )
-        .await?
-        .ok_or_else(|| {
-            ConnectError::new(ErrorCode::NotFound, "attachment session is unavailable")
-        })?;
-        return Ok(());
-    }
     let worker_fp = attachment_session_worker(&core.services.db, target_id.as_str())
         .await?
         .ok_or_else(|| {

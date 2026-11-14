@@ -19,6 +19,7 @@ Sync is the authenticated browser metadata, control, terminal-fallback, and auth
 | `SyncDomainReadyCommand`, `SyncDomainSubscriptionCommand` | `protocol/proto/roost/v1/sync.proto:134-143` | v2 domain hydration and subscription transitions. |
 | `InputAccepted`, `InputRejected`, `InputAmbiguous` | `protocol/proto/roost/v1/sync.proto:229-249` | Truthful terminal-write result correlated by session, `input_seq`, and domain generation. |
 | `KeepaliveFrame` | `protocol/proto/roost/v1/sync.proto:324-326` | Timestamp-only liveness frame. |
+| `ClientStateChangedFrame` | `protocol/proto/roost/v1/sync.proto` | Empty account-scoped invalidation (field 61), sent after a client-state commit. Unsequenced control, independent of domain readiness; the browser re-reads `ClientStateList`. See [`client-state.md`](client-state.md). |
 | `TerminalClipboardFrame` | `protocol/proto/roost/v1/sync.proto` | One-shot OSC 52 clipboard write for an observed session. Volatile event: not retained or seeded on reconnect; text is at most 256 KiB. |
 | `ClipboardHistoryFrame` | `protocol/proto/roost/v1/sync.proto` | Persisted clipboard history added/removed/cleared event, sent to every install-wide Sync link (an added entry carries its text). Not seeded: the history sheet loads `ClipboardList` when it opens and folds these while open. |
 | `TerminalCommandFinishedFrame` | `protocol/proto/roost/v1/sync.proto` | One-shot long-command completion for an observed session; not retained or seeded, and contains no terminal text. |
@@ -28,7 +29,7 @@ Sync is the authenticated browser metadata, control, terminal-fallback, and auth
 
 ## State machine
 
-1. Client opens `/ws/coord-sync` with subprotocol `roost-auth`, bearer JWT, optional `tab`, optional `since`, and exact `flow=1&sync_v=2` for v2. A v2 socket without `tab` is read-only.
+1. Client opens `/ws/coord-sync` with subprotocol `roost-auth`, bearer JWT, optional `tab`, optional `since`, and exact `flow=1&sync_v=2` for v2. A v2 socket without `tab` is read-only. Account browsers add `client_state=1` to subscribe to live account preference invalidations.
 2. Coordinator validates query values and account-device authority, assigns socket scope, and creates the feed. Retained snapshots seed before the pre-ready live segment.
 3. If `since > 0`, the coordinator fixes a recovery cutoff after subscribing, then replays ordered public session events above `since` through that cutoff. v2 recovery waits for terminal `domain_ready` and available bounded queue capacity before admitting each frame; socket drains and ACKs resume it without polling or advancing past an unadmitted event. The held live tail uses the same pacing, and newer live traffic stays held until that tail drains. A cursor ahead of the log requests a terminal reset with reason `cursor_ahead_of_log`, on which the client drops its cursor to zero; failed v2 recovery requests reset and the client keeps its cursor. A replay frame larger than the queue/window byte bound resets recovery rather than waiting for capacity it can never obtain.
 4. A v2 socket receives `SyncSubscribedFrame`. Client subscribes/unsubscribes exact domains. A domain's retained snapshot must precede live frames; `domain_ready` closes the snapshot/live gap and then admits live application traffic. Terminal hydration requires the one-time `SessionsList` snapshot token.

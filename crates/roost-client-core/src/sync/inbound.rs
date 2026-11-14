@@ -26,7 +26,6 @@ pub use self::payloads::{
 use crate::sessions::WireEvent;
 use crate::sync::link::SyncDomain;
 use crate::terminal::input::InputOutcome;
-use roost_protocol::wire::agent_chat::{ChatEvent, ConversationSummary};
 
 /// One persisted clipboard-history event.
 #[derive(Debug, Clone, PartialEq)]
@@ -129,26 +128,6 @@ pub enum SyncFrame {
         outcome: InputOutcome,
         /// The domain generation the result belongs to.
         generation: u64,
-    },
-    /// One agent-status report. Proto field 29, `sync.proto:286`.
-    ///
-    /// Carries the SHARED wire type rather than the raw proto message,
-    /// because the freshness fence operates on the validated type and a
-    /// second parse of the same frame in this crate is exactly what
-    /// `client::agents::status_projection` refuses to do.
-    AgentStatus {
-        /// The report, already shape-checked.
-        update: roost_protocol::wire::AgentStatusUpdate,
-    },
-    /// An agent-status report the shared schema refused. Consumed and applied
-    /// to nothing: v2 `applyAgentStatusFrame` returns false and
-    /// `_dispatchSyncFrame` ignores that return (`sync-frame.ts:274-276`), so
-    /// the link stays up and the frame is acknowledged.
-    AgentStatusRefused {
-        /// The session the report named.
-        session_id: String,
-        /// The schema's refusal.
-        reason: String,
     },
     /// A `sessions` JSON event that parsed as JSON but not as a session event.
     /// The recovery cursor still advances past it and nothing is folded: v2
@@ -293,36 +272,12 @@ pub enum SyncFrame {
     },
     /// A timestamp-only liveness frame.
     Keepalive,
-    /// An agent conversation upsert, removal, or host status update.
-    AgentConversation {
-        conversation_id: String,
-        removed: bool,
-        conversation: Option<ConversationSummary>,
-        host_connected: bool,
-    },
-    /// One ordered batch of chat transcript events.
-    AgentChatEvents {
-        conversation_id: String,
-        seq: u64,
-        events: Vec<ChatEvent>,
-    },
+    /// The account's durable client state changed; pull the latest values.
+    ClientStateChanged,
     /// One live host snapshot for a worker this client subscribed to. A control
     /// frame: latest-only, never acknowledged, never replayed.
     WorkerLiveMetrics {
         /// The worker and its newest snapshot.
         frame: roost_protocol::wire::live_metrics::WorkerLiveMetricsFrame,
-    },
-    /// One one-shot browser host request, or its cancellation. A control frame
-    /// addressed by the coordinator to the initiating device tab; it is never
-    /// persisted or replayed.
-    OmpHostService {
-        /// The request, or the withdrawal of one.
-        service: crate::client::agent_chat::OmpHostService,
-    },
-    /// One private native receipt for a receipt-tracked UI action, fenced by
-    /// the canonical chat sequence that contains its rendered effect.
-    OmpUiActionReceipt {
-        /// The receipt.
-        receipt: crate::client::agent_chat::OmpUiActionReceipt,
     },
 }

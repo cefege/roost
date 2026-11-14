@@ -25,7 +25,6 @@ const UPSTREAM_FIELD_NUMBERS: &[(&str, u32)] = &[
     ("binary", 10),
     ("refresh-jwt", 11),
     ("cell-grid", 12),
-    ("agent-status", 14),
     ("input-result", 16),
     ("terminal-stream-result", 17),
     ("cell-grid-chunk", 18),
@@ -42,8 +41,6 @@ const UPSTREAM_FIELD_NUMBERS: &[(&str, u32)] = &[
     ("attachment-direct-status", 29),
     ("update-progress", 30),
     ("live-metrics", 36),
-    ("omp-host-service-request", 38),
-    ("omp-ui-action-receipt", 39),
 ];
 
 /// `CoordWorkerDown`'s oneof arms. Field 11 is `reserved`, so a peer that
@@ -63,7 +60,6 @@ const DOWNSTREAM_FIELD_NUMBERS: &[(&str, u32)] = &[
     ("terminal-stream-state", 13),
     ("terminal-snapshot-request", 14),
     ("keeper-update-prepare", 15),
-    ("agent-prompt", 16),
     ("terminal-pipeline-snapshot", 17),
     ("terminal-view-relay", 18),
     ("terminal-view-socket-closed", 19),
@@ -81,7 +77,6 @@ const DOWNSTREAM_FIELD_NUMBERS: &[(&str, u32)] = &[
     ("local-attachment-grant-revoke", 31),
     ("attachment-direct-status-request", 32),
     ("live-metrics-subscription", 42),
-    ("omp-ui", 50),
 ];
 
 /// The field number of a length-delimited protobuf field, read off the wire.

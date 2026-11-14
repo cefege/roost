@@ -14,7 +14,6 @@ pub mod live;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use roost_proto::DAgentPrompt;
 use roost_proto::DKeeperUpdatePrepare;
 use roost_proto::{
     AttachmentTransferStatus, DAttachmentChunk, DAttachmentDirectStatusRequest,
@@ -31,7 +30,6 @@ use roost_protocol::wire::coord_worker::{
 };
 use roost_worker::attachments::upload::RelayChunkOutcome;
 use roost_worker::browser_commands::Command;
-use roost_worker::link_ports::AgentPromptPort;
 use roost_worker::link_ports::AttachmentLinkPort;
 use roost_worker::link_ports::KeeperUpdatePort;
 use roost_worker::link_ports::{
@@ -95,14 +93,12 @@ impl Fakes {
     pub fn owners(&self) -> DownstreamOwners {
         let fakes = Arc::new(self.clone());
         DownstreamOwners {
-            omp: None,
             live_metrics: None,
             input: Arc::clone(&fakes) as Arc<dyn TerminalInputPort>,
             stream: Arc::clone(&fakes) as Arc<dyn TerminalStreamPort>,
             pipeline: Arc::clone(&fakes) as Arc<dyn TerminalPipelinePort>,
             view: Arc::clone(&fakes) as Arc<dyn TerminalViewPort>,
             local_terminal: Arc::clone(&fakes) as Arc<dyn LocalTerminalGrantPort>,
-            agent_prompt: Arc::clone(&fakes) as Arc<dyn AgentPromptPort>,
             attachments: Arc::clone(&fakes) as Arc<dyn AttachmentLinkPort>,
             keeper_update: Arc::clone(&fakes) as Arc<dyn KeeperUpdatePort>,
             lifecycle: fakes as Arc<dyn LinkLifecyclePort>,
@@ -138,33 +134,6 @@ impl KeeperUpdatePort for Fakes {
             Err("journaled keeper update request is malformed".to_owned())
         };
         self.settle(answer)
-    }
-}
-
-impl AgentPromptPort for Fakes {
-    fn write_prompt(
-        &self,
-        request: DAgentPrompt,
-        _: RequestBudget,
-        _: LinkFence,
-    ) -> OwnerFuture<Option<InputResult>> {
-        self.log
-            .push(format!("agent_prompt.write_prompt:{}", request.request_id));
-        // The failure carries the prompt text, so a secrecy test proves the
-        // dispatch never lets an owner's own failure reach a log or a reply.
-        if self.mode == OwnerMode::Panic {
-            let text = request.text;
-            return Box::pin(async move { panic!("{text}") });
-        }
-        self.settle(Some(InputResult {
-            request_id: request.request_id,
-            session_id: SessionId::try_from(request.session_id.as_str()).unwrap(),
-            input_seq: request.input_seq,
-            status: TerminalInputStatus::Accepted,
-            written_bytes: u32::try_from(request.text.len() + 1).unwrap(),
-            reason: String::new(),
-            phase: TerminalWritePhase::Written,
-        }))
     }
 }
 

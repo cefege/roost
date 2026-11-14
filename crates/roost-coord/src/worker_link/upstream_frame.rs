@@ -124,10 +124,9 @@ fn classify(upstream: CoordWorkerUpstream) -> LinkFrame {
         Up::CellGridChunk(chunk) => (FrameClass::Live, chunk.channel_id),
         Up::Binary(binary) => (FrameClass::Live, binary.channel_id.as_u32()),
         Up::TerminalMetadata(metadata) => (FrameClass::Live, metadata.channel_id.as_u32()),
-        Up::TerminalViewState(_)
-        | Up::TerminalViewProjection(_)
-        | Up::AgentStatus(_)
-        | Up::LiveMetrics(_) => (FrameClass::Live, 0),
+        Up::TerminalViewState(_) | Up::TerminalViewProjection(_) | Up::LiveMetrics(_) => {
+            (FrameClass::Live, 0)
+        }
         Up::RpcOk { .. }
         | Up::RpcError { .. }
         | Up::InputResult(_)
@@ -140,10 +139,7 @@ fn classify(upstream: CoordWorkerUpstream) -> LinkFrame {
         | Up::LocalAttachmentPeerError(_)
         | Up::AttachmentDirectStatus(_)
         | Up::TerminalInputRouteResult(_)
-        | Up::TerminalTransportProbeResult(_)
-        | Up::OmpEvents(_)
-        | Up::OmpHostServiceRequest(_)
-        | Up::OmpUiActionReceipt(_) => (FrameClass::Rpc, 0),
+        | Up::TerminalTransportProbeResult(_) => (FrameClass::Rpc, 0),
     };
     LinkFrame::Dispatch(Box::new(InboundFrame {
         class,

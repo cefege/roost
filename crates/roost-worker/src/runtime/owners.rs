@@ -9,15 +9,12 @@ use std::sync::Arc;
 
 use roost_observability::clock::EventClock;
 
-use super::agent_owners::start_agent_status;
 use super::cell_cadence::CellCadence;
 use super::heart_owners::HeartOwners;
 use super::link_loop::CoordinatorCellSink;
 use super::link_wire::ProtoLinkWire;
 use super::reconcile_gate::{ReconcileGate, ReconcileInputs};
 use super::session_stack::SessionStack;
-use crate::agents::report_server::AgentReportServer;
-use crate::agents::status_stack::AgentStatusStack;
 use crate::attachments::owners::{AttachmentOwners, AttachmentOwnersDeps};
 use crate::attachments::peer_owner::AttachmentPeerBootstrapState;
 use crate::door::loopback::{LoopbackOwner, LoopbackRoutes};
@@ -72,12 +69,6 @@ pub struct WorkerOwners {
     pub heart: HeartOwners,
     /// v2 `setupReconcile`: the one door for boot, keeper-death and degraded passes.
     pub reconcile: ReconcileGate,
-    /// v2 `agentRegistry` + `agentDetector`, with the manifests the report
-    /// server and prompt owner share.
-    pub agents: AgentStatusStack,
-    /// v2 `agentReportServer`: integrations report status over it; `None`
-    /// when it could not start. Closed by `close_agent_report`.
-    agent_report: Option<AgentReportServer>,
     /// v2 `main.ts:196-199` + `boot-local-terminal.ts`: the attachment
     /// operation owner, grant store, direct carriers and their sweeps.
     pub attachments: AttachmentOwners,
@@ -102,7 +93,6 @@ impl WorkerOwners {
     #[allow(clippy::too_many_arguments)]
     pub fn build(
         stack: SessionStack,
-        data_dir: &std::path::Path,
         uplink: &Uplink,
         process_epoch: &str,
         pool: Arc<KeeperPool>,
@@ -196,9 +186,6 @@ impl WorkerOwners {
         // carriers are fenced on detach and retired with the terminal ones.
         direct.register_carrier(Arc::new(attachments.direct.clone()));
         let heart = HeartOwners::build(&stack, Arc::clone(&pool), platform);
-        // v2 `main.ts:220-237`: agent-status detection, hooked to terminal
-        // output and to session close ahead of the routes and view.
-        let agents = start_agent_status(&stack, uplink)?;
         let keeper_endpoint = crate::runtime::keeper_boot::keeper_endpoint(&reconcile.boot)?;
         let reconcile = ReconcileGate::start(&stack, &pool, &heart, reconcile);
         // v2 `onKeeperUpdatePrepare` joins the same reconcile boundary boot
@@ -220,14 +207,6 @@ impl WorkerOwners {
             keeper,
         );
 
-        let agent_report = AgentReportServer::start_for_worker(&stack.agent_environment, &agents);
-        let omp = Arc::new(crate::omp::OmpOwner::new(
-            Arc::new(crate::omp::launcher::ProcessLauncher::new(
-                data_dir.to_path_buf(),
-            )),
-            uplink.clone(),
-            Arc::clone(&stack.dashboard_resources),
-        ));
         let live_metrics = Arc::new(crate::runtime::live_metrics::LiveMetricsOwner::new(
             worker_fingerprint,
             uplink.clone(),
@@ -245,10 +224,6 @@ impl WorkerOwners {
                     Arc::clone(&direct),
                     Arc::new(cadence.clone()),
                 )) as Arc<dyn LinkLifecyclePort>,
-                Arc::new(agents.clone()) as Arc<dyn LinkLifecyclePort>,
-                Arc::new(crate::omp::OmpLinkLifecycle(
-                    Arc::clone(&omp) as Arc<dyn crate::omp::OmpResend>
-                )) as Arc<dyn LinkLifecyclePort>,
                 Arc::new(crate::runtime::live_metrics::LiveMetricsLinkLifecycle(
                     Arc::clone(&live_metrics),
                 )) as Arc<dyn LinkLifecyclePort>,
@@ -257,19 +232,11 @@ impl WorkerOwners {
             // device's peers.
             local_terminal: Arc::clone(&direct) as Arc<dyn LocalTerminalGrantPort>,
             direct: Some(Arc::clone(&direct) as Arc<dyn DirectTerminalPort>),
-            // v2 `onAgentPrompt` (`coord-link-deps.ts:218-249`).
-            agent_prompt: crate::agents::prompt_port::AgentPromptOwner::over_status_stack(
-                Arc::clone(&stack.manager),
-                Arc::clone(&stack.table),
-                &agents,
-                work_budget.clone(),
-            ),
             attachments: attachments.link(),
             attachment_peers: Some(
                 Arc::new(attachments.direct.clone()) as Arc<dyn AttachmentPeerPort>
             ),
             keeper_update: Arc::new(keeper_update) as Arc<dyn KeeperUpdatePort>,
-            omp: Some(omp as Arc<dyn crate::link_ports::OmpPort>),
             live_metrics: Some(live_metrics as Arc<dyn crate::link_ports::LiveMetricsPort>),
         };
         tracing::info!(
@@ -289,8 +256,6 @@ impl WorkerOwners {
             coord_sink,
             heart,
             reconcile,
-            agents,
-            agent_report,
             attachments,
             cadence_task,
         })
@@ -304,15 +269,6 @@ impl WorkerOwners {
             attachment: Some(LoopbackOwner::attachment(Arc::new(
                 self.attachments.direct.sockets(),
             ))),
-        }
-    }
-
-    /// v2 `main.ts:348-354`: on shutdown the report server stops accepting,
-    /// lets open admissions finish, and removes its socket — before the door
-    /// closes. Dropping it without this only stops the accept loop.
-    pub async fn close_agent_report(&mut self) {
-        if let Some(server) = self.agent_report.take() {
-            server.close().await;
         }
     }
 
@@ -331,8 +287,6 @@ impl WorkerOwners {
     /// cadence task. The keeper and its PTYs are untouched.
     pub fn shutdown(self) {
         self.heart.shutdown();
-        // v2 `main.ts:363-364`: the detector, then the registry.
-        self.agents.dispose();
         self.attachments.shutdown();
         // v2 `close()`: the direct carriers and the door's sockets go before
         // the view owner; `dispose_direct` disposes the door once.

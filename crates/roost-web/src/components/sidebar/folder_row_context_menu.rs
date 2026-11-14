@@ -1,5 +1,5 @@
-//! The folder row's right-click menu: rename the workspace, launch an OMP agent
-//! or terminal in the folder, or hand off to the machine's OS actions.
+//! The folder row's right-click menu: rename the workspace, launch a terminal
+//! in the folder, or hand off to the machine's OS actions.
 //! The rename commits in `RenameDialogHost`; `FolderRow` opens this menu.
 
 use dioxus::prelude::*;
@@ -10,7 +10,6 @@ use roost_client_core::store::sidebar::folder_groups::workspace_for_folder;
 
 use super::context_menu_frame::ContextMenuFrame;
 use super::machine_action_items::MachineActionItems;
-use crate::components::agent_chat::launch_agent;
 use crate::components::browse::listing;
 use crate::components::ui::context_menu::ContextMenuItem;
 use crate::machine_actions::MachineMenuKind;
@@ -40,19 +39,6 @@ pub struct FolderMenuTarget {
 pub fn FolderRowContextMenu(target: FolderMenuTarget, on_close: EventHandler<()>) -> Element {
     let pump = use_store();
     let navigate = use_navigate();
-    let agent_worker_fp = target.worker_fp.clone();
-    let agent_folder = target.folder_path.clone();
-    let agent_pump = pump.clone();
-    let agent_navigate = navigate;
-    // Activating an item runs its handler and then the ui closes the menu.
-    let on_new_agent = move |_: MouseEvent| {
-        launch_agent(
-            agent_pump.clone(),
-            agent_worker_fp.clone(),
-            agent_folder.clone(),
-            agent_navigate,
-        );
-    };
     let terminal_worker_fp = target.worker_fp.clone();
     let terminal_folder = target.folder_path.clone();
     let terminal_pump = pump.clone();
@@ -100,7 +86,6 @@ pub fn FolderRowContextMenu(target: FolderMenuTarget, on_close: EventHandler<()>
             label: "Workspace actions",
             on_close,
             ContextMenuItem { test_id: "folder-ctx-rename", onclick: rename, "Rename…" }
-            ContextMenuItem { test_id: "folder-ctx-new-agent", onclick: on_new_agent, "New agent here" }
             ContextMenuItem { test_id: "folder-ctx-new-terminal", onclick: on_new_terminal, "New terminal here" }
             MachineActionItems {
                 worker_fp: machine_fp,

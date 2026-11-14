@@ -147,9 +147,7 @@ fn publish_fake_assets(assets: &Path) {
         write_fake_roost(&assets.join(name), true);
         let keeper = assets.join(format!("roost-keeper{}", name.trim_start_matches("roost")));
         std::fs::write(&keeper, b"#!/bin/sh\nexit 0\n").expect("the keeper stand-in");
-        let omp = assets.join(format!("roost-omp{}", name.trim_start_matches("roost")));
-        std::fs::write(&omp, b"#!/bin/sh\n# bundled omp\n").expect("the OMP stand-in");
-        for asset in [assets.join(name), keeper, omp] {
+        for asset in [assets.join(name), keeper] {
             let bytes = std::fs::read(&asset).expect("the asset is readable");
             let digest = hex::encode(sha2::Sha256::digest(&bytes));
             let file_name = asset.file_name().expect("a name").to_string_lossy();

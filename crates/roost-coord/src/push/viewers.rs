@@ -1,10 +1,8 @@
 //! Which devices are watching a session, as the push dispatch asks it: the
 //! coordinator's `TerminalViewHub` answering [`ActiveTerminalViewers`].
 //!
-//! Owned by the push domain; `serve.rs` hands `core.services.views` to
-//! `PushTransitions` through this impl, and `push/dispatch.rs` reads it to
-//! suppress a notification to a device already looking at the terminal. Ports
-//! `activeTerminalViewerFingerprints` in `terminal/view/terminal-view-hub.ts`.
+//! Owned by the push domain; `serve.rs` supplies the view hub through this impl
+//! to suppress notifications to devices already looking at the terminal.
 //!
 //! THE OWNER ROW WINS, EVEN WHEN IT IS EMPTY. v2 answers
 //! `ownerTerminalViewerFingerprints(sessionId) ?? hub.activeViewerFingerprints`:

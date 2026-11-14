@@ -1,4 +1,4 @@
-//! The validated IDs an attachment can target: a terminal session or agent conversation.
+//! The validated terminal session IDs an attachment can target.
 //! This is narrower than arbitrary strings and deliberately does not broaden `SessionId`.
 //! It is shared by relay frames, direct grants, and worker-side attachment storage.
 
@@ -8,7 +8,7 @@ use std::fmt;
 use super::SessionId;
 use crate::{ProtocolError, ProtocolResult, validate::uuid};
 
-/// A validated terminal session or agent conversation identifier used only by attachment flows.
+/// A validated terminal session identifier used only by attachment flows.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AttachmentTargetId(String);
 
@@ -19,22 +19,9 @@ impl AttachmentTargetId {
         &self.0
     }
 
-    /// Whether this target uses the agent conversation ID namespace.
-    #[must_use]
-    pub fn is_conversation(&self) -> bool {
-        self.0.starts_with("c-")
-    }
-
-    /// Validate a UUID terminal session ID or `c-` plus 24 lowercase hex digits.
+    /// Validate a UUID terminal session ID.
     pub fn check(&self) -> ProtocolResult<()> {
-        if uuid("attachment_target_id", &self.0).is_ok() || is_conversation_id(&self.0) {
-            Ok(())
-        } else {
-            Err(ProtocolError::new(
-                "attachment_target_id",
-                "must be a terminal UUID or a conversation ID",
-            ))
-        }
+        uuid("attachment_target_id", &self.0)
     }
 }
 
@@ -86,23 +73,14 @@ impl<'de> Deserialize<'de> for AttachmentTargetId {
     }
 }
 
-fn is_conversation_id(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    bytes.len() == 26
-        && bytes.starts_with(b"c-")
-        && bytes[2..]
-            .iter()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
-}
-
 #[cfg(test)]
 mod tests {
     use super::AttachmentTargetId;
 
     #[test]
-    fn accepts_terminal_and_agent_conversation_ids_but_rejects_other_strings() {
+    fn accepts_terminal_ids_but_rejects_other_strings() {
         assert!(AttachmentTargetId::try_from("00000000-0000-4000-8000-000000000001").is_ok());
-        assert!(AttachmentTargetId::try_from("c-0123456789abcdef01234567").is_ok());
+        assert!(AttachmentTargetId::try_from("c-0123456789abcdef01234567").is_err());
         assert!(AttachmentTargetId::try_from("c-0123456789abcdef0123456g").is_err());
         assert!(AttachmentTargetId::try_from("arbitrary-session-id").is_err());
     }

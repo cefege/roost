@@ -1,6 +1,6 @@
 //! The operator commands that read a repository, a service definition or a
 //! database and print the result: `version`, `logs`, `state`, `reset`,
-//! `skill`, `test`, `db-to-postgres`, and the hidden `__keeper-contract` probe.
+//! `test`, `db-to-postgres`, and the hidden `__keeper-contract` probe.
 //! Each is its own file and owns its own argument parsing and output; this
 //! module only names them.
 //!
@@ -16,7 +16,6 @@ pub mod db_to_sqlite;
 pub mod keeper_contract;
 pub mod logs;
 pub mod reset;
-pub mod skill;
 pub mod state;
 pub mod test;
 pub mod version;

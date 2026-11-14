@@ -47,9 +47,16 @@ pub fn descendant_pids(root: u32, tool_path: &str) -> Vec<u32> {
 #[cfg(windows)]
 #[must_use]
 pub fn descendant_pids(root: u32, _tool_path: &str) -> Vec<u32> {
-    let edges = crate::agents::process_snapshot_windows::windows_process_records()
-        .into_iter()
-        .map(|record| (record.pid, record.ppid));
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
+
+    let mut system = System::new();
+    system.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
+    let edges = system.processes().values().map(|process| {
+        (
+            process.pid().as_u32(),
+            process.parent().map_or(0, sysinfo::Pid::as_u32),
+        )
+    });
     descendants_of(root, edges)
 }
 

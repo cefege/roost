@@ -14,56 +14,20 @@
 | --- | --- | --- |
 | Workers | `Workers*`, `WorkersDeploy*`, `WorkersPrepareKeeperUpdate*`; `coordinator.proto:938-945` | Browser and worker methods share one service; principal is method-specific. |
 | Sessions | `Sessions*`; `coordinator.proto:948-964` | Includes lifecycle, input, scrollback/search, direct terminal grant/signaling, attachment-peer signaling. |
-| Agent | `AgentStatusGet/List/Wait`, `SessionsPrompt`; `coordinator.proto:954,967-969` | Dashboard-authorized PID-free observation and fenced ordinary PTY input. |
-| OMP agent | `AgentChat*`, `AgentOmp*` | Device-authorized OMP conversations run on workers through ACP. Stored native conversations are inert: nothing lists, reads, resumes or mutates them. See [`agent-chat.md`](agent-chat.md). |
 | Organization | `Workspaces*`, `Tasks*`, `Mcp*`; `coordinator.proto:972-989` | Durable dashboard-local coordination state. |
 | Auth/devices/pair | `Auth*`, `Devices*`, `Pair*`; `coordinator.proto:992-1025` | Public identity/bootstrap redemption alternate with device-gated and split pairing authority. |
 | System/audit | `Misc*`, `Audit*`; `coordinator.proto:1028-1034` | Health is public; DB export URL additionally requires on-host; metrics/diagnostics/audit require device authority. |
 | Files/attachments | `Files*`, `Attachments*`, `AttachFileChunk`, `AttachmentProbe`, `ListAttachments`, `DeleteAttachment`; `coordinator.proto:1037-1041,1073-1091` | AttachFileChunk is coordinator relay fallback, not the direct-carrier ACK contract. |
-| Settings/UI/push | `Transcription*`, `AgentConfig*`, `Ui*`, `Push*`; `coordinator.proto:1045-1064` | Device-authorized dashboard state; UI apply targets one current Sync-v2 socket generation. |
+| Settings/UI/push | `Transcription*`, `Ui*`, `Push*`; `coordinator.proto` | Device-authorized dashboard state; UI apply targets one current Sync-v2 socket generation. |
 | Diagnostics | `DiagDebugLogBatch`, `DiagSnapshot`; `coordinator.proto:1100-1101` | Device-authorized bounded diagnostics. |
 | Sync compatibility | `SyncRequest`, `FirehoseFrame`; `coordinator.proto:1068-1069` | Current path is `/ws/coord-sync`; Connect path is HTTP 410/handler `Unimplemented`. |
 
-## OMP terminal auto-launch
-
-`AgentConfigGet` and `AgentConfigSet` are device-authorized and dashboard-scoped.
-They carry only `auto_launch` (field 3). Agent selection and custom-command fields
-1 and 2, including their names, are reserved and never interpreted. Stored legacy
-selection/command rows are inert. Enabled, loaded clients launch `omp` plus CR once
-in a new terminal; disabled or unloaded clients leave it as a normal shell.
-
-## Chat snapshots and archived native controls
-
-OMP is the active web-agent backend. Native-only goal and execution metadata
-below describe retained journal formats, not enabled native UI or runtime flows.
-
-`AgentChatSnapshot.transcript_json` and chat Sync events share
-`roost_protocol::wire::agent_chat` and its canonical fold. A native-only `goal`
-item with stable transcript ID `goal-status` contains the goal's ID, objective,
-status (`active`, `paused`, `budget_limited`, `complete`, `dropped`), optional
-token budget/report/waiting reason, token and active-time counters, and timestamps.
-Only committed runtime state updates these controls.
-
-Tool items carry `queued` and executor-produced `details_json`; absent fields
-deserialize to false/empty. `ToolStarted` clears queued status without claiming
-completion. Cancellation, timeout, truncation, artifact completeness and unknown
-outcomes are executor facts, not meanings inferred from output text.
-
-A user message sent while a run is working is announced by `Queued { message:
-{ id, text } }` and listed in `Transcript.queued` (absent means empty; a
-snapshot never carries queued entries). It is not a transcript item yet: when
-the run reads it, or when the run ends without reading it, a `User` item with
-the same `id` arrives, removes it from `queued` and is placed after every item
-already shown. Rebuilt transcripts and the model's history agree on that
-place: each user message sits just before the first assistant reply whose
-request read it (`AssistantMetadata.input_through_seq`), so a reply streamed
-while the message waited stays above it.
 
 ## State machine
 
 1. Bun/Connect routing enters `buildConnectRouter`. The auth interceptor reads `Authorization: Bearer ...`, verifies and resolves a persisted principal, installs caller/trace/remote/on-host/listener-trust/tab context, then calls the single service implementation.
 2. Each handler applies its method-specific principal and resource authorization before mutation or read. A handler spread contributes only its declared methods; a separate `router.service()` call would shadow absent methods with unimplemented stubs.
-3. Durable coordinator mutations named in `WRITE_METHODS` hold the exclusive write gate. Terminal input/prompt deliberately acquire their narrower per-session FIFO later so queued input cannot hold the global drain. Read methods do not hold it.
+3. Durable coordinator mutations named in `WRITE_METHODS` hold the exclusive write gate. Terminal input deliberately acquires its narrower per-session FIFO later so queued input cannot hold the global drain. Read methods do not hold it.
 4. Handler mutation commits first, then the domain bus/publication updates Sync projections. Optimistic concurrency, resource scope, tab identity, and worker connection readiness are enforced at the owning domain boundary.
 5. Connect error codes carry the failure. The interceptor maps them to HTTP-equivalent audit status and releases its write lease in `finally`; response-aware audit policy is independent of handler business logic.
 6. `PairPoll` is token-bound anonymous high-volume polling and never persists audit rows. Successful `PairConfirm` writes an explicit success audit row. Other listed low-signal successes may be skipped, while failures remain eligible under listener policy.
@@ -111,15 +75,12 @@ The method list is the `service CoordinatorService` block in `protocol/proto/roo
 | Workers | `apps/coord/src/workers/handlers-workers.ts` | `WorkersRegister/Heartbeat`: worker; list/rename/delete/deploy: device. |
 | Keeper update | `apps/coord/src/deploy/handlers-workers-update.ts` | Device plus update/on-host policy. |
 | Sessions | `apps/coord/src/sessions/handlers-sessions.ts` | `SessionsList`: device, or worker restricted to its own open recovery; all other methods: device. |
-| Agent status | `apps/coord/src/agents/handlers-agent-status.ts` | Device. |
-| Agent prompt | `apps/coord/src/agents/handlers-agent-prompt.ts` | Device plus authorized open session/status fence. |
 | Workspaces | `apps/coord/src/sessions/handlers-workspaces.ts` | Device. |
 | Tasks | `apps/coord/src/sessions/handlers-tasks.ts` | Device. |
 | MCP | `apps/coord/src/sessions/handlers-mcp.ts` | Device. |
 | Auth/pair/devices | `apps/coord/src/auth/handlers-auth.ts` | Mixed: public identity/bootstrap redemption; device mint/logout/devices; pairing public-token/on-host/device rules per [`auth-and-pairing.md`](auth-and-pairing.md). |
 | System/diagnostics/audit | `apps/coord/src/rpc/handlers-system.ts` | Health public; DB export URL device + on-host; remaining implemented methods device. |
 | Transcription | `apps/coord/src/rpc/handlers-transcription.ts` | Device. |
-| Agent config | `apps/coord/src/agents/handlers-agent-config.ts` | Device. |
 | Attachments/files | `apps/coord/src/attachments/handlers-attachments.ts` | Device. |
 | Attachment direct | `apps/coord/src/attachments/handlers-attachments-direct.ts` | Device plus exact tab/grant descriptor. |
 | Attachment peer | `apps/coord/src/attachments/handlers-attachments-peer.ts` | Device plus exact tab/grant/worker fence. |

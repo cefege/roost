@@ -1,12 +1,9 @@
-//! The sidebar's agent and terminal launchers. Each asks which machine to start
+//! The sidebar's terminal launcher. It asks which machine to start
 //! on when more than one is online; a single online machine launches directly.
 //! The active folder is reused on its own machine.
 
 use dioxus::prelude::*;
 
-use crate::components::agent_chat::launch_agent;
-use crate::components::browse::BrowseLaunchMode;
-use crate::components::browse::browse_mode_href;
 use crate::components::browse::listing;
 use crate::components::context_menu::MenuFocusEdge;
 use crate::components::ui::dropdown_menu::{
@@ -30,28 +27,8 @@ use crate::routes::Route;
 /// this constant, so a change to the side fails that test rather than passing silently.
 pub const MACHINE_MENU_SIDE: MenuSide = MenuSide::Above;
 
-/// What a launch button starts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LaunchKind {
-    Agent,
-    Terminal,
-}
-
-impl LaunchKind {
-    fn button_id(self) -> &'static str {
-        match self {
-            Self::Agent => "sidebar-new-agent-button",
-            Self::Terminal => "sidebar-new-terminal-button",
-        }
-    }
-
-    fn menu_id(self) -> &'static str {
-        match self {
-            Self::Agent => "sidebar-new-agent-machine-menu",
-            Self::Terminal => "sidebar-new-terminal-machine-menu",
-        }
-    }
-}
+const TERMINAL_BUTTON_ID: &str = "sidebar-new-terminal-button";
+const TERMINAL_MENU_ID: &str = "sidebar-new-terminal-machine-menu";
 
 /// The launch context read from the store once per render.
 #[derive(Clone, PartialEq)]
@@ -60,7 +37,7 @@ struct LaunchTargets {
     online: Vec<(String, String)>,
     /// The machine the current route points at, marked in the menu.
     suggested_fp: Option<String>,
-    /// The active session's or conversation's `(machine, folder)`.
+    /// The active session's `(machine, folder)`.
     context_folder: Option<(String, String)>,
 }
 
@@ -73,20 +50,9 @@ pub fn SidebarNewTerminal() -> Element {
     rsx! {
         SidenavFooter { "data-testid": "sidebar-new-terminal",
             div { class: "flex items-center gap-2",
-                LaunchMenu { kind: LaunchKind::Terminal, targets }
+                LaunchMenu { targets }
             }
         }
-    }
-}
-
-/// The heading's OMP agent launcher.
-#[component]
-pub fn SidebarNewAgent() -> Element {
-    let pump = use_store();
-    let path = use_location();
-    let targets = launch_targets(&pump, &path.read());
-    rsx! {
-        LaunchMenu { kind: LaunchKind::Agent, targets, header: true }
     }
 }
 
@@ -98,15 +64,8 @@ fn launch_targets(pump: &Pump, location: &str) -> LaunchTargets {
     let now_ms = i64::try_from(core.clock().now_ms()).unwrap_or(i64::MAX);
     let workers = online_workers_by_label(store, now_ms);
     let session = active_session_for_path(store, &BrowserWorkerPaths, location);
-    let agent = match Route::parse(location) {
-        Route::Agent { conversation_id } => store.agent_chat.conversations.get(&conversation_id),
-        _ => None,
-    };
-    let context_folder = session
-        .map(|session| (session.worker_fp.to_string(), session.cwd.clone()))
-        .or_else(|| {
-            agent.map(|conversation| (conversation.worker_fp.clone(), conversation.cwd.clone()))
-        });
+    let context_folder =
+        session.map(|session| (session.worker_fp.to_string(), session.cwd.clone()));
     let contextual_worker = context_folder.as_ref().map(|(fp, _)| fp.as_str());
     LaunchTargets {
         online: workers
@@ -120,24 +79,23 @@ fn launch_targets(pump: &Pump, location: &str) -> LaunchTargets {
 
 /// One launch button and the machine menu it opens.
 #[component]
-fn LaunchMenu(kind: LaunchKind, targets: LaunchTargets, #[props(default)] header: bool) -> Element {
+fn LaunchMenu(targets: LaunchTargets) -> Element {
     let mut open = use_signal(|| false);
     rsx! {
-        div { class: if header { "shrink-0" } else { "flex-1" },
+        div { class: "flex-1",
             DropdownMenu {
                 open: open(),
                 on_open_change: move |next: bool| open.set(next),
                 side: MACHINE_MENU_SIDE,
-                trigger_id: kind.button_id(),
-                menu_id: kind.menu_id(),
-                test_id: kind.menu_id(),
-                LaunchButton { kind, targets: targets.clone(), header }
+                trigger_id: TERMINAL_BUTTON_ID,
+                menu_id: TERMINAL_MENU_ID,
+                test_id: TERMINAL_MENU_ID,
+                LaunchButton { targets: targets.clone() }
                 DropdownMenuContent { class: "min-w-48",
                     DropdownMenuLabel { "Start on which machine?" }
                     for (fp, label) in targets.online.iter().cloned() {
                         MachineOption {
                             key: "{fp}",
-                            kind,
                             fp: fp.clone(),
                             label,
                             suggested: targets.suggested_fp.as_deref() == Some(fp.as_str()),
@@ -153,59 +111,39 @@ fn LaunchMenu(kind: LaunchKind, targets: LaunchTargets, #[props(default)] header
 /// The button. With several machines online it opens the menu; with one it
 /// launches there; with none it is disabled.
 #[component]
-fn LaunchButton(kind: LaunchKind, targets: LaunchTargets, header: bool) -> Element {
+fn LaunchButton(targets: LaunchTargets) -> Element {
     let pump = use_store();
     let navigate = use_navigate();
     let context = try_use_context::<MenuContext>();
-    let (variant, icon, label, aria, title) = match kind {
-        LaunchKind::Agent => (
-            ButtonVariant::Default,
-            if header {
-                IconType::Plus
-            } else {
-                IconType::Bot
-            },
-            "New agent",
-            "New agent",
-            "Start a new OMP agent",
-        ),
-        LaunchKind::Terminal => (
-            ButtonVariant::Outline,
-            IconType::Terminal,
-            "Terminal",
-            "Open terminal",
-            "Open a new terminal",
-        ),
-    };
     let only_machine = match targets.online.as_slice() {
         [(fp, _)] => Some(fp.clone()),
         _ => None,
     };
     rsx! {
         Button {
-            class: if header { "shrink-0" } else { "w-full" },
-            variant,
+            class: "w-full",
+            variant: ButtonVariant::Outline,
             size: ButtonSize::Sm,
-            icon,
-            id: kind.button_id(),
-            "data-testid": kind.button_id(),
-            "aria-label": aria,
+            icon: IconType::Terminal,
+            id: TERMINAL_BUTTON_ID,
+            "data-testid": TERMINAL_BUTTON_ID,
+            "aria-label": "Open terminal",
             "aria-haspopup": if only_machine.is_none() { "menu" } else { "false" },
-            title,
+            title: "Open a new terminal",
             disabled: targets.online.is_empty(),
             onclick: move |_| {
                 if let Some(fp) = only_machine.clone() {
-                    launch_on_machine(kind, fp, targets.context_folder.clone(), pump.clone(), navigate);
+                    launch_on_machine(fp, targets.context_folder.clone(), pump.clone(), navigate);
                 } else if let Some(context) = context {
-                    tracing::debug!(target: "sidebar", ?kind, "machine picker opened");
+                    tracing::debug!(target: "sidebar", "terminal machine picker opened");
                     request_open(
                         context,
-                        Some(anchored_placement(kind.button_id(), MACHINE_MENU_SIDE)),
+                        Some(anchored_placement(TERMINAL_BUTTON_ID, MACHINE_MENU_SIDE)),
                         Some(MenuFocusEdge::First),
                     );
                 }
             },
-            {label}
+            "Terminal"
         }
     }
 }
@@ -213,7 +151,6 @@ fn LaunchButton(kind: LaunchKind, targets: LaunchTargets, header: bool) -> Eleme
 /// One machine row in a launch menu.
 #[component]
 fn MachineOption(
-    kind: LaunchKind,
     fp: String,
     label: String,
     suggested: bool,
@@ -228,7 +165,7 @@ fn MachineOption(
             test_id: "sidebar-launch-machine-option",
             title: label.clone(),
             onclick: move |_: MouseEvent| {
-                launch_on_machine(kind, target.clone(), context_folder.clone(), pump.clone(), navigate);
+                launch_on_machine(target.clone(), context_folder.clone(), pump.clone(), navigate);
             },
             StatusDot { status: "ok".to_owned() }
             span { class: "min-w-0 flex-1 truncate", {label.clone()} }
@@ -239,30 +176,23 @@ fn MachineOption(
     }
 }
 
-/// Starts `kind` on `worker_fp`: in the active folder when it lives on that
+/// Starts a terminal on `worker_fp`: in the active folder when it lives on that
 /// machine, else through the machine's folder browser.
 fn launch_on_machine(
-    kind: LaunchKind,
     worker_fp: String,
     context_folder: Option<(String, String)>,
     pump: Pump,
     navigate: EventHandler<String>,
 ) {
-    tracing::info!(target: "sidebar", ?kind, worker_fp = %worker_fp, "launch machine chosen");
+    tracing::info!(target: "sidebar", worker_fp = %worker_fp, "terminal machine chosen");
     let folder = context_folder
         .filter(|(fp, _)| *fp == worker_fp)
         .map(|(_, folder)| folder);
-    match (kind, folder) {
-        (LaunchKind::Agent, Some(folder)) => {
-            launch_agent(pump, worker_fp, folder, navigate);
-        }
-        (LaunchKind::Agent, None) => {
-            navigate.call(browse_mode_href(&worker_fp, BrowseLaunchMode::Agent));
-        }
-        (LaunchKind::Terminal, Some(folder)) => {
+    match folder {
+        Some(folder) => {
             listing::launch_terminal(pump, worker_fp, folder, navigate);
         }
-        (LaunchKind::Terminal, None) => {
+        None => {
             navigate.call(
                 Route::Browse {
                     worker_fp: Some(worker_fp),

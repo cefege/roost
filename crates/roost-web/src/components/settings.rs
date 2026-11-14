@@ -2,7 +2,6 @@
 //! `settings_navigation` owns destinations and descriptions for this shell
 //! and the `/design` specimen. Each pane owns its data and mutations.
 
-pub mod agent_launcher;
 pub mod attachments;
 pub mod audit;
 pub mod color_schemes;
@@ -10,11 +9,8 @@ pub mod connection;
 pub mod devices;
 pub mod format;
 pub mod machines;
-pub mod mcp;
 pub mod metrics;
 pub mod notifications;
-mod omp_scope;
-pub mod omp_settings;
 pub mod terminal;
 pub mod theme;
 pub mod voice;

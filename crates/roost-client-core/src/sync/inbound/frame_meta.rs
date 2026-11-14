@@ -21,8 +21,6 @@ impl SyncFrame {
             Self::DomainReset { domain, .. } => Some(*domain),
             Self::CellGrid { .. }
             | Self::CellGridChunk { .. }
-            | Self::AgentStatus { .. }
-            | Self::AgentStatusRefused { .. }
             | Self::SessionViewers { .. }
             | Self::SessionPresence { .. }
             | Self::TerminalTitle { .. }
@@ -36,9 +34,6 @@ impl SyncFrame {
             Self::TaskDelta { .. } => Some(SyncDomain::Tasks),
             Self::McpMessage { .. } => Some(SyncDomain::Mcp),
             Self::PairRequestDelta { .. } => Some(SyncDomain::Pair),
-            Self::AgentConversation { .. } | Self::AgentChatEvents { .. } => {
-                Some(SyncDomain::Agent)
-            }
             Self::AuditRow { .. } => Some(SyncDomain::Audit),
             // The session plane IS the terminal domain's snapshot and its live
             // deltas. Answering `None` for them put them on the "any ready
@@ -60,8 +55,7 @@ impl SyncFrame {
             | Self::CoordinatorRelocation { .. }
             | Self::TransportProbeResult { .. }
             | Self::WorkerLiveMetrics { .. }
-            | Self::OmpHostService { .. }
-            | Self::OmpUiActionReceipt { .. }
+            | Self::ClientStateChanged
             | Self::Keepalive => None,
         }
     }
@@ -78,8 +72,6 @@ impl SyncFrame {
             Self::CellGridChunk { .. } => "cell_grid_chunk",
             Self::ViewState { .. } => "view_state",
             Self::InputResult { .. } => "input_result",
-            Self::AgentStatus { .. } => "agent_status",
-            Self::AgentStatusRefused { .. } => "agent_status_refused",
             Self::SessionViewers { .. } => "session_viewers",
             Self::SessionPresence { .. } => "session_presence",
             Self::AuditRow { .. } => "audit_row",
@@ -101,12 +93,9 @@ impl SyncFrame {
             Self::CoordinatorRelocation { .. } => "coordinator_relocation",
             Self::InputRouteResult { .. } => "input_route_result",
             Self::TransportProbeResult { .. } => "terminal_transport_probe_result",
-            Self::AgentConversation { .. } => "agent_conversation",
-            Self::AgentChatEvents { .. } => "agent_chat_events",
             Self::Keepalive => "keepalive",
+            Self::ClientStateChanged => "client_state_changed",
             Self::WorkerLiveMetrics { .. } => "worker_live_metrics",
-            Self::OmpHostService { .. } => "omp_host_service",
-            Self::OmpUiActionReceipt { .. } => "omp_ui_action_receipt",
         }
     }
 
@@ -117,7 +106,6 @@ impl SyncFrame {
             | Self::CellGridChunk { session_id, .. }
             | Self::ViewState { session_id, .. }
             | Self::InputResult { session_id, .. }
-            | Self::AgentStatusRefused { session_id, .. }
             | Self::SessionViewers { session_id, .. }
             | Self::SessionPresence { session_id, .. }
             | Self::TerminalTitle { session_id, .. }
@@ -127,7 +115,6 @@ impl SyncFrame {
             | Self::TerminalSignals { session_id, .. }
             | Self::LastActivity { session_id, .. } => Some(session_id),
             Self::InputRouteResult { result } => Some(result.session_id.as_str()),
-            Self::AgentStatus { update, .. } => Some(update.common.session_id.as_str()),
             _ => None,
         }
     }

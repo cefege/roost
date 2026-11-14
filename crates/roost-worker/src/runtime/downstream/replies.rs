@@ -24,11 +24,6 @@ use roost_protocol::wire::coord_worker::{
 use crate::uplink::terminal_results::InputResultKey;
 
 pub(super) const INPUT_HANDLER_UNAVAILABLE: &str = "worker input handler is unavailable";
-pub(super) const AGENT_PROMPT_HANDLER_UNAVAILABLE: &str =
-    "worker agent prompt handler is unavailable";
-/// v2 `coord-link-downstream.ts` `agentPrompt`: the static reason an owner
-/// failure is answered with, so its own error text never reaches the wire.
-pub(super) const AGENT_PROMPT_HANDLER_FAILED: &str = "worker agent prompt handler failed";
 pub(super) const STREAM_ADMISSION_FULL: &str = "worker terminal-stream admission is full";
 pub(super) const LOCAL_TERMINAL_GRANTS_UNSUPPORTED: &str =
     "local terminal grants unsupported by this worker";

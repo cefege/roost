@@ -70,8 +70,6 @@ pub struct FixtureConfig {
     pub cors_allowed_origins: Vec<String>,
     /// The operator's declared browser front door.
     pub web_public_url: Option<String>,
-    /// Provider base URLs replacing the agent harness's catalog URLs.
-    pub agent_endpoint_overrides: std::collections::BTreeMap<String, String>,
     /// Whether to write a real web build under the fixture's scratch
     /// directory and point the SPA mount at it. The mount resolves its root
     /// through an `index.html` on disk, so a configured path and a real build
@@ -92,7 +90,6 @@ impl Default for FixtureConfig {
             publish_port: true,
             cors_allowed_origins: Vec::new(),
             web_public_url: None,
-            agent_endpoint_overrides: std::collections::BTreeMap::new(),
             serve_dist: false,
             bind: None,
         }
@@ -179,7 +176,6 @@ impl ListenerFixture {
             trust_proxy: Some(config.trust_proxy),
             cors_allowed_origins: Some(config.cors_allowed_origins.clone()),
             web_public_url: config.web_public_url.clone(),
-            agent_endpoint_overrides: Some(config.agent_endpoint_overrides.clone()),
             ..CoordConfigInput::default()
         })
         .expect("a coordinator config");

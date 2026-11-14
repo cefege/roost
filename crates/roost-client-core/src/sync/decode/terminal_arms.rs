@@ -1,16 +1,14 @@
-//! The terminal-domain arms: session events (JSON and typed), session presence,
-//! cell chunks, view states, last activity and agent status.
+//! The terminal-domain arms: session events, presence, cell chunks, view states,
+//! and last activity.
 //!
-//! Called by `decode::map_arm` after the meta rule has passed. Ported from
-//! `apps/web/src/store/sync-frame.ts:108-137` (sessions), `:231-262`
-//! (presence), `:270-276` (last activity) and `apps/web/src/store/agent-status.ts:213-235`.
+//! Called by `decode::map_arm` after the meta rule has passed.
 
 use roost_proto::{
-    AgentStatusFrame, LastActivityFrame, PbCellGridChunk, SessionEventProto, SessionPresence,
-    TerminalViewStateFrame, TerminalViewStatus,
+    LastActivityFrame, PbCellGridChunk, SessionEventProto, SessionPresence, TerminalViewStateFrame,
+    TerminalViewStatus,
 };
-use roost_protocol::wire::{AgentStatusUpdate, SessionEvent, proto_to_event};
-use serde_json::{Value, json};
+use roost_protocol::wire::{SessionEvent, proto_to_event};
+use serde_json::Value;
 
 use crate::sessions::WireEvent;
 use crate::sync::inbound::{SessionViewer, SyncFrame};
@@ -156,44 +154,6 @@ pub(super) fn last_activity(value: LastActivityFrame) -> SyncFrame {
     SyncFrame::LastActivity {
         session_id: value.session_id,
         ts_ms: value.ts_ms as i64,
-    }
-}
-
-/// An agent-status report through the shared schema, as v2's
-/// `AgentStatusUpdate.safeParse`. A refusal drops the report and keeps the
-/// link: v2 ignores `applyAgentStatusFrame`'s return (`sync-frame.ts:274-276`).
-pub(super) fn agent_status(value: AgentStatusFrame) -> SyncFrame {
-    let candidate = json!({
-        "session_id": value.session_id,
-        "agent_id": value.agent_id,
-        "state": value.state,
-        "message": value.message,
-        "revision": value.revision,
-        "completed_revision": value.completed_revision,
-        "updated_at": whole_number(value.updated_at),
-        "active": value.active,
-        "status_epoch": value.status_epoch,
-        "occupant_id": value.occupant_id,
-        "source": value.source,
-        "occupant_exited": value.occupant_exited,
-    });
-    match AgentStatusUpdate::parse(candidate) {
-        Ok(update) => SyncFrame::AgentStatus { update },
-        Err(error) => SyncFrame::AgentStatusRefused {
-            session_id: value.session_id,
-            reason: error.to_string(),
-        },
-    }
-}
-
-/// A double that holds a whole number, as the integer JSON the schema's
-/// integer field accepts; any other double stays a double and is refused by it.
-fn whole_number(value: f64) -> Value {
-    let whole = value.trunc();
-    if value.is_finite() && whole == value && whole.abs() < 9_007_199_254_740_992.0 {
-        Value::from(whole as i64)
-    } else {
-        Value::from(value)
     }
 }
 

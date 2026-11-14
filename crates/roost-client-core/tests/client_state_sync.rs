@@ -7,12 +7,14 @@ use std::rc::Rc;
 
 use roost_client_core::client::client_state::ClientStateEntry;
 use roost_client_core::store::prefs::PrefDefaults;
+use roost_client_core::store::sidebar::SidebarIntent;
+use roost_client_core::store::sidebar::memory::FOLDER_ORDER_KEY;
 use roost_client_core::{
     ClientCore, ClientEvent, ClientStateStore, Effect, KeyValueStore, MemoryClock,
     MemoryEpochClock, MemoryKeyValueStore, RpcCall, RpcResult,
 };
 
-const DRAFT_KEY: &str = "roost.agent.draft.s1";
+const DRAFT_KEY: &str = "roost.composerDrafts.v1";
 const LOCAL_ONLY_KEY: &str = "roost.someLocalOnly";
 const RECENT_KEY: &str = "roost.sidebar.recent";
 
@@ -84,6 +86,32 @@ fn set_batches(effects: &[Effect]) -> Vec<Vec<ClientStateEntry>> {
             _ => None,
         })
         .collect()
+}
+
+fn pull_id(effects: &[Effect]) -> u64 {
+    effects
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Rpc(RpcCall::ClientStateList { call_id }) => Some(*call_id),
+            _ => None,
+        })
+        .expect("client-state pull")
+}
+
+fn notify_changed(fixture: &mut Fixture) -> Vec<Effect> {
+    use roost_proto::buffa::Message;
+    let frame = roost_proto::FirehoseFrame {
+        frame: Some(roost_proto::firehose_frame::Frame::ClientStateChanged(
+            Box::default(),
+        )),
+        ..Default::default()
+    };
+    let event = roost_client_core::sync::decode::decode_firehose(
+        &frame.try_encode_to_vec().expect("encoded control"),
+        roost_client_core::sync::decode::SyncFrameMeta { generation: 1 },
+    )
+    .expect("valid client-state control");
+    fixture.core.handle(event)
 }
 
 #[test]
@@ -239,5 +267,123 @@ fn an_equal_timestamp_on_a_dirty_key_is_flushed_not_overwritten() {
         set_batches(&sweep(&mut fixture.core, 1_000)),
         vec![vec![entry(DRAFT_KEY, "local", 100)]],
         "a tie goes to the incoming write on the coordinator, so the dirty local value is pushed"
+    );
+}
+
+#[test]
+fn a_folder_drag_reaches_an_open_device_without_echoing() {
+    let mut writer = fixture(500);
+    let mut reader = fixture(1_000);
+    for device in [&mut writer, &mut reader] {
+        let call_id = open_sync_link(device);
+        answer_list(device, call_id, Vec::new());
+        device
+            .core
+            .handle(ClientEvent::Sidebar(SidebarIntent::ObserveFolders(vec![
+                "a".into(),
+                "b".into(),
+                "c".into(),
+            ])));
+    }
+    writer
+        .core
+        .handle(ClientEvent::Sidebar(SidebarIntent::MoveFolder {
+            source: "c".into(),
+            target: "a".into(),
+        }));
+    sweep(&mut writer.core, 0);
+    let batches = set_batches(&sweep(&mut writer.core, 1_000));
+    assert_eq!(
+        batches,
+        vec![vec![entry(FOLDER_ORDER_KEY, r#"["c","a","b"]"#, 500)]]
+    );
+    let call_id = pull_id(&notify_changed(&mut reader));
+    answer_list(&mut reader, call_id, batches[0].clone());
+    assert_eq!(
+        reader.core.store().sidebar.memory.folder_order(),
+        ["c", "a", "b"]
+    );
+    assert!(set_batches(&sweep(&mut reader.core, 0)).is_empty());
+    assert!(set_batches(&sweep(&mut reader.core, 1_000)).is_empty());
+    assert_eq!(
+        roost_client_core::store::sidebar::SidebarMemory::load(reader.storage.as_ref())
+            .folder_order(),
+        ["c", "a", "b"],
+    );
+}
+
+#[test]
+fn discovering_folders_before_the_first_pull_cannot_overwrite_the_account_order() {
+    let mut fixture = fixture(1_000);
+    let call_id = open_sync_link(&mut fixture);
+    fixture
+        .core
+        .handle(ClientEvent::Sidebar(SidebarIntent::ObserveFolders(vec![
+            "c".into(),
+            "a".into(),
+            "b".into(),
+        ])));
+    answer_list(
+        &mut fixture,
+        call_id,
+        vec![entry(FOLDER_ORDER_KEY, r#"["b","a"]"#, 500)],
+    );
+    assert_eq!(
+        fixture.core.store().sidebar.memory.folder_order(),
+        ["b", "a", "c"]
+    );
+    assert!(set_batches(&sweep(&mut fixture.core, 0)).is_empty());
+    assert!(set_batches(&sweep(&mut fixture.core, 1_000)).is_empty());
+}
+
+#[test]
+fn an_unstamped_browser_order_seeds_only_an_account_without_an_order() {
+    for remote in [
+        Vec::new(),
+        vec![entry(FOLDER_ORDER_KEY, r#"["a","b"]"#, 500)],
+    ] {
+        let mut fixture = fixture(1_000);
+        fixture.local.set(FOLDER_ORDER_KEY, r#"["b","a"]"#);
+        let call_id = open_sync_link(&mut fixture);
+        let existing = !remote.is_empty();
+        answer_list(&mut fixture, call_id, remote);
+        sweep(&mut fixture.core, 0);
+        let batches = set_batches(&sweep(&mut fixture.core, 1_000));
+        if existing {
+            assert_eq!(
+                fixture.local.get(FOLDER_ORDER_KEY).as_deref(),
+                Some(r#"["a","b"]"#)
+            );
+            assert!(batches.is_empty());
+        } else {
+            assert_eq!(
+                batches,
+                vec![vec![entry(FOLDER_ORDER_KEY, r#"["b","a"]"#, 1_000)]]
+            );
+        }
+    }
+}
+
+#[test]
+fn a_change_during_a_pull_is_coalesced_but_not_lost() {
+    let mut fixture = fixture(1_000);
+    let first_pull = open_sync_link(&mut fixture);
+    assert!(notify_changed(&mut fixture).is_empty());
+    assert!(notify_changed(&mut fixture).is_empty());
+    answer_list(&mut fixture, first_pull, Vec::new());
+    let second_pull = pull_id(&sweep(&mut fixture.core, 0));
+    answer_list(
+        &mut fixture,
+        second_pull,
+        vec![entry(FOLDER_ORDER_KEY, r#"["b","a"]"#, 500)],
+    );
+    assert_eq!(
+        fixture.core.store().sidebar.memory.folder_order(),
+        ["b", "a"]
+    );
+    assert!(
+        sweep(&mut fixture.core, 1)
+            .iter()
+            .all(|effect| !matches!(effect, Effect::Rpc(RpcCall::ClientStateList { .. })))
     );
 }

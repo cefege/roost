@@ -10,6 +10,25 @@ Each `**Guard**` names the test, smoke spec or `cargo xtask lint` check that pin
 
 ---
 
+### Sidebar folder order stays on one device or resets when another opens
+
+**Symptom** — "the manual sidebar order isn't in sync across devices."
+
+**Wrong** — persist folder order only in browser storage, or sync automatic
+folder discovery as a fresh manual order. A later-opening browser then replaces
+the account's saved drag order. Pulling only on reconnect also leaves open
+devices stale.
+
+**Right** — sync the explicit drag through account-scoped client state and
+invalidate that account's open Sync sockets after commit. Keep discovered
+folders in a device-local cache, subordinate to shared manual positions.
+Promote an unstamped local order only when the account has no saved order.
+
+**Guard** — `client_state_sync::a_folder_drag_reaches_an_open_device_without_echoing`,
+`discovering_folders_before_the_first_pull_cannot_overwrite_the_account_order`,
+`an_unstamped_browser_order_seeds_only_an_account_without_an_order`, and
+`sync_ws_socket::a_folder_order_write_reaches_other_devices_before_domain_hydration`.
+
 ## Store subscription and component lifecycle
 
 ### SPA projector hand-mirrors the shared event fold
@@ -2037,37 +2056,6 @@ key and nothing else resolved it, because that is exactly the ambiguity that mis
 `an_ambient_identity_export_refuses_and_names_the_flag`, `an_identity_key_never_resolves_from_the_deploying_shell`,
 `an_unresolvable_identity_with_nothing_exported_is_allowed`.
 
-### Roost cannot upgrade the integration asset Roost installed
-
-**Symptom** — "agent status stopped reporting after an upgrade" — the worker logs
-`refusing to overwrite non-Roost extension: ~/.omp/agent/extensions/roost-omp-agent-state.ts` (or
-`agent integration target ownership changed before commit: …`) on every boot, the installed asset stays at the
-old version forever, and session status silently degrades to screen detection because no integration report
-ever arrives.
-
-**Wrong** — recognize the `ROOST_INTEGRATION_ID=<runtime>` ownership marker only in the file's first lines
-(`content.split(/\r?\n/, 8)`, or the contiguous leading `//` header). It reads as a tightening — a marker in
-the header is a marker Roost wrote — but the installed form of an asset is NOT the source form:
-`standalone-integration.ts` splices the shared `report-transport.ts` module in, and an earlier release spliced
-it ABOVE the integration's own header, so a deployed asset carries its marker on **line 106**, under ~100 lines
-of transport code (line 14 onward is `import net from "node:net";`, so it is not a comment header either). Roost's
-own correctly-marked files therefore read as somebody else's, and both the planning refusal and the commit-time
-guard fail closed against the installer itself. Any positional window is the same bug with a bigger constant:
-the prefix is another module's entire source, so it has no bound to pin.
-
-**Right** — **depth is not evidence of authorship; the token is.** `has_integration_ownership` accepts the marker
-as its own whitespace-delimited token on ANY `//` comment line in the file (fast-path bail-out when the marker
-substring is absent), and nothing else loosens: a non-comment line that merely mentions the marker, a near-miss
-token (`ROOST_INTEGRATION_ID=omp-reference` for `…=omp`), and a file with no marker are all still refused. Planning
-and `assert_integration_target_unchanged` share that predicate. The OMP-only installer reports per-target
-refusals as `integration_install_failed` with the path; it never inspects Pi's loader. Candidate collision
-proof precedes planning. Commit-time target changes still refuse the transaction and roll back its mutations.
-
-**Guard** — `crates/roost-worker/tests/agent_status_integration_ownership.rs` —
-`adopts_and_overwrites_an_installed_asset_marked_below_the_file_head`,
-`the_marker_is_recognized_in_any_comment_line_and_nowhere_else`,
-`the_commit_guard_passes_a_target_marked_below_the_file_head`.
-
 ### A one-shot deploy flag stops at the installer process
 
 **Symptom** — "`roost deploy <host> --force-live` printed the destructive-authorization banner, staged, wrote
@@ -2246,25 +2234,20 @@ install — a compiled install serves its embedded build regardless.
 
 **Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 
-### A worker started inside a Roost shell binds the installed worker's agent-report socket
+### A worker started inside a Roost shell inherits the installed worker's configuration
 
-**Symptom** — a scratch worker's `/proc/<pid>/environ` shows
-`ROOST_AGENT_ENDPOINT=~/.local/share/RoostWorkerV3/agent-report.sock` while its data dir is elsewhere; it
-reports under the installed worker's `ROOST_WORKER_LABEL` and rewrites the user's agent integrations.
+**Symptom** — a scratch worker started inside a Roost terminal reports under the
+installed worker's `ROOST_WORKER_LABEL` or uses its data directory.
 
 **Wrong** — strip only `ROOST_KEEPER_*` from a PTY's inherited environment. The worker's whole unit
 environment (label, coordinator URL, bootstrap token, data and log dirs) then reaches every shell, and a
 worker started there reads it as its own configuration.
 
-**Right** — `HostShellSpecResolver::base_environment` drops every key `is_worker_private_key` names (the
-whole `ROOST_` namespace, any case); the session overlay and `ROOST_SESSION_ID`, applied after the base,
-re-add exactly `SESSION_OVERLAY_ENV_KEYS`. `roost worker` and `roost dev` ignore those five keys from an
-enclosing session (`worker_boot::resolve_from`, `DevServer::command`), and a dev worker skips the
-integration install (`ROOST_SKIP_AGENT_INTEGRATIONS=1`).
+**Right** — `HostShellSpecResolver::base_environment` drops worker-private
+`ROOST_` keys, regardless of case, before constructing the PTY environment.
 
-**Guard** — `crates/roost-worker/tests/shell_spec_overlay.rs::the_workers_own_roost_variables_never_reach_a_pty`,
-`launch_and_channel_vocabulary.rs::a_worker_private_variable_is_recognised_whatever_its_case`,
-`agent_report_environment.rs::exports_the_report_endpoint_under_the_documented_posix_socket_name`.
+**Guard** — `crates/roost-worker/tests/shell_spec_environment.rs::the_workers_own_roost_variables_never_reach_a_pty`,
+`launch_and_channel_vocabulary.rs::a_worker_private_variable_is_recognised_whatever_its_case`.
 
 ---
 
@@ -2520,29 +2503,6 @@ detection on Postgres; HTTP and WebSocket byte-transparency through a follower).
 ---
 
 ## Browser platform reality
-
-### Agent chat images are broken despite a valid HTTPS image URL
-
-**Symptom** — "images can't be displayed in agent chat" / a broken-image icon
-with `naturalWidth === 0`, while the same URL returns an image. Chromium reports
-`Network.loadingFailed.blockedReason = csp`.
-
-**Wrong** — add a download proxy, widen `default-src`, `script-src` or
-`connect-src`, or maintain a separate coordinator CSP that diverges from the
-worker's local door.
-
-**Right** — permit `https:` in **`img-src` only**, in
-`roost-host::http_security::build_csp`; the coordinator and worker both use that
-builder. Keep the no-referrer policy and existing script/connect restrictions.
-The shared Markdown recipe caps images at their container width and preserves
-aspect ratio. A URL returning an HTTP error or an SVG containing invalid XML is
-a content failure, not evidence that image rendering should rewrite its source.
-
-**Guard** — `roost-host::http_security::tests::https_images_do_not_open_scripts_or_general_connections`;
-`roost-web`'s `an_inline_svg_keeps_its_source_and_plain_text_caption` preserves
-valid inline SVG without interpreting it as page markup. Browser smoke replays
-the actual chat Markdown through the real coordinator and checks image decode
-and container bounds at desktop and phone sizes.
 
 ### lib.dom types are the spec surface, not the engine's
 
@@ -2925,27 +2885,9 @@ brotli at runtime.
 runtime, or import its browser UI.
 
 **Right** — PTY-launched external CLIs remain ordinary commands in normal shell terminals;
-Roost transports those terminals without owning their agent sessions. The explicit OMP chat
-backend is the one supervised external agent: `roost-worker::omp` launches `omp acp
---approval-mode yolo` only for OMP conversations, using that machine's OMP login. The coordinator
-stores its projected transcript. The Rust-native harness is deleted; its stored rows are inert.
+Roost transports those terminals without owning their agent sessions.
 
-**Guard** — `crates/roost-worker/tests/omp_owner.rs`; `crates/roost-coord/tests/omp_chat.rs`.
-
-### Archived native events leak through catch-up, pruning and relay
-
-**Symptom** — an archived native ID still returns chat event batches, loses old
-batches to retention, or publishes batches after a fabricated cluster notice.
-
-**Wrong** — hide native conversations only in list/snapshot or remove the old
-rows. Catch-up, maintenance and cluster notices are independent entry points.
-
-**Right** — resolve an active conversation before event catch-up; constrain
-pruning and relay target admission to active backends. Keep archived batches,
-journals and encrypted credentials untouched.
-
-**Guard** — `roost-coord`'s `archived_agent_isolation` tests exercise RPC refusal,
-age/newest-batch retention and fabricated-notice relay with retained archive data.
+**Guard** — none.
 
 ### A removed migration's history row reads as corruption
 
@@ -3391,36 +3333,6 @@ compatibility surface.
 decodes the reply the way the CONSUMER does rather than reading the worker's own
 keys back: a seeded subdirectory must arrive as a directory, a seeded file must
 not, and the two snake_case fields the coordinator also reads must be unmoved.
-
-### Only the FIRST agent status for a session ever reaches a hydrating client
-
-**Symptom** — an agent reports `working`, then reports `blocked`, and the browser stays on
-`working` forever. The first report is what the tab badge, the sidebar row, the folder row and
-the title prefix all read, so everything downstream is self-consistent and simply stale. The
-agent's own log shows both reports accepted, and the coordinator answers
-`agentStatusGet` with the blocked state — the loss is on the way to the SOCKET.
-
-**Wrong** — look at the client fold, the revision rule, or the occupant identity. All three were
-exonerated by measurement: the fold ACCEPTS the second report (proved by decoding the captured
-wire bytes with the real `decode_firehose`), and a lower-or-equal revision being refused is
-correct. Equally wrong: re-sending on a timer, or making the fold lenient about revisions — the
-frame was never offered to it.
-
-**Right** — **a retained feed sample supersedes a buffered one only when it is at least as NEW.**
-`retained_supersedes_buffered` (`sync_ws/send_queue.rs`) compared agent-status frames by SESSION
-ALONE, on the premise in its own doc that "a live status frame already buffered can never be newer
-than the retained one". That premise is false: an agent reports continuously, so a newer status
-lands on the live link WHILE the retained seed is still being assembled, and `coalesce_buffered`
-then dropped it as already covered. The retained seed held revision 1 and the client received
-revision 1 forever. Compare `OwnedFrame::agent_status_revision()` as well as the session, and treat
-a frame with no revision as non-coalescing. The same reasoning applies to every
-current-value projection: coalescing is only sound when the retained sample is provably at least
-as new as what it replaces.
-
-**Guard** — `crates/roost-coord/src/sync_ws/send_queue_tests.rs` —
-`a_retained_status_older_than_the_buffered_one_does_not_supersede_it` is the case that was
-silently dropped, plus supersedes-at-equal-revision, never-supersedes-another-session, and
-never-supersedes-a-non-status-frame.
 
 ### Every terminal stays on the Sync route and `route.active` reads `null`
 
@@ -4218,24 +4130,6 @@ lanes each tick, and `sweep_held` does not expire a batch queued behind a sendin
 `a_direct_result_sends_the_next_queued_keystroke`,
 `a_keystroke_queued_behind_the_window_outlives_the_admission_timeout`.
 
-### Built-in agent tools fail: `daemon SHA mismatch`
-
-**Symptom** — every built-in agent tool call fails on every worker; pi logs
-`pi-env exited with code 1 before it was ready` and the tunnel closes with `daemon SHA mismatch`,
-though the coordinator verified the same upload's digest.
-
-**Wrong** — re-upload, raise the size cap, or hash on the coordinator only. The worker's
-`AgentTunnelPort` spawned one task per downstream frame, so back-to-back daemon chunks (and the empty
-`last` chunk) were applied out of order; stdin frames were reordered the same way, which corrupts the
-daemon's protocol even when the upload survives.
-
-**Right** — the port is `runtime::agent_tunnel::AgentTunnelQueue`: the dispatcher's calls enqueue, and one
-consumer task applies every frame in link order. A per-frame `tokio::spawn` is never right for a byte
-stream.
-
-**Guard** — `crates/roost-worker/tests/agent_tunnel.rs` —
-`the_port_applies_back_to_back_frames_in_link_order` (multi-thread runtime, one byte per chunk).
-
 ### A status dot is blank, or an empty band sits under the deck: Dioxus merged a `style`
 
 **Symptom** — a `StatusDot` (sidebar rollups, the agent chat toolbar) renders as an empty
@@ -4527,350 +4421,6 @@ cross-filesystem fixture falls back to copying. No gate or assertion is skipped.
 **Guard** — `roost-cli`'s executable `update_keeper_gate` suite and the CI /
 release verifier, whose preparation prints the remaining filesystem capacity.
 
-### OMP creation fails on PostgreSQL despite passing SQLite tests
-
-**Symptom** — creating an OMP conversation returns `column "read_only" is of
-type boolean but expression is of type integer`.
-
-**Wrong** — embed SQLite's integer `0` in a shared insert into a boolean column.
-
-**Right** — bind Rust `false`, as the native conversation store does. SQLx
-encodes the value for the selected database; no backend-specific SQL is needed.
-
-**Guard** — `roost-coord`'s
-`omp_chat::omp_chat_submit_projection_replay_and_native_isolation` runs against
-SQLite in workspace CI and a real PostgreSQL server in the PostgreSQL CI job.
-
-### OMP controls stay on defaults with no model or thinking choices
-
-**Symptom** — a fresh OMP chat offers only inheritance/defaults, or its controls
-remain empty after OMP has initialized.
-
-**Wrong** — discover ACP configuration only when sending the first prompt, fetch
-the catalog once on mount, or fill the gap with hard-coded model/thinking lists.
-Calling an online worker without the required capability "offline" hides a
-deployment mismatch.
-
-**Right** — open the ACP session when the chat becomes active, without inference.
-Persist its real config options and current values, refresh controls on session
-metadata and menu opening, and offer retry for both RPC and asynchronous startup
-failures. Report an unsupported online worker as update-required. A preparation
-failure must not settle a user prompt still queued behind it.
-
-**Guard** — `roost-worker`'s
-`omp_owner_opens_settings_without_a_prompt_and_reuses_the_session` and
-`omp_owner_failed_preparation_does_not_interrupt_the_queued_first_prompt`;
-`roost-coord`'s `omp_session_open_reuses_saved_session_without_changing_transcript`
-and `omp_session_failure_does_not_settle_pending_turn_and_ready_clears_failure`.
-
-
-### OMP tool previews use the wrong renderer or lose edit context
-
-**Symptom** — Bash/Edit/Write appear as generic tools; output includes a repeated
-command header or a result-envelope JSON dump; numbered edit diffs render empty.
-
-**Wrong** — use ACP's human `title` as tool identity, discard `rawOutput.details`,
-flatten synthesized ACP content instead of result content, or treat OMP's numbered
-diff as unified-diff syntax.
-
-**Right** — retain ACP `name` across title updates; replace result text/details
-from real partial/final snapshots. Normalize supplied old/new file text into a
-contextual unified diff before the shared diff renderer consumes it. Stable call
-IDs retain chronology; OMP compact previews are visible without opening a second
-activity group.
-
-**Guard** — `roost-coord`'s
-`omp_tool_updates_preserve_identity_output_details_and_diff`,
-`omp_tool_title_fallback_does_not_replace_identity`, and
-`omp_edit_snapshot_normalizes_numbered_diff_without_losing_context`.
-
-### OMP's initial catalog omits connected discovery-backed providers
-
-**Symptom** — a fresh ACP session lacks providers shown by `omp models`, or choices
-stay unchanged after a catalog-only update with the same current model.
-
-**Wrong** — advertise the first ACP options as settled, insert separate CLI model
-choices, or reload an already-managed session whose registry never rereads config.
-
-**Right** — await OMP's own background and runtime discovery through the ordinary
-extension startup hook; require its per-process completion status before readiness.
-Refresh an idle child through the saved session, defer during active work, and
-invalidate choices on accepted `Agent` events even when selected values are equal.
-Keep OMP's authentication, enabled-model filters, and working-directory policy.
-
-**Guard** — `roost-worker`'s `incomplete_or_failed_discovery_never_passes_readiness`
-and `omp_owner_defers_open_refresh_until_prompt_settles`; `roost-client-core`'s
-`omp_config_refresh_invalidates_choices_without_changing_the_selected_model`.
-
-### OMP startup waits forever on an invisible question or submits after Stop
-
-**Symptom** — an ACP startup form never reaches the browser, or stopping session
-preparation still sends the queued first prompt.
-
-**Wrong** — await the ACP handshake without servicing the actor inbox, flush its
-interaction events only after readiness, or treat a canceled load as a missing
-session and retry with a new one.
-
-**Right** — service responses and cancellation while startup is pending, flush
-interactive requests immediately, and cancel queued startup prompts on Stop.
-Keep the actor and its journal alive for the next command; propagate load
-cancellation rather than falling back to new-session creation.
-
-**Guard** — `roost-worker`'s
-`omp_startup_form_can_be_answered_before_new_session_returns`,
-`omp_startup_cancel_after_form_never_submits_initial_prompt`, and
-`omp_startup_cancel_before_form_aborts_initialization`.
-
-### OMP todos lose native phase boundaries or blockers
-
-**Symptom** — `/todo` shows multiple native phases, but the HTML checklist puts
-every task under one Plan heading or turns blocked and dropped tasks into ordinary
-pending and completed tasks.
-
-**Wrong** — use only the lossy ACP plan entries and ignore the successful todo
-tool's structured `rawOutput.details.phases` snapshot.
-
-**Right** — decode the native snapshot with the shared task types. Matching flat
-notifications may update progress without erasing phase boundaries, blockers, or
-abandoned states; an empty plan still clears all tasks.
-
-**Guard** — `roost-coord`'s
-`omp_todo_keeps_native_phases_and_blockers_across_flat_plan_updates`.
-
-### OMP Todo phase headings ignore clicks
-
-**Symptom** — HTML Todo phases do not expand or collapse, or an expanded phase
-cannot be closed again.
-
-**Wrong** — discard the TSP toggle's phase key while resolving its component
-keypath, treat it as a root toggle, or replace an open phase's trigger with text.
-
-**Right** — preserve the phase key as `NativeUiEvent.part`, leave `key` as the
-component keypath, and let the Todo component own phase disclosure state.
-Keep both open and closed phases under a controlled disclosure trigger.
-
-**Guard** — native transcript test `routes checklist phase toggles and resets
-them when the result changes`; parity case
-`native-checklist-phase-toggle-carries-its-key`.
-
-### Browser swallows the picker's Backspace delete action
-
-**Symptom** — Backspace or Delete over an empty native search query does nothing
-in HTML, while the terminal opens the session picker's delete confirmation; the
-session picker's confirm strip never appears.
-
-**Wrong** — treat Backspace and Delete as browser text-editing keys whenever a
-text field owns focus. Over an empty caret side there is nothing to edit, and
-the terminal forwards those keys to the program (the picker's delete action).
-
-**Right** — `browser_editing_key` takes the field's text and caret: Backspace is
-an edit only with a non-empty caret prefix, Delete only with a non-empty caret
-suffix. Everything else forwards to OMP as native input. The delete confirmation
-is the picker's confirm strip; it captures its session when requested, the strip
-button confirms, and Esc cancels.
-
-**Guard** — `semantic_ui::keyboard::tests::delete_keys_over_an_empty_caret_side_belong_to_the_program`
-plus the recorded browser flow: strip appears, Esc cancels, strip Delete removes
-the session file.
-
-### OMP model assignment rejects a transient catalogue reset
-
-**Symptom** — selecting a role or switching picker scopes stops the native UI
-with `invalid TSP message: itemsAdd` or `itemsDel`; cleared subtitles render `null`.
-
-**Wrong** — require every delta property to remain an array, or retain null as
-an ordinary value. OMP's reconciler emits null when a previously sent property
-disappears; the next frame must not replay or undo the previous catalogue patch.
-
-**Right** — the canonical semantic fold removes null properties and ignores null
-transient catalogue deltas. Retain already-applied upserts/removals. Keep the
-operation journal so a malformed later patch restores every earlier mutation.
-
-**Guard** — `semantic_ui::property_tests::clearing_catalogue_deltas_keeps_upserts_and_removes_stale_properties`
-and `an_invalid_catalogue_patch_rolls_back_property_removal_and_upserts` in
-`crates/roost-protocol/src/wire/agent_chat/semantic_ui/property_tests.rs`.
-
-### Browser clipboard completion panics outside the native view runtime
-
-**Symptom** — `/copy` succeeds at the browser clipboard but OMP times out; Chrome
-reports `Must be called from inside a Dioxus runtime` and wasm `unreachable`.
-
-**Wrong** — construct a new `EventHandler` or spawn a scoped RPC from the raw
-clipboard Promise's continuation. That callback has no Dioxus scope on its stack.
-
-**Right** — construct the owning completion callback while the view is current.
-Invoke it after the Promise resolves; its call restores the original runtime and
-scope before constructing the private reply. Consume its captured state once.
-
-**Guard** — `accepted_clipboard_result_outside_runtime_keeps_reply_failure_recoverable`
-in `semantic_ui/host_services/copy_tests.rs`, plus actual browser copy completion.
-
-### Unpatched OMP opens chat without its TUI-backed HTML controls
-
-**Symptom** — chat starts successfully, but model selection or settings cannot
-open because the worker accepted OMP without semantic command UI support.
-
-**Wrong** — defer the capability check until a command is opened. That admits a
-different product contract and leaves a seemingly healthy chat with broken controls.
-
-**Right** — require `_meta.commandUi` version `1`, protocol `"tsp"` during ACP
-initialization, before creating a session or publishing `SessionReady`. Reject
-an incompatible executable with the fork installation instructions.
-
-**Guard** — `omp_owner_rejects_missing_or_incompatible_semantic_ui_before_session_ready`
-in `crates/roost-worker/tests/omp_owner/ordering.rs` rejects missing capabilities,
-unsupported versions and incompatible protocols without admitting a session.
-
-### OMP non-modal overlay stays invisible in HTML
-
-**Symptom** — the terminal shows a non-modal OMP overlay (for example a
-bottom-center text panel), the browser acknowledged the frame, and the panel is
-in the DOM with `visibility:hidden`; `innerText` and screenshots omit it.
-
-**Wrong** — look up the surface root as `omp-view-{view_id}` while the regions
-render it as `omp-view-{view_id}-{surface_id}`. `PlacementWatch::attach` then
-returns `None`, no placement ever runs, and the panel keeps its pre-measure
-hidden style.
-
-**Right** — both sides derive the id from `semantic_ui::surface_view_id`: the
-regions' element id and the placement watcher's lookup cannot diverge.
-
-**Guard** — parity case `primitive-styled-unicode-text` (browser observes the
-overlay's "Bold café" text beside the terminal).
-
-### Parity case runs out of memory serializing its evidence
-
-**Symptom** — `RangeError: Out of memory` in `JSON.stringify` while writing
-`results.json`, with each case's `result.json` near 0.5 GB; or the coverage gate
-spins for many minutes on one case.
-
-**Wrong** — retain every probe row. The probe records every call of every
-instrumented callable, so hot helpers (`isRecord`, `numericOption`) repeat
-byte-identical visits ~600k times per case, and the coverage gate matched each
-filtered row against every raw row.
-
-**Right** — `readProvenance` keeps the first identical visit per process window;
-a window ends at every non-visit row and at every checkpoint cursor, which are
-the only bounds coverage queries use. The gate indexes raw rows by
-`pid:generation:sequence`. Gate runs delete a passing case's raw `probe.jsonl`
-once `result.json` holds the compacted provenance.
-
-**Guard** — `runner-evidence.test.ts` (window and cursor rules). On a recorded
-case, compaction kept 2,287 of 595,989 rows, and the coverage verdict was
-identical with and without compaction.
-
-### Parity inventory claims every native kind has a browser producer
-
-**Symptom** — every `kind:*` entry lists the same generic describe helper as
-its UI emitter (for example `node()` in `packages/tui/src/native/describe.ts`),
-so a kind that no reachable code builds, such as `math`, still demands a
-scenario that can never exist.
-
-**Wrong** — treat a factory whose `k` parameter is typed by its own type
-parameter as producing every kind the constraint admits. The kind is chosen at
-the caller, and copying an existing node's `k` produces nothing new.
-
-**Right** — `nativeKindEmitters` (`deploy/omp/parity/inventory-native-kinds.ts`)
-resolves such a `k` to each direct call's argument, recursively; any escaping
-reference (spread, missing argument, renamed import, reassignment) falls back to
-the whole constraint. A kind whose only producers sit in functions no
-identifier or string literal names becomes `unproduced` with proof
-`producer-unreferenced`.
-
-**Guard** — `deploy/omp/parity/inventory-native-kinds.test.ts` (per-call kinds,
-carriers, nullable contexts, an escaping factory, unreferenced vs
-string-referenced producers).
-
-### Erasing a saved secret preference in the browser does nothing
-
-**Symptom** — a masked OMP setting whose value the browser never learns shows
-its `••••` placeholder; Backspace or Delete leaves the setting unchanged while
-the terminal clears it.
-
-**Wrong** — rely on a local value change to schedule the native edit. The local
-draft of an unknown secret is already empty, so erasing it changes nothing and
-no replacement is sent.
-
-**Right** — `NativeTextState::clear_unknown_secret` marks an explicit pending
-clear; the next command is a masked `Edit` with an empty value and the secret's
-unknown length, sent by `prefs/text.rs` on Backspace/Delete.
-
-**Guard** — `erasing_an_unknown_masked_secret_sends_an_empty_replacement` in
-`crates/roost-web/src/components/agent_chat/semantic_ui/text_state_ack_tests.rs`.
-
-### Parity run aborts with "Refusing changed OMP source"
-
-**Symptom** — every parity case fails during source preparation after someone
-edited `target/omp-parity-source` (or added a file there) without regenerating
-the patch.
-
-**Wrong** — mark the checkout owned again, reset it, or point the run at the
-edited tree directly. Any of these runs a source that no committed patch
-describes, so the verdict names a fork revision nobody can reproduce.
-
-**Right** — after every fork edit, regenerate
-`deploy/omp/command-ui-parity.patch` from the pinned revision in
-`deploy/omp/source.json` with all files staged, including new ones, then run
-`bun run deploy/omp/parity/source.ts --mark-owned`. Adoption only accepts a
-tree that equals the pinned revision plus the listed patches.
-
-**Guard** — `deploy/omp/parity/source.test.ts` ("explicit adoption refuses a
-local source edit even with a matching revision and patch list").
-
-### Parity inventory demands scenarios for props no producer writes
-
-**Symptom** — `property:Tsp*Props.<member>` stays `ui` while no reachable OMP
-code ever sets it, or an enum value is still required although every typed
-site bounds it out.
-
-**Wrong** — count a re-spread of an existing element (`{ ...props.pages[0] }`)
-as producing its members, or ignore assignments (`props.mode = "keys"`) and
-untyped sinks when bounding values. The first keeps impossible obligations.
-The second drops real ones.
-
-**Right** — `classifyUnproduced` (`deploy/omp/parity/inventory-unproduced.ts`)
-proves `every-typed-site-lacks-key` / `every-typed-site-bounds-value` only when
-every typed site, assignment and untyped write is accounted for. Pass-through
-spreads produce nothing. An untyped write keeps the obligation unless a
-primitive-returning library call (`JSON.stringify`) consumes it.
-
-**Guard** — `deploy/omp/parity/inventory-unproduced.test.ts`.
-
-### Native-contract proof rejects a prop read only while replaying queued native events
-
-**Symptom** — a `@nativeContract` prop (for example the editor's `sendable`) is
-reported as read from TTY input, because the component's `handleInput` drains a
-queue of wire-delivered events through `handleNativeEvent`.
-
-**Wrong** — treat every path from `handleInput` to the read as a TTY read. The
-TSP decoder delivers browser events into that same queue, so the read is
-native.
-
-**Right** — `SourceFlowIndex.nativeContract` classifies a read reached from TTY
-only by draining queued events into `replayedReads`. An event the TTY path
-constructs itself remains a TTY read.
-
-**Guard** — `deploy/omp/parity/inventory-flow.test.ts`.
-
-### Agent chat stuck on "Connecting to OMP…" after a new open parameter
-
-**Symptom** — the browser shows `OMP UI request failed: InvalidArgument:
-invalid OMP UI parameters: unknown field `hour12`` and then stays on
-"Connecting to OMP…"; the composer never appears.
-
-**Wrong** — add a field to the web client's `open` action (`omp_ui_mount_transport.rs`)
-and to OMP's remote-UI parser only. The coordinator admits the action through
-its own `deny_unknown_fields` `OpenParams` before forwarding the original JSON,
-so it rejects every open.
-
-**Right** — every `open` parameter the web client sends is declared, with its
-type, in `OpenParams` (`crates/roost-coord/src/agent/omp/rpc_ui.rs`). The worker
-forwards the admitted params unchanged.
-
-**Guard** — `open_dimensions_and_nested_event_depth_are_bounded` in
-`crates/roost-coord/src/agent/omp/rpc_ui/tests.rs` (`hour12` boolean admitted,
-non-boolean rejected).
-
 ### File preview panics when a read completes
 
 **Symptom** — `/export` opens a preview stuck at “Loading file…”. Dioxus
@@ -4889,56 +4439,3 @@ Live edge scans keep their existing semantics.
 **Guard** — `file_viewer::loading_tests::loaded_preview_paints_file_lines_when_download_controls_appear`,
 driven by `protocol/conformance/dom-placement/file-preview-loading.json`.
 
-### Released worker uses stock OMP and chat never leaves Connecting
-
-**Symptom** — production chat stays on “Connecting to OMP…” while the worker
-reports that its executable lacks semantic command UI version 1, protocol tsp.
-The source-based parity harness works on the same machine.
-
-**Wrong** — prove a patched source checkout, release only Roost, and let the
-service resolve an unrelated global `omp`. Ignore `omp_session: Failed` while
-waiting for a UI snapshot.
-
-**Right** — publish the pinned standalone fork with each release, verify and
-install it in the release's own bin directory, and prefer that sibling at
-launch. Show worker startup failures immediately. Reopen and lease each native
-view against its actual transport generation. An older updater's incomplete
-same-tag installation must remain repairable.
-
-**Guard** — `release_owned_omp_precedes_project_and_user_executables`,
-`bundled_omp_is_verified_and_staged_with_published_bytes`,
-`startup_capability_failure_replaces_connecting_with_the_worker_error`, and
-`a_missing_bundled_runtime_repairs_the_same_release_without_bypassing_the_retry_window`.
-Every published native runtime also passes isolated ACP initialization with the
-required semantic capability.
-
-### OMP native UI shows the temporary directory instead of the conversation folder
-
-**Symptom** — chat connects and the sidebar names the right folder, but OMP's
-native status line shows the worker's temporary directory.
-
-**Wrong** — send only `session/new.cwd`. ACP's transport starts the process in
-a temporary directory; the native UI also consumes project state initialized
-before that session request.
-
-**Right** — bind the conversation's dedicated process with `--cwd` before ACP
-starts, while retaining the session's explicit `cwd`.
-
-**Guard** — `deploy/omp/runtime-smoke.ts` starts the real compiled fork outside
-its requested workspace, opens its semantic UI and requires that workspace in
-the native render. Omitting the launch binding fails this check.
-
-### A queued prompt expiry test misses its queue state under CI load
-
-**Symptom** — `a_prompt_expires_behind_an_unresolved_predecessor_without_losing_receive_order`
-fails with “the prompt queued behind the predecessor never happened”.
-
-**Wrong** — poll for a transient queue depth against a short wall-clock request
-budget. Scheduling delays can let the prompt expire before the observer runs.
-
-**Right** — pause Tokio time, synchronize with the process scan, queue the prompt
-and subsequent raw input, then advance the admission timeout. Require the expired
-prompt to write nothing and raw input to remain blocked until its predecessor releases.
-
-**Guard** — the same `agent_prompt_control` regression exercises expiry and the
-surviving raw input's receive order without a wall-clock race.

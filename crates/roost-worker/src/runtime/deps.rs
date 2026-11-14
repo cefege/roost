@@ -28,7 +28,6 @@ use crate::attachments::store_paths::AttachmentBase;
 use crate::browser_commands::Deps;
 use crate::browser_commands::attachments::SessionAttachments;
 use crate::browser_commands::file_commands::LocalFiles;
-use crate::browser_commands::native_dashboard::NativeDashboardHttp;
 use crate::browser_commands::presence::WorkerPresence;
 use crate::browser_commands::search;
 use crate::browser_commands::search_scan::GridScanner;
@@ -66,8 +65,6 @@ pub struct WorkerCapabilities {
     /// PROCESS". Nothing enforced that; only one call site upheld it, and
     /// `SessionStack::deps` is `pub`.
     pub searches: Arc<Mutex<search::Searches>>,
-    pub dashboard_resources:
-        Arc<crate::browser_commands::native_dashboard::resources::DashboardResources>,
 }
 
 impl WorkerCapabilities {
@@ -90,7 +87,6 @@ impl WorkerCapabilities {
             capture,
             platform,
             searches,
-            dashboard_resources,
         } = self;
         Deps {
             sessions: manager,
@@ -102,7 +98,6 @@ impl WorkerCapabilities {
             searches: Arc::clone(&searches),
             attachments: Arc::new(SessionAttachments::new(attachments)),
             diagnostics: capture,
-            dashboard: Arc::new(NativeDashboardHttp::new(dashboard_resources)),
         }
     }
 }

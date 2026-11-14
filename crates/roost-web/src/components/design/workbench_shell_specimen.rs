@@ -92,7 +92,6 @@ pub fn WorkbenchShellSpecimen() -> Element {
                         Icon { icon: IconType::ChevronDown }
                     }
                     div { class: "flex gap-2",
-                        Button { class: "flex-1", icon: IconType::MessageSquare, "New agent" }
                         Button { class: "flex-1", variant: ButtonVariant::Outline, icon: IconType::Terminal, "Terminal" }
                     }
                 }

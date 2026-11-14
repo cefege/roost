@@ -131,10 +131,10 @@ mod tests {
 
     #[test]
     fn a_removed_variable_reads_unset_until_it_is_declared_again() {
-        let base = MapEnv::new().with("ROOST_AGENT_ENDPOINT", "/other.sock");
-        let env = OverlayEnv::new(&base).without("ROOST_AGENT_ENDPOINT");
-        assert_eq!(env.get("ROOST_AGENT_ENDPOINT"), None);
-        let env = env.with("ROOST_AGENT_ENDPOINT", Some("/mine.sock"));
-        assert_eq!(env.get("ROOST_AGENT_ENDPOINT").unwrap(), "/mine.sock");
+        let base = MapEnv::new().with("ROOST_COORDINATOR_BIND", "127.0.0.1:4113");
+        let env = OverlayEnv::new(&base).without("ROOST_COORDINATOR_BIND");
+        assert_eq!(env.get("ROOST_COORDINATOR_BIND"), None);
+        let env = env.with("ROOST_COORDINATOR_BIND", Some("127.0.0.1:4713"));
+        assert_eq!(env.get("ROOST_COORDINATOR_BIND").unwrap(), "127.0.0.1:4713");
     }
 }

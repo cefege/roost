@@ -1,4 +1,4 @@
-//! The one table of buses: twenty-one domains, twenty-one bounds, one owner.
+//! The coordinator's bounded in-process broadcast domains.
 //!
 //! Ported from the singleton block of `apps/coord/src/events/buses.ts:114-180`.
 //! v2 exports thirteen module-level `const` buses and every publisher,
@@ -24,16 +24,13 @@
 use std::sync::Arc;
 
 use roost_protocol::wire::live_metrics::WorkerLiveMetricsFrame;
-use roost_protocol::wire::{
-    AgentStatusUpdate, McpStreamMessage, WorkerPresenceEvent, WorkspaceDelta,
-};
+use roost_protocol::wire::{McpStreamMessage, WorkerPresenceEvent, WorkspaceDelta};
 
 use crate::events::bus::BoundedBus;
 use crate::events::bus_messages::{
-    AgentChatEventsUpdate, AgentConversationUpdate, AuditRow, ClipboardHistoryChange,
-    LastActivityUpdate, PairRequestDelta, SessionBell, SessionBusMessage, SessionClipboardWrite,
-    SessionCommandFinished, SessionPresenceUpdate, SessionTerminalSignals, SessionTitleUpdate,
-    TaskBusMsg, UiBusMsg, WorkerRoutableSet,
+    AuditRow, ClipboardHistoryChange, LastActivityUpdate, PairRequestDelta, SessionBell,
+    SessionBusMessage, SessionClipboardWrite, SessionCommandFinished, SessionPresenceUpdate,
+    SessionTerminalSignals, SessionTitleUpdate, TaskBusMsg, UiBusMsg, WorkerRoutableSet,
 };
 
 /// Every in-process broadcast bus the coordinator owns.
@@ -52,9 +49,6 @@ pub struct Buses {
     pub task_bus: BoundedBus<TaskBusMsg>,
     /// MCP relay stream messages. 128.
     pub mcp_bus: BoundedBus<McpStreamMessage>,
-    /// Volatile coding-agent state; an active update upserts, an inactive one
-    /// deletes. 128.
-    pub agent_status_bus: BoundedBus<AgentStatusUpdate>,
     /// Pair-request deltas: low traffic, a handful per ceremony. 32.
     pub pair_bus: BoundedBus<PairRequestDelta>,
     /// `audit_log` inserts. 256, quoted from the source: "ring size 256 so
@@ -89,10 +83,6 @@ pub struct Buses {
     /// this bus must hold no payload at all. Pinned by
     /// `apps/coord/tests/ui-state/ui-state-owner.test.ts:117-124`.
     pub ui_bus: BoundedBus<UiBusMsg>,
-    /// Current agent conversations, summaries and host connectivity. 256.
-    pub agent_conversation_bus: BoundedBus<AgentConversationUpdate>,
-    /// Ordered transcript event batches. 256.
-    pub agent_chat_bus: BoundedBus<AgentChatEventsUpdate>,
     /// Live worker host snapshots, relayed to the Sync sockets that subscribed
     /// to that worker. Zero: a snapshot is latest-only and is never replayed, so
     /// a bus that retained one would hand a late socket a stale reading.
@@ -100,7 +90,7 @@ pub struct Buses {
 }
 
 impl Buses {
-    /// The twenty-one buses, each at its established bound.
+    /// Construct the buses at their established bounds.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -108,7 +98,6 @@ impl Buses {
             workspace_bus: BoundedBus::new(64),
             task_bus: BoundedBus::new(64),
             mcp_bus: BoundedBus::new(128),
-            agent_status_bus: BoundedBus::new(128),
             pair_bus: BoundedBus::new(32),
             audit_bus: BoundedBus::new(256),
             presence_bus: BoundedBus::new(128),
@@ -122,13 +111,11 @@ impl Buses {
             clipboard_history_bus: BoundedBus::new(256),
             last_activity_bus: BoundedBus::new(256),
             ui_bus: BoundedBus::new(0),
-            agent_conversation_bus: BoundedBus::new(256),
-            agent_chat_bus: BoundedBus::new(256),
             live_metrics_bus: BoundedBus::new(0),
         }
     }
 
-    /// The twenty-one buses behind one shared handle.
+    /// The buses behind one shared handle.
     #[must_use]
     pub fn shared() -> Arc<Self> {
         Arc::new(Self::new())

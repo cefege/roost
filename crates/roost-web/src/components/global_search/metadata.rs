@@ -11,16 +11,11 @@
 //! Ports `apps/web/src/components/search/GlobalSearchPage.tsx:195-307`.
 
 use dioxus::prelude::*;
-use roost_client_core::client::agents::status_policy::{
-    AgentStatusLevel, agent_status_presentation,
-};
-use roost_client_core::store::navigation::query::{
-    attention_navigation_documents, filter_navigation_search_documents,
-};
-use roost_client_core::store::navigation::{NavigationSearchAttention, NavigationSearchDocument};
+use roost_client_core::store::navigation::NavigationSearchDocument;
+use roost_client_core::store::navigation::query::filter_navigation_search_documents;
 use roost_client_core::store::sidebar::documents::store_navigation_documents;
 
-use crate::components::global_search::query::{SearchRouteQuery, SearchScope};
+use crate::components::global_search::query::SearchRouteQuery;
 use crate::components::settings::format::relative_time;
 use crate::components::ui::{
     Card, CardContent, CardHeader, CardTitle, CommandGroup, CommandGroupLabel, CommandItem,
@@ -41,20 +36,13 @@ pub fn MetadataResults(route_query: SearchRouteQuery) -> Element {
         let store = core.store();
         let now_ms = i64::try_from(core.clock().now_ms()).unwrap_or(i64::MAX);
         let documents = store_navigation_documents(store, &BrowserWorkerPaths, now_ms);
-        let scoped: Vec<NavigationSearchDocument> = match route_query.scope {
-            SearchScope::All => documents.clone(),
-            SearchScope::Attention => attention_navigation_documents(&documents)
-                .into_iter()
-                .cloned()
-                .collect(),
-        };
-        let rows = filter_navigation_search_documents(&scoped, &route_query.text)
+        let rows = filter_navigation_search_documents(&documents, &route_query.text)
             .into_iter()
             .cloned()
             .collect::<Vec<NavigationSearchDocument>>();
         (rows, now_ms)
     };
-    let summary = metadata_summary(route_query.scope, rows.len(), &route_query.text);
+    let summary = metadata_summary(rows.len(), &route_query.text);
 
     rsx! {
         section {
@@ -64,10 +52,7 @@ pub fn MetadataResults(route_query: SearchRouteQuery) -> Element {
                 CardHeader {
                     CardTitle {
                         span { id: "global-search-metadata-title",
-                            match route_query.scope {
-                                SearchScope::Attention => "Agent attention",
-                                SearchScope::All => "Session metadata",
-                            }
+                            "Session metadata"
                         }
                     }
                     div { class: "text-sm font-medium", role: "status", "aria-live": "polite", "aria-atomic": "true",
@@ -77,12 +62,9 @@ pub fn MetadataResults(route_query: SearchRouteQuery) -> Element {
                 CardContent {
                     if rows.is_empty() {
                         EmptyState {
-                            icon: match route_query.scope {
-                                SearchScope::Attention => IconType::BellOff,
-                                SearchScope::All => IconType::SearchX,
-                            },
-                            title: empty_title(route_query.scope, &route_query.text),
-                            supporting: Some(empty_supporting(route_query.scope, &route_query.text).to_owned()),
+                            icon: IconType::SearchX,
+                            title: empty_title(&route_query.text),
+                            supporting: Some(empty_supporting(&route_query.text).to_owned()),
                         }
                     } else {
                         div { "data-testid": "global-search-results",
@@ -137,7 +119,7 @@ fn MetadataRow(
             show_check: false,
             on_select: move |()| on_open.call(()),
             Icon {
-                icon: if document.agent_id.is_some() { IconType::Bot } else { IconType::Terminal },
+                icon: IconType::Terminal,
                 class: "size-4 shrink-0 text-muted-foreground",
             }
             span { class: "min-w-0 flex-1 truncate text-sm font-medium text-foreground",
@@ -145,9 +127,6 @@ fn MetadataRow(
                 HighlightedText { text: document.display_title.clone(), query }
             }
             span { class: "flex shrink-0 items-center gap-2 whitespace-nowrap text-xs text-muted-foreground",
-                if let Some(label) = attention_label(document.agent_attention) {
-                    span { "data-testid": format!("global-search-attention-{session_id}"), {label} }
-                }
                 StatusDot {
                     status: (if document.available { "ok" } else { "offline" }).to_owned(),
                     title: (if document.available { "Available" } else { "Machine unavailable" }).to_owned(),
@@ -248,7 +227,7 @@ fn highlighted_spans(text: &str, query: &str) -> Vec<(String, bool)> {
 }
 
 /// What the status line above the list says.
-fn metadata_summary(scope: SearchScope, count: usize, query: &str) -> String {
+fn metadata_summary(count: usize, query: &str) -> String {
     if count > 0 {
         return if count == 1 {
             "1 session".to_owned()
@@ -259,43 +238,23 @@ fn metadata_summary(scope: SearchScope, count: usize, query: &str) -> String {
     if !query.trim().is_empty() {
         return "0 sessions. No matching session metadata".to_owned();
     }
-    match scope {
-        SearchScope::Attention => "0 sessions. Nothing needs attention",
-        SearchScope::All => "0 sessions. No sessions to search",
-    }
-    .to_owned()
+    "0 sessions. No sessions to search".to_owned()
 }
 
-fn empty_title(scope: SearchScope, query: &str) -> &'static str {
-    match (scope, query.trim().is_empty()) {
-        (SearchScope::Attention, true) => "Nothing needs attention",
-        (SearchScope::Attention, false) => "No matching sessions",
-        (SearchScope::All, true) => "No sessions to search",
-        (SearchScope::All, false) => "No matching session metadata",
+fn empty_title(query: &str) -> &'static str {
+    if query.trim().is_empty() {
+        "No sessions to search"
+    } else {
+        "No matching session metadata"
     }
 }
 
-fn empty_supporting(scope: SearchScope, query: &str) -> &'static str {
-    match (scope, query.trim().is_empty()) {
-        (SearchScope::Attention, true) => "Blocked agents and unseen completions appear here.",
-        (SearchScope::Attention, false) => {
-            "Try another title, path, workspace, machine, or agent term."
-        }
-        (SearchScope::All, true) => "Sessions appear here as they open.",
-        (SearchScope::All, false) => {
-            "Terminal content matches appear above. Try another metadata term to filter this list."
-        }
+fn empty_supporting(query: &str) -> &'static str {
+    if query.trim().is_empty() {
+        "Sessions appear here as they open."
+    } else {
+        "Terminal content matches appear above. Try another metadata term to filter this list."
     }
-}
-
-/// The word a row shows for what its agent wants: the shared presentation
-/// table's label, so the row says what the status badge says ("Needs input").
-fn attention_label(attention: Option<NavigationSearchAttention>) -> Option<&'static str> {
-    let level = match attention? {
-        NavigationSearchAttention::Blocked => AgentStatusLevel::Blocked,
-        NavigationSearchAttention::Done => AgentStatusLevel::Done,
-    };
-    Some(agent_status_presentation(level).label)
 }
 
 #[cfg(test)]
@@ -304,14 +263,11 @@ mod tests {
 
     #[test]
     fn the_summary_counts_rows_before_it_explains_an_empty_list() {
+        assert_eq!(metadata_summary(0, ""), "0 sessions. No sessions to search");
+        assert_eq!(metadata_summary(1, "tmp"), "1 session");
+        assert_eq!(metadata_summary(3, "tmp"), "3 sessions");
         assert_eq!(
-            metadata_summary(SearchScope::All, 0, ""),
-            "0 sessions. No sessions to search"
-        );
-        assert_eq!(metadata_summary(SearchScope::All, 1, "tmp"), "1 session");
-        assert_eq!(metadata_summary(SearchScope::All, 3, "tmp"), "3 sessions");
-        assert_eq!(
-            metadata_summary(SearchScope::Attention, 0, "blocked"),
+            metadata_summary(0, "blocked"),
             "0 sessions. No matching session metadata"
         );
     }
@@ -340,13 +296,6 @@ mod tests {
             search_text: String::new(),
             activity_at: 0,
             available: true,
-            agent_status: None,
-            agent_attention: None,
-            agent_unseen: false,
-            agent_id: None,
-            agent_message: None,
-            agent_updated_at_ms: None,
-            agent_arrival: 0,
             client_only: false,
         }
     }

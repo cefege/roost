@@ -6,15 +6,12 @@
 
 use dioxus::prelude::*;
 
-use crate::components::browse::BrowseLaunchMode;
 use crate::components::browse::dom;
 use crate::components::ui::focus_scope::AutoFocusRequest;
 
 /// Every handler the four bands and the two dialogs report back through.
 #[derive(Clone, PartialEq)]
 pub struct PickerControls {
-    /// The action selected by the entry route.
-    pub launch_mode: BrowseLaunchMode,
     /// The crumb trail the path band paints.
     pub crumb_views: Vec<crate::platform::worker_paths::palette::CrumbView>,
     /// The title the toolbar shows.
@@ -59,8 +56,6 @@ pub struct PickerControls {
     pub on_drill: EventHandler<String>,
     /// Ask the machine for the directory again.
     pub on_retry: EventHandler<()>,
-    /// Start an agent in the resolved folder.
-    pub on_start_agent: EventHandler<()>,
     /// Open a terminal in the directory being browsed.
     pub on_open_here: EventHandler<()>,
     /// Go home from the unavailable panel.

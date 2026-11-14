@@ -117,7 +117,7 @@ pub fn sync_socket_url(base_url: &str, dial: &SyncDial) -> String {
         // TLS-terminating proxy is reached as `wss` even when the override says
         // `http`.
         return format!(
-            "{}?since={}&tab={}&flow={}&sync_v={}",
+            "{}?since={}&tab={}&flow={}&sync_v={}&client_state=1",
             dial.path,
             dial.since,
             encode_component(&dial.tab_id),
@@ -126,7 +126,7 @@ pub fn sync_socket_url(base_url: &str, dial: &SyncDial) -> String {
         );
     };
     format!(
-        "{scheme}{}{}?since={}&tab={}&flow={}&sync_v={}",
+        "{scheme}{}{}?since={}&tab={}&flow={}&sync_v={}&client_state=1",
         base_url
             .split_once("://")
             .map(|(_, rest)| rest)

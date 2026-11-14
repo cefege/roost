@@ -27,7 +27,7 @@ Landing cold, read in this order. Stop as soon as you have what you need.
    endpoint manifest, and versioning. The `.proto` files and `protocol/spec/`
    are the contract the Rust crates build against.
 4. **[`GLOSSARY.md`](GLOSSARY.md)** — the vocabulary: cell-shipping, keeper,
-   agent-status, session/channel/tab, scrollback.
+   session/channel/tab, scrollback.
 5. **[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md)** — grep it BEFORE
    writing code that matches a listed symptom. See `## Failure index` below.
 
@@ -39,11 +39,11 @@ Also live, read when relevant:
   open decision gates.
 - **[`docs/LENS.md`](docs/LENS.md)** — the generic operating doctrine
   (`## Reading lens` below). Read once, not per task.
-- **[`protocol/spec/agent-chat.md`](protocol/spec/agent-chat.md)** — the
-  OMP-fork web-agent contract. OMP is the only supported agent. Preserve its
-  terminal TUI and require TUI/HTML A/B proof for browser parity, with native
-  HTML usability. Alternative runtimes and tools are removed, not retained as
-  future backends. Applied native database history remains inert.
+
+Roost is terminal-only. Do not add managed agent runtimes, HTML conversations,
+agent detection, provider configuration, or automatic agent installation.
+Users may run independently installed programs inside ordinary terminal PTYs.
+Previously applied agent database history remains inert.
 
 ---
 
@@ -269,15 +269,13 @@ operator retired it; OMP's own `/fork` still forks a conversation, and Roost's
 `AgentChatFork` RPC, its route row and the "Conversation forked" notice are all
 gone), and the whole `roost-agent` crate: the native engine, its
 conversation/journal store, tool-call registry, scheduler, executor, native
-transcript/inspect/turn RPC paths and their fixtures. OMP is the only supported
-agent: its fork keeps the terminal TUI; HTML parity requires TUI/HTML A/B proof
-alongside native browser usability. The alternative runtimes and
+transcript/inspect/turn RPC paths and their fixtures. The alternative runtimes and
 tool engine (`third_party/pi-durable-rs/`, `crates/roost-agent-tools/`), their
 conformance tool/fixtures (`tools/pi-durable-conformance/`,
 `protocol/conformance/pi-durable/`), `docs/plans/pi-durable-rust.md` and
 `docs/plans/native-tui-parity.md` are removed. Non-OMP terminal identities,
 process/screen rules, the Pi status extension and the multi-agent/custom-command
-launcher are removed too. No second agent backend is planned or supported.
+launcher are removed too. No agent backend is planned or supported.
 
 Also dropped in the same sweep: the whole provider-account layer — the
 `roost-llm` crate (model catalogs, wire clients, OAuth logins, credential
@@ -290,15 +288,17 @@ Secret still carries it so rows written by older releases stay decryptable; no
 code reads it); the native-only `AgentChatInspect`, `AgentChatAnswer`,
 `AgentChatRewind` and `AgentChatPlanDecide` RPCs; and the `archived-native-ui`
 cargo feature with the 51 Rust-native chat and settings modules it kept
-compiled. An OMP conversation's model, provider and credentials come from the
-worker's own `~/.omp`.
+compiled.
 
-The alternate Workspaces/Agents sidebar mode is retired (`sidebar_agents.rs`,
-`agents_projection.rs`, and the old `roost.sidebarView` Workspaces/Agents values,
-which fall back to Recent). The sidebar has two views: Recent, the agent
-conversations grouped Today and Earlier, and Folders, which holds terminal
-sessions and agent conversations. No archived view exists: the store has no
-archive concept. The custom `ui::Surface`/`SurfaceLevel` skin
+The dedicated OMP integration is retired too: managed ACP processes, HTML chat,
+agent RPCs and Sync frames, status detection/reporting, fenced prompts, agent
+configuration and autolaunch, the `roost skill` command, bundled executables,
+and TUI/HTML parity packaging. User-installed programs and their configuration
+are not removed. Existing keeper-owned terminal PTYs remain ordinary terminals.
+
+The sidebar holds terminal folders only. Folder order is static until a user
+drags it, and the saved order synchronizes across that account's devices.
+There is no agent Recent view. The custom `ui::Surface`/`SurfaceLevel` skin
 and `List.contained` border option are removed; panels use stock Rust/UI `Card`
 recipes and lists compose stock `Item` rows.
 
@@ -325,7 +325,7 @@ for Dioxus 0.7 + Tailwind v4. Roost adapts those components under the web crate'
    `theme/terminal_palette.rs` reapplies the saved terminal palette after app
    roles at boot and on theme changes. Type through the `text-xs…` scale.
    Token files (`theme-vars.css`, `tailwind.css`,
-   `agents.rs`, `src/theme/palettes/`, vendored rust-ui CSS under
+   `src/theme/palettes/`, vendored rust-ui CSS under
    `crates/roost-web/vendor/`) DECLARE values and are exempt. Components copy
    rust-ui's class recipes byte for byte, except `ui/toast.rs`, whose cards use
    the popover surface and show severity in the icon colour only (operator

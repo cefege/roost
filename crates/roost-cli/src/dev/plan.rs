@@ -7,8 +7,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use roost_worker::agents::environment::SESSION_OVERLAY_ENV_KEYS;
-use roost_worker::agents::install_integrations::ENV_SKIP_AGENT_INTEGRATIONS;
 use tokio::process::Command;
 
 /// The coordinator child.
@@ -57,15 +55,10 @@ impl DevServer {
         self
     }
 
-    /// The process this server is started as. The enclosing Roost session's
-    /// agent-report keys are removed: `roost dev` run from a Roost shell would
-    /// otherwise hand its worker the installed worker's report socket.
+    /// The process this server is started as.
     pub fn command(&self) -> Command {
         let mut command = Command::new(&self.program);
         command.args(&self.args);
-        for key in SESSION_OVERLAY_ENV_KEYS {
-            command.env_remove(key);
-        }
         command
             .envs(self.env.iter().map(|(key, value)| (key, value)))
             .stdin(Stdio::inherit())
@@ -107,9 +100,6 @@ pub fn coordinator_url(bind: &str) -> String {
 /// Every child inherits this process's working directory, so `roost dev` is
 /// run from the checkout root the way `cargo run` is: the Dioxus CLI finds the
 /// workspace by walking up from where it was started.
-///
-/// The worker skips the agent-integration install: a scratch stack must not
-/// rewrite the loaders the installed worker owns.
 pub fn dev_plan(executable: &Path, coordinator_url: &str) -> Vec<DevServer> {
     vec![
         DevServer {
@@ -127,8 +117,7 @@ pub fn dev_plan(executable: &Path, coordinator_url: &str) -> Vec<DevServer> {
                 coordinator_url.to_string(),
             ],
             env: Vec::new(),
-        }
-        .with_env(ENV_SKIP_AGENT_INTEGRATIONS, "1"),
+        },
         DevServer {
             name: WEB,
             program: PathBuf::from(WEB_PROGRAM),

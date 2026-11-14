@@ -115,8 +115,7 @@ impl ToastId {
 /// Data, not a closure: a store that held a callback could not be `Debug`, and
 /// a host would have to keep the closure's captures alive past the credential
 /// that authorised them. [`take_toast_action`] hands the intent back to the host
-/// and removes the card in the same step, which is the order
-/// `AgentNotificationBridge.tsx:110-119` performs by hand.
+/// and removes the card in the same step.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ToastIntent {
     /// Reveal a session: navigate to it and ring its surface.

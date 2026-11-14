@@ -17,7 +17,6 @@ Each worker dials one long-lived, full-duplex binary WebSocket to the coordinato
 | `CoordWorkerUp`, `CoordWorkerDown` | `protocol/proto/roost/v1/worker_transport.proto` | Full upstream/downstream binary oneofs. |
 | `WRefreshJwt` | `protocol/proto/roost/v1/worker_transport.proto:54` | In-band replacement token, revalidated against the exact worker principal. |
 | `WCellGrid`, `WCellGridChunk` | `protocol/proto/roost/v1/worker_transport.proto:58-59` | Terminal full/delta or bounded snapshot part. |
-| `WAgentStatus` | `protocol/proto/roost/v1/worker_transport.proto:66-79` | Volatile PID-free status observation. |
 | `WInputResult`, `WTerminalStreamResult` | `protocol/proto/roost/v1/worker_transport.proto:96-159` | Truthful write/stream outcome with write phase and failure classification. |
 | `WTerminalViewState`, `WTerminalViewProjection` | `protocol/proto/roost/v1/worker_transport.proto:170-187` | Worker-owned view result and coordinator presence/diagnostic projection. |
 | Direct grant/peer/attachment result frames | `protocol/proto/roost/v1/worker_transport.proto` | Coordinator-authorized direct terminal/attachment admission and liveness. |
@@ -33,7 +32,7 @@ Retired native remote-tool oneof tags and names stay reserved: upstream
 2. Socket lifecycle is `idle → connecting → open → reconnecting`; `open` is not application-ready. The only forced first write is `WHello`. A duplicate/mismatched hello closes the socket.
 3. `DHelloAck` moves the application barrier from `hello` to `replay`. Exactly one durable `WSessionEvent` is in flight; each exact positive `DEventAck` acknowledges insert or unique-index deduplication. Stale/duplicate ACKs cannot release the barrier.
 4. With no durable event or blocking reservation, the worker sends one authoritative sequenced `snapshot` SessionEvent. The coordinator commits it, ACKs its sequence, marks that exact connection routable, and triggers missing-session respawn repair.
-5. Snapshot ACK moves the worker to `live` and drains volatile agent status, control, cell, and compatibility metadata lanes. A durable append or blocking reservation that appears during snapshot forces replay again before later traffic.
+5. Snapshot ACK moves the worker to `live` and drains control, cell, and compatibility metadata lanes. A durable append or blocking reservation that appears during snapshot forces replay again before later traffic.
 6. Disconnect resets application state to `hello` and clears volatile lanes; durable SQLite outbox rows remain. Reconnect repeats hello, one-at-a-time replay, snapshot, then live. A newer authenticated hello immediately supersedes the old connection generation; delayed callbacks are identity-fenced.
 7. View ownership capability `terminal-view-owner-v1` delegates membership/geometry/stream generations to `TerminalViewOwner`; otherwise the coordinator `TerminalViewHub` owns them. Grants and direct peer signaling retain the exact worker epoch and connection fence.
 8. A worker may refresh its JWT in band before expiry. Valid refresh updates the same stream; invalid, expired, revoked, fingerprint-changing, or generation-changing refresh closes it.

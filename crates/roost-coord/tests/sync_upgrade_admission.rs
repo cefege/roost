@@ -44,11 +44,13 @@ fn sync_request() -> SyncUpgradeRequest {
             fingerprint: FP.to_string(),
             label: "browser".to_string(),
             key_generation: 0,
+            account_id: Some("account-1".to_owned()),
         }),
         tab: Some("tab-1".to_string()),
         since: Some("42".to_string()),
         flow: Some(SYNC_QUERY_FLOW_V1.to_string()),
         sync_v: Some(SYNC_QUERY_V2.to_string()),
+        client_state: Some("1".to_owned()),
     }
 }
 

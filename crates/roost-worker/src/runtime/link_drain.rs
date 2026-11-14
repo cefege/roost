@@ -19,7 +19,6 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use roost_protocol::wire::agent_status::AgentStatusUpdate;
 use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 
 use crate::link_barrier::Action;
@@ -39,9 +38,6 @@ enum NextWrite {
     Snapshot { bytes: Vec<u8> },
     /// A control, terminal or raw-metadata frame, in lane order.
     Queued(Pending),
-    /// An agent status: v2 `drainQueues` writes these after the events and the
-    /// writable notification, ahead of the controls.
-    AgentStatus { bytes: Vec<u8> },
     /// The repair a refused cell sink produced when told the link is writable,
     /// written as one run ahead of the queued controls (v2 `notifyingWritable`).
     Repair(Vec<Pending>),
@@ -69,17 +65,6 @@ pub(super) fn admit_uplink(loop_state: &mut LinkLoop, frame: CoordWorkerUpstream
             }
             let frame = CoordWorkerUpstream::Binary(binary);
             admit_to_lane(loop_state, &frame, Lane::RawMetadata, "raw-metadata")
-        }
-        CoordWorkerUpstream::AgentStatus(frame) => {
-            let status = AgentStatusUpdate {
-                common: frame.status.common,
-                active: frame.status.active,
-            };
-            if let Err(error) = loop_state.send_agent_status(&status) {
-                tracing::warn!(%error, "an agent status was refused by the link");
-                return false;
-            }
-            true
         }
         control => push_upstream(loop_state, &control, control.kind()),
     }
@@ -133,12 +118,6 @@ pub(super) async fn drain(loop_state: &mut LinkLoop, link: &mut Link) -> Option<
             }
             NextWrite::Snapshot { bytes } => link.send(bytes).await.map(|()| 0),
             NextWrite::Queued(frame) => link.send(frame.bytes).await.map(|()| 0),
-            // Committed only once the socket took it, so a failed write stays
-            // pending for the next link (v2 keeps it until `tryWrite` succeeds).
-            NextWrite::AgentStatus { bytes } => link.send(bytes).await.map(|()| {
-                loop_state.agent_statuses.commit_written();
-                0
-            }),
             NextWrite::Repair(frames) => write_repair(link, frames).await,
         };
         match sent {
@@ -202,8 +181,7 @@ fn notify_writable(loop_state: &mut LinkLoop, now: Instant) -> Option<Vec<Pendin
 /// waiting on. After that only a live barrier releases the lanes, and a cell
 /// sink still owed a writable notification holds the controls: the repair the
 /// notification produces leads any queued reply, once per pass
-/// (`coord-link-repair-order.test.ts`: opened → full → RPC). Agent statuses go
-/// after that and ahead of the lanes (v2: events → agent statuses → controls).
+/// (`coord-link-repair-order.test.ts`: opened → full → RPC).
 fn next_write(loop_state: &mut LinkLoop, now: Instant, notified: &mut bool) -> Option<NextWrite> {
     if let Some(pong) = loop_state.outbox.take_from(Lane::Liveness) {
         return Some(NextWrite::Queued(pong));
@@ -231,11 +209,6 @@ fn next_write(loop_state: &mut LinkLoop, now: Instant, notified: &mut bool) -> O
         let repair = notify_writable(loop_state, now)?;
         *notified = true;
         return Some(NextWrite::Repair(repair));
-    }
-    if let Some(bytes) = loop_state.agent_statuses.next_bytes() {
-        return Some(NextWrite::AgentStatus {
-            bytes: bytes.to_vec(),
-        });
     }
     loop_state.outbox.drain_one(now).map(NextWrite::Queued)
 }

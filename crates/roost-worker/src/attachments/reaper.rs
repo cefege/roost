@@ -18,8 +18,7 @@ use super::store_paths::{
     ATTACHMENT_OPERATION_DIR_NAME, AttachmentBase, MANIFEST_NAME, SHORTCUT_DIR_NAME,
 };
 
-/// A file older than this is deleted. Long enough that an agent conversation
-/// resumed days later still finds the screenshots it was shown.
+/// A file older than this is deleted.
 pub const ATTACHMENT_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 /// The most every session's files together may hold.

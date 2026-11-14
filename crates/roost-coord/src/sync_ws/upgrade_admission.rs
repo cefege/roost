@@ -97,6 +97,8 @@ pub struct SyncUpgradeRequest {
     pub flow: Option<String>,
     /// The `sync_v` query value, if any.
     pub sync_v: Option<String>,
+    /// The `client_state` notification subscription, if any.
+    pub client_state: Option<String>,
 }
 
 /// The facts a successful credential check established.
@@ -110,6 +112,8 @@ pub struct VerifiedSyncCaller {
     /// it as it opens and closes `4001 revoked` if it moved in between
     /// (`sync-ws-handler.ts:181-184`).
     pub key_generation: u64,
+    /// The verified browser's account; workers have no client state.
+    pub account_id: Option<String>,
 }
 
 /// Why a Sync upgrade was refused.
@@ -183,6 +187,8 @@ pub struct SyncScope {
     /// Whether domain generations are negotiated: only for the exact
     /// `flow=1&sync_v=2`.
     pub domain_generations: bool,
+    /// Whether this socket requested account preference invalidations.
+    pub client_state_changes: bool,
     /// The last durable event id this socket already holds, or zero.
     pub since_event_id: u64,
 }
@@ -291,6 +297,9 @@ pub fn admit_sync_upgrade(
             },
             flow_control,
             domain_generations,
+            client_state_changes: domain_generations
+                && !read_only
+                && request.client_state.as_deref() == Some("1"),
             since_event_id: request
                 .since
                 .as_deref()

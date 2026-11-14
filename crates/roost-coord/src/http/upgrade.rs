@@ -170,12 +170,19 @@ pub async fn sync_upgrade(State(state): State<Arc<ListenerState>>, request: Requ
                     fingerprint: caller.fingerprint.clone(),
                     label: caller.label.clone(),
                     key_generation: caller.key_generation,
+                    account_id: match &caller.principal {
+                        crate::auth::principal::Principal::AccountDevice { account_id, .. } => {
+                            Some(account_id.clone())
+                        }
+                        _ => None,
+                    },
                 }
             }),
             tab: query.tab,
             since: query.since,
             flow: query.flow,
             sync_v: query.sync_v,
+            client_state: query.client_state,
         },
         &crate::sync_ws::upgrade_admission::OriginPolicy {
             public_url: state.service.config.public_url.clone(),
@@ -253,7 +260,7 @@ async fn upgrade_sync_socket(
         })
 }
 
-/// The four query values a Sync upgrade reads, decoded as a browser's
+/// The query values a Sync upgrade reads, decoded as a browser's
 /// `URLSearchParams.get` decodes them: percent-escapes and `+` resolved, and
 /// the FIRST value when a name repeats (`sync-ws-upgrade.ts:172-180`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -266,6 +273,8 @@ pub struct SyncQuery {
     pub flow: Option<String>,
     /// `sync_v`, the v2 negotiation.
     pub sync_v: Option<String>,
+    /// `client_state=1` subscribes to account preference invalidations.
+    pub client_state: Option<String>,
 }
 
 impl SyncQuery {
@@ -288,6 +297,7 @@ impl SyncQuery {
             since: first("since"),
             flow: first("flow"),
             sync_v: first("sync_v"),
+            client_state: first("client_state"),
         }
     }
 }

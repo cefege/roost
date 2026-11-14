@@ -4,13 +4,9 @@
 //! `apps/web/src/lib/folderKey.ts` it reads (`folderPathOf`,
 //! `workspaceForFolder`, `folderDisplayName`). Pure reads of the store; the
 //! folder key is `store::paths::folder_key_of`, the same key the deck uses.
-use std::collections::{BTreeMap, BTreeSet};
 
 use roost_protocol::wire::{PullRequestChecks, PullRequestState, Session, SessionKind, Workspace};
 
-use crate::client::agents::status_policy::{
-    AgentStatusRollup, derive_agent_status_level, fold_agent_status_levels,
-};
 use crate::store::Store;
 use crate::store::navigation::query::normalize_navigation_search_query;
 use crate::store::navigation::worker_online;
@@ -66,10 +62,6 @@ pub struct FolderGroup {
     pub ports: Vec<i64>,
     /// The machine's reachable address, for port click-through.
     pub reach_addr: Option<String>,
-    /// The highest agent level present and the per-level counts.
-    pub agent_status: AgentStatusRollup,
-    /// Root conversations in this folder followed by their descendants.
-    pub agent_conversation_ids: Vec<String>,
 }
 
 /// The glyph a checks rollup shows beside `#123`; `none` shows none.
@@ -118,7 +110,7 @@ pub fn folder_display_name(store: &Store, paths: &dyn WorkerPaths, session: &Ses
         .unwrap_or_else(|| path.to_owned())
 }
 
-/// Bucket every live shell session by folder, newest activity first.
+/// Bucket every live shell session by folder; member sessions sort by activity.
 pub fn build_folder_groups(
     store: &Store,
     paths: &dyn WorkerPaths,
@@ -151,85 +143,6 @@ pub fn build_folder_groups_from(
         .into_iter()
         .filter_map(|(key, members)| group_of(store, paths, now_ms, key, &members))
         .collect();
-    let mut agent_buckets: Vec<(
-        String,
-        Vec<&roost_protocol::wire::agent_chat::ConversationSummary>,
-    )> = Vec::new();
-    for conversation in store.agent_chat.conversations.values() {
-        if conversation.is_native() || conversation.parent_id.is_some() {
-            continue;
-        }
-        let key = crate::store::paths::folder_key_of(
-            paths,
-            worker_os(store, &conversation.worker_fp),
-            &conversation.worker_fp,
-            &conversation.cwd,
-        );
-        match agent_buckets
-            .iter_mut()
-            .find(|(bucket_key, _)| *bucket_key == key)
-        {
-            Some((_, rows)) => rows.push(conversation),
-            None => agent_buckets.push((key, vec![conversation])),
-        }
-    }
-    let mut children_by_parent =
-        BTreeMap::<&str, Vec<&roost_protocol::wire::agent_chat::ConversationSummary>>::new();
-    for conversation in store.agent_chat.conversations.values() {
-        if !conversation.is_native()
-            && let Some(parent) = conversation.parent_id.as_deref()
-        {
-            children_by_parent
-                .entry(parent)
-                .or_default()
-                .push(conversation);
-        }
-    }
-    for (key, mut conversations) in agent_buckets {
-        conversations
-            .sort_by(|left, right| (left.created_ms, &left.id).cmp(&(right.created_ms, &right.id)));
-        if conversations.is_empty() {
-            continue;
-        }
-        let group = if let Some(index) = groups.iter().position(|group| group.key == key) {
-            let Some(group) = groups.get_mut(index) else {
-                continue;
-            };
-            group.latest_activity = group.latest_activity.max(
-                conversations
-                    .iter()
-                    .map(|row| row.updated_ms)
-                    .max()
-                    .unwrap_or(0),
-            );
-            group.agent_conversation_ids = conversations.iter().map(|row| row.id.clone()).collect();
-            group
-        } else {
-            let Some(group) = agent_only_group_of(store, paths, now_ms, key, &conversations) else {
-                continue;
-            };
-            groups.push(group);
-            let Some(group) = groups.last_mut() else {
-                continue;
-            };
-            group
-        };
-        let mut included: BTreeSet<&str> =
-            conversations.iter().map(|row| row.id.as_str()).collect();
-        let mut pending: Vec<&str> = conversations.iter().map(|row| row.id.as_str()).collect();
-        while let Some(parent_id) = pending.pop() {
-            let Some(children) = children_by_parent.get(parent_id) else {
-                continue;
-            };
-            for child in children {
-                if included.insert(child.id.as_str()) {
-                    group.latest_activity = group.latest_activity.max(child.updated_ms);
-                    group.agent_conversation_ids.push(child.id.clone());
-                    pending.push(child.id.as_str());
-                }
-            }
-        }
-    }
     groups.sort_by_key(|group| std::cmp::Reverse(group.latest_activity));
     groups
 }
@@ -289,13 +202,6 @@ fn group_of(
         .collect();
     ports.sort_unstable();
     ports.dedup();
-    let agent_status = fold_agent_status_levels(members.iter().map(|session| {
-        let status = store.agent_status.status(&session.id);
-        derive_agent_status_level(
-            status,
-            status.map(|status| store.agent_seen.acknowledged_revision(status)),
-        )
-    }));
     let fallback_label: String = head.worker_fp.as_str().chars().take(6).collect();
     Some(FolderGroup {
         key,
@@ -328,52 +234,6 @@ fn group_of(
         branch: lead.git_branch.clone(),
         ports,
         reach_addr: worker.and_then(|worker| worker.reachable_addr.clone()),
-        agent_status,
-        agent_conversation_ids: Vec::new(),
-    })
-}
-fn agent_only_group_of(
-    store: &Store,
-    paths: &dyn WorkerPaths,
-    now_ms: i64,
-    key: String,
-    conversations: &[&roost_protocol::wire::agent_chat::ConversationSummary],
-) -> Option<FolderGroup> {
-    let head = conversations.first()?;
-    let worker = store.workers.get(&head.worker_fp);
-    let online = worker
-        .is_some_and(|worker| worker_online(worker, store.routable_worker_fps.as_ref(), now_ms));
-    let fallback_label: String = head.worker_fp.chars().take(6).collect();
-    Some(FolderGroup {
-        key,
-        name: paths
-            .basename(worker_os(store, &head.worker_fp), &head.cwd)
-            .filter(|name| !name.is_empty())
-            .unwrap_or_else(|| head.cwd.clone()),
-        server: short_server_label(
-            worker.map_or(fallback_label.as_str(), |row| row.label.as_str()),
-        ),
-        spawn_fp: head.worker_fp.clone(),
-        spawn_cwd: head.cwd.clone(),
-        online,
-        subtitle: if online {
-            String::new()
-        } else {
-            OFFLINE_SUBTITLE.to_owned()
-        },
-        latest_activity: conversations
-            .iter()
-            .map(|row| row.updated_ms)
-            .max()
-            .unwrap_or(head.created_ms),
-        lead_id: String::new(),
-        session_ids: Vec::new(),
-        pr: None,
-        branch: None,
-        ports: Vec::new(),
-        reach_addr: worker.and_then(|row| row.reachable_addr.clone()),
-        agent_status: AgentStatusRollup::default(),
-        agent_conversation_ids: conversations.iter().map(|row| row.id.clone()).collect(),
     })
 }
 

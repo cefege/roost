@@ -136,22 +136,9 @@ pub(super) fn to_proto(frame: &CoordWorkerDownstream) -> ProtocolResult<CoordWor
         CoordWorkerDownstream::KeeperUpdatePrepare(prepare) => {
             Frame::KeeperUpdatePrepare(Box::new((*prepare).clone()))
         }
-        CoordWorkerDownstream::AgentPrompt(prompt) => {
-            Frame::AgentPrompt(Box::new((*prompt).clone()))
-        }
         CoordWorkerDownstream::LiveMetricsSubscription(subscription) => {
             Frame::LiveMetrics(Box::new((*subscription).clone()))
         }
-        CoordWorkerDownstream::OmpPrompt(prompt) => Frame::OmpPrompt(Box::new((*prompt).clone())),
-        CoordWorkerDownstream::OmpCancel(cancel) => Frame::OmpCancel(Box::new((*cancel).clone())),
-        CoordWorkerDownstream::OmpEventsAck(ack) => Frame::OmpEventsAck(Box::new((*ack).clone())),
-        CoordWorkerDownstream::OmpOpen(open) => Frame::OmpOpen(Box::new((*open).clone())),
-        CoordWorkerDownstream::OmpClose(close) => Frame::OmpClose(Box::new((*close).clone())),
-        CoordWorkerDownstream::OmpRespond(response) => {
-            Frame::OmpRespond(Box::new((*response).clone()))
-        }
-        CoordWorkerDownstream::OmpSetMode(mode) => Frame::OmpSetMode(Box::new((*mode).clone())),
-        CoordWorkerDownstream::OmpUi(request) => Frame::OmpUi(Box::new((*request).clone())),
     };
     Ok(CoordWorkerDown {
         frame: Some(arm),
@@ -270,18 +257,9 @@ pub(super) fn from_proto(message: &CoordWorkerDown) -> ProtocolResult<CoordWorke
         Frame::KeeperUpdatePrepare(prepare) => {
             CoordWorkerDownstream::KeeperUpdatePrepare((**prepare).clone())
         }
-        Frame::AgentPrompt(prompt) => CoordWorkerDownstream::AgentPrompt((**prompt).clone()),
         Frame::LiveMetrics(subscription) => {
             CoordWorkerDownstream::LiveMetricsSubscription((**subscription).clone())
         }
-        Frame::OmpPrompt(prompt) => CoordWorkerDownstream::OmpPrompt((**prompt).clone()),
-        Frame::OmpCancel(cancel) => CoordWorkerDownstream::OmpCancel((**cancel).clone()),
-        Frame::OmpEventsAck(ack) => CoordWorkerDownstream::OmpEventsAck((**ack).clone()),
-        Frame::OmpOpen(open) => CoordWorkerDownstream::OmpOpen((**open).clone()),
-        Frame::OmpClose(close) => CoordWorkerDownstream::OmpClose((**close).clone()),
-        Frame::OmpRespond(response) => CoordWorkerDownstream::OmpRespond((**response).clone()),
-        Frame::OmpSetMode(mode) => CoordWorkerDownstream::OmpSetMode((**mode).clone()),
-        Frame::OmpUi(request) => CoordWorkerDownstream::OmpUi((**request).clone()),
     };
     frame.check()?;
     Ok(frame)

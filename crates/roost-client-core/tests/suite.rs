@@ -4,16 +4,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::duplicate_mod)]
 
-#[path = "agent_chat_slash.rs"]
-mod agent_chat_slash;
-#[path = "agent_chat_store.rs"]
-mod agent_chat_store;
-#[path = "agent_status_ordering.rs"]
-mod agent_status_ordering;
-#[path = "agent_status_policy.rs"]
-mod agent_status_policy;
-#[path = "agent_status_second_report.rs"]
-mod agent_status_second_report;
 #[path = "attachment_carriers_loopback.rs"]
 mod attachment_carriers_loopback;
 #[path = "attachment_carriers_peer.rs"]
@@ -54,8 +44,6 @@ mod client_state_sync;
 mod connect_interceptor;
 #[path = "core_without_a_browser.rs"]
 mod core_without_a_browser;
-#[path = "deck_agent_intent.rs"]
-mod deck_agent_intent;
 #[path = "deck_intent.rs"]
 mod deck_intent;
 #[path = "deck_spawn.rs"]
@@ -118,10 +106,6 @@ mod local_terminal_route;
 mod navigation_index;
 #[path = "navigation_query.rs"]
 mod navigation_query;
-#[path = "omp_host_actions.rs"]
-mod omp_host_actions;
-#[path = "omp_host_bridge.rs"]
-mod omp_host_bridge;
 #[path = "palette_catalog.rs"]
 mod palette_catalog;
 #[path = "predictive_echo_ack.rs"]

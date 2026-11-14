@@ -9,7 +9,6 @@ description = "The coordinator service: SQLite state, auth, Connect RPC handlers
 autotests = false
 
 [dependencies]
-agent-client-protocol.workspace = true
 # The push slice sends through the Web Push protocol; the maintenance slice
 # streams a database file through gzip. Both were workspace pins no member
 # declared, so neither resolved until here.
@@ -44,7 +43,6 @@ reqwest = { workspace = true, features = ["rustls"] }
 rsa.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-similar.workspace = true
 sha2.workspace = true
 # `any` so one `CoordDb` serves a SQLite file or a Postgres URL; rustls so a
 # managed Postgres that demands `sslmode=require` is reachable.

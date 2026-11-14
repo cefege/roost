@@ -120,56 +120,10 @@ pub fn handle_event(
         ClientEvent::RpcResultReceived(result) => {
             handle_rpc_result(store, storage, result, host_now_ms, out)
         }
-        ClientEvent::AgentChat(intent) => match intent {
-            crate::client::agent_chat::AgentChatIntent::SnapshotRequested {
-                conversation_id,
-                generation,
-            } => {
-                store
-                    .agent_chat
-                    .request_snapshot(conversation_id, *generation);
-            }
-            crate::client::agent_chat::AgentChatIntent::SnapshotLoaded {
-                conversation_id,
-                generation,
-                seq,
-                transcript,
-            } => {
-                store.agent_chat.load_snapshot(
-                    conversation_id.clone(),
-                    *generation,
-                    *seq,
-                    (**transcript).clone(),
-                    host_now_ms,
-                );
-                store.note_change();
-            }
-            crate::client::agent_chat::AgentChatIntent::EventsLoaded {
-                conversation_id,
-                batches,
-                truncated,
-            } => {
-                store.agent_chat.apply_event_batches(
-                    conversation_id,
-                    batches,
-                    *truncated,
-                    host_now_ms,
-                );
-                store.note_change();
-            }
-            crate::client::agent_chat::AgentChatIntent::Forget { conversation_id } => {
-                store.agent_chat.forget(conversation_id);
-                store.note_change();
-            }
-        },
         ClientEvent::CredentialsDiscarded => {
             store.account_id = None;
             store.sessions = crate::sessions::SessionPlane::new();
             store.find_results.clear();
-            // The launcher configuration goes with the credential too: an
-            // answer from the previous account would auto-launch ITS agent in
-            // the next account's terminals.
-            crate::store::agent_launcher::discard_agent_launcher_config(store);
             // The recovery cursor goes with the credential. A persisted global
             // cursor would make the next socket's initial history invisible
             // (`apps/web/src/store/sync-frame.ts:55-69`).
@@ -178,7 +132,6 @@ pub fn handle_event(
             store.clipboard_history.clear();
             store.command_finished_requests.clear();
             store.terminal_signals.clear();
-            store.omp_host.clear();
             store.note_change();
             // No session is left to keep a peer warm for.
             crate::handle_terminal::reconcile_prewarm(store, host_now_ms, out);
@@ -321,13 +274,6 @@ pub fn handle_event(
             before_row,
         } => handle_search_page(store, session_id, page, matches, *before_row),
 
-        // ---- agent status acknowledgements ------------------------------------
-        ClientEvent::AgentStatusSeen { session_id } => {
-            handle_agent_status_seen(store, session_id);
-        }
-        ClientEvent::AgentSeenMerged { encoded } => {
-            handle_agent_seen_merged(store, encoded);
-        }
         ClientEvent::Shell(intent) => {
             crate::store::shell_intent::apply_shell_intent(store, storage, intent, host_now_ms);
         }
@@ -348,37 +294,5 @@ pub fn handle_event(
             sweep_sync(store, now_ms, out);
             handle_sweep(store, storage, now_ms, out);
         }
-    }
-}
-/// Record that this profile has looked at one session's agent row.
-///
-/// The host names a SESSION and not a revision: the row is volatile, and a host
-/// that named the revision would be naming a value it read through a projection
-/// the core owns. A session with no retained row acknowledges nothing, because
-/// there is no occupant whose completion this profile could be said to owe.
-fn handle_agent_status_seen(store: &mut Store, session_id: &str) {
-    let Ok(session) = roost_protocol::wire::SessionId::try_from(session_id) else {
-        return;
-    };
-    let Some(status) = store.agent_status.status(&session).cloned() else {
-        return;
-    };
-    if store.agent_seen.mark_seen(&status) {
-        store.agent_seen_dirty = true;
-        store.note_change();
-    }
-}
-
-/// Fold another tab on this profile into the acknowledgement ledger.
-///
-/// The merge is by REVISION inside one occupant, so a tab that has seen less
-/// cannot pull this one back to an earlier revision — the same rule
-/// `AgentStatusOrder` applies to a status row, applied here to what this
-/// profile has already been told.
-fn handle_agent_seen_merged(store: &mut Store, encoded: &str) {
-    let other = crate::client::agents::AgentSeenLedger::decode(Some(encoded));
-    if store.agent_seen.merge(&other.tokens()) {
-        store.agent_seen_dirty = true;
-        store.note_change();
     }
 }

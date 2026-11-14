@@ -9,7 +9,6 @@
 
 use dioxus::prelude::*;
 
-use super::agent_specimens::TimelineSpecimen;
 use super::composer_specimen::ComposerSpecimen;
 use super::content_primitives::ContentPrimitives;
 use super::control_states::DesignControlStates;
@@ -79,7 +78,6 @@ pub fn DesignGallery(on_navigate: EventHandler<String>) -> Element {
             GallerySection { title: "Elevation", ElevationScale {} }
             GallerySection { title: "Control states", DesignControlStates {} }
             GallerySection { title: "Message composer", ComposerSpecimen {} }
-            GallerySection { title: "Timeline rail", TimelineSpecimen {} }
             GallerySection { title: "Loader", LoaderSpecimen {} }
             GallerySection { title: "Content primitives", ContentPrimitives {} }
             GallerySection { title: "Overlay states", DesignOverlayStates {} }

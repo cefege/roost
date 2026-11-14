@@ -53,7 +53,7 @@ pub enum AttachmentGrantInvalidationKind {
 /// The one immutable upload a grant authorizes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttachmentGrantDescriptor {
-    /// The terminal session or agent conversation receiving the upload.
+    /// The terminal session receiving the upload.
     pub session_id: AttachmentTargetId,
     pub upload_id: String,
     /// The name the upload is stored under.

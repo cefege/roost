@@ -54,7 +54,6 @@ pub fn every_kind() -> Vec<(&'static str, Value)> {
             "mkdir",
             &[("request_id", json!("r5")), ("path", json!("/srv/new"))],
         ),
-        frame("list-skills", &[("request_id", json!("r6"))]),
         frame("git-diff", &[("request_id", json!("r7"))]),
         frame("set-title", &[("title", json!("build"))]),
         frame("get-home", &[("request_id", json!("r8"))]),
@@ -128,20 +127,6 @@ pub fn every_kind() -> Vec<(&'static str, Value)> {
         frame(
             "respawn-if-missing",
             &[("request_id", json!("r18")), ("cwd", json!("/srv"))],
-        ),
-        frame(
-            "stats-dashboard-http",
-            &[
-                ("request_id", json!("r20")),
-                (
-                    "resource",
-                    json!({"conversation_id": "c1", "transport_id": "t1", "resource_id": "d".repeat(64)}),
-                ),
-                ("host", json!("127.0.0.1")),
-                ("port", json!(3847)),
-                ("method", json!("GET")),
-                ("path", json!("/api/status")),
-            ],
         ),
         frame("detach", &[]),
     ]

@@ -159,13 +159,12 @@ fn dropping_the_subscription_unsubscribes() {
 }
 
 #[test]
-fn the_eighteen_buses_carry_their_bounds() {
+fn the_buses_carry_their_bounds() {
     let buses = Buses::new();
     assert_eq!(buses.session_bus.capacity(), 256);
     assert_eq!(buses.workspace_bus.capacity(), 64);
     assert_eq!(buses.task_bus.capacity(), 64);
     assert_eq!(buses.mcp_bus.capacity(), 128);
-    assert_eq!(buses.agent_status_bus.capacity(), 128);
     assert_eq!(buses.pair_bus.capacity(), 32);
     assert_eq!(buses.audit_bus.capacity(), 256);
     assert_eq!(buses.presence_bus.capacity(), 128);

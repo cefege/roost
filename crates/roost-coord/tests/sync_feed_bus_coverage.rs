@@ -2,7 +2,7 @@
 //! adapter, and every frame that adapter produces names a domain the socket
 //! table has and a lane the weighted round robin actually visits.
 //!
-//! This is the test twenty buses with no caller do not have. A bus nobody
+//! A bus without a caller has no such test. A bus nobody
 //! reads is a message published into the void, and from the coordinator's side
 //! that is indistinguishable from a browser fleet of zero -- which is why the
 //! coverage is asserted per bus rather than in aggregate. Twenty buses that
@@ -18,16 +18,15 @@ mod sync_feed_support;
 use std::collections::BTreeSet;
 
 use roost_coord::events::bus_messages::{
-    AgentChatEventsUpdate, AgentConversationUpdate, AuditRow, ClipboardHistoryChange,
-    ClipboardHistoryChangeKind, LastActivityUpdate, PairRequestDelta, SessionBell,
-    SessionClipboardWrite, SessionCommandFinished, SessionPresenceUpdate, SessionTerminalSignals,
-    SessionTitleUpdate, TaskBusMsg, TaskBusMsgKind, UiBusMsg, WorkerRoutableSet,
+    AuditRow, ClipboardHistoryChange, ClipboardHistoryChangeKind, LastActivityUpdate,
+    PairRequestDelta, SessionBell, SessionClipboardWrite, SessionCommandFinished,
+    SessionPresenceUpdate, SessionTerminalSignals, SessionTitleUpdate, TaskBusMsg, TaskBusMsgKind,
+    UiBusMsg, WorkerRoutableSet,
 };
 use roost_coord::sync_ws::feed::frames::{
-    agent_chat_events_frame, agent_conversation_frame, agent_status_frame, audit_frame,
-    clipboard_history_frame, mcp_frame, pair_frame, session_bell_frame, session_clipboard_frame,
-    session_command_finished_frame, session_message_frame, session_title_frame, task_frame,
-    workspace_frame,
+    audit_frame, clipboard_history_frame, mcp_frame, pair_frame, session_bell_frame,
+    session_clipboard_frame, session_command_finished_frame, session_message_frame,
+    session_title_frame, task_frame, workspace_frame,
 };
 use roost_coord::sync_ws::feed::last_activity::last_activity_frame;
 use roost_coord::sync_ws::feed::presence::session_presence_frame;
@@ -44,16 +43,16 @@ use roost_protocol::wire::{McpRelayDelta, McpStreamMessage};
 use serde_json::json;
 
 use sync_feed_support::{
-    SESSION_A, WORKER_A, WORKER_B, agent_status, oneof_of, opened_message, relay, worker,
-    worker_registration, workspace_delta,
+    SESSION_A, WORKER_A, WORKER_B, oneof_of, opened_message, relay, worker, worker_registration,
+    workspace_delta,
 };
 
 #[test]
 fn every_bus_in_the_coordinator_has_a_producer() {
     assert_eq!(
         BUS_FRAME_ADAPTERS.len(),
-        20,
-        "the coordinator's bus table is twenty domains; a bus added without \
+        17,
+        "the coordinator's bus table has seventeen domains; a bus added without \
          an adapter is a message published into the void"
     );
 
@@ -89,24 +88,6 @@ fn every_bus_in_the_coordinator_has_a_producer() {
             relay: relay(),
         }))
         .expect("a relay's free-form config always serialises"),
-    );
-    record("agent_status_bus", agent_status_frame(&agent_status()));
-    record(
-        "agent_conversation_bus",
-        agent_conversation_frame(&AgentConversationUpdate {
-            conversation_id: "conversation".into(),
-            removed: false,
-            conversation: None,
-            host_connected: Some(true),
-        }),
-    );
-    record(
-        "agent_chat_bus",
-        agent_chat_events_frame(&AgentChatEventsUpdate {
-            conversation_id: "conversation".into(),
-            seq: 1,
-            events_json: "[]".into(),
-        }),
     );
     record(
         "pair_bus",
@@ -218,7 +199,7 @@ fn every_bus_in_the_coordinator_has_a_producer() {
                 tab_id: "tab-1".to_owned(),
                 state: roost_proto::UiReportStateRequest::default(),
             },
-            &UiViewer::browser("socket-1", "fingerprint", "tab-1"),
+            &UiViewer::browser("socket-1"),
         )
         .expect("a browser receives a UI state report"),
     );
@@ -253,7 +234,7 @@ fn every_bus_in_the_coordinator_has_a_producer() {
         );
     }
 
-    // The browser hydrates eight domains.
+    // The browser hydrates seven domains.
     //
     // The set is keyed on `proto_name` rather than on the domain value itself.
     // `SyncDomain` is generated and derives `Clone, Copy, PartialEq, Eq, Hash,
@@ -275,8 +256,7 @@ fn every_bus_in_the_coordinator_has_a_producer() {
             SyncDomain::Mcp.proto_name(),
             SyncDomain::Pair.proto_name(),
             SyncDomain::Audit.proto_name(),
-            SyncDomain::Agent.proto_name(),
         ]),
-        "each of the eight hydrated domains is reachable from at least one bus"
+        "each of the seven hydrated domains is reachable from at least one bus"
     );
 }

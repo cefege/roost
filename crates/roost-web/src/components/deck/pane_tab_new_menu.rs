@@ -1,7 +1,5 @@
-//! A pane strip's "+": a new terminal or agent in the pane's folder.
-//! Built on the shared `DropdownMenu`, which owns anchoring, dismissal and
-//! keyboard routing; the creation itself is `TerminalDeck`'s, through the two
-//! callbacks.
+//! A pane strip's new-terminal button.
+//! Creation is owned by `TerminalDeck`.
 
 use dioxus::prelude::*;
 
@@ -10,10 +8,7 @@ use crate::components::ui::{
 };
 
 #[component]
-pub fn PaneTabNewMenu(
-    on_new_terminal: EventHandler<()>,
-    on_new_agent: EventHandler<()>,
-) -> Element {
+pub fn PaneTabNewMenu(on_new_terminal: EventHandler<()>) -> Element {
     let mut open = use_signal(|| false);
     rsx! {
         DropdownMenu {
@@ -35,14 +30,6 @@ pub fn PaneTabNewMenu(
                         on_new_terminal.call(());
                     },
                     NewTabRow { icon: IconType::Terminal, label: "New terminal" }
-                }
-                DropdownMenuItem {
-                    test_id: "tab-new-agent",
-                    onclick: move |_| {
-                        open.set(false);
-                        on_new_agent.call(());
-                    },
-                    NewTabRow { icon: IconType::Bot, label: "New agent" }
                 }
             }
         }

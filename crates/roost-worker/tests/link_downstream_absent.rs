@@ -12,12 +12,11 @@ use std::time::Instant;
 
 use link_downstream_support::{FakeLink, Fakes, OwnerMode, SESSION, settle_tasks};
 use roost_proto::{
-    DAgentPrompt, DAttachmentChunk, DAttachmentDirectStatusRequest, DCoordMovePrepare,
-    DCoordMoveSnapshotChunk, DCoordMoveSnapshotStart, DCoordRelocate, DInputRequest,
-    DKeeperUpdatePrepare, DLocalAttachmentGrant, DLocalAttachmentGrantRevoke,
-    DLocalAttachmentPeerCancel, DLocalAttachmentPeerOffer, DLocalTerminalPeerCancel,
-    DLocalTerminalPeerOffer, DTerminalDirectRetire, DTerminalInputRouteClaim,
-    DTerminalTransportProbe, DUpdateBroker,
+    DAttachmentChunk, DAttachmentDirectStatusRequest, DCoordMovePrepare, DCoordMoveSnapshotChunk,
+    DCoordMoveSnapshotStart, DCoordRelocate, DInputRequest, DKeeperUpdatePrepare,
+    DLocalAttachmentGrant, DLocalAttachmentGrantRevoke, DLocalAttachmentPeerCancel,
+    DLocalAttachmentPeerOffer, DLocalTerminalPeerCancel, DLocalTerminalPeerOffer,
+    DTerminalDirectRetire, DTerminalInputRouteClaim, DTerminalTransportProbe, DUpdateBroker,
 };
 use roost_protocol::wire::coord_worker::{
     CoordWorkerDownstream as Down, CoordWorkerUpstream as Up, TerminalInputStatus,
@@ -122,39 +121,6 @@ fn update_broker_answers_as_v2s_posix_worker() {
             )
         );
     }
-}
-
-#[test]
-fn an_agent_prompt_is_rejected_pre_write() {
-    let prompt = DAgentPrompt {
-        request_id: "p1".to_owned(),
-        session_id: SESSION.to_owned(),
-        input_seq: 11,
-        text: "hi".to_owned(),
-        ..Default::default()
-    };
-    // v2 rejects only when the `onAgentPrompt` callback is absent; a worker
-    // with owners routes it (`link_downstream_agent_prompt.rs`).
-    let Up::InputResult(result) = only(answers_without_owners(Down::AgentPrompt(prompt))) else {
-        panic!("one input-result")
-    };
-    assert_eq!(
-        (
-            result.request_id.as_str(),
-            result.session_id.as_str(),
-            result.input_seq
-        ),
-        ("p1", SESSION, 11)
-    );
-    assert_eq!(
-        (result.status, result.phase, result.written_bytes),
-        (
-            TerminalInputStatus::Rejected,
-            TerminalWritePhase::PreWrite,
-            0
-        )
-    );
-    assert_eq!(result.reason, "worker agent prompt handler is unavailable");
 }
 
 #[test]

@@ -96,7 +96,7 @@ pub fn RenameDialogHost() -> Element {
                         if folder_target {
                             "Names this folder as a workspace. Shows on every device you're signed in on."
                         } else {
-                            "Overrides the auto title. Stays until you change it — agent/terminal title updates won't touch it. Clear it to go back to auto."
+                            "Overrides the auto title. Stays until you change it — terminal title updates won't touch it. Clear it to go back to auto."
                         }
                     }
                 }

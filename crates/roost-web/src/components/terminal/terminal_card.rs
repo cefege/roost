@@ -1,5 +1,5 @@
 //! One terminal card in the mobile terminal grid: a header (glyph, title,
-//! subtitle, agent status, close) over a preview of the terminal's newest
+//! subtitle and close control) over a preview of the terminal's newest
 //! painted rows, with swipe-to-close. Rendered by DECK's mobile tab sheet.
 //! Ports `apps/web/src/components/terminal/TerminalCard.tsx` and the
 //! `renderPreview` of `apps/web/src/renderer/terminalPreview.ts`.
@@ -12,7 +12,6 @@ use roost_web_terminal::cell_row::span_style;
 use super::card_swipe::CardSwipe;
 use super::dom::{now_ms, sleep_ms};
 use super::pane_registry::use_pane_registry;
-use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
 use crate::components::deck::deck_swipe::card_swipe_alpha;
 use crate::components::ui::{Card, CardContent, CardSize, Checkbox, Icon, IconButton, IconType};
 use crate::pump::use_store;
@@ -140,7 +139,6 @@ pub fn TerminalCard(
                             "{subtitle}"
                         }
                     }
-                    AgentStatusIndicator { session_id: id.clone() }
                 }
             }
             if !selection_mode {

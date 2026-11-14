@@ -6,7 +6,6 @@
 //! actions made directly (`sync-domain-state.ts:83-101` for a command,
 //! `sync-frame.ts:55-69` for the watermark, `agentSeenLedger.ts` for the merge).
 
-use roost_client_core::client::agents::{AGENT_SEEN_STORAGE_KEY, AgentSeenLedger};
 use roost_client_core::sync::SYNC_WATERMARK_KEY;
 use roost_client_core::{ClientEvent, Effect, RpcCall, RpcResult};
 use serde_json::json;
@@ -39,7 +38,6 @@ pub(super) fn perform(pump: &Pump, effect: Effect) {
             core.storage()
                 .set(SYNC_WATERMARK_KEY, &event_id.to_string());
         }
-        Effect::PersistAgentSeen { encoded } => persist_agent_seen(pump, &encoded),
         Effect::SendDirect { token, command } => carriers::send(pump, &token, &command),
         Effect::RequestDirectGrant {
             session_ids,
@@ -155,15 +153,3 @@ fn close_worker_carriers(pump: &Pump, worker_fp: &str) {
 /// A build with no browser holds no connections to close.
 #[cfg(not(target_arch = "wasm32"))]
 fn close_worker_carriers(_pump: &Pump, _worker_fp: &str) {}
-
-/// Merge this tab's acknowledgement ledger with whatever another tab on the
-/// profile wrote, then write the union: a blind write would discard the other
-/// tab's acknowledgements.
-fn persist_agent_seen(pump: &Pump, encoded: &str) {
-    let core = pump.inner.core.borrow();
-    let storage = core.storage();
-    let mut merged = AgentSeenLedger::decode(storage.get(AGENT_SEEN_STORAGE_KEY).as_deref());
-    let ours = AgentSeenLedger::decode(Some(encoded));
-    merged.merge(&ours.tokens());
-    storage.set(AGENT_SEEN_STORAGE_KEY, &merged.encode());
-}

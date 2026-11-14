@@ -182,15 +182,16 @@ fn a_cards_session_going_away_takes_its_cards_with_it() {
 
 #[test]
 fn the_stack_reads_in_raise_order_not_id_order() {
-    // Agent cards are keyed by session id. Id order would put the card for
+    // Session cards are keyed by session id. Id order would put the card for
     // session `…0a` ABOVE an older card for `…0b`, so the newest card would land
     // mid-stack instead of at the edge the dock anchors to.
     let mut core = client();
-    let agent = |session: &str| ToastId::new(ToastSource::Host { name: "agent" }, session);
+    let session_toast =
+        |session: &str| ToastId::new(ToastSource::Host { name: "terminal" }, session);
     for (session, msg) in [(SESSION_TWO, "older"), (SESSION_ONE, "newer")] {
         add_toast(
             core.store_mut(),
-            agent(session),
+            session_toast(session),
             msg,
             ToastKind::Ok,
             ToastOptions::plain(),
@@ -208,7 +209,7 @@ fn the_stack_reads_in_raise_order_not_id_order() {
     // A redelivery replaces the card in place rather than moving it to the end.
     add_toast(
         core.store_mut(),
-        agent(SESSION_TWO),
+        session_toast(SESSION_TWO),
         "older, updated",
         ToastKind::Ok,
         ToastOptions::plain(),
@@ -216,10 +217,10 @@ fn the_stack_reads_in_raise_order_not_id_order() {
     );
     assert_eq!(order(&core), ["older, updated", "newer"]);
     // A card raised after a dismissal still goes to the end.
-    assert!(dismiss_toast(core.store_mut(), &agent(SESSION_TWO)));
+    assert!(dismiss_toast(core.store_mut(), &session_toast(SESSION_TWO)));
     add_toast(
         core.store_mut(),
-        agent(SESSION_TWO),
+        session_toast(SESSION_TWO),
         "newest",
         ToastKind::Ok,
         ToastOptions::plain(),

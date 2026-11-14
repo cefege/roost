@@ -60,13 +60,12 @@ container image built from `Dockerfile` and the Helm chart in
 |---|---|---|
 | Browser client | `roost-web`, `roost-web-terminal`, `roost-client-core` | Routes, components, pane layouts, terminal painting, input. Holds Sync for metadata/control/fallback and paints typed cell fulls/deltas from the elected carrier; raw PTY bytes never reach the browser. |
 | Coordinator | `roost-coord` | Durable event log and `sessions` projection, auth and pairing, worker presence, Sync fan-out and per-session screen replicas, terminal view hub, direct-terminal grants and bounded WebRTC signaling, server-side web push (no browser subscribes yet), audit. Routes terminal commands; never owns a PTY or a terminal parser (its DAG has no `roost-term` edge). |
-| Worker | `roost-worker` | One per host. Keeper client, per-session terminal core, durable lifecycle outbox, the outbound coordinator link, the loopback door (`127.0.0.1:4114`), the WebRTC peer (str0m), agent status detection. |
+| Worker | `roost-worker` | One per host. Keeper client, per-session terminal core, durable lifecycle outbox, the outbound coordinator link, the loopback door (`127.0.0.1:4114`), and the WebRTC peer (str0m). |
 | Keeper | `roost-keeper` | One process per worker: owns every PTY, a 1 MiB raw-output ring per channel (`KEEPER_RING_CAP_BYTES`), and the framed Unix-socket protocol in `protocol/spec/keeper.md`. Survives worker restarts and coordinator deploys. The only crate permitted `unsafe`. |
 | Terminal core | `roost-term` (+ `third_party/rio_vt`) | `TerminalCore` trait, its rio-vt implementation, and the grid→`CellGridFrame` emitter. Linked only by the worker. |
-| CLI | `roost-cli` (binary `roost`) | Service entry points (`coord`, `worker`, `keeper`), `quickstart`, `join`, `add-machine`, `add-browser`, `status`, `doctor`, `logs`, `update`, `deploy`, `push` (journaled fleet rollout), `api` (28 headless verbs incl. `agent-*`, `ui`, `tasks`), `skill` (prints the embedded agent skill), `db-to-postgres`, `db-to-sqlite`, `import-v2`. |
+| CLI | `roost-cli` (binary `roost`) | Service entry points (`coord`, `worker`, `keeper`), `quickstart`, `join`, `add-machine`, `add-browser`, `status`, `doctor`, `logs`, `update`, `deploy`, `push` (journaled fleet rollout), `api` (headless terminal and administration verbs), `db-to-postgres`, `db-to-sqlite`, `import-v2`. |
 | Protocol | `roost-proto`, `roost-protocol` | `roost-proto`: protobuf messages and Connect stubs generated from `protocol/proto/roost/v1/` (the only protobuf runtime). `roost-protocol`: I/O-free wire logic — the one event fold, cell model, chunk assembly, viewport geometry, view registry, peer packet framing, layout documents. Builds for wasm32 and native. |
 | Host/platform | `roost-host`, `roost-platform`, `roost-observability` | `ROOST_*` config and service names; path/shell conventions; the JSON log line `roost status`/`roost doctor` parse. |
-| OMP web agent | `roost-worker`, `roost-coord::agent::omp`, `roost-web` | Worker-hosted `omp acp`, its real provider/model settings and commands, durable transcript/interaction projection, and semantic HTML. No PTY is created for an agent conversation. |
 
 `roost-client-core` is UI-free: no DOM type, no async runtime I/O, no timer.
 `roost-web` calls `ClientCore::handle` from exactly one place
@@ -89,8 +88,8 @@ Windows is outside this operator's managed deployment fleet.
 | Terminal WebRTC | data channels `roost-terminal-control-v1`, `-data-v1`, `-history-v1` | browser ↔ worker (DTLS/SCTP over UDP) | `crates/roost-worker/src/peer/`; signaling in `crates/roost-coord/src/terminal_direct/` | `protocol/spec/direct-terminal.md` |
 | Keeper socket | Unix-domain socket, length-prefixed frames, channel id per frame | worker ↔ keeper | `crates/roost-keeper/src/server.rs`, `crates/roost-worker/src/keeper_pool/` | `protocol/spec/keeper.md` |
 
-Sync multiplexes exactly eight generation domains — terminal, workers,
-workspaces, tasks, MCP, pair, audit, and agent (`SyncDomain::ALL` in
+Sync multiplexes exactly seven generation domains — terminal, workers,
+workspaces, tasks, MCP, pair, and audit (`SyncDomain::ALL` in
 `crates/roost-client-core/src/sync/link.rs`, checked against
 `protocol/proto/roost/v1/sync.proto`). Delivery is ACK-windowed per socket
 (`crates/roost-coord/src/sync_ws/ack_window.rs`).
@@ -125,8 +124,8 @@ sequenced worker snapshot before live traffic. Normative spec:
 `protocol/spec/session-events.md`.
 
 1. **Worker outbox.** Worker-authored `opened`, `closed`, and `respawned`
-   (plus private conversation-reference updates) enter a bounded SQLite store
-   opened `synchronous=FULL` (`crates/roost-worker/src/event_store.rs`,
+   enter a bounded SQLite store opened `synchronous=FULL`
+   (`crates/roost-worker/src/event_store.rs`,
    `crates/roost-worker/src/event_store/`). The link outbox
    (`crates/roost-worker/src/outbox.rs`) guarantees a session's `opened`
    reaches the coordinator before its first terminal frame.
@@ -207,30 +206,16 @@ Normative detail lives in `protocol/spec/terminal-stream.md` and
   as SGR-1006 or legacy X10 (`crates/roost-web-terminal/src/mouse_forward/`).
   Alternate-screen occupancy alone never captures the mouse.
 
-## Agent mode
+## Terminal-only boundary
 
-Shell sessions are PTYs and can run arbitrary terminal programs. That generic
-terminal transport does not add another supported agent.
+Every session is an ordinary shell PTY. Users may run any installed terminal
+program, including coding assistants, without Roost installing, configuring or
+interpreting it. Roost has no managed agent runtime, HTML conversation surface,
+agent status detector, or agent credentials.
 
-Agent mode is separate: the selected worker runs `omp acp`, the coordinator
-projects its events and interactive requests durably, and the browser renders
-semantic HTML rather than terminal cells. Models, connected providers, commands
-and modes come from that worker's actual OMP process. Credentials remain on the
-worker under `~/.omp`; Roost's archived native account store is not their source.
-
-Tool output stays at its original call: updates replace that call's preview,
-live command output follows its bounded tail, and full results remain expandable.
-Explicit forms, questions and plan approvals travel back through `AgentOmpRespond`.
-The browser does not synthesize terminal-only screens or event streams ACP omits.
-
-OMP is the sole supported agent: Roost runs its fork, preserves the terminal TUI,
-and renders the same controllers and content as semantic HTML. TUI/HTML A/B
-checks are the acceptance reference, not a separate Roost agent implementation.
-The Rust-native engines, providers, tools and vendored alternative runtimes are
-removed. Applied native database history stays inert; it is not imported into OMP.
-Native links show an archived notice and cannot start execution.
-
-The active contract is [`protocol/spec/agent-chat.md`](protocol/spec/agent-chat.md).
+Previously applied agent database migrations and stored history remain inert.
+Retiring the integration does not alter user programs, their configuration, or
+existing keeper-owned PTYs.
 
 ## Terminal fidelity
 
@@ -293,18 +278,6 @@ server-side multiplexers use:
 
 The recurring failure modes of this plane and their fixes are indexed in
 [`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md).
-
-## Agent metadata
-
-- **Agent status** — worker-observed `idle|working|blocked`, volatile,
-  revision-fenced, never a stored session field. Integrations (OMP, Pi) report
-  over the worker's local socket (`crates/roost-worker/src/agents/report_server.rs`);
-  screen manifests cover the rest; `crates/roost-worker/src/agents/registry.rs`
-  arbitrates and publishes. Shape: `crates/roost-protocol/src/wire/agent_status.rs`.
-- **Fenced prompts** — `SessionsPrompt` writes one bounded text input to the
-  same ordinary PTY only while the exact occupant/revision/state still match.
-
-Normative: `protocol/spec/agent-metadata.md`.
 
 ## Tenant isolation
 

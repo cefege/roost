@@ -1,5 +1,4 @@
-//! Main-pane routing for the persistent terminal/OMP deck and file/search overlays.
-//! Archived Rust-native links render a notice without mounting agent controls.
+//! Main-pane routing for the persistent terminal deck and file/search overlays.
 //! Mounted by `app::RouteContent`; reads `route_session`, sidebar and Sync state.
 //! Terminal geometry stays mounted beneath file/search overlays.
 
@@ -11,7 +10,6 @@ use roost_client_core::store::sidebar::SidebarIntent;
 use roost_client_core::sync::SyncDomain;
 
 use crate::components::layout::window_size::use_is_compact;
-use crate::components::ui::{EmptyState, IconType};
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::use_store;
 use crate::route_session::{
@@ -50,7 +48,6 @@ struct PaneReading {
     active_deck_tab_id: Option<String>,
     visit: Option<(String, String, String, String)>,
     sidebar_open: bool,
-    archived_native_agent: bool,
 }
 
 /// The main pane for `route`.
@@ -80,14 +77,6 @@ pub fn MainPane(route: Route) -> Element {
                 )
             }),
             sidebar_open: store.ui.sidebar_open,
-            archived_native_agent: match &route {
-                Route::Agent { conversation_id } => store
-                    .agent_chat
-                    .conversations
-                    .get(conversation_id)
-                    .is_some_and(|conversation| conversation.is_native()),
-                _ => false,
-            },
         }
     };
     safety_net::use_dead_route_safety_net(
@@ -111,18 +100,6 @@ pub fn MainPane(route: Route) -> Element {
     let dim_pump = pump.clone();
     rsx! {
         div { style: "flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative;",
-            if reading.archived_native_agent {
-                div { class: "flex min-h-0 flex-1 items-center justify-center p-6",
-                    role: "status",
-                    "data-testid": "archived-native-agent-notice",
-                    EmptyState {
-                        icon: IconType::Bot,
-                        title: "Archived Rust-native conversation",
-                        supporting: "The custom Rust agent is archived. Its conversation data is retained. Start new conversations with OMP.",
-                        action: None,
-                    }
-                }
-            } else {
                 if compact && reading.sidebar_open {
                     div {
                         "data-testid": "main-pane-sidebar-dim",
@@ -149,7 +126,6 @@ pub fn MainPane(route: Route) -> Element {
                         surface_visible: !overlay_active,
                     }
                 }
-            }
         }
     }
 }

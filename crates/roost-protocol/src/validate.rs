@@ -92,21 +92,6 @@ pub fn one_of<'a>(field: &str, value: &str, allowed: &[&'a str]) -> ProtocolResu
         })
 }
 
-/// The "present together or all absent" rule the agent-status identity fields
-/// share, the shape of Zod's `superRefine` on that object.
-pub fn all_or_none(field: &str, present: [bool; 3]) -> ProtocolResult<()> {
-    let any = present.iter().any(|is_present| *is_present);
-    let all = present.iter().all(|is_present| *is_present);
-    if any == all {
-        Ok(())
-    } else {
-        Err(ProtocolError::new(
-            field,
-            "status_epoch, occupant_id, and source must be present together or all absent",
-        ))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,12 +120,5 @@ mod tests {
         assert_eq!(value.chars().count(), 4);
         assert!(max_utf8_bytes("value", value, 12).is_ok());
         assert!(max_utf8_bytes("value", value, 10).is_err());
-    }
-
-    #[test]
-    fn all_or_none_rejects_a_partial_identity() {
-        assert!(all_or_none("status", [true, true, true]).is_ok());
-        assert!(all_or_none("status", [false, false, false]).is_ok());
-        assert!(all_or_none("status", [true, false, true]).is_err());
     }
 }

@@ -2,9 +2,8 @@
 //! worker's 10 s threshold): the phone counterpart of the browser's "command
 //! finished" toast.
 //!
-//! Subscribed to `Buses::command_finished_bus` once at boot by `serve`. Reuses
-//! the agent push's target selection, so the same operator allowlist applies
-//! and a device already viewing the session is not told.
+//! Subscribed to `Buses::command_finished_bus` once at boot by `serve`.
+//! The operator allowlist applies and a device viewing the session is not told.
 
 use std::sync::Arc;
 
@@ -33,7 +32,7 @@ pub struct CommandFinishedPayload {
     pub deduplication_token: String,
 }
 
-/// The delivery collaborators, shared with the agent push.
+/// The delivery collaborators for command notifications.
 pub struct CommandFinishedPush {
     pool: AnyPool,
     allowed_origins: Vec<String>,

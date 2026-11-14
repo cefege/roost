@@ -1,15 +1,9 @@
-//! The deck's spawn flows: a new terminal or agent tab in a pane and a split
-//! beside the focused pane. A terminal spawn asks `SessionsSpawn` for a shell
-//! in the anchor tab's folder, waits briefly for the coordinator's row, lands
-//! it through `DeckSpawn::landed`, and — when the launcher configuration says
-//! so — types the configured agent's command into the fresh PTY once; an agent
-//! spawn does the same with `AgentChatCreate`. The anchor may be a terminal or
-//! an agent tab. A refusal raises `DeckSpawn::refused`'s card. Called by
-//! `terminal_deck_operations` and the terminal context menu.
+//! The deck's terminal spawn flows: a new tab or split beside the focused pane.
+//! The spawn copies the anchor session's folder and lands after its row arrives.
+//! Called by `terminal_deck_operations` and the terminal context menu.
 
 use roost_client_core::Store;
 use roost_client_core::deck::DeckSpawn;
-use roost_client_core::deck::tab::DeckTab;
 use roost_client_core::store::layout::PaneView;
 use roost_client_core::store::selectors::session_by_id;
 use roost_client_core::store::sidebar::folder_groups::folder_path_of;
@@ -20,16 +14,16 @@ use crate::pump::Pump;
 /// whose folder bucket the new tab joins when its own row is late.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpawnAnchor {
-    /// The deck tab the spawn copies: a session id or `agent:<id>`.
+    /// The session the spawn copies.
     pub tab_id: String,
     /// Its machine.
     pub worker_fp: String,
-    /// Its folder: a terminal's live cwd, an agent's starting folder.
+    /// Its live folder.
     pub folder: String,
 }
 
 /// The tab a spawn from `pane_id` copies: the pane's selected tab, else the
-/// tab the deck follows. Either may be a terminal or an agent conversation.
+/// tab the deck follows.
 pub fn spawn_anchor(
     store: &Store,
     panes: &[PaneView],
@@ -44,22 +38,11 @@ pub fn spawn_anchor(
 }
 
 fn anchor_for_tab(store: &Store, tab_id: &str) -> Option<SpawnAnchor> {
-    match DeckTab::parse(tab_id)? {
-        DeckTab::Terminal(_) => session_by_id(store, tab_id).map(|session| SpawnAnchor {
-            tab_id: tab_id.to_owned(),
-            worker_fp: session.worker_fp.as_str().to_owned(),
-            folder: folder_path_of(session).to_owned(),
-        }),
-        DeckTab::Agent(conversation_id) => store
-            .agent_chat
-            .conversations
-            .get(&conversation_id)
-            .map(|conversation| SpawnAnchor {
-                tab_id: tab_id.to_owned(),
-                worker_fp: conversation.worker_fp.clone(),
-                folder: conversation.cwd.clone(),
-            }),
-    }
+    session_by_id(store, tab_id).map(|session| SpawnAnchor {
+        tab_id: tab_id.to_owned(),
+        worker_fp: session.worker_fp.as_str().to_owned(),
+        folder: folder_path_of(session).to_owned(),
+    })
 }
 
 /// The deck folder an anchor tab belongs to.
@@ -68,18 +51,11 @@ fn anchor_folder(
     store: &Store,
     anchor: &SpawnAnchor,
 ) -> Option<roost_client_core::deck::DeckFolder> {
-    use crate::components::deck::terminal_deck_model::{deck_folder_for, deck_folder_for_agent};
+    use crate::components::deck::terminal_deck_model::deck_folder_for;
     use crate::platform::worker_paths::BrowserWorkerPaths;
 
-    match DeckTab::parse(&anchor.tab_id)? {
-        DeckTab::Terminal(_) => session_by_id(store, &anchor.tab_id)
-            .map(|session| deck_folder_for(store, &BrowserWorkerPaths, session)),
-        DeckTab::Agent(conversation_id) => store
-            .agent_chat
-            .conversations
-            .get(&conversation_id)
-            .map(|conversation| deck_folder_for_agent(store, &BrowserWorkerPaths, conversation)),
-    }
+    session_by_id(store, &anchor.tab_id)
+        .map(|session| deck_folder_for(store, &BrowserWorkerPaths, session))
 }
 
 /// Run one spawn off the render path.
@@ -97,25 +73,15 @@ pub fn start_deck_spawn(pump: Pump, spawn: DeckSpawn, anchor: SpawnAnchor, compa
     let _ = (pump, spawn, anchor, compact);
 }
 
-/// Create an agent conversation and land its tab after Sync publishes its row.
-pub fn start_deck_agent(pump: Pump, spawn: DeckSpawn, anchor: SpawnAnchor, compact: bool) {
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_futures::spawn_local(web::run_deck_agent(pump, spawn, anchor, compact));
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = (pump, spawn, anchor, compact);
-}
-
 #[cfg(target_arch = "wasm32")]
 mod web {
     use roost_client_core::ClientEvent;
-    use roost_client_core::client::rpc::calls::agent_chat::CreateAgentChat;
     use roost_client_core::client::rpc::calls::sessions::SpawnSession;
-    use roost_client_core::deck::{DeckSpawn, agent_tab_id};
+    use roost_client_core::deck::DeckSpawn;
     use roost_client_core::store::selectors::session_by_id;
-    use roost_protocol::wire::agent_chat::AgentBackend;
 
     use super::SpawnAnchor;
-    use crate::components::deck::terminal_deck_model::{deck_folder_for, deck_folder_for_agent};
+    use crate::components::deck::terminal_deck_model::deck_folder_for;
     use crate::components::terminal::dom::sleep_ms;
     use crate::platform::worker_paths::BrowserWorkerPaths;
     use crate::pump::Pump;
@@ -124,10 +90,6 @@ mod web {
     /// the layout reconciles the tab once its row arrives.
     const ROW_WAIT_STEP_MS: u64 = 25;
     const ROW_WAIT_STEPS: u32 = 80;
-    /// An agent row rides the host's event stream through the coordinator, and
-    /// an agent tab landed before its row is pruned by the deck's reconcile,
-    /// so it waits longer than a terminal's.
-    const AGENT_ROW_WAIT_STEPS: u32 = 400;
 
     pub(super) async fn run_deck_spawn(
         pump: Pump,
@@ -172,94 +134,6 @@ mod web {
             return;
         };
         tracing::info!(target: "deck", kind = spawn.kind_name(), session_id, "deck spawn landed");
-        launch_configured_agent(&pump, &session_id);
         pump.dispatch(ClientEvent::Deck(spawn.landed(folder, session_id, compact)));
     }
-
-    pub(super) async fn run_deck_agent(
-        pump: Pump,
-        spawn: DeckSpawn,
-        anchor: SpawnAnchor,
-        compact: bool,
-    ) {
-        let conversation = match pump
-            .rpc()
-            .call(&CreateAgentChat {
-                worker_fp: anchor.worker_fp.clone(),
-                cwd: anchor.folder.clone(),
-                model: None,
-                backend: AgentBackend::Omp,
-            })
-            .await
-        {
-            Ok(conversation) => conversation,
-            Err(error) => {
-                let message = error.to_string();
-                tracing::warn!(target: "deck", kind = spawn.kind_name(), %message, "agent tab creation refused");
-                pump.dispatch(spawn.refused(&message));
-                return;
-            }
-        };
-        for _ in 0..AGENT_ROW_WAIT_STEPS {
-            if pump
-                .core()
-                .borrow()
-                .store()
-                .agent_chat
-                .conversations
-                .contains_key(&conversation.id)
-            {
-                break;
-            }
-            sleep_ms(ROW_WAIT_STEP_MS).await;
-        }
-        let folder = {
-            let core = pump.core();
-            let core = core.borrow();
-            core.store()
-                .agent_chat
-                .conversations
-                .get(&conversation.id)
-                .map(|conversation| {
-                    deck_folder_for_agent(core.store(), &BrowserWorkerPaths, conversation)
-                })
-                .or_else(|| super::anchor_folder(core.store(), &anchor))
-        };
-        let Some(folder) = folder else {
-            tracing::warn!(target: "deck", conversation_id = %conversation.id, "agent tab landed without its folder row");
-            return;
-        };
-        pump.dispatch(ClientEvent::Deck(spawn.landed(
-            folder,
-            agent_tab_id(&conversation.id),
-            compact,
-        )));
-    }
-
-    pub(super) fn launch_configured_agent(pump: &Pump, session_id: &str) {
-        let Some(command) = pump.core().borrow().store().agent_launcher.launch_command() else {
-            return;
-        };
-        tracing::info!(target: "deck", session_id, %command, "auto-launching configured agent");
-        let mut bytes =
-            Vec::with_capacity(command.len() + roost_protocol::terminal_input::CR_BYTES.len());
-        bytes.extend_from_slice(command.as_bytes());
-        bytes.extend_from_slice(&roost_protocol::terminal_input::CR_BYTES);
-        pump.dispatch(ClientEvent::TerminalInput {
-            session_id: session_id.to_owned(),
-            view_id: None,
-            bytes,
-        });
-    }
-}
-
-/// Type OMP plus CR once into a freshly spawned PTY when auto-launch is enabled.
-/// A dropped batch is never retried: a second attempt could double-type a
-/// command the first attempt started. Deck and browse spawns share this path.
-/// Native builds have no coordinator-held setting and never auto-launch.
-pub fn launch_configured_agent(pump: &Pump, session_id: &str) {
-    #[cfg(target_arch = "wasm32")]
-    web::launch_configured_agent(pump, session_id);
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = (pump, session_id);
 }

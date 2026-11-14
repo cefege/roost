@@ -52,9 +52,9 @@ wins.
   `crates/roost-coord/src/sessions/workspaces.rs`.
 
 - **client state** — the allowlisted browser keys (pane layout, last terminal,
-  sidebar recents, composer and agent drafts) stored per account on the
-  coordinator and merged into each browser on boot and reconnect by
-  last-writer-wins on `updated_ms`. Device-local keys are never part of it.
+  folder order, sidebar navigation and composer drafts) stored per account on
+  the coordinator and merged into each browser on boot, reconnect and live
+  Sync updates by last-writer-wins on `updated_ms`. Device-local keys are excluded.
   Source: `crates/roost-protocol/src/client_state.rs`,
   `crates/roost-coord/src/client_state/`, `crates/roost-client-core/src/client/client_state/`.
 
@@ -76,12 +76,10 @@ wins.
   Source: `crates/roost-coord/src/events/event_log.rs`,
   `crates/roost-coord/src/events/append_transaction.rs`.
 
-- **Sync stream** — one long-lived protobuf WebSocket that multiplexes exactly
-  eight generation domains: terminal, workers, workspaces, tasks, MCP, pair,
-  audit, and agent. Audit is the only lazy domain. A missing or extra generation
-  is a protocol mismatch, so a tab from an incompatible deployment must reload.
-  Sync remains the authenticated metadata/control plane and terminal fallback
-  even while an elected direct carrier transports a session's cells and input.
+- **Sync stream** — one long-lived protobuf WebSocket carrying session events,
+  terminal cells and control updates, including account-wide client-state
+  changes. Sync remains the authenticated metadata/control plane and terminal
+  fallback even while an elected direct carrier transports cells and input.
   Source: `protocol/proto/roost/v1/sync.proto`, `crates/roost-coord/src/sync_ws/`,
   `crates/roost-client-core/src/sync/`.
 
@@ -125,7 +123,7 @@ wins.
   it immediately before the keeper write. Late bytes from the old route are
   rejected, never replayed. Older loopback retains its established no-replay
   behavior without an unsupported claim. This is not a global PTY lock:
-  worker-owned CLI and agent-prompt writers remain separate.
+  worker-owned CLI writers remain separate.
   Source: `crates/roost-worker/src/terminal_input/route_owner.rs`,
   `crates/roost-client-core/src/terminal/input/router/`.
 
@@ -152,77 +150,6 @@ wins.
   `crates/roost-worker/src/browser_commands/scrollback_page.rs`
   (`GetScrollbackCells`).
 
-- **agent CLI** — OMP's terminal interface launched inside a normal shell PTY.
-  Arbitrary terminal programs remain executable, but only OMP has agent-specific
-  support. The terminal interface is distinct from OMP's hosted HTML agent mode.
-
-- **OMP agent mode** — a worker-hosted `omp acp` conversation rendered as
-  semantic HTML. The coordinator projects OMP's transcript and interactions;
-  models, providers and commands come from the worker's OMP process. It creates
-  no shell PTY and is the only active web-agent backend.
-
-- **Rust-native agent (removed)** — Roost's former coordinator harness. Its
-  engine, provider layer, local tools and alternative vendored runtimes are
-  deleted; stored native conversations are inert and not listed or resumable.
-  OMP is the only supported agent.
-
-- **agent runtime state** — what a coding agent inside a shell PTY is doing:
-  `working`, `blocked` (waiting on the user), or `idle`. Volatile metadata on a
-  terminal, never a stored session field. Absent = Roost sees no agent, which is
-  what a plain shell shows.
-  Source: `crates/roost-protocol/src/wire/agent_status.rs`.
-
-- **program status** — the OSC 7501 Program Status Protocol: a terminal program
-  reports `idle`, `working`, `done`, `blocked`, or `error` for an id-addressed
-  record in its own output, with optional kind (`permission`, `question`,
-  `auth`), progress, title, and message. Roost parses the sequence in the
-  terminal core, retains the record set per channel in the worker, and
-  publishes it as terminal signals. It is separate from agent runtime state:
-  it never feeds `AgentStatusRegistry`. Working and blocked records drop at a
-  shell prompt (OSC 133 `A`) and when the channel closes; done and error persist
-  until cleared or the channel closes.
-  Source: `third_party/rio_vt/src/performer/program_status.rs`,
-  `crates/roost-protocol/src/program_status.rs`,
-  `crates/roost-worker/src/session/terminal_metadata/signals.rs`.
-
-- **lifecycle integration** — a small file Roost owns inside an agent's own
-  extension directory (OMP, Pi) that reports that agent's state to the worker.
-  Authoritative: it beats screen detection while its 30 s lease is fresh.
-  Source: `crates/roost-worker/src/agents/install_integrations.rs`,
-  `crates/roost-worker/src/agents/integration_assets.rs`.
-
-- **agent report socket** — the worker's per-machine Unix socket
-  (`ROOST_AGENT_SOCKET_PATH`, mode `0600`) that integrations write one JSON line
-  to. The worker maps the reporting pid to the session that owns it, so a report
-  cannot claim another terminal.
-  Source: `crates/roost-worker/src/agents/report_server.rs`.
-
-- **screen fallback** — detection for terminals with no integration: the worker
-  matches the session's own screen text and OSC title/progress against pinned
-  per-agent manifests. Used for other agents and for terminals that predate an
-  integration install.
-  Source: `crates/roost-worker/src/agents/manifests.rs`,
-  `crates/roost-worker/src/agents/stable_detection.rs`.
-
-- **effective state / revision** — the one state the worker publishes per
-  session after arbitrating integration over screen, stamped with a monotonic
-  revision. Coordinator and browser drop anything at or below the revision they
-  already hold, so a late frame can't resurrect stale state.
-  Source: `crates/roost-worker/src/agents/registry.rs`.
-
-- **done (derived)** — an `idle` agent whose completion revision the user has
-  not acknowledged yet. Purely a browser-side presentation level: viewing the
-  session acknowledges it and `done` decays to plain `idle`.
-  Source: `crates/roost-client-core/src/client/agents/status_policy.rs`,
-  `crates/roost-client-core/src/client/agents/seen.rs`.
-
-- **notification suppression** — the rules that stop duplicate or unwanted
-  in-app alerts: viewing a session cancels its pending notification and
-  acknowledges the revision; one browser profile delivers one notification
-  even with many tabs open (a storage/Web-Locks claim). Web Push skips a
-  device that is already viewing the session.
-  Source: `crates/roost-web/src/components/notifications/agent_notifications/`,
-  `crates/roost-coord/src/push/dispatch.rs`, `crates/roost-coord/src/push/viewers.rs`.
 
 - **cell-shipping / authoritative grid** — the terminal-fidelity model: the
   worker holds the one canonical grid for a session and the browser renders it

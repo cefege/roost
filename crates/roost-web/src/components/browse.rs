@@ -40,72 +40,8 @@ use roost_client_core::sync::SyncDomain;
 
 use crate::platform::worker_paths::WorkerPathCrumb;
 use crate::pump::{Pump, use_store};
-use crate::router_state::{use_location, use_navigate};
+use crate::router_state::use_navigate;
 use crate::routes::{Route, browse_href};
-
-/// The launch intent carried while a folder picker is choosing a directory.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BrowseLaunchMode {
-    /// The picker was opened to create an OMP agent rather than a terminal.
-    Agent,
-    /// The picker was opened to create a terminal.
-    Terminal,
-}
-
-/// Preserve a picker launch mode when selecting a machine or redirecting.
-#[must_use]
-pub fn browse_mode_href(worker_fp: &str, mode: BrowseLaunchMode) -> String {
-    let href = browse_href(worker_fp);
-    match mode {
-        BrowseLaunchMode::Agent => format!("{href}?intent=omp"),
-        BrowseLaunchMode::Terminal => href,
-    }
-}
-
-/// Read the launch mode from the router's path-and-query string.
-#[must_use]
-pub fn browse_launch_mode(location: &str) -> BrowseLaunchMode {
-    let Some((_, query)) = location.split_once('?') else {
-        return BrowseLaunchMode::Terminal;
-    };
-    query
-        .split('&')
-        .find_map(|parameter| match parameter {
-            "intent=agent" | "intent=omp" => Some(BrowseLaunchMode::Agent),
-            _ => None,
-        })
-        .unwrap_or(BrowseLaunchMode::Terminal)
-}
-
-#[cfg(test)]
-mod launch_mode_tests {
-    use super::{BrowseLaunchMode, browse_launch_mode, browse_mode_href};
-
-    #[test]
-    fn agent_intent_uses_omp_and_legacy_agent_links_still_open_the_picker() {
-        let mode = BrowseLaunchMode::Agent;
-        let href = browse_mode_href("worker", mode);
-        assert_eq!(href, "/browse/worker?intent=omp");
-        assert_eq!(browse_launch_mode(&href), mode);
-        assert_eq!(browse_launch_mode("/browse/worker?intent=agent"), mode);
-        assert_eq!(
-            browse_launch_mode("/browse/worker?other=value&intent=omp"),
-            mode
-        );
-    }
-
-    #[test]
-    fn missing_or_unknown_intent_opens_a_terminal() {
-        assert_eq!(
-            browse_launch_mode("/browse/worker"),
-            BrowseLaunchMode::Terminal
-        );
-        assert_eq!(
-            browse_launch_mode("/browse/worker?intent=unknown"),
-            BrowseLaunchMode::Terminal
-        );
-    }
-}
 
 /// How much of a fingerprint names a machine that has no label yet.
 const FP_LABEL_CHARS: usize = 8;
@@ -127,15 +63,13 @@ pub fn BrowseSurface(route: Route) -> Element {
 /// answer, so the reader never sees a picker with nothing to browse.
 #[component]
 fn BrowseRedirect() -> Element {
-    let location = use_location();
     let navigate = use_navigate();
-    let mode = browse_launch_mode(&location.read());
     let pump = use_store();
     let target = {
         let core = pump.core();
         let core = core.borrow();
         let now_ms = i64::try_from(core.clock().now_ms()).unwrap_or(i64::MAX);
-        browse_redirect_target(core.store(), now_ms, mode)
+        browse_redirect_target(core.store(), now_ms)
     };
     let navigated = use_hook(|| std::rc::Rc::new(std::cell::Cell::new(false)));
     use_effect(use_reactive((&target,), move |(target,)| {
@@ -151,14 +85,11 @@ fn BrowseRedirect() -> Element {
 /// before the first snapshot and the worker registry land, "no machine online"
 /// is indistinguishable from "not heard yet", and sending the reader home then
 /// would be wrong.
-fn browse_redirect_target(store: &Store, now_ms: i64, mode: BrowseLaunchMode) -> Option<String> {
+fn browse_redirect_target(store: &Store, now_ms: i64) -> Option<String> {
     if !store.hydrated || !workers_hydrated(store) {
         return None;
     }
-    Some(
-        default_browse_worker(store, now_ms)
-            .map_or_else(|| "/".to_owned(), |fp| browse_mode_href(&fp, mode)),
-    )
+    Some(default_browse_worker(store, now_ms).map_or_else(|| "/".to_owned(), |fp| browse_href(&fp)))
 }
 
 /// The machine `/browse` opens on: the newest session's machine while it is

@@ -41,7 +41,7 @@ pub use crate::store::toasts::identity::{
 /// A `BTreeMap` keyed by id, not a `Vec`: the whole point of the identity is
 /// that a repeat is impossible, and a keyed map makes that a type-level fact
 /// rather than a filter a caller has to remember. The id order is NOT the
-/// display order — an agent card is keyed by its session id, so id order would
+/// display order — a card can be keyed by its session id, so id order would
 /// drop a new card into the middle of the stack — so each card carries the
 /// raise counter it was given, and a replaced card keeps its place.
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -181,8 +181,7 @@ pub fn dismiss_all_toasts(store: &mut Store) -> bool {
 
 /// Take a card's button and remove the card in the same step.
 ///
-/// The order is the rule, not an accident: `AgentNotificationBridge.tsx:113`
-/// dismisses before it navigates, and a host that revealed first would leave a
+/// A host that revealed first would leave a
 /// card on screen pointing at the session the user just left. `None` means
 /// there was no such card, or it offered no button.
 pub fn take_toast_action(store: &mut Store, id: &ToastId) -> Option<ToastAction> {

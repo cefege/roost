@@ -1,8 +1,7 @@
 //! `roost api sessions`, `input`, `spawn`, `kill`, `rename` and `assign`: the
 //! verbs that list the sessions a coordinator holds and act on one of them.
 //! Called by `api::mod` after it has decided the verb and parsed the
-//! arguments; depends on the generated `Sessions*` methods, on
-//! `roost-protocol`'s prompt byte cap, and on `api::client`.
+//! arguments; depends on the generated `Sessions*` methods and `api::client`.
 //!
 //! WHAT GOES TO STDOUT. A session id, a boolean the coordinator returned, and
 //! the one JSON document `sessions --json` publishes. Nothing else: the range a
@@ -27,9 +26,7 @@ use crate::command_error::CommandFailure;
 /// The largest `--stdin` payload `input` will send, and with `--enter` the
 /// largest that leaves room for the carriage return.
 ///
-/// 64 KiB, not `roost-protocol`'s agent-prompt cap: this is raw keystrokes
-/// into an arbitrary shell, where the binding limit is what a PTY will take in
-/// one write rather than what an agent will accept as a prompt.
+/// 64 KiB bounds one raw PTY write into an arbitrary shell.
 pub const MAX_INPUT_BYTES: usize = 65_536;
 
 /// The carriage return a PTY reads as Enter.

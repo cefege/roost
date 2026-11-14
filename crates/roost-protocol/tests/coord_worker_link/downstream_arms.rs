@@ -150,26 +150,6 @@ pub fn downstream_arms() -> Vec<(&'static str, CoordWorkerDownstream)> {
             "keeper-update-prepare",
             CoordWorkerDownstream::KeeperUpdatePrepare(Default::default()),
         ),
-        (
-            "agent-prompt",
-            CoordWorkerDownstream::AgentPrompt(Default::default()),
-        ),
-        (
-            "omp-ui",
-            CoordWorkerDownstream::OmpUi(proto::DOmpUi {
-                conversation_id: "c-1".to_owned(),
-                request_id: "req-ui-3".to_owned(),
-                action_json: r#"{"method":"open","params":{"cols":80,"rows":24}}"#.to_owned(),
-                cwd: "/work".to_owned(),
-                acp_session_id: "session-1".to_owned(),
-                client_id: "device:view-1".to_owned(),
-                view_id: "view-1".to_owned(),
-                tab_id: "tab-1".to_owned(),
-                transport_id: "nonce-1".to_owned(),
-                receipt: true,
-                ..Default::default()
-            }),
-        ),
     ];
     arms.extend(live_metrics_arms::downstream_arms());
     arms

@@ -1,6 +1,6 @@
 //! Direct-attachment ownership, authenticated tab and lease boundaries.
 //! Uses a migrated coordinator and a transport-controlled ready worker.
-//! Covers OMP conversation grants, typed status receipts and retirement.
+//! Covers typed status receipts and worker retirement.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod attachments_direct_support;
@@ -13,7 +13,6 @@ use attachments_direct_support::{
     offer_of, owner_key, valid_sdp, wait_for_frame,
 };
 use connectrpc::ErrorCode;
-use roost_coord::agent::omp::store::{OmpNew, create as create_omp_conversation};
 use roost_coord::attachments::grant_state::AttachmentGrantPort;
 use roost_coord::attachments::rpc_direct::{
     handle_attachments_direct_status, handle_attachments_grant_direct,
@@ -89,67 +88,6 @@ async fn the_grant_binds_the_authenticated_tab_and_its_own_lease() {
         handle_attachments_grant_direct(&harness.core, &no_tab, grant_request(TAB_ID)).await;
     assert_eq!(untabbed.unwrap_err().code, ErrorCode::InvalidArgument);
     assert_eq!(installs(&sent), 1, "a refused tab never reached the worker");
-}
-
-#[tokio::test]
-async fn a_conversation_grant_rejects_a_worker_that_does_not_own_the_conversation() {
-    let harness = DirectHarness::new("conversation-worker-owner").await;
-    let (_handle, sent) = harness.attach_acking_worker();
-    let conversation = create_omp_conversation(
-        &harness.core.services.db,
-        OmpNew {
-            worker_fp: attachments_direct_support::OTHER_WORKER_FP.to_owned(),
-            worker_label: "other".to_owned(),
-            worker_os: "linux".to_owned(),
-            cwd: "/tmp/project".to_owned(),
-        },
-    )
-    .await
-    .expect("conversation created");
-    let mut request = grant_request(TAB_ID);
-    request.session_id = conversation.id;
-    let error =
-        handle_attachments_grant_direct(&harness.core, &browser_caller(Some(TAB_ID)), request)
-            .await
-            .expect_err("a worker cannot receive another worker's conversation attachment");
-    assert_eq!(error.code, ErrorCode::PermissionDenied);
-    assert_eq!(
-        installs(&sent),
-        0,
-        "a refused conversation never reached the worker"
-    );
-}
-
-#[tokio::test]
-async fn a_conversation_can_receive_a_direct_attachment_grant() {
-    let harness = DirectHarness::new("conversation-direct-grant").await;
-    let (_handle, sent) = harness.attach_acking_worker();
-    let conversation = create_omp_conversation(
-        &harness.core.services.db,
-        OmpNew {
-            worker_fp: WORKER_FP.to_owned(),
-            worker_label: "laptop".to_owned(),
-            worker_os: "linux".to_owned(),
-            cwd: "/tmp/project".to_owned(),
-        },
-    )
-    .await
-    .expect("conversation created");
-    let mut request = grant_request(TAB_ID);
-    request.session_id = conversation.id.clone();
-    let response =
-        handle_attachments_grant_direct(&harness.core, &browser_caller(Some(TAB_ID)), request)
-            .await
-            .expect("the owning worker receives a conversation grant")
-            .body;
-    let lease = harness
-        .services()
-        .attachments
-        .grants()
-        .owned_grant(&owner_key(), TAB_ID, WORKER_FP, &response.grant_id)
-        .expect("the conversation grant is active");
-    assert_eq!(lease.descriptor.session_id.as_str(), conversation.id);
-    assert_eq!(installs(&sent), 1);
 }
 
 // v2 "AttachmentsDirectStatus returns only an authenticated typed receipt".

@@ -1,5 +1,5 @@
 //! The worker's terminal sessions: the record every slice keys on, the ring it
-//! retains bytes in, the history and agent evidence it carries, and the traits
+//! retains bytes in, the history it carries, and the traits
 //! that deliver into it. `runtime::serve` owns the manager that holds them;
 //! `session::spawn`, `session::lifecycle` and `session::emit` own its
 //! transitions. Depends on `roost_term` for the core, `event_store` for the
@@ -12,7 +12,6 @@
 //! sharing this crate. They are declared together so a file is written before
 //! it is named, and never named twice.
 
-pub mod agent_osc;
 pub mod binding;
 pub mod binding_close;
 mod binding_staging;
@@ -64,7 +63,6 @@ pub mod stray_reap;
 pub mod stream_scan;
 pub mod sync_output;
 pub mod table;
-pub mod terminal_changed;
 pub mod terminal_control;
 pub mod terminal_images;
 pub mod terminal_metadata;

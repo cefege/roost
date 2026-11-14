@@ -1,13 +1,12 @@
-//! `Markdown`: prose styling for already-sanitised markdown HTML (headings,
-//! lists, tables, blockquotes, links, inline and fenced code). Not in rust-ui's
-//! registry: the agent transcript's `agent_chat/markdown.rs` renders the HTML
-//! and this owns the Tailwind recipe for the prose it produces.
-//! Callers pass `markdown_to_safe_html` output; this component never sanitises.
+//! `Markdown`: prose styling for already-sanitised document HTML (headings,
+//! lists, tables, blockquotes, links, inline and fenced code).
+//! Callers own rendering and sanitisation; this component owns only the
+//! Tailwind typography recipe and never sanitises HTML.
 
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
 
-/// Typography scale for reading documents or dense agent surfaces.
+/// Typography scale for reading documents or dense content.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum MarkdownSize {
     #[default]

@@ -147,10 +147,6 @@ pub struct WorkerBoot {
     /// adopted or proved empty. It ends every PTY that keeper hosts, which is
     /// why it defaults off and why spending it is the activation's job.
     pub force_live_retire: bool,
-    /// Where the agent report endpoint lives and any override of its address,
-    /// read from the boot environment so a test boot never reaches the
-    /// operator's own endpoint.
-    pub agent_report: crate::agents::environment::AgentReportSite,
     /// v2 `terminalPeer{Enabled,BindAddress,PortRange}`, shared by both peer
     /// owners.
     pub terminal_peer: crate::peer::PeerTransportConfig,
@@ -189,10 +185,6 @@ impl WorkerBoot {
             keeper_executable: resolve_keeper_executable(env)?,
             worker_key_path,
             log_dir: logs,
-            agent_report: crate::agents::environment::AgentReportSite::from_env(
-                env,
-                support.clone(),
-            ),
             data_dir: support,
             worker_version: reported_version(&build_identity(env)),
             process_epoch: new_process_epoch(),

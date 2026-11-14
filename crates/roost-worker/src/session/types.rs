@@ -12,8 +12,8 @@
 //! that lived inside one slice's own file would be invisible to the other two
 //! at the moment they needed it. Its three sub-records are the exception and
 //! each is its own file by concept, not by size: the rebuild floor and the
-//! unhandled-sequence log in [`super::history`], the OSC agent evidence in
-//! [`super::agent_osc`], the retained bytes in [`super::ring`].
+//! unhandled-sequence log in [`super::history`], and the retained bytes in
+//! [`super::ring`].
 //!
 //! NAME MAPPING FROM v2 (`apps/worker/src/session/session-record.ts`,
 //! `session-manager-state.ts`). v2 had one `SessionManagerState` class holding
@@ -37,7 +37,6 @@ use roost_term::{CellEmitState, TerminalCore};
 use crate::channel_fsm::ChannelFsm;
 use crate::event_store::Reservation;
 use crate::host::PrStatus;
-use crate::session::agent_osc::AgentOscState;
 use crate::session::history::{SbOriginPin, UnhandledSequenceLog};
 use crate::session::ring::ScrollbackRing;
 use crate::shell_spec::ShellSpec;
@@ -173,8 +172,6 @@ pub struct SessionRecord {
     /// `None` rather than an empty log, because `None` is the healthy case: a
     /// core that has logged nothing allocates nothing at all.
     pub unhandled: Option<UnhandledSequenceLog>,
-    /// The OSC evidence agent detection falls back to. See [`AgentOscState`].
-    pub agent_osc: AgentOscState,
 }
 
 impl SessionRecord {
@@ -221,7 +218,6 @@ impl SessionRecord {
             last_pty_out_ms: 0,
             sb_origin_pin: None,
             unhandled: None,
-            agent_osc: AgentOscState::default(),
         }
     }
 

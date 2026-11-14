@@ -10,8 +10,8 @@
 //! protobuf `CoordWorkerUp` / `CoordWorkerDown` oneofs declare is present here
 //! exactly once, and `proto_adapters::coord_worker_proto` maps between the two
 //! vocabularies. An arm whose payload already has a domain owner in this crate
-//! (`SessionEvent`, `ClientControlFrame`, `CellGridFrame`, `AgentStatus`,
-//! `ChannelId`) names that owner rather than a parallel struct; an arm with no
+//! (`SessionEvent`, `ClientControlFrame`, `CellGridFrame`, `ChannelId`)
+//! names that owner rather than a parallel struct; an arm with no
 //! owner yet carries the generated protobuf message, which is the single
 //! source of truth for that shape until a track gives it one.
 //!
@@ -25,9 +25,9 @@ mod upstream;
 
 pub use downstream::CoordWorkerDownstream;
 pub use payloads::{
-    AgentStatusFrame, Binary, EventAck, InputResult, RefreshJwt, TerminalInputStatus,
-    TerminalMetadata, TerminalSnapshotRequest, TerminalStreamFailureKind, TerminalStreamResult,
-    TerminalStreamStatus, TerminalWritePhase, UpdateProgress,
+    Binary, EventAck, InputResult, RefreshJwt, TerminalInputStatus, TerminalMetadata,
+    TerminalSnapshotRequest, TerminalStreamFailureKind, TerminalStreamResult, TerminalStreamStatus,
+    TerminalWritePhase, UpdateProgress,
 };
 pub use upstream::CoordWorkerUpstream;
 

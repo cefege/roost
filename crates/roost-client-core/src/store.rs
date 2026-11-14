@@ -7,7 +7,6 @@
 //! Depends on `roost_protocol` for the session projection, and on the terminal
 //! and sync modules for their own state. It adds no rules of its own.
 
-pub mod agent_launcher;
 pub mod browse_entries;
 pub mod browse_machine;
 pub mod browse_paths;
@@ -46,13 +45,9 @@ pub mod ui;
 pub mod view_rotation;
 pub mod worker_live;
 
-pub use mutations::{
-    PairRequest, complete_omp_host_service, delete_pair_request, delete_worker,
-    discard_omp_host_transports, replace_workers, take_ready_omp_receipt,
-};
+pub use mutations::{PairRequest, delete_pair_request, delete_worker, replace_workers};
 pub use navigation::{
-    NavigationSearchAttention, NavigationSearchDocument, NavigationSources,
-    project_navigation_search_documents,
+    NavigationSearchDocument, NavigationSources, project_navigation_search_documents,
 };
 pub use optimistic_spawn::{
     ClientOnlySession, SpawnSettlement, SpawnTicket, begin_optimistic_spawn, settle_spawn_rejected,
@@ -180,27 +175,6 @@ pub struct Store {
     /// cannot disagree. Mutated only through `store::prefs`.
     pub prefs: Prefs,
 
-    /// Per-session agent status, projected through the SHARED ordering
-    /// predicate in `roost_protocol::wire::agent_status::order` rather than
-    /// one restated here. v2 had a second copy in the web store that could
-    /// disagree with the coordinator's, and a client showing a stale status
-    /// has nothing to contradict it.
-    pub agent_status: crate::client::agents::AgentStatusProjection,
-    /// Which occupant and epoch this browser has already seen, so a report
-    /// that arrives after the one it supersedes is dropped rather than
-    /// applied and then re-dropped by the projection.
-    pub agent_seen: crate::client::agents::AgentSeenLedger,
-    /// Whether the acknowledgement ledger owes the host a write.
-    ///
-    /// Latched by the acknowledgement paths and cleared by the sweep that emits
-    /// `Effect::PersistAgentSeen`, which is what makes a burst of
-    /// acknowledgements one write. Initialise it to `false` in `Store::new`.
-    /// Agent conversations and lazily loaded transcript replicas.
-    pub agent_chat: crate::client::agent_chat::AgentChatState,
-    /// One-shot OMP browser host requests and native action receipts. Transient
-    /// by construction: never serialised, never folded into a transcript.
-    pub omp_host: crate::client::agent_chat::OmpHostInbox,
-    pub agent_seen_dirty: bool,
     /// Machine-scoped browse state. Keyed by machine, not by path: two
     /// machines can hold the same folder path and a path is not an identity.
     pub browse: crate::store::browse_state::BrowseState,
@@ -213,10 +187,6 @@ pub struct Store {
     /// Sessions whose close is waiting out its undo window. Mutated only
     /// through `store::pending_close`.
     pub pending_closes: PendingCloses,
-    /// The default-agent launch configuration the coordinator answered with.
-    /// Mutated only through `store::agent_launcher`; `None`-commanded until a
-    /// coordinator has answered, so a pre-answer spawn launches nothing.
-    pub agent_launcher: crate::store::agent_launcher::AgentLauncherState,
     /// The MCP relays the coordinator published. Mutated only through
     /// `store::mutations`.
     pub mcp_relays: BTreeMap<String, McpRelay>,

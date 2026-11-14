@@ -18,7 +18,7 @@ use crate::client::rpc::unary::UnaryMethod;
 pub struct SpawnSession {
     /// The worker that owns the PTY.
     pub worker_fp: String,
-    /// `shell`, or an agent launcher kind.
+    /// The session kind, `shell`.
     pub kind: String,
     /// The folder the PTY starts in.
     pub folder: String,

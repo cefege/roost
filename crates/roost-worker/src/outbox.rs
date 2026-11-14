@@ -260,9 +260,8 @@ impl Outbox {
     ///
     /// The outbox holds ONE frame per key: the newer record replaces the older
     /// one where it sits, so the lane's order is unchanged and its length is
-    /// unchanged. That is what a volatile producer needs — an agent status and a
-    /// terminal title are replaced by their successors, so a link that is
-    /// applying backpressure must not accumulate every version and then ship
+    /// unchanged. A volatile terminal title is replaced by its successor, so a
+    /// link applying backpressure must not accumulate every version and then ship
     /// them all in order, which spends the bandwidth AND walks the coordinator
     /// through a replacement edge it has already passed.
     ///

@@ -8,7 +8,7 @@
 use dioxus::prelude::*;
 use roost_client_core::store::toasts::{ToastId, ToastKind, ToastOptions, ToastSource, add_toast};
 
-use super::agent_notifications::agent_attention;
+use super::page_attention;
 use super::store_write::write_store;
 use crate::components::hooks::use_copy_clipboard::copy_text_then;
 use crate::components::terminal::dom::now_ms;
@@ -26,7 +26,7 @@ const MANUAL_COPY_PREVIEW_CHARS: usize = 160;
 pub fn TerminalClipboard() -> Element {
     let pump = use_store();
     let path = use_location();
-    let attention = agent_attention::use_page_attention();
+    let attention = page_attention::use_page_attention();
 
     use_effect(move || {
         let _ = pump.revision().read();

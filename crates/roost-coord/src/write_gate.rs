@@ -230,7 +230,6 @@ pub fn method_holds_lease(method: &str) -> bool {
         // Files, settings and attachments.
             | "FilesMkdir"
             | "TranscriptionSetConfig"
-            | "AgentConfigSet"
             | "AttachFileChunk"
             | "DeleteAttachment"
         // Push and UI state.
@@ -269,11 +268,6 @@ pub fn method_audit_skips_success(method: &str) -> bool {
             | "SessionsSearchGlobal"
             | "SessionsCancelGlobalSearch"
             | "TranscriptionGetConfig"
-            | "AgentChatList"
-            | "AgentChatSnapshot"
-            | "AgentChatEvents"
-            | "AgentModelsList"
-            | "AgentAuthLoginPoll"
     )
 }
 

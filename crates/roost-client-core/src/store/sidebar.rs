@@ -1,12 +1,9 @@
-//! The sidebar's state and derivations: the keyboard cursor, the browser-local
-//! visit memory, the folder buckets, the Agents projection, the viewer avatars,
-//! and the one action event that changes any of it. The framework-free half of
-//! `apps/web/src/components/sidebar/*` and the `apps/web/src/lib/` modules they
-//! import; `roost-web`'s `components::sidebar` renders it.
+//! The sidebar's state and derivations: keyboard cursor, visit memory,
+//! folder buckets, viewer avatars, and actions. The web client renders these
+//! framework-free projections.
 
 pub mod cursor;
 pub mod documents;
-pub mod folder_group_filter;
 pub mod folder_groups;
 pub mod format;
 pub mod intent;

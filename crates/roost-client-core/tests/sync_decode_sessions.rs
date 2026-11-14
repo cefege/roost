@@ -1,10 +1,9 @@
 //! The session-plane and terminal-metadata arms, decoded from the bytes the
 //! coordinator sends and applied through `ClientCore::handle`: typed and JSON
-//! session events with the recovery cursor, presence, last activity, agent
-//! status, view state and input results.
+//! session events with the recovery cursor, presence, last activity, view state
+//! and input results.
 //!
-//! Ported from v2 `apps/web/src/store/sync-frame.ts:108-137,231-276` and
-//! `apps/web/src/store/agent-status.ts:213-235`.
+//! Ported from v2 `apps/web/src/store/sync-frame.ts:108-137,231-276`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod sync_decode_support;
@@ -14,8 +13,8 @@ use roost_client_core::sync::decode::DecodeRefusal;
 use roost_client_core::{SyncDomain, SyncFrame};
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
 use roost_proto::{
-    AgentStatusFrame, InputRejected, JsonEvent, LastActivityFrame, SessionEventProto,
-    SessionPresence, TerminalViewStateFrame, TerminalViewStatus,
+    InputRejected, JsonEvent, LastActivityFrame, SessionEventProto, SessionPresence,
+    TerminalViewStateFrame, TerminalViewStatus,
 };
 use roost_protocol::wire::{
     ChannelId, SessionEvent, SessionId, SessionKind, WorkerFp, event_to_proto,
@@ -272,54 +271,6 @@ fn last_activity_is_kept_in_whole_milliseconds() {
     assert_eq!(
         core.store().last_activity_ms.get(SESSION),
         Some(&1_700_000_000_123)
-    );
-}
-
-fn agent_status_arm(revision: u64, completed_revision: u64) -> Frame {
-    Frame::AgentStatus(Box::new(AgentStatusFrame {
-        session_id: SESSION.to_owned(),
-        agent_id: "omp".to_owned(),
-        state: "working".to_owned(),
-        revision,
-        completed_revision,
-        updated_at: 1_700_000_000_000.0,
-        active: true,
-        ..AgentStatusFrame::default()
-    }))
-}
-
-#[test]
-fn an_agent_status_report_folds_and_a_refused_one_keeps_the_link() {
-    let (mut core, generation) = ready_core();
-    deliver(
-        &mut core,
-        generation,
-        &application(SyncDomain::Terminal, 1, agent_status_arm(3, 0)),
-    );
-    let id = SessionId::try_from(SESSION).unwrap();
-    assert_eq!(
-        core.store()
-            .agent_status
-            .status(&id)
-            .map(|status| status.common.revision),
-        Some(3)
-    );
-
-    // completed_revision above revision fails the shared schema: v2 drops the
-    // report and ignores the failure, so the frame is still acknowledged.
-    let bad = application(SyncDomain::Terminal, 2, agent_status_arm(4, 9));
-    assert!(matches!(
-        frame_of(&decoded(&bad, generation)),
-        SyncFrame::AgentStatusRefused { .. }
-    ));
-    let effects = deliver(&mut core, generation, &bad);
-    assert_eq!(acked(&effects), vec![2]);
-    assert_eq!(
-        core.store()
-            .agent_status
-            .status(&id)
-            .map(|status| status.common.revision),
-        Some(3)
     );
 }
 

@@ -13,22 +13,13 @@ use tokio::sync::broadcast;
 
 use crate::db::{CoordDb, DbBackend};
 
-/// The conversation an agent command, abort or deletion touched.
-pub const AGENT_CHANNEL: &str = "roost_agent";
-/// Durable chat batches persisted by the agent runtime.
-pub const CHAT_CHANNEL: &str = "roost_chat";
-/// Conversation summary fields changed in the database.
-pub const AGENT_SUMMARY_CHANNEL: &str = "roost_agent_summary";
 /// Cross-replica control-plane state changes.
 pub const CLUSTER_CHANNEL: &str = "roost_cluster";
+/// Account-scoped browser preferences changed.
+pub const CLIENT_STATE_CHANNEL: &str = "roost_client_state";
 
 /// Every channel this process listens on.
-pub const CHANNELS: &[&str] = &[
-    AGENT_CHANNEL,
-    AGENT_SUMMARY_CHANNEL,
-    CHAT_CHANNEL,
-    CLUSTER_CHANNEL,
-];
+pub const CHANNELS: &[&str] = &[CLUSTER_CHANNEL, CLIENT_STATE_CHANNEL];
 
 /// Notices buffered per subscriber before a slow one starts missing them.
 const NOTICE_BUFFER: usize = 1024;

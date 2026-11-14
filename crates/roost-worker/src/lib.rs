@@ -1,11 +1,9 @@
 //! The worker service crate root: sessions, the keeper client, the durable outbox,
-//! the coordinator link, the local door, the WebRTC peer, and agent tracking.
+//! the coordinator link, the local door, and the WebRTC peer.
 //! Called by `roost-cli` through `serve`/`WorkerBoot`; never depends on roost-coord.
 
 #![forbid(unsafe_code)]
 
-pub mod agent_occupancy;
-pub mod agents;
 pub mod attachments;
 pub mod backoff;
 pub mod boot_keeper;
@@ -22,7 +20,6 @@ pub mod link_barrier;
 pub mod link_dial;
 pub mod local_door;
 pub mod local_terminal;
-pub mod omp;
 pub mod outbox;
 pub mod peer;
 pub mod runtime;

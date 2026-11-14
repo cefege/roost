@@ -20,11 +20,10 @@ const MEMORY: &str = "CLAUDE.md — design system";
 /// stops looking is worse than a noisy one, so the match is on the part of the
 /// path a reorganisation does not move.
 ///
-/// This list is the authority for what a definition file is. `agents.rs` is
-/// here because raw hex is the SOURCE of its palette, not a hardcoded copy of
-/// it. `tailwind.css` is rust-ui's Tailwind theme; the same name is its
-/// compiled, gitignored output under `assets/styles/`.
-const TOKEN_FILES: [&str; 3] = ["theme-vars.css", "agents.rs", "tailwind.css"];
+/// This list is the authority for what a definition file is. `tailwind.css`
+/// is rust-ui's Tailwind theme; the same name is its compiled, gitignored
+/// output under `assets/styles/`.
+const TOKEN_FILES: [&str; 2] = ["theme-vars.css", "tailwind.css"];
 
 /// Directories whose raw values are the declaration itself: the theme engine's
 /// palettes (rust-ui's base and accent themes, copied verbatim) and rust-ui's

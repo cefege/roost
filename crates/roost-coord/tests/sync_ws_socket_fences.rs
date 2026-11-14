@@ -40,6 +40,7 @@ async fn serve_direct(
         viewer_key: None,
         flow_control: true,
         domain_generations: true,
+        client_state_changes: false,
         since_event_id: 0,
     };
     let app = axum::Router::new().route(
@@ -72,6 +73,7 @@ fn caller(key_generation: u64) -> VerifiedSyncCaller {
         fingerprint: "a".repeat(64),
         label: "browser".to_owned(),
         key_generation,
+        account_id: Some("account-1".to_owned()),
     }
 }
 
@@ -134,6 +136,7 @@ fn scope_for(query: &str) -> SyncScope {
         since: query.since,
         flow: query.flow,
         sync_v: query.sync_v,
+        client_state: query.client_state,
     };
     let policy = OriginPolicy {
         public_url: None,
@@ -165,4 +168,7 @@ fn the_upgrade_query_reaches_the_scope() {
     assert!(!scope.flow_control && !scope.domain_generations);
     assert_eq!(scope.tab_id, None, "a blank tab is no tab");
     assert!(!scope_for("flow=1&sync_v=3").domain_generations);
+    assert!(!scope_for("flow=1&sync_v=2").client_state_changes);
+    assert!(scope_for("flow=1&sync_v=2&client_state=1").client_state_changes);
+    assert!(!scope_for("flow=1&sync_v=2&client_state=01").client_state_changes);
 }

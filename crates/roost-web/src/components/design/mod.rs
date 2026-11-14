@@ -4,7 +4,6 @@
 //! [`DesignGallery`]. The specimens use local state over shipped `ui` primitives
 //! and Tailwind theme roles; none of them reads the store.
 
-pub mod agent_specimens;
 pub mod catalog;
 pub mod color_roles;
 mod composer_specimen;

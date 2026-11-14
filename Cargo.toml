@@ -46,7 +46,6 @@ connectrpc = { version = "0.9.1", default-features = false, features = ["json", 
 
 # Runtime and transport.
 tokio = { version = "1.53.1", default-features = false }
-agent-client-protocol = { version = "=5.0.0", default-features = false }
 axum = { version = "0.8.9", default-features = false }
 connectrpc-build = "0.9.0"
 buffa = "0.9.2"
@@ -90,14 +89,9 @@ qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
 # Test-only decoder that proves a rendered pairing QR reads back as its link.
 rqrr = { version = "0.11.0", default-features = false }
 idb = "0.6.5"
-rust-embed = "8.12.0"
 regex = "1.13.1"
 parking_lot = "0.12.5"
 unicode-segmentation = "1.13.3"
-# The agent-integration installer compares loader paths the way v2 did: NFC
-# first, so two spellings of one directory are one directory.
-unicode-normalization = "0.1.25"
-pulldown-cmark = { version = "0.13.4", default-features = false }
 # WHATWG URL parsing for terminal link targets: the web terminal classifies
 # untrusted OSC 8 and inferred targets exactly as the browser's `new URL()`.
 url = "2.5.8"
@@ -123,8 +117,6 @@ rsa = { version = "0.9.10", default-features = false, features = ["sha2"] }
 libc = "0.2.177"
 serde = { version = "1.0.229", features = ["derive", "rc"] }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
-# Line diffs the edit tool reports, as unified hunks with context.
-similar = { version = "2.7.0", default-features = false, features = ["text"] }
 
 # Observability.
 tracing = "0.1.44"

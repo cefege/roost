@@ -18,8 +18,7 @@
 //!    disabled or unloadable transport is never promised.
 
 use roost_protocol::versioning::{
-    CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1, CAPABILITY_OMP_ACP_INTERACTIONS_V1,
-    CAPABILITY_OMP_ACP_SESSION_V1, CAPABILITY_OMP_ACP_V1, CAPABILITY_TERMINAL_INPUT_ROUTE_V1,
+    CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1, CAPABILITY_TERMINAL_INPUT_ROUTE_V1,
     CAPABILITY_TERMINAL_METADATA_V1, CAPABILITY_TERMINAL_PEER_WEBRTC_V1,
     CAPABILITY_TERMINAL_VIEW_OWNER_V1,
 };
@@ -38,9 +37,6 @@ pub fn advertised(direct: DirectPeerSupport) -> Vec<String> {
         CAPABILITY_TERMINAL_VIEW_OWNER_V1.to_owned(),
         CAPABILITY_TERMINAL_INPUT_ROUTE_V1.to_owned(),
     ];
-    capabilities.push(CAPABILITY_OMP_ACP_V1.to_owned());
-    capabilities.push(CAPABILITY_OMP_ACP_SESSION_V1.to_owned());
-    capabilities.push(CAPABILITY_OMP_ACP_INTERACTIONS_V1.to_owned());
     if direct.terminal {
         capabilities.push(CAPABILITY_TERMINAL_PEER_WEBRTC_V1.to_owned());
     }

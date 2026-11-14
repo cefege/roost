@@ -48,15 +48,6 @@ const fn valued(name: &'static str) -> OptionSpec {
     }
 }
 
-/// An option whose absence is a refusal.
-const fn required_valued(name: &'static str) -> OptionSpec {
-    OptionSpec {
-        name,
-        takes_value: true,
-        required: true,
-    }
-}
-
 /// A verb that takes no options at all.
 pub const NO_OPTIONS: &[OptionSpec] = &[];
 
@@ -77,30 +68,6 @@ pub struct VerbSpec {
 
 /// Every verb `roost api` answers, in the order the refusal prints them.
 pub const VERBS: &[VerbSpec] = &[
-    VerbSpec {
-        verb: "agents",
-        usage: "roost api agents [--json]",
-        positionals: (0, 0),
-        options: &[flag("--json")],
-    },
-    VerbSpec {
-        verb: "agent-status",
-        usage: "roost api agent-status <session> [--json]",
-        positionals: (1, 1),
-        options: &[flag("--json")],
-    },
-    VerbSpec {
-        verb: "agent-wait",
-        usage: "roost api agent-wait <session> --until <states> --timeout <duration>",
-        positionals: (1, 1),
-        options: &[required_valued("--until"), required_valued("--timeout")],
-    },
-    VerbSpec {
-        verb: "agent-prompt",
-        usage: "roost api agent-prompt <session> <text> [--wait --until <states> --timeout <d>]",
-        positionals: (2, 2),
-        options: &[flag("--wait"), valued("--until"), valued("--timeout")],
-    },
     VerbSpec {
         verb: "sessions",
         usage: "roost api sessions [--json]",

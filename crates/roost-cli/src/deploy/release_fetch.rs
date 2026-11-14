@@ -153,31 +153,18 @@ async fn fetch_into(
     // `install_release` both speak. Conflating them is a deploy that fetches
     // two files and then reports the release ships no keeper, because it is
     // looking for a name the release never publishes under.
+    let keeper_asset = keeper_release_asset_name(platform, arch)?;
     for (published, installed) in [
         (release_asset_name(platform, arch)?, ROOST_PROGRAM_FILE),
-        (
-            keeper_release_asset_name(platform, arch)?.as_str(),
-            roost_host::KEEPER_PROGRAM_FILE,
-        ),
-    ]
-    .into_iter()
-    .map(|(published, installed)| (published.to_owned(), installed))
-    .chain(
-        crate::update::version::ReleaseVersion::parse(tag)?
-            .bundles_omp()
-            .then(|| {
-                crate::update::assets::omp_release_asset_name(platform, arch)
-                    .map(|name| (name, crate::update::assets::omp_program_file(platform)))
-            })
-            .transpose()?,
-    ) {
+        (keeper_asset.as_str(), roost_host::KEEPER_PROGRAM_FILE),
+    ] {
         let file = std::fs::File::create(bin_dir.join(installed)).map_err(|error| {
             codes::refuse(
                 codes::BUILD_FAILED,
                 format!("cannot create the staged {installed}: {error}"),
             )
         })?;
-        crate::update::release::download_verified_to(env, tag, &published, file)
+        crate::update::release::download_verified_to(env, tag, published, file)
             .await
             .map_err(|error| {
                 codes::refuse(

@@ -13,25 +13,22 @@
 //! the inside of, and a browser is left watching a session that will never
 //! arrive.
 //!
-//! NO KEEPER CONTROL CREDENTIAL REACHES A PTY. The strip is case-insensitive on
-//! purpose and it runs over the overlays as well as the inherited environment:
+//! NO KEEPER CONTROL CREDENTIAL REACHES A PTY. The strip is case-insensitive:
 //! a worker that leaks one hands every command the user types the ability to
 //! speak to the keeper as this worker, which is every terminal on the machine.
 //! Ports v2 `apps/worker/src/shell-spec.ts`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use roost_host::HostPlatform;
 
 use crate::host::shell_bootstrap::{self, ShellFlavour};
 use crate::host::shell_locate::{environment_variable, locate_shell, shell_candidates};
 pub use crate::host::tool_path::PTY_PATH_PREFIX;
-use crate::session::spawn::{SessionEnvironmentOverlay, ShellSpecResolver};
-use crate::shell_spec::{
-    SESSION_ID_ENV, SHELL_SPEC_VERSION, ShellSpec, is_keeper_control_key, is_worker_private_key,
-};
+use crate::session::spawn::ShellSpecResolver;
+use crate::shell_spec::{SESSION_ID_ENV, SHELL_SPEC_VERSION, ShellSpec, is_worker_private_key};
 
 /// The terminal the SPA's renderer is written against.
 pub const PTY_TERM: &str = "xterm-256color";
@@ -69,10 +66,6 @@ pub struct HostShellSpecResolver {
     /// The platform the caller asked for. Equal to `platform` in production;
     /// a mismatch is refused rather than resolved for the wrong host.
     requested_platform: HostPlatform,
-    /// Per-session variables a caller contributes — the agent report endpoint
-    /// and its capability, which are derived from the session id and so cannot
-    /// be read from the environment.
-    overlay: Option<Arc<dyn SessionEnvironmentOverlay>>,
     /// The rcfile written per flavour, remembered so a second session in the
     /// same worker does not rewrite a file a live shell is reading.
     bootstraps: Mutex<BTreeMap<ShellFlavour, PathBuf>>,
@@ -95,7 +88,6 @@ impl HostShellSpecResolver {
             environment,
             platform,
             requested_platform,
-            overlay: None,
             bootstraps: Mutex::new(BTreeMap::new()),
         }
     }
@@ -116,17 +108,6 @@ impl HostShellSpecResolver {
     #[must_use]
     pub fn inherited_process_environment() -> BTreeMap<String, String> {
         std::env::vars().collect()
-    }
-
-    /// Add the per-session variables a caller contributes to every spec.
-    ///
-    /// Filtered by the same keeper strip as the inherited environment, because
-    /// a caller is no more trusted than the environment is: an overlay that
-    /// named a keeper credential is the same leak with one more hop in it.
-    #[must_use]
-    pub fn with_overlay(mut self, overlay: Arc<dyn SessionEnvironmentOverlay>) -> Self {
-        self.overlay = Some(overlay);
-        self
     }
 
     /// The launch contract for a folder, or the reason there is not one.
@@ -190,24 +171,6 @@ impl HostShellSpecResolver {
             ],
             _ => Vec::new(),
         };
-        let overlay = match &self.overlay {
-            Some(overlay) => overlay.session_overlay(session_id)?,
-            None => Vec::new(),
-        };
-        for (key, value) in overlay {
-            if is_keeper_control_key(&key) {
-                tracing::warn!(
-                    key = %key,
-                    session_id = %session_id,
-                    "a caller-supplied overlay named a keeper control credential; it was dropped \
-                     rather than inherited into the PTY"
-                );
-                continue;
-            }
-            env.insert(key, value);
-        }
-        // Last, so nothing a caller supplied can move the identity out from
-        // under the record this spec is about to be attached to.
         env.insert(SESSION_ID_ENV.into(), session_id.to_string());
 
         let spec = ShellSpec {
@@ -249,8 +212,8 @@ impl HostShellSpecResolver {
     /// The inherited environment minus the whole `ROOST_` namespace: the
     /// worker's label, coordinator, bootstrap token, data dirs and keeper
     /// credentials, which let a shell start a worker that impersonates this one.
-    /// The overlay and [`SESSION_ID_ENV`], applied after, re-add the session's
-    /// keys. [`is_worker_private_key`] is case-insensitive, unlike a prefix test.
+    /// [`SESSION_ID_ENV`], applied after, re-adds the session identity.
+    /// [`is_worker_private_key`] is case-insensitive, unlike a prefix test.
     fn base_environment(&self) -> BTreeMap<String, String> {
         self.environment
             .iter()

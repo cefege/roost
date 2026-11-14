@@ -16,7 +16,7 @@ use roost_protocol::wire::SessionId;
 use roost_web::components::global_search::content::{
     incomplete, join_matches, partial_line, summary,
 };
-use roost_web::components::global_search::query::{SearchRouteQuery, SearchScope};
+use roost_web::components::global_search::query::SearchRouteQuery;
 use roost_web::routes::percent_encode;
 
 const SESSION: &str = "00000000-0000-4000-8000-00000000000a";
@@ -42,7 +42,6 @@ fn match_in(session: &str, row: u64) -> GlobalSearchMatch {
 #[test]
 fn a_query_written_in_the_address_bar_reads_back_as_the_same_search() {
     let query = SearchRouteQuery {
-        scope: SearchScope::All,
         text: "global-404ef456".to_owned(),
         case_sensitive: true,
     };
@@ -55,17 +54,6 @@ fn a_query_that_would_read_as_two_parameters_stays_one_parameter() {
     assert_eq!(query.to_path(), "/search?q=a%26b%3Dc");
     assert_eq!(SearchRouteQuery::parse(&query.to_path()).text, "a&b=c");
     assert_eq!(percent_encode("a&b=c"), "a%26b%3Dc");
-}
-
-#[test]
-fn the_attention_filter_searches_no_terminal_content() {
-    let attention = SearchRouteQuery {
-        scope: SearchScope::Attention,
-        text: "blocked".to_owned(),
-        case_sensitive: true,
-    };
-    assert!(attention.content_query().is_empty());
-    assert_eq!(attention.to_path(), "/search?scope=attention&q=blocked");
 }
 
 #[test]

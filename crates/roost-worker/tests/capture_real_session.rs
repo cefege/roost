@@ -16,7 +16,6 @@ use base64::Engine as _;
 use keeper_pool_support::KeeperFixture;
 use roost_protocol::terminal_capture::TerminalCaptureStatus;
 use roost_protocol::wire::brand::{SessionId, WorkerFp};
-use roost_worker::agents::environment::AgentReportSite;
 use roost_worker::browser_commands::diagnostics::{
     CaptureAction, CaptureCommand, DiagnosticReports,
 };
@@ -67,10 +66,6 @@ async fn a_capture_of_a_real_session_carries_its_terminal_content() {
         &root,
         FINGERPRINT.to_owned(),
         "capture-real-epoch",
-        &AgentReportSite {
-            data_dir: root.clone(),
-            configured: None,
-        },
     )
     .expect("this host can build a session layer");
     let session_id = SessionId::try_from(SESSION).unwrap();

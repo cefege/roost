@@ -9,6 +9,7 @@
 use roost_protocol::wire::WorkerPresenceEvent;
 use roost_protocol::wire::sync_ws::SYNC_RESET_CURSOR_AHEAD_OF_LOG;
 
+use crate::client::client_state;
 use crate::effect::Effect;
 use crate::store::Store;
 use crate::store::frames_revision::PaintedMark;
@@ -18,8 +19,7 @@ use crate::terminal::smoke_faults::FaultedFrameKind;
 use crate::terminal::token::TerminalTransport;
 
 use super::fold_controls::{
-    fold_audit_row, fold_coordinator_relocation, fold_omp_host_service, fold_omp_receipt,
-    fold_pair_request, fold_ui_command,
+    fold_audit_row, fold_coordinator_relocation, fold_pair_request, fold_ui_command,
 };
 use super::fold_registry::{
     fold_mcp_message, fold_task_delta, fold_worker_presence, fold_worker_routable,
@@ -210,23 +210,6 @@ pub(super) fn apply_frame(
         SyncFrame::ViewState { .. } | SyncFrame::InputResult { .. } => {
             crate::handle_terminal::handle_correlated_result(store, frame, now_ms, out);
         }
-        SyncFrame::AgentStatus { update } => {
-            // The coordinator already fenced this report against its own
-            // arrival order; what is left is the browser-lifecycle fence and
-            // the acknowledgement ledger, both of which live in the
-            // projection. A refused report changes nothing, so it must not
-            // move the revision a host subscribes to.
-            if store
-                .agent_status
-                .apply_update(update, &store.agent_seen)
-                .is_some()
-            {
-                store.note_change();
-            }
-        }
-        SyncFrame::AgentStatusRefused { session_id, reason } => {
-            tracing::warn!(target: "sync", session_id = %session_id, reason = %reason, "agent status report refused");
-        }
         SyncFrame::SessionEventRejected { event_id, reason } => {
             // The cursor moves past an event the schema refused, as v2 moves it
             // before `foldEventIntoStore` rejects the shape; nothing is folded.
@@ -319,40 +302,11 @@ pub(super) fn apply_frame(
             fold_pair_request(store, change, delivery_seq, now_ms);
         }
         SyncFrame::UiCommand { command } => fold_ui_command(store, command),
-        SyncFrame::AgentConversation {
-            conversation_id,
-            removed,
-            conversation,
-            host_connected,
-        } => {
-            store.agent_chat.apply_conversation_frame(
-                conversation_id.clone(),
-                *removed,
-                conversation.clone(),
-                *host_connected,
-            );
-            if *removed {
-                store.omp_host.forget_conversation(conversation_id);
-            }
-            store.note_change();
-        }
-        SyncFrame::AgentChatEvents {
-            conversation_id,
-            seq,
-            events,
-        } => {
-            store
-                .agent_chat
-                .apply_events(conversation_id, *seq, events, now_ms);
-            store.note_change();
-        }
         SyncFrame::WorkerLiveMetrics { frame } => {
             if store.worker_live.apply(frame.clone()) {
                 store.note_change();
             }
         }
-        SyncFrame::OmpHostService { service } => fold_omp_host_service(store, service),
-        SyncFrame::OmpUiActionReceipt { receipt } => fold_omp_receipt(store, receipt),
         SyncFrame::CoordinatorRelocation { relocation } => {
             fold_coordinator_relocation(store, generation, relocation, out);
         }
@@ -374,6 +328,7 @@ pub(super) fn apply_frame(
             // and discarding it is its full consumption (`sync-frame.ts:329-333`).
             tracing::trace!(target: "sync", "peer ui state discarded");
         }
+        SyncFrame::ClientStateChanged => client_state::refresh(store, generation, out),
         SyncFrame::Keepalive => {
             tracing::trace!(target: "sync", frame = frame.kind_name(), "frame applied");
         }

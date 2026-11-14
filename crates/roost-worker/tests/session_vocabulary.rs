@@ -9,7 +9,6 @@
 use roost_host::HostPlatform;
 use roost_term::{CellEmitState, RioCore};
 use roost_worker::event_store::{DurableEventKind, Store};
-use roost_worker::session::agent_osc::AgentOscState;
 use roost_worker::session::ring::ScrollbackRing;
 use roost_worker::session::types::{SessionIdentity, SessionRecord};
 use roost_worker::shell_spec::ShellSpec;
@@ -209,24 +208,4 @@ fn a_new_record_can_be_attached_and_ends_exactly_once() {
          transition: the two are different claims, and `is_err()` accepts \
          either one for the exactly-once guarantee this test is named for"
     );
-}
-
-/// Replacing an agent clears the evidence the dead process left, and keeps the
-/// half-read sequence the new one may have started.
-///
-/// Dropping the carry as well would glue the tail of the OLD process's OSC
-/// sequence onto the front of the NEW process's first chunk and answer a probe
-/// nobody sent; keeping the title would judge the new process by the old one's
-/// final one.
-#[test]
-fn replacing_an_agent_clears_its_title_but_keeps_the_split_sequence() {
-    let mut evidence = AgentOscState {
-        carry: b"\x1b]0;half".to_vec(),
-        raw_title: "codex - old".to_string(),
-        raw_progress: "50%".to_string(),
-    };
-    evidence.clear_evidence();
-    assert!(evidence.raw_title.is_empty());
-    assert!(evidence.raw_progress.is_empty());
-    assert_eq!(evidence.carry, b"\x1b]0;half".to_vec());
 }

@@ -10,19 +10,19 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
-use roost_client_core::deck::{DeckFolder, DeckIntent, DeckSpawn, DeckTab};
+use roost_client_core::deck::{DeckFolder, DeckIntent, DeckSpawn};
 use roost_client_core::store::layout::{ArrangeKind, PaneView};
 use roost_client_core::store::selectors::session_by_id;
 use roost_protocol::layout::document::LayoutDirection;
 
 use super::deck_dom;
-use super::terminal_deck_spawn::{spawn_anchor, start_deck_agent, start_deck_spawn};
+use super::terminal_deck_spawn::{spawn_anchor, start_deck_spawn};
 use crate::motion::drop_zones::{
     DropZone, PaneBox, Rect, SplitDir, tile_target_for, zone_rect, zone_to_split,
 };
 use crate::motion::resize_drag::ResizeDrag;
 use crate::pump::Pump;
-use crate::session_actions::{close_labels_for, close_labels_for_agent};
+use crate::session_actions::close_labels_for;
 
 /// The drop-zone highlight a tab drag paints over its target.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -74,9 +74,7 @@ impl DeckOperations {
                 session_id: tab_id,
                 compact: self.compact,
             }),
-            None => self.navigate.call(
-                DeckTab::parse(&tab_id).map_or_else(|| format!("/s/{tab_id}"), |tab| tab.path()),
-            ),
+            None => self.navigate.call(format!("/s/{tab_id}")),
         }
     }
 
@@ -86,16 +84,7 @@ impl DeckOperations {
             let core = self.pump.core();
             let core = core.borrow();
             let store = core.store();
-            match DeckTab::parse(&tab_id) {
-                Some(DeckTab::Agent(conversation_id)) => store
-                    .agent_chat
-                    .conversations
-                    .get(&conversation_id)
-                    .map(|conversation| close_labels_for_agent(store, conversation)),
-                Some(DeckTab::Terminal(session_id)) => session_by_id(store, session_id.as_str())
-                    .map(|session| close_labels_for(store, session)),
-                None => None,
-            }
+            session_by_id(store, &tab_id).map(|session| close_labels_for(store, session))
         };
         let Some(labels) = labels else {
             return;
@@ -266,25 +255,6 @@ impl DeckOperations {
     pub fn new_tab(&self, pane_id: String) {
         self.spawn_from(DeckSpawn::NewTab { pane_id });
     }
-    /// Create a new agent conversation beside the pane's selected terminal.
-    pub fn new_agent(&self, pane_id: String) {
-        let spawn = DeckSpawn::NewTab {
-            pane_id: pane_id.clone(),
-        };
-        let anchor = {
-            let core = self.pump.core();
-            let core = core.borrow();
-            spawn_anchor(
-                core.store(),
-                &self.panes,
-                &pane_id,
-                self.followed_session_id.as_deref(),
-            )
-        };
-        if let Some(anchor) = anchor {
-            start_deck_agent(self.pump.clone(), spawn, anchor, self.compact);
-        }
-    }
 
     /// Split the focused pane with a fresh terminal after it.
     pub fn split(&self, direction: LayoutDirection) {
@@ -328,15 +298,6 @@ impl DeckOperations {
         if middle && !self.compact && !target.in_link {
             event.prevent_default();
             self.spotlight();
-        }
-    }
-
-    /// Focus arrived inside a phone chat input: its pane takes the keyboard.
-    pub fn deck_focus_in(&self, event: &FocusEvent) {
-        if let Some(pane_id) = deck_dom::chat_input_focus_pane(event)
-            && self.focused_pane_id.as_deref() != Some(pane_id.as_str())
-        {
-            self.focus_pane(pane_id);
         }
     }
 }

@@ -45,23 +45,7 @@ pub fn PaneTabList(
         tab_ids
             .iter()
             .filter_map(|id| {
-                session_by_id(store, id)
-                    .map(|session| (id.clone(), session_title(store, session)))
-                    .or_else(|| {
-                        id.strip_prefix("agent:")
-                            .and_then(|conversation_id| {
-                                store.agent_chat.conversations.get(conversation_id)
-                            })
-                            .map(|conversation| {
-                                (
-                                    id.clone(),
-                                    crate::components::agent_chat::display_conversation_title(
-                                        &conversation.title,
-                                    )
-                                    .to_owned(),
-                                )
-                            })
-                    })
+                session_by_id(store, id).map(|session| (id.clone(), session_title(store, session)))
             })
             .collect()
     };
@@ -141,7 +125,7 @@ pub fn PaneTabList(
                     let session_id = session_id.clone();
                     move |_| choose(session_id.clone())
                 },
-                Icon { icon: if session_id.starts_with("agent:") { IconType::Bot } else { IconType::Terminal }, class: "size-4 shrink-0 text-muted-foreground" }
+                Icon { icon: IconType::Terminal, class: "size-4 shrink-0 text-muted-foreground" }
                 span { class: "flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap", "{title}" }
                 if session_id == selected_tab {
                     Icon { icon: IconType::Check, class: "size-4 shrink-0" }

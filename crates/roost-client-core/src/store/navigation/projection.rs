@@ -35,11 +35,6 @@ pub fn project_navigation_search_documents(
 fn project_session(session: &Session, sources: &NavigationSources<'_>) -> NavigationSearchDocument {
     let worker = sources.workers.get(session.worker_fp.as_str());
     let worker_os = worker.map(|row| row.os.as_str());
-    let facts = sources
-        .agent_status
-        .get(session.id.as_str())
-        .cloned()
-        .unwrap_or_default();
     let custom_title = clean(session.custom_title.as_deref());
     let terminal_title = clean(
         sources
@@ -97,9 +92,6 @@ fn project_session(session: &Session, sources: &NavigationSources<'_>) -> Naviga
         session.pr_checks.map(|checks| checks.as_str()),
         pull_request_url.as_deref(),
         port_label.as_deref(),
-        facts.agent_id.as_deref(),
-        facts.level_token.as_deref(),
-        facts.message.as_deref(),
         Some(if available {
             "available online"
         } else {
@@ -142,13 +134,6 @@ fn project_session(session: &Session, sources: &NavigationSources<'_>) -> Naviga
             session.closed_at.unwrap_or(session.created_at)
         },
         available,
-        agent_status: facts.level_token.clone(),
-        agent_attention: facts.attention,
-        agent_unseen: facts.unseen,
-        agent_id: facts.agent_id.clone(),
-        agent_message: facts.message.clone(),
-        agent_updated_at_ms: facts.updated_at_ms,
-        agent_arrival: facts.arrival,
         client_only: false,
     }
 }
@@ -202,13 +187,6 @@ fn project_client_only(
         // A placeholder is on a machine this browser just asked, and there is
         // nothing authoritative to contradict it yet.
         available: true,
-        agent_status: None,
-        agent_attention: None,
-        agent_unseen: false,
-        agent_id: None,
-        agent_message: None,
-        agent_updated_at_ms: None,
-        agent_arrival: 0,
         client_only: true,
     }
 }

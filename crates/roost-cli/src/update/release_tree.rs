@@ -1,6 +1,5 @@
 //! Stages a complete release in its own version directory and activates it
-//! through the existing journaled executable swap. The candidate is a symlink
-//! to that directory, so `current_exe` and its OMP sibling resolve together.
+//! through the existing journaled executable swap.
 
 use std::path::{Path, PathBuf};
 

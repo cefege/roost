@@ -302,10 +302,10 @@ fn every_catalog_command_names_a_surface_the_host_can_open() {
     );
     assert!(copy_output.is_command());
 
-    let route = palette_outcome(&row(Some("/search?scope=attention"), None));
+    let route = palette_outcome(&row(Some("/search?q=terminal"), None));
     assert_eq!(
         route,
-        PaletteOutcome::Navigate("/search?scope=attention".to_owned()),
+        PaletteOutcome::Navigate("/search?q=terminal".to_owned()),
         "a route row lost its path"
     );
     assert!(

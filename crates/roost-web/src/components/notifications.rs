@@ -5,14 +5,15 @@
 //! pending-close state and performs the acknowledgement its own card rule names.
 //! Ports `apps/web/src/components/notifications/`.
 
-pub mod agent_notifications;
 pub mod command_finished;
 pub mod command_finished_scheduler;
 pub mod connection_banner;
 pub mod desktop_push_bridge;
 pub mod inline_transfer;
+pub mod notification_tone;
 pub mod notify_target;
 pub mod pad_hint_bar;
+pub mod page_attention;
 pub mod store_write;
 pub mod terminal_bell;
 pub mod terminal_clipboard;
@@ -60,8 +61,6 @@ pub fn NotificationDock() -> Element {
             pad_hint_bar::PadHintBar {}
         }
         version_banner::VersionBanner {}
-        agent_notifications::AgentNotifications {}
-        agent_notifications::AgentAttention {}
         terminal_clipboard::TerminalClipboard {}
         command_finished::CommandFinished {}
         terminal_bell::TerminalBellPresenter {}

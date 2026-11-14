@@ -216,11 +216,8 @@ pub fn sweep_pending_closes(store: &mut Store, now_ms: u64) -> Vec<String> {
     due
 }
 
-/// Whether the corresponding terminal or agent conversation remains live.
+/// Whether the corresponding terminal remains live.
 fn session_is_open(store: &Store, tab_id: &str) -> bool {
-    if let Some(conversation_id) = tab_id.strip_prefix("agent:") {
-        return store.agent_chat.conversations.contains_key(conversation_id);
-    }
     crate::store::selectors::session_by_id(store, tab_id)
         .is_some_and(|session| session.status == SessionStatus::Open)
 }

@@ -21,7 +21,7 @@ pub mod query;
 
 use dioxus::prelude::*;
 
-use crate::components::global_search::query::{SearchRouteQuery, SearchScope};
+use crate::components::global_search::query::SearchRouteQuery;
 use crate::components::terminal::dom::{now_ms, sleep_ms};
 use crate::components::ui::{Command, CommandInput, CommandItem, Icon, IconType};
 use crate::pump::use_store;
@@ -48,9 +48,6 @@ pub fn GlobalSearchOverlay() -> Element {
     let arming_effect = arming.clone();
     use_effect(use_reactive((&route_query,), move |(query,)| {
         let _ = driver::set_query(&arming_effect, query.content_query(), now_ms());
-        if query.scope == SearchScope::Attention {
-            return;
-        }
         let Some(search_id) = driver::mint_search_id() else {
             tracing::warn!(target: "search", "no search identity available; content search off");
             return;
@@ -97,10 +94,7 @@ pub fn GlobalSearchOverlay() -> Element {
                     CommandInput {
                         value: route_query.text.clone(),
                         aria_label: route_query.search_label().to_owned(),
-                        placeholder: match route_query.scope {
-                            SearchScope::All => "Title, path, or terminal text…",
-                            SearchScope::Attention => "Title, path, agent status…",
-                        },
+                        placeholder: "Title, path, or terminal text…",
                         test_id: "global-search-input",
                         autofocus: true,
                         class: "w-full",
@@ -109,49 +103,21 @@ pub fn GlobalSearchOverlay() -> Element {
                             move |text: String| update.call(query.with_text(&text))
                         },
                     }
-                    div { role: "group", "aria-label": "Search scope", class: "flex flex-wrap gap-2",
-                        CommandItem {
-                            value: "all-sessions",
-                            selected: route_query.scope == SearchScope::All,
-                            test_id: "global-search-scope-all",
-                            on_select: {
-                                let query = route_query.clone();
-                                move |()| update.call(SearchRouteQuery { scope: SearchScope::All, ..query.clone() })
-                            },
-                            Icon { icon: IconType::Terminal }
-                            "All sessions"
-                        }
-                        CommandItem {
-                            value: "needs-attention",
-                            selected: route_query.scope == SearchScope::Attention,
-                            test_id: "global-search-scope-attention",
-                            on_select: {
-                                let query = route_query.clone();
-                                move |()| update.call(SearchRouteQuery { scope: SearchScope::Attention, ..query.clone() })
-                            },
-                            Icon { icon: IconType::Bell }
-                            "Needs attention"
-                        }
-                        if route_query.scope == SearchScope::All {
-                            CommandItem {
-                                value: "match-case",
-                                selected: route_query.case_sensitive,
-                                test_id: "global-search-case-sensitive",
-                                on_select: {
-                                    let query = route_query.clone();
-                                    move |()| update.call(SearchRouteQuery { case_sensitive: !query.case_sensitive, ..query.clone() })
-                                },
-                                Icon { icon: IconType::CaseSensitive }
-                                "Match terminal case"
-                            }
-                        }
+                    CommandItem {
+                        value: "match-case",
+                        selected: route_query.case_sensitive,
+                        test_id: "global-search-case-sensitive",
+                        on_select: {
+                            let query = route_query.clone();
+                            move |()| update.call(SearchRouteQuery { case_sensitive: !query.case_sensitive, ..query.clone() })
+                        },
+                        Icon { icon: IconType::CaseSensitive }
+                        "Match terminal case"
                     }
                 }
             }
             div { class: "flex flex-1 flex-col gap-4 overflow-auto p-4",
-                if route_query.scope == SearchScope::All {
-                    content::ContentResults { route_query: route_query.clone() }
-                }
+                content::ContentResults { route_query: route_query.clone() }
                 metadata::MetadataResults { route_query: route_query.clone() }
             }
         }

@@ -106,18 +106,10 @@ pub trait ShellSpawner: Send + Sync {
 /// Declared here, implemented by `crate::host`: `shell_spec.rs` says so itself,
 /// because resolution materialises directories, reads `SHELL` and writes a
 /// bootstrap rcfile, and a record must be able to hold a spec without pulling
-/// any of that in. The implementation must apply the agent-status environment
-/// overlay and strip every keeper control credential from the PTY's
-/// environment.
+/// any of that in. The implementation strips keeper control credentials from
+/// the PTY's environment.
 pub trait ShellSpecResolver: Send + Sync {
     fn resolve_shell_spec(&self, cwd: &str, session_id: &str) -> Result<ShellSpec, String>;
-}
-
-/// The per-session variables every launch contract carries — the agent
-/// report endpoint and its capability, derived from the session id. An `Err`
-/// refuses the spawn: a PTY must not carry an endpoint nobody serves.
-pub trait SessionEnvironmentOverlay: Send + Sync {
-    fn session_overlay(&self, session_id: &str) -> Result<Vec<(String, String)>, String>;
 }
 
 /// The collaborators one spawn borrows for its duration.

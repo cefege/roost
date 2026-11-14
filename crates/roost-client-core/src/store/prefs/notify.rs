@@ -1,5 +1,5 @@
-//! Notification preferences: the six switches that decide how loudly a blocked
-//! or finished agent, or a long shell command finishing, gets to interrupt.
+//! Notification preferences for completed shell commands.
+//! These switches control in-app and desktop delivery.
 //!
 //! One JSON object, because that is one preference a user thinks of as one thing,
 //! and because a partial write to it must not be possible. The parse is
@@ -30,9 +30,7 @@ pub enum NotifyPref {
     Desktop,
     /// Badge the tab title.
     TitleBadge,
-    /// Play a sound when an agent blocks.
-    BlockedSound,
-    /// Play a sound when an agent finishes.
+    /// Play a sound when a command finishes.
     DoneSound,
     /// Notify when a long shell command finishes (OSC 133).
     CommandFinished,
@@ -45,24 +43,22 @@ impl NotifyPref {
             Self::InApp => "inApp",
             Self::Desktop => "desktop",
             Self::TitleBadge => "titleBadge",
-            Self::BlockedSound => "blockedSound",
             Self::DoneSound => "doneSound",
             Self::CommandFinished => "commandFinished",
         }
     }
 
     /// Every switch, in the order the defaults are written.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 5] = [
         Self::InApp,
         Self::Desktop,
         Self::TitleBadge,
-        Self::BlockedSound,
         Self::DoneSound,
         Self::CommandFinished,
     ];
 }
 
-/// The six values.
+/// The five values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NotifyPrefs {
     /// Show the notification in the app.
@@ -71,9 +67,7 @@ pub struct NotifyPrefs {
     pub desktop: bool,
     /// Badge the tab title.
     pub title_badge: bool,
-    /// Play a sound when an agent blocks.
-    pub blocked_sound: bool,
-    /// Play a sound when an agent finishes.
+    /// Play a sound when a command finishes.
     pub done_sound: bool,
     /// Notify when a long shell command finishes.
     pub command_finished: bool,
@@ -85,7 +79,6 @@ impl Default for NotifyPrefs {
             in_app: true,
             desktop: false,
             title_badge: true,
-            blocked_sound: false,
             done_sound: false,
             command_finished: true,
         }
@@ -99,7 +92,6 @@ impl NotifyPrefs {
             NotifyPref::InApp => self.in_app,
             NotifyPref::Desktop => self.desktop,
             NotifyPref::TitleBadge => self.title_badge,
-            NotifyPref::BlockedSound => self.blocked_sound,
             NotifyPref::DoneSound => self.done_sound,
             NotifyPref::CommandFinished => self.command_finished,
         }
@@ -110,7 +102,6 @@ impl NotifyPrefs {
             NotifyPref::InApp => self.in_app = value,
             NotifyPref::Desktop => self.desktop = value,
             NotifyPref::TitleBadge => self.title_badge = value,
-            NotifyPref::BlockedSound => self.blocked_sound = value,
             NotifyPref::DoneSound => self.done_sound = value,
             NotifyPref::CommandFinished => self.command_finished = value,
         }
@@ -154,7 +145,7 @@ pub fn parse(raw: Option<&str>) -> NotifyPrefs {
     prefs
 }
 
-/// Serialise the object. A `BTreeMap` of the five known members, so a member
+/// Serialise the object. A `BTreeMap` of the known members, so a member
 /// added by a later build is not written by this one.
 fn serialise(prefs: &NotifyPrefs) -> String {
     serde_json::to_string(&prefs.as_record()).unwrap_or_else(|_| "{}".to_owned())

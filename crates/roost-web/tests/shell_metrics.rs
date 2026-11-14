@@ -20,15 +20,8 @@ fn a_television_reporting_a_phone_sized_viewport_gets_the_desktop_shell() {
 }
 
 #[test]
-fn agent_and_terminal_routes_highlight_folders() {
-    for pathname in [
-        "/",
-        "/a/c-agent",
-        "/s/abc",
-        "/t/fp123/src",
-        "/w/ws1",
-        "/w/ws1/t/ch1",
-    ] {
+fn terminal_routes_highlight_folders() {
+    for pathname in ["/", "/s/abc", "/t/fp123/src", "/w/ws1", "/w/ws1/t/ch1"] {
         assert_eq!(
             active_destination(pathname),
             Some(Destination::Folders),

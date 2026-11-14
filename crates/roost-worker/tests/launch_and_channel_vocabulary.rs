@@ -37,9 +37,7 @@ fn a_keeper_control_credential_is_recognised_whatever_its_case() {
     }
 }
 
-/// The worker's own configuration — label, coordinator, bootstrap token, the
-/// agent-report override — is never a shell's. A shell that inherits it starts
-/// a worker that binds this worker's sockets and reports under its label.
+/// Worker configuration is not inherited by a shell that might start another worker.
 #[test]
 fn a_worker_private_variable_is_recognised_whatever_its_case() {
     for name in [
@@ -47,7 +45,6 @@ fn a_worker_private_variable_is_recognised_whatever_its_case() {
         "Roost_Keeper_Capability_Path".to_string(),
         "ROOST_WORKER_LABEL".to_string(),
         "roost_bootstrap_token".to_string(),
-        "Roost_Agent_Endpoint".to_string(),
     ] {
         assert!(is_worker_private_key(&name), "{name} must be refused a PTY");
     }

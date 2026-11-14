@@ -55,7 +55,6 @@ use crate::ops::db_to_sqlite::DbToSqliteArgs;
 use crate::ops::keeper_contract::KeeperContractArgs;
 use crate::ops::logs::LogsArgs;
 use crate::ops::reset::ResetArgs;
-use crate::ops::skill::SkillArgs;
 use crate::ops::state::StateArgs;
 use crate::ops::test::TestArgs;
 use crate::ops::version::VersionArgs;
@@ -138,8 +137,6 @@ pub enum Command {
     State(StateArgs),
     /// Stop the local services and delete the coordinator database.
     Reset(ResetArgs),
-    /// Print the exact release-matched ROOST agent skill.
-    Skill(SkillArgs),
     /// Run a test profile.
     Test(TestArgs),
     #[command(name = "__keeper-contract", hide = true)]
@@ -182,7 +179,6 @@ impl Command {
             Command::RemoteApply(_) => "__remote-apply",
             Command::State(_) => "state",
             Command::Reset(_) => "reset",
-            Command::Skill(_) => "skill",
             Command::Test(_) => "test",
             Command::KeeperContract(_) => "__keeper-contract",
             Command::SelfUpdate(_) => "__self-update",
@@ -222,7 +218,6 @@ pub async fn dispatch(cli: Cli) -> Result<ExitCode, CommandFailure> {
         Command::RemoteApply(args) => deploy::remote_commands::apply(&args).await,
         Command::State(args) => ops::state::run(&args),
         Command::Reset(args) => ops::reset::run(&args),
-        Command::Skill(args) => ops::skill::run(&args),
         Command::Test(args) => ops::test::run(&args),
         Command::KeeperContract(args) => ops::keeper_contract::run(&args),
         Command::SelfUpdate(args) => self_update::run(&args).await,

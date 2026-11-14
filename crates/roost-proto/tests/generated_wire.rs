@@ -62,6 +62,19 @@ fn a_message_survives_a_binary_round_trip() {
 }
 
 #[test]
+fn client_state_invalidation_keeps_wire_field_61() {
+    let encoded = [0xea, 0x03, 0x00];
+    let frame = DecodeOptions::new()
+        .decode_from_slice::<roost_proto::FirehoseFrame>(&encoded)
+        .expect("field 61 is a client-state invalidation");
+    assert!(matches!(
+        &frame.frame,
+        Some(roost_proto::firehose_frame::Frame::ClientStateChanged(_))
+    ));
+    assert_eq!(frame.encode_to_vec(), encoded);
+}
+
+#[test]
 fn a_message_decodes_from_canonical_protobuf_json() {
     // The exact spelling a Connect JSON client and `protocol/conformance` use.
     let json = r#"{

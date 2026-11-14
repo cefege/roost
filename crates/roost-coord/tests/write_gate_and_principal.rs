@@ -142,7 +142,7 @@ fn a_heartbeat_is_leased_because_it_is_a_durable_write() {
 }
 
 #[test]
-fn the_lease_list_holds_exactly_the_forty_four_v2_methods() {
+fn the_lease_list_holds_the_declared_methods() {
     let leased = [
         "WorkersRegister",
         "WorkersHeartbeat",
@@ -178,7 +178,6 @@ fn the_lease_list_holds_exactly_the_forty_four_v2_methods() {
         "DevicesRotateCurrent",
         "FilesMkdir",
         "TranscriptionSetConfig",
-        "AgentConfigSet",
         "AttachFileChunk",
         "DeleteAttachment",
         "PushSubscribe",
@@ -188,7 +187,7 @@ fn the_lease_list_holds_exactly_the_forty_four_v2_methods() {
     ];
     assert_eq!(
         leased.len(),
-        41,
+        40,
         "this test's own list drifted from the source"
     );
     for method in leased {
@@ -228,10 +227,6 @@ fn a_skipped_success_still_persists_its_failure() {
         "MiscHealth",
         "WorkersHeartbeat",
         "PairApprovalStatus",
-        "AgentChatList",
-        "AgentChatSnapshot",
-        "AgentModelsList",
-        "AgentAuthLoginPoll",
     ] {
         assert!(method_audit_skips_success(method), "{method}");
         assert!(!should_persist_method_audit(method, 200, false));

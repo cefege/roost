@@ -105,13 +105,11 @@ impl Destination {
 
     /// Whether a pathname selects this destination.
     ///
-    /// Agent and terminal routes share the folders destination; neither is
-    /// a separate primary navigation destination.
+    /// Terminal routes share the folders destination.
     pub fn is_active(self, pathname: &str) -> bool {
         match self {
             Self::Folders => {
                 pathname == "/"
-                    || pathname.starts_with("/a/")
                     || pathname.starts_with("/s/")
                     || pathname.starts_with("/t/")
                     || pathname.starts_with("/w/")

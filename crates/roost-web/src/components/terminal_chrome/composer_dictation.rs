@@ -1,4 +1,4 @@
-//! Shared draft binding for terminal and agent microphone controls.
+//! Draft binding for terminal microphone controls.
 //! Composers own the text; this binding paints provisional transcripts, commits
 //! final words and queues Send until capture settles through `MobileVoiceInput`.
 

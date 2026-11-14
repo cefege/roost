@@ -22,9 +22,6 @@ use crate::effect::RpcCall;
 pub fn encode_rpc_request(call: &RpcCall) -> Result<Vec<u8>, RpcCodecError> {
     let method = connect_method(call);
     match call {
-        RpcCall::AgentChatList { .. } => {
-            encode(method, &roost_proto::AgentChatListRequest::default())
-        }
         RpcCall::CoordIdentity { .. } => encode(method, &AuthCoordIdentityRequest::default()),
         RpcCall::SessionsList { sync_socket_id, .. } => encode(
             method,
@@ -109,15 +106,6 @@ pub fn encode_rpc_request(call: &RpcCall) -> Result<Vec<u8>, RpcCodecError> {
             force: *force,
         }
         .encode_request(),
-        RpcCall::AgentChatDelete {
-            conversation_id, ..
-        } => {
-            use super::super::calls::agent_chat::DeleteAgentChat;
-            DeleteAgentChat {
-                conversation_id: conversation_id.clone(),
-            }
-            .encode_request()
-        }
         RpcCall::ClientStateList { .. } => {
             encode(method, &roost_proto::ClientStateListRequest::default())
         }

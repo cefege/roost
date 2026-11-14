@@ -1,8 +1,7 @@
 //! One workspace tab: identity icon, truncated title, aggregated status and close.
 //! `PaneStrip` owns drag, close and hover state; this maps them onto stable DOM.
-//! Terminal signals, bells and agent activity remain accessible through the cue.
+//! Terminal progress and bells remain accessible through the cue.
 
-use crate::components::agents::agent_status_indicator::agent_dot_status_name;
 use crate::components::terminal_signal_marks::progress_presentation;
 use crate::components::ui::{
     ButtonSize, Icon, IconButton, IconType, Separator, SeparatorOrientation, StatusDot, TabsTrigger,
@@ -11,11 +10,7 @@ use crate::pump::use_store;
 use crate::session_naming::session_title;
 use dioxus::prelude::*;
 use roost_client_core::TerminalTransport;
-use roost_client_core::client::agents::status_policy::{
-    AgentStatusLevel, agent_status_presentation, agent_status_tooltip, derive_agent_status_level,
-};
 use roost_client_core::store::terminal_transport::session_terminal_transport_kind;
-use roost_protocol::wire::SessionId;
 
 /// v2 `sessionTerminalTransportLabel`: the tooltip for a DIRECT carrier, and
 /// nothing for the coordinator or an unconfirmed one.
@@ -32,39 +27,14 @@ fn transport_attribute(kind: TerminalTransport) -> &'static str {
     roost_client_core::store::terminal_transport::transport_attribute(kind)
 }
 
-/// The one visible tab cue, which summarizes every state needing attention.
-struct TabStatusCue {
-    status: &'static str,
-    label: String,
-}
-
-/// A compact, accessible roll-up of terminal and agent activity.
+/// A compact, accessible roll-up of terminal activity.
 #[component]
-fn TabStatus(
-    session_id: String,
-    agent_run_state: Option<&'static str>,
-    suppress_tooltip: bool,
-) -> Element {
+fn TabStatus(session_id: String, suppress_tooltip: bool) -> Element {
     let pump = use_store();
-    let (bell_rang, progress, session_agent_status) = {
+    let (bell_rang, progress) = {
         let core = pump.core();
         let core = core.borrow();
         let store = core.store();
-        let session_agent_status =
-            SessionId::try_from(session_id.clone())
-                .ok()
-                .and_then(|session_id| {
-                    let status = store.agent_status.status(&session_id)?;
-                    let acknowledged = Some(store.agent_seen.acknowledged_revision(status));
-                    let level = derive_agent_status_level(Some(status), acknowledged);
-                    (level != AgentStatusLevel::Unknown).then(|| {
-                        let presentation = agent_status_presentation(level);
-                        TabStatusCue {
-                            status: agent_dot_status_name(presentation.dot_status),
-                            label: agent_status_tooltip(status, acknowledged),
-                        }
-                    })
-                });
         (
             store.terminal_bells.is_unseen(&session_id),
             store
@@ -72,34 +42,14 @@ fn TabStatus(
                 .progress(&session_id)
                 .and_then(progress_presentation)
                 .map(|(_, state, label)| (state, label)),
-            session_agent_status,
         )
     };
-    let conversation_status = agent_run_state.map(|state| match state {
-        "info" => TabStatusCue {
-            status: "running",
-            label: "Agent running".to_owned(),
-        },
-        "warn" => TabStatusCue {
-            status: "warn",
-            label: "Agent failed".to_owned(),
-        },
-        _ => TabStatusCue {
-            status: "idle",
-            label: "Agent idle".to_owned(),
-        },
-    });
-    let agent_status = conversation_status.or(session_agent_status);
-    let status = match (
-        progress.as_ref().map(|(state, _)| *state),
-        agent_status.as_ref().map(|cue| cue.status),
-    ) {
-        (Some("error"), _) => Some("error"),
-        (Some("paused"), _) | (_, Some("warn")) => Some("warn"),
-        (Some(_), _) => Some("running"),
-        (_, _) if bell_rang => Some("running"),
-        (_, Some(status)) => Some(status),
-        _ => None,
+    let status = match progress.as_ref().map(|(state, _)| *state) {
+        Some("error") => Some("error"),
+        Some("paused") => Some("warn"),
+        Some(_) => Some("running"),
+        None if bell_rang => Some("running"),
+        None => None,
     };
     let Some(status) = status else {
         return rsx! {};
@@ -110,9 +60,6 @@ fn TabStatus(
     }
     if let Some((_, label)) = progress {
         labels.push(label);
-    }
-    if let Some(agent_status) = agent_status {
-        labels.push(agent_status.label);
     }
     let label = labels.join("; ");
     let title = (!suppress_tooltip).then(|| label.clone());
@@ -142,34 +89,14 @@ pub fn PaneTab(
     on_close: EventHandler<MouseEvent>,
 ) -> Element {
     let pump = use_store();
-    let (title, kind, agent_status) = {
+    let (title, kind) = {
         let core = pump.core();
         let core = core.borrow();
         let store = core.store();
-        if let Some(conversation_id) = session_id.strip_prefix("agent:") {
-            let conversation = store.agent_chat.conversations.get(conversation_id);
-            (
-                crate::components::agent_chat::display_conversation_title(
-                    conversation.map_or("", |conversation| conversation.title.as_str()),
-                )
-                .to_owned(),
-                None,
-                conversation.map(|conversation| match conversation.run_state {
-                    roost_protocol::wire::agent_chat::AgentRunState::Running => "info",
-                    roost_protocol::wire::agent_chat::AgentRunState::Failed => "warn",
-                    roost_protocol::wire::agent_chat::AgentRunState::Idle => "idle",
-                }),
-            )
-        } else {
-            let title = roost_client_core::store::selectors::session_by_id(store, &session_id)
-                .map(|session| session_title(store, session))
-                .unwrap_or_default();
-            (
-                title,
-                session_terminal_transport_kind(store, &session_id),
-                None,
-            )
-        }
+        let title = roost_client_core::store::selectors::session_by_id(store, &session_id)
+            .map(|session| session_title(store, session))
+            .unwrap_or_default();
+        (title, session_terminal_transport_kind(store, &session_id))
     };
     let direct = direct_transport_label(kind);
     let mut element = use_signal(|| None::<std::rc::Rc<MountedData>>);
@@ -223,7 +150,7 @@ pub fn PaneTab(
                 trailing_action: rsx! {
                     IconButton {
                         icon: IconType::X,
-                        label: if agent_status.is_some() { "Close agent" } else { "Close terminal" },
+                        label: "Close terminal",
                         size: ButtonSize::IconXs,
                         class: "shrink-0 group-data-[packed=true]/strip:hidden group-data-[packed=true]/strip:group-data-[active=true]/tab:inline-flex",
                         "data-testid": "tab-close-{session_id}",
@@ -231,13 +158,12 @@ pub fn PaneTab(
                     }
                 },
                 Icon {
-                    icon: if session_id.starts_with("agent:") { IconType::Bot } else { IconType::Terminal },
+                    icon: IconType::Terminal,
                     class: "size-4 shrink-0",
                 }
                 span { class: "flex-1 min-w-0 truncate", "{title}" }
                 TabStatus {
                     session_id: session_id.clone(),
-                    agent_run_state: agent_status,
                     suppress_tooltip: hover_card_available,
                 }
             }

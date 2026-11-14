@@ -21,7 +21,6 @@ pub async fn serve(
 ) -> anyhow::Result<()> {
     let notifier = Arc::clone(&services.cluster);
     let ownership = Arc::clone(&services.ownership);
-    let agent = Arc::clone(&services.agent);
     tokio::spawn(Arc::clone(&notifier).listen());
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let shutdown_db = services.db.clone();
@@ -34,7 +33,6 @@ pub async fn serve(
         internal_url,
         notifier,
         Arc::clone(&ownership),
-        Arc::clone(&agent),
         shutdown_rx.clone(),
     ));
     let listener_task = tokio::spawn(super::listener::serve(
@@ -98,6 +96,5 @@ pub async fn serve(
         let _ = listener_task.await;
     }
     signal_task.abort();
-    agent.leave_cluster().await;
     served.unwrap_or(Ok(()))
 }

@@ -8,7 +8,7 @@
 //! in `sync-feed.ts`.
 //!
 //! THE SOURCES ARE READ UNLOCKED AND FILTERED UNDER THE LINK. Each retained
-//! owner (titles, activity, agent status, viewers, routability) has its own
+//! owner (titles, activity, viewers, routability) has its own
 //! lock; taking them while this socket's link is held would order two locks
 //! against each other that the bus listeners take the other way round. The
 //! socket's scope is read under the link, where the live feed also moves it.
@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use roost_proto::SyncDomain;
 use roost_protocol::viewport::TerminalGeometry;
-use roost_protocol::wire::{AgentStatus, AgentStatusUpdate, WorkerFp};
+use roost_protocol::wire::WorkerFp;
 use serde_json::json;
 use tokio::sync::oneshot;
 
@@ -27,7 +27,7 @@ use crate::events::bus_messages::{
 use crate::services::CoordServices;
 use crate::sync_ws::driver::{LinkState, SyncLink, now_ms};
 use crate::sync_ws::feed::FeedFrame;
-use crate::sync_ws::feed::frames::{agent_status_frame, session_title_frame};
+use crate::sync_ws::feed::frames::session_title_frame;
 use crate::sync_ws::feed::last_activity::last_activity_frame;
 use crate::sync_ws::feed::presence::session_presence_frame;
 use crate::sync_ws::feed::sync_state::mint_socket_id;
@@ -152,7 +152,6 @@ struct RetainedSessionState {
     titles: Vec<SessionTitleUpdate>,
     signals: Vec<crate::events::bus_messages::SessionTerminalSignals>,
     activity: Vec<LastActivityUpdate>,
-    statuses: Vec<AgentStatus>,
     viewers: BTreeMap<String, BTreeMap<String, TerminalGeometry>>,
 }
 
@@ -162,7 +161,6 @@ impl RetainedSessionState {
             titles: services.titles.title_snapshot(),
             signals: services.terminal_signals.snapshot(),
             activity: services.feed.last_activity().snapshot(),
-            statuses: services.agents.status.snapshot(),
             viewers: services
                 .views
                 .viewer_projection()
@@ -172,10 +170,8 @@ impl RetainedSessionState {
         }
     }
 
-    /// Titles, terminal signals, activity, agent status and (for a v2
-    /// terminal seed) viewer
-    /// rooms, each only for a session this socket observes and, when given,
-    /// was admitted.
+    /// Titles, terminal signals, activity and viewer rooms for observed and
+    /// admitted sessions.
     fn collect(
         &self,
         index: &SyncResourceIndex,
@@ -206,16 +202,6 @@ impl RetainedSessionState {
             .filter(|update| seeds(&update.session_id))
         {
             frames.push((last_activity_frame(update), update.session_id.clone()));
-        }
-        for status in &self.statuses {
-            let session_id = status.common.session_id.as_str();
-            if seeds(session_id) {
-                let update = AgentStatusUpdate {
-                    common: status.common.clone(),
-                    active: status.active,
-                };
-                frames.push((agent_status_frame(&update), session_id.to_owned()));
-            }
         }
         if viewers {
             let now = now_ms();

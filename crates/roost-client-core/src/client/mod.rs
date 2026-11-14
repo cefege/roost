@@ -5,8 +5,8 @@
 //! `rpc` shapes a Connect call and decides what happens when the credential
 //! cannot be minted; `sync` places every frame a socket delivers and reads a
 //! close code; `auth` owns the device keys and the ceremony a browser pairs
-//! through; `agents`, `global_search` and `ui_state` each own the projection
-//! their own surface reads. A service that restated a type another service
+//! through; `global_search` and `ui_state` own the projections their surfaces
+//! read. A service that restated a type another service
 //! already owns is how two clients end up disagreeing about the same
 //! arrangement.
 //!
@@ -14,8 +14,6 @@
 //! domains, the readiness gate and the acknowledgements; these sit on the host
 //! side of that boundary and hand their answers in as `ClientEvent`s.
 
-pub mod agent_chat;
-pub mod agents;
 pub mod attachments;
 pub mod auth;
 pub mod carriers;

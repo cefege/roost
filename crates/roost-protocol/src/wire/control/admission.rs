@@ -12,11 +12,6 @@
 
 use serde_json::Value;
 
-use crate::native_dashboard::{
-    ALLOWED_REQUEST_HEADERS, MAX_HEADER_NAME_BYTES, MAX_HEADER_VALUE_BYTES, MAX_HEADERS,
-    MAX_REQUEST_BODY_BYTES, MAX_SERVICE_ID_BYTES, dashboard_host_is_valid, encoded_body_within,
-    method_is_allowed, path_is_safe,
-};
 use crate::terminal_capture::TERMINAL_CAPTURE_EVIDENCE_MAX_CHARS;
 use crate::terminal_search::{
     GLOBAL_TERMINAL_SEARCH_PAGE_DEADLINE_MS, GLOBAL_TERMINAL_SEARCH_ROWS_PER_SESSION,
@@ -183,107 +178,6 @@ impl ClientControlFrame {
                 positive("respawn-if-missing.cols", *cols)?;
                 positive("respawn-if-missing.rows", *rows)?;
             }
-            Self::StatsDashboardHttp {
-                request_id,
-                resource,
-                stream,
-                host,
-                port,
-                method,
-                path,
-                headers,
-                body_base64,
-                ..
-            } => {
-                max_utf8_bytes(
-                    "stats-dashboard-http.request_id",
-                    request_id,
-                    MAX_SERVICE_ID_BYTES,
-                )?;
-                if request_id.is_empty() {
-                    return Err(ProtocolError::new(
-                        "stats-dashboard-http.request_id",
-                        "must not be empty",
-                    ));
-                }
-                if !resource.is_valid() {
-                    return Err(ProtocolError::new(
-                        "stats-dashboard-http.resource",
-                        "must name a process-owned conversation/transport resource",
-                    ));
-                }
-                if let Some(operation) = stream {
-                    use crate::native_dashboard::{StreamRequest, token_is_well_formed};
-                    let valid = method == "GET"
-                        && path == "/api/events"
-                        && body_base64.is_empty()
-                        && match operation {
-                            StreamRequest::Open => true,
-                            StreamRequest::Next { id } | StreamRequest::Close { id } => {
-                                token_is_well_formed(id)
-                            }
-                        };
-                    if !valid {
-                        return Err(ProtocolError::new(
-                            "stats-dashboard-http.stream",
-                            "must be a bounded native event stream operation",
-                        ));
-                    }
-                }
-                if !dashboard_host_is_valid(host) {
-                    return Err(ProtocolError::new(
-                        "stats-dashboard-http.host",
-                        "must be a bare IP or DNS host",
-                    ));
-                }
-                if *port == 0 {
-                    return Err(ProtocolError::new(
-                        "stats-dashboard-http.port",
-                        "must be a bound port",
-                    ));
-                }
-                if !method_is_allowed(method) {
-                    return Err(ProtocolError::new(
-                        "stats-dashboard-http.method",
-                        "must be GET, HEAD or POST",
-                    ));
-                }
-                if !path_is_safe(path) {
-                    return Err(ProtocolError::new(
-                        "stats-dashboard-http.path",
-                        "must be an absolute path without traversal",
-                    ));
-                }
-                if headers.len() > MAX_HEADERS {
-                    return Err(ProtocolError::new(
-                        "stats-dashboard-http.headers",
-                        "carries too many headers",
-                    ));
-                }
-                for header in headers {
-                    let name = header.name.to_ascii_lowercase();
-                    if !ALLOWED_REQUEST_HEADERS.contains(&name.as_str())
-                        || name.is_empty()
-                        || name.len() > MAX_HEADER_NAME_BYTES
-                        || header.value.len() > MAX_HEADER_VALUE_BYTES
-                        || header
-                            .value
-                            .bytes()
-                            .any(|byte| byte == b'\r' || byte == b'\n' || byte == 0)
-                    {
-                        return Err(ProtocolError::new(
-                            "stats-dashboard-http.headers",
-                            "carries a header this bridge will not forward",
-                        ));
-                    }
-                }
-                if !encoded_body_within(body_base64, MAX_REQUEST_BODY_BYTES) {
-                    return Err(ProtocolError::new(
-                        "stats-dashboard-http.body_base64",
-                        "exceeds the request body limit",
-                    ));
-                }
-            }
             _ => {}
         }
         Ok(())
@@ -298,7 +192,6 @@ impl ClientControlFrame {
             Self::SearchScrollbackBatch { .. }
                 | Self::CancelScrollbackSearchBatch { .. }
                 | Self::DiagTerminalCapture { .. }
-                | Self::StatsDashboardHttp { .. }
         )
     }
 

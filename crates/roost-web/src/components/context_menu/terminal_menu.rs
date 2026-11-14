@@ -16,8 +16,7 @@ use crate::components::ui::context_menu::{ContextMenu, ContextMenuContent, Conte
 use crate::components::ui::dom::{FocusOpener, focused_element, restore_focus, viewport_height};
 use crate::components::ui::menu_overlay::{MenuContext, MenuPlacement, request_open};
 use crate::components::ui::{
-    AutoFocusRequest, Button, ButtonVariant, Icon, IconType, Sheet, SheetContent, SheetSide,
-    SheetTitle,
+    AutoFocusRequest, Button, ButtonVariant, Sheet, SheetContent, SheetSide, SheetTitle,
 };
 
 /// The actions this menu exposes, with stable test identifiers.
@@ -83,7 +82,6 @@ pub fn TerminalFloatingMenu(
     on_copy: EventHandler<String>,
     on_find: EventHandler<()>,
     on_close: EventHandler<()>,
-    #[props(default)] on_start_agent: Option<EventHandler<()>>,
 ) -> Element {
     // A menu that takes focus and never gives it back strands keyboard input on
     // `body`. The opener is captured before the menu moves focus to its first item.
@@ -110,14 +108,6 @@ pub fn TerminalFloatingMenu(
                         test_id: "ctx-copy-selection",
                         onclick: move |_: MouseEvent| on_copy.call(copy_selection.clone()),
                         "Copy"
-                    }
-                }
-                if let Some(on_start_agent) = on_start_agent {
-                    ContextMenuItem {
-                        test_id: "ctx-start-agent",
-                        onclick: move |_: MouseEvent| on_start_agent.call(()),
-                        Icon { icon: IconType::Bot, class: "size-4" }
-                        "Start agent here"
                     }
                 }
                 ContextMenuItem {
@@ -199,7 +189,6 @@ pub fn TerminalActionSheet(
     on_paste: EventHandler<()>,
     on_find: EventHandler<()>,
     on_cancel: EventHandler<()>,
-    #[props(default)] on_start_agent: Option<EventHandler<()>>,
 ) -> Element {
     let has_selection = !selection.is_empty();
     let copy_selection = selection.clone();
@@ -255,14 +244,6 @@ pub fn TerminalActionSheet(
                     }
                     SheetItem { testid: "ctx-paste", on_activate: move |_| on_paste.call(()), "Paste" }
                     SheetItem { testid: "ctx-find", on_activate: move |_| on_find.call(()), "Find" }
-                    if let Some(on_start_agent) = on_start_agent {
-                        SheetItem {
-                            testid: "ctx-start-agent",
-                            on_activate: move |_| on_start_agent.call(()),
-                            Icon { icon: IconType::Bot, class: "size-4" }
-                            "Start agent here"
-                        }
-                    }
                     SheetItem {
                         testid: "ctx-cancel",
                         on_activate: move |_| on_cancel.call(()),

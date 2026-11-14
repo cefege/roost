@@ -24,7 +24,6 @@ async fn standalone_update_atomically_points_at_the_complete_release_tree() {
         vec![
             FakeAsset::roost_program("roost-linux-x64"),
             FakeAsset::named("roost-keeper-linux-x64", "keeper"),
-            FakeAsset::named("roost-omp-linux-x64", "fork"),
         ],
     );
     let root = origin.directory();
@@ -32,9 +31,7 @@ async fn standalone_update_atomically_points_at_the_complete_release_tree() {
     env.set("HOME", root.to_str().unwrap());
     env.set("XDG_DATA_HOME", root.join("data").to_str().unwrap());
     let executable = root.join("roost");
-    let global_omp = root.join("omp");
     std::fs::write(&executable, b"previous roost").unwrap();
-    std::fs::write(&global_omp, b"user omp").unwrap();
     let (candidate, target) =
         roost_cli::update::release_tree::stage(&env, HostPlatform::Linux, "x64", tag, &executable)
             .await
@@ -55,11 +52,6 @@ async fn standalone_update_atomically_points_at_the_complete_release_tree() {
         std::fs::canonicalize(&executable).unwrap(),
         std::fs::canonicalize(&target).unwrap()
     );
-    assert_eq!(
-        std::fs::read(target.with_file_name("omp")).unwrap(),
-        origin.body("roost-omp-linux-x64")
-    );
-    assert_eq!(std::fs::read(global_omp).unwrap(), b"user omp");
     let journal_dir = root.join("journal");
     let journal = roost_cli::update::journal::SelfUpdateJournal::prepared(
         2,
@@ -81,10 +73,6 @@ async fn standalone_update_atomically_points_at_the_complete_release_tree() {
         std::fs::canonicalize(&executable).unwrap(),
         std::fs::canonicalize(&target).unwrap()
     );
-    assert_eq!(
-        std::fs::read(target.with_file_name("omp")).unwrap(),
-        origin.body("roost-omp-linux-x64")
-    );
     std::fs::write(journal.previous_path(), b"previous roost").unwrap();
     journal.write(&journal_dir).unwrap();
     assert_eq!(
@@ -92,22 +80,12 @@ async fn standalone_update_atomically_points_at_the_complete_release_tree() {
         roost_cli::update::recovery::RecoveryOutcome::PreviousRestored
     );
     assert_eq!(std::fs::read(&executable).unwrap(), b"previous roost");
-    assert_eq!(
-        std::fs::read(target.with_file_name("omp")).unwrap(),
-        origin.body("roost-omp-linux-x64")
-    );
 }
 
 #[tokio::test]
-async fn standalone_update_keeps_the_existing_executable_when_omp_is_missing() {
+async fn standalone_update_keeps_the_existing_executable_when_keeper_is_missing() {
     let tag = "v3.0.5";
-    let origin = FakeRelease::start(
-        tag,
-        vec![
-            FakeAsset::roost_program("roost-linux-x64"),
-            FakeAsset::named("roost-keeper-linux-x64", "keeper"),
-        ],
-    );
+    let origin = FakeRelease::start(tag, vec![FakeAsset::roost_program("roost-linux-x64")]);
     let root = origin.directory();
     let mut env = environment(&origin.base_url);
     env.set("HOME", root.to_str().unwrap());

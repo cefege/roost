@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use super::kind_of;
 use super::payloads::{
-    Binary, DAgentPrompt, DAttachmentChunk, DAttachmentDirectStatusRequest, DCoordMovePrepare,
+    Binary, DAttachmentChunk, DAttachmentDirectStatusRequest, DCoordMovePrepare,
     DCoordMoveSnapshotChunk, DCoordMoveSnapshotStart, DCoordRelocate, DInputRequest,
     DKeeperUpdatePrepare, DLocalAttachmentGrant, DLocalAttachmentGrantRevoke,
     DLocalAttachmentPeerCancel, DLocalAttachmentPeerOffer, DLocalTerminalGrant,
@@ -143,28 +143,8 @@ pub enum CoordWorkerDownstream {
     /// A journaled keeper update, carrying its complete immutable envelope.
     #[serde(rename = "keeper-update-prepare")]
     KeeperUpdatePrepare(DKeeperUpdatePrepare),
-    /// An agent prompt, gated on the status epoch, occupant and revision it
-    /// was composed against so a fenced occupant's prompt is not delivered.
-    #[serde(rename = "agent-prompt")]
-    AgentPrompt(DAgentPrompt),
     #[serde(rename = "live-metrics-subscription")]
     LiveMetricsSubscription(roost_proto::DLiveMetricsSubscription),
-    #[serde(rename = "omp-prompt")]
-    OmpPrompt(roost_proto::DOmpPrompt),
-    #[serde(rename = "omp-cancel")]
-    OmpCancel(roost_proto::DOmpCancel),
-    #[serde(rename = "omp-events-ack")]
-    OmpEventsAck(roost_proto::DOmpEventsAck),
-    #[serde(rename = "omp-close")]
-    OmpClose(roost_proto::DOmpClose),
-    #[serde(rename = "omp-open")]
-    OmpOpen(roost_proto::DOmpOpen),
-    #[serde(rename = "omp-respond")]
-    OmpRespond(roost_proto::DOmpRespond),
-    #[serde(rename = "omp-set-mode")]
-    OmpSetMode(roost_proto::DOmpSetMode),
-    #[serde(rename = "omp-ui")]
-    OmpUi(roost_proto::DOmpUi),
 }
 
 impl CoordWorkerDownstream {
@@ -201,16 +181,7 @@ impl CoordWorkerDownstream {
             Self::CoordRelocate(_) => "coord-relocate",
             Self::UpdateBroker(_) => "update-broker",
             Self::KeeperUpdatePrepare(_) => "keeper-update-prepare",
-            Self::AgentPrompt(_) => "agent-prompt",
             Self::LiveMetricsSubscription(_) => "live-metrics-subscription",
-            Self::OmpPrompt(_) => "omp-prompt",
-            Self::OmpCancel(_) => "omp-cancel",
-            Self::OmpEventsAck(_) => "omp-events-ack",
-            Self::OmpOpen(_) => "omp-open",
-            Self::OmpClose(_) => "omp-close",
-            Self::OmpRespond(_) => "omp-respond",
-            Self::OmpSetMode(_) => "omp-set-mode",
-            Self::OmpUi(_) => "omp-ui",
         }
     }
 

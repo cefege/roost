@@ -9,8 +9,8 @@ use serde_json::Value;
 
 use super::kind_of;
 use super::payloads::{
-    AgentStatusFrame, Binary, InputResult, RefreshJwt, TerminalMetadata, TerminalStreamResult,
-    UpdateProgress, WAttachmentDirectStatus, WCellGrid, WCellGridChunk, WLocalAttachmentPeerAnswer,
+    Binary, InputResult, RefreshJwt, TerminalMetadata, TerminalStreamResult, UpdateProgress,
+    WAttachmentDirectStatus, WCellGrid, WCellGridChunk, WLocalAttachmentPeerAnswer,
     WLocalAttachmentPeerError, WLocalTerminalPeerAnswer, WLocalTerminalPeerError,
     WTerminalInputRouteResult, WTerminalPipelineSnapshot, WTerminalTransportProbeResult,
     WTerminalViewProjection, WTerminalViewState,
@@ -102,10 +102,6 @@ pub enum CoordWorkerUpstream {
     /// coordinator's already-aggregated geometry and the generation addressed.
     #[serde(rename = "terminal-stream-result")]
     TerminalStreamResult(TerminalStreamResult),
-    /// A volatile agent-status observation. Never journal-backed: the next one
-    /// replaces it, and a stale one is fenced by the status epoch.
-    #[serde(rename = "agent-status")]
-    AgentStatus(AgentStatusFrame),
     /// Journal-backed progress of one update job on this host, replayed after
     /// a reconnect so an upgrade in flight resumes instead of restarting.
     #[serde(rename = "update-progress")]
@@ -142,13 +138,6 @@ pub enum CoordWorkerUpstream {
     TerminalPipelineSnapshot(WTerminalPipelineSnapshot),
     #[serde(rename = "live-metrics")]
     LiveMetrics(LiveHostSnapshot),
-    #[serde(rename = "omp-events")]
-    OmpEvents(roost_proto::WOmpEvents),
-    /// Ephemeral worker-to-browser effects, never part of the OMP transcript.
-    #[serde(rename = "omp-host-service-request")]
-    OmpHostServiceRequest(roost_proto::WOmpHostServiceRequest),
-    #[serde(rename = "omp-ui-action-receipt")]
-    OmpUiActionReceipt(roost_proto::WOmpUiActionReceipt),
 }
 
 impl CoordWorkerUpstream {
@@ -166,7 +155,6 @@ impl CoordWorkerUpstream {
             Self::CellGridChunk(_) => "cell-grid-chunk",
             Self::InputResult(_) => "input-result",
             Self::TerminalStreamResult(_) => "terminal-stream-result",
-            Self::AgentStatus(_) => "agent-status",
             Self::UpdateProgress(_) => "update-progress",
             Self::TerminalMetadata(_) => "terminal-metadata",
             Self::TerminalViewState(_) => "terminal-view-state",
@@ -180,9 +168,6 @@ impl CoordWorkerUpstream {
             Self::TerminalTransportProbeResult(_) => "terminal-transport-probe-result",
             Self::TerminalPipelineSnapshot(_) => "terminal-pipeline-snapshot",
             Self::LiveMetrics(_) => "live-metrics",
-            Self::OmpEvents(_) => "omp-events",
-            Self::OmpHostServiceRequest(_) => "omp-host-service-request",
-            Self::OmpUiActionReceipt(_) => "omp-ui-action-receipt",
         }
     }
 

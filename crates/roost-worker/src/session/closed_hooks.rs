@@ -1,9 +1,6 @@
-//! The owners told when a session this worker held has ended: v2
-//! `apps/worker/src/session/session-manager-state.ts` `setAgentStatusHooks`
-//! (`sessionClosed`) as `session-lifecycle.ts` `_dropChannelState` calls it.
-//! `runtime::owners` registers the route owner's `retire_session` and the view
-//! owner's `close_session` (v2 `main.ts:228-236`); `SessionManager::close_channel`
-//! notifies, after the record left the table and with no lock held.
+//! The owners notified when a session held by this worker ends.
+//! `runtime::owners` registers route and view retirement hooks.
+//! `SessionManager::close_channel` notifies after removing the record, without a lock held.
 
 use std::sync::{Arc, Mutex};
 

@@ -29,7 +29,6 @@ impl std::fmt::Debug for CoordConfig {
                 "terminal_memory_budget_bytes",
                 &self.terminal_memory_budget_bytes,
             )
-            .field("agent_endpoint_overrides", &self.agent_endpoint_overrides)
             .field("terminal_peer_enabled", &self.terminal_peer_enabled)
             .field("terminal_peer_stun_urls", &self.terminal_peer_stun_urls)
             .finish()

@@ -7,7 +7,6 @@ use roost_client_core::store::selectors::session_by_id;
 
 use super::deck_dom::{ClientBox, DeckContainer};
 use super::inline_style::px;
-use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
 use crate::components::ui::{HoverCardPresentation, Icon, IconType};
 use crate::platform::worker_paths::short_worker_path;
 use crate::pump::use_store;
@@ -70,7 +69,6 @@ pub fn PaneTabHoverCard(session_id: String, anchor: ClientBox) -> Element {
                 div { class: "flex items-center gap-2 min-w-0 text-sm",
                     Icon { icon: IconType::Terminal, class: "size-4 shrink-0 text-muted-foreground" }
                     span { class: "flex-1 min-w-0 truncate font-medium [font-family:var(--term-font-family)]", "{reading.title}" }
-                    AgentStatusIndicator { session_id: session_id.clone() }
                 }
                 div { class: "truncate text-xs font-mono text-muted-foreground", "{reading.cwd}" }
             }

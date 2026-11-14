@@ -12,7 +12,6 @@
 //! produces later go through the [`Uplink`] fenced to the connection they
 //! arrived on.
 
-mod agent_prompt;
 mod attachment_peer;
 mod attachments;
 mod direct;
@@ -125,9 +124,6 @@ impl Dispatcher {
             CoordWorkerDownstream::TerminalInputRouteClaim(request) => {
                 self.route_claim(request, received, link);
             }
-            CoordWorkerDownstream::AgentPrompt(request) => {
-                self.agent_prompt(request, received, link);
-            }
             CoordWorkerDownstream::LocalTerminalGrant(request) => {
                 self.local_terminal_grant(request, link);
             }
@@ -175,62 +171,6 @@ impl Dispatcher {
             | CoordWorkerDownstream::CoordMoveSnapshotStart(_)
             | CoordWorkerDownstream::CoordMoveSnapshotChunk(_)
             | CoordWorkerDownstream::CoordRelocate(_)) => retired(frame.kind()),
-            CoordWorkerDownstream::OmpOpen(request) => {
-                if let Some(owner) = self.owners.as_ref().and_then(|owners| owners.omp.as_ref()) {
-                    owner.open(request);
-                } else {
-                    tracing::debug!("OMP owner absent");
-                }
-            }
-            CoordWorkerDownstream::OmpPrompt(request) => {
-                if let Some(owner) = self.owners.as_ref().and_then(|owners| owners.omp.as_ref()) {
-                    owner.prompt(request);
-                } else {
-                    tracing::debug!("OMP prompt has no owner");
-                }
-            }
-            CoordWorkerDownstream::OmpCancel(request) => {
-                if let Some(owner) = self.owners.as_ref().and_then(|owners| owners.omp.as_ref()) {
-                    owner.cancel(request);
-                } else {
-                    tracing::debug!("OMP cancel has no owner");
-                }
-            }
-            CoordWorkerDownstream::OmpSetMode(request) => {
-                if let Some(owner) = self.owners.as_ref().and_then(|owners| owners.omp.as_ref()) {
-                    owner.set_mode(request);
-                } else {
-                    tracing::debug!("OMP mode change has no owner");
-                }
-            }
-            CoordWorkerDownstream::OmpUi(request) => {
-                if let Some(owner) = self.owners.as_ref().and_then(|owners| owners.omp.as_ref()) {
-                    owner.ui(request);
-                } else {
-                    tracing::warn!("OMP semantic UI request has no owner");
-                }
-            }
-            CoordWorkerDownstream::OmpRespond(request) => {
-                if let Some(owner) = self.owners.as_ref().and_then(|owners| owners.omp.as_ref()) {
-                    owner.respond(request);
-                } else {
-                    tracing::debug!("OMP response has no owner");
-                }
-            }
-            CoordWorkerDownstream::OmpEventsAck(request) => {
-                if let Some(owner) = self.owners.as_ref().and_then(|owners| owners.omp.as_ref()) {
-                    owner.ack(request);
-                } else {
-                    tracing::debug!("OMP acknowledgment has no owner");
-                }
-            }
-            CoordWorkerDownstream::OmpClose(request) => {
-                if let Some(owner) = self.owners.as_ref().and_then(|owners| owners.omp.as_ref()) {
-                    owner.close(request);
-                } else {
-                    tracing::debug!("OMP close has no owner");
-                }
-            }
             CoordWorkerDownstream::LiveMetricsSubscription(request) => {
                 self.live_metrics_subscription(request)
             }

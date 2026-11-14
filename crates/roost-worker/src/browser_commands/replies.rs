@@ -111,7 +111,6 @@ pub fn trace_id(frame: &ClientControlFrame) -> Option<TraceId> {
         | ClientControlFrame::AttachmentProbe { trace_id, .. }
         | ClientControlFrame::ListDir { trace_id, .. }
         | ClientControlFrame::Mkdir { trace_id, .. }
-        | ClientControlFrame::ListSkills { trace_id, .. }
         | ClientControlFrame::GitDiff { trace_id, .. }
         | ClientControlFrame::SetTitle { trace_id, .. }
         | ClientControlFrame::CursorPos { trace_id, .. }
@@ -126,7 +125,6 @@ pub fn trace_id(frame: &ClientControlFrame) -> Option<TraceId> {
         | ClientControlFrame::DeleteAttachment { trace_id, .. }
         | ClientControlFrame::DiagTerminalCapture { trace_id, .. }
         | ClientControlFrame::DiagSnapshot { trace_id, .. }
-        | ClientControlFrame::RespawnIfMissing { trace_id, .. }
-        | ClientControlFrame::StatsDashboardHttp { trace_id, .. } => trace_id.clone(),
+        | ClientControlFrame::RespawnIfMissing { trace_id, .. } => trace_id.clone(),
     }
 }

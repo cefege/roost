@@ -41,11 +41,6 @@ pub fn empty_hydration_answer(call: &RpcCall) -> Option<RpcResult> {
             call_id: *call_id,
             requests: Default::default(),
         },
-        RpcCall::AgentChatList { call_id } => RpcResult::AgentChatList {
-            call_id: *call_id,
-            conversations: Vec::new(),
-            host_connected: false,
-        },
         _ => return None,
     })
 }

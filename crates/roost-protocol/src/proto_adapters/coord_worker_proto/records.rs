@@ -1,28 +1,20 @@
 //! The record-to-protobuf conversions the two link directions share: the
-//! agent-status observation, the update-progress report, the terminal
-//! metadata frame, and the scalar records whose wire fields are narrower than
-//! the domain ones. Called by `coord_worker_proto::upstream` and
-//! `coord_worker_proto::downstream`.
-//!
-//! The agent-status mapping goes through the domain type's own serde form
-//! rather than naming the state and source strings here: those spellings are
-//! the `#[serde(rename_all)]` on `AgentRuntimeState` and `AgentStatusSource`,
-//! and a second copy of them is exactly the fork this crate exists to prevent.
+//! update-progress report, terminal metadata, and scalar records whose wire
+//! fields are narrower than the domain ones. Called by `coord_worker_proto`
+//! link direction adapters.
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use roost_proto::{
-    WAgentStatus, WTerminalMetadata, WTerminalNotification, WTerminalProgress, WTerminalUserVar,
-    WUpdateProgress,
+    WTerminalMetadata, WTerminalNotification, WTerminalProgress, WTerminalUserVar, WUpdateProgress,
 };
 
 use crate::proto_adapters::program_status_proto::{
     program_status_records_from_proto, program_status_records_to_proto,
 };
 use crate::terminal_signals::{TerminalNotification, TerminalProgress, TerminalUserVar};
-use crate::wire::agent_status::{AgentStatus, AgentStatusSource, AgentStatusUpdate};
 use crate::wire::brand::ChannelId;
-use crate::wire::coord_worker::{AgentStatusFrame, TerminalMetadata, UpdateProgress};
+use crate::wire::coord_worker::{TerminalMetadata, UpdateProgress};
 use crate::{ProtocolError, ProtocolResult};
 
 /// A `uint64` the domain union's `i64` cannot hold, refused rather than
@@ -43,119 +35,6 @@ pub(super) fn widen_u64(field: &str, value: i64) -> ProtocolResult<u64> {
 /// A channel id off the wire, held to the same shape the domain brand enforces.
 pub(super) fn channel_id(field: &str, value: u32) -> ProtocolResult<ChannelId> {
     ChannelId::try_from(i64::from(value)).map_err(|error| error.within(field))
-}
-
-/// The proto carries `updated_at` as a double; the domain owns it as whole
-/// milliseconds. A fractional or out-of-range value is refused rather than
-/// truncated, because a status stamped at the wrong millisecond fences against
-/// the wrong revision.
-fn updated_at_to_i64(value: f64) -> ProtocolResult<i64> {
-    if !value.is_finite() || value.fract() != 0.0 {
-        return Err(ProtocolError::new(
-            "agent_status.updated_at",
-            format!("must be a whole number of milliseconds, got {value}"),
-        ));
-    }
-    if value < i64::MIN as f64 || value > i64::MAX as f64 {
-        return Err(ProtocolError::new(
-            "agent_status.updated_at",
-            format!("must fit in 64 signed bits, got {value}"),
-        ));
-    }
-    Ok(value as i64)
-}
-
-fn updated_at_to_f64(value: i64) -> ProtocolResult<f64> {
-    // An i64 beyond 2^53 has no exact double, so it would come back as a
-    // different millisecond than it left as.
-    if value.unsigned_abs() > (1u64 << 53) {
-        return Err(ProtocolError::new(
-            "agent_status.updated_at",
-            format!("{value} milliseconds is not exactly representable on the wire"),
-        ));
-    }
-    Ok(value as f64)
-}
-
-/// One status field as the domain type spells it on the wire.
-fn enum_string<T: serde::Serialize>(field: &str, value: T) -> ProtocolResult<String> {
-    serde_json::to_value(value)
-        .ok()
-        .and_then(|value| value.as_str().map(str::to_owned))
-        .ok_or_else(|| ProtocolError::new(field, "has no wire spelling"))
-}
-
-fn enum_from_str<T: serde::de::DeserializeOwned>(field: &str, value: &str) -> ProtocolResult<T> {
-    serde_json::from_value(json!(value)).map_err(|_| {
-        ProtocolError::new(field, format!("{value:?} is not a value this crate names"))
-    })
-}
-
-/// A volatile agent-status observation, in both directions.
-pub(super) fn agent_status_to_proto(frame: &AgentStatusFrame) -> ProtocolResult<WAgentStatus> {
-    let status = &frame.status;
-    let common = &status.common;
-    Ok(WAgentStatus {
-        session_id: common.session_id.as_str().to_owned(),
-        agent_id: common.agent_id.as_str().to_owned(),
-        state: enum_string("agent_status.state", common.state)?,
-        message: common.message.clone(),
-        revision: widen_u64("agent_status.revision", common.revision)?,
-        completed_revision: widen_u64(
-            "agent_status.completed_revision",
-            common.completed_revision,
-        )?,
-        updated_at: updated_at_to_f64(common.updated_at)?,
-        active: status.active,
-        status_epoch: common
-            .status_epoch
-            .as_ref()
-            .map(|epoch| epoch.as_str().to_owned()),
-        occupant_id: common
-            .occupant_id
-            .as_ref()
-            .map(|occupant| occupant.as_str().to_owned()),
-        source: common.source.map(|source| source.as_str().to_owned()),
-        occupant_exited: common.occupant_exited,
-        ..Default::default()
-    })
-}
-
-pub(super) fn agent_status_from_proto(status: &WAgentStatus) -> ProtocolResult<AgentStatus> {
-    let source = match &status.source {
-        Some(spelling) => Some(enum_from_str::<AgentStatusSource>(
-            "agent_status.source",
-            spelling,
-        )?),
-        None => None,
-    };
-    // The domain types' own parses are the admission path, as v2's hub
-    // (`apps/coord/src/agents/agent-status-hub.ts:136-140`): every status is
-    // an update bounded by the common checks, and only an ACTIVE one is parsed
-    // as a retained row. An inactive status is its occupant's retirement and
-    // travels with `active: false`; refusing it would strand the row.
-    let value = json!({
-        "session_id": status.session_id,
-        "agent_id": status.agent_id,
-        "state": status.state,
-        "message": status.message,
-        "revision": narrow_i64("agent_status.revision", status.revision)?,
-        "completed_revision": narrow_i64("agent_status.completed_revision", status.completed_revision)?,
-        "updated_at": updated_at_to_i64(status.updated_at)?,
-        "status_epoch": status.status_epoch,
-        "occupant_id": status.occupant_id,
-        "source": source.map(|source| source.as_str().to_owned()),
-        "occupant_exited": status.occupant_exited,
-        "active": status.active,
-    });
-    if status.active {
-        return AgentStatus::parse(value);
-    }
-    let retirement = AgentStatusUpdate::parse(value)?;
-    Ok(AgentStatus {
-        common: retirement.common,
-        active: false,
-    })
 }
 
 /// Journal-backed update progress, in both directions.

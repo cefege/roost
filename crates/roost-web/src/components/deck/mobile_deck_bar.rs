@@ -1,4 +1,4 @@
-//! The phone workspace bar: drawer, selected tab title, active agent actions,
+//! The phone workspace bar: drawer, selected tab title,
 //! a new-terminal button, and the count square that opens the terminal grid.
 //! Rendered by `TerminalDeck`, twice while a swipe slides the neighbour's bar
 //! in. Ports the chrome half of
@@ -10,15 +10,11 @@ use roost_client_core::deck::deck_tab_badge;
 use roost_client_core::store::selectors::session_by_id;
 use roost_client_core::store::sidebar::SidebarIntent;
 use roost_client_core::store::terminal_transport::session_terminal_transport_kind;
-use roost_protocol::wire::agent_chat::ConversationSummary;
 
 use super::pane_tab::direct_transport_label;
 use super::workspace_tabs_sheet::WorkspaceTabsSheet;
-use crate::components::agent_chat::AgentChatHeader;
 use crate::components::terminal::terminal_transport_indicator::TerminalTransportIndicator;
-use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, StatusDot,
-};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, IconButton, IconType};
 use crate::pump::use_store;
 use crate::session_naming::session_title;
 /// The bar's title for the painted terminal, and its tooltip.
@@ -27,8 +23,6 @@ struct BarReading {
     title: String,
     native_title: String,
     active: bool,
-    agent_status: Option<&'static str>,
-    agent_conversation: Option<ConversationSummary>,
 }
 
 /// One bar.
@@ -36,7 +30,7 @@ struct BarReading {
 pub fn MobileDeckBar(
     tab_ids: Vec<String>,
     selected_tab: String,
-    show_agent_actions: bool,
+    show_sheet: bool,
     tabs_sheet_open: Signal<bool>,
     on_select: EventHandler<String>,
     on_close: EventHandler<String>,
@@ -50,21 +44,8 @@ pub fn MobileDeckBar(
         let store = core.store();
         let active_id = tab_ids.iter().find(|id| **id == selected_tab);
         let active = active_id.and_then(|id| session_by_id(store, id));
-        let agent = active_id
-            .and_then(|id| id.strip_prefix("agent:"))
-            .and_then(|id| store.agent_chat.conversations.get(id));
         let title = active.map_or_else(
-            || {
-                agent.map_or_else(
-                    || "Terminal".to_owned(),
-                    |conversation| {
-                        crate::components::agent_chat::display_conversation_title(
-                            &conversation.title,
-                        )
-                        .to_owned()
-                    },
-                )
-            },
+            || "Terminal".to_owned(),
             |session| session_title(store, session),
         );
         let carrier = active.and_then(|_| {
@@ -75,12 +56,6 @@ pub fn MobileDeckBar(
                 .map_or_else(|| title.clone(), |carrier| format!("{title} — {carrier}")),
             title,
             active: active.is_some(),
-            agent_status: agent.map(|conversation| match conversation.run_state {
-                roost_protocol::wire::agent_chat::AgentRunState::Running => "info",
-                roost_protocol::wire::agent_chat::AgentRunState::Failed => "warn",
-                roost_protocol::wire::agent_chat::AgentRunState::Idle => "idle",
-            }),
-            agent_conversation: agent.cloned(),
         }
     };
     let badge = deck_tab_badge(
@@ -109,23 +84,7 @@ pub fn MobileDeckBar(
                 div {
                     title: "{reading.native_title}",
                     class: "flex items-center gap-2 w-full h-full min-w-0",
-                    if reading.agent_status.is_some() {
-                        Icon { icon: IconType::Bot, class: "size-4 shrink-0" }
-                    }
                     span { class: "shrink min-w-0 truncate", "{reading.title}" }
-                    // A stable status node anchors the adjacent overflow subtree across run-state changes.
-                    if let Some(status) = reading.agent_status {
-                        StatusDot { status: status.to_owned() }
-                    }
-                    if show_agent_actions {
-                        if let Some(conversation) = reading.agent_conversation.clone() {
-                            AgentChatHeader {
-                                conversation,
-                                online: None,
-                                pump: pump.clone(),
-                            }
-                        }
-                    }
                 }
             }
             if reading.active {
@@ -151,7 +110,7 @@ pub fn MobileDeckBar(
                 span { "{badge.text}" }
             }
         }
-        if show_agent_actions && sheet_open() {
+        if show_sheet && sheet_open() {
             WorkspaceTabsSheet {
                 tab_ids: tab_ids.clone(),
                 selected_tab: selected_tab.clone(),

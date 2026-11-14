@@ -37,10 +37,7 @@ workspace there, and the process runs on that machine while its terminal stays
 available on every browser device — including a phone or tablet.
 
 Shell sessions are real PTYs: launch any agent CLI, shell, REPL or TUI and use
-its terminal interface. Agent mode instead runs OMP on the selected worker and
-renders its messages, tools and interactive questions as responsive HTML.
-Roost's custom Rust-native agent is archived; its code and stored data are kept,
-but it is not an active agent option.
+its own terminal interface. Roost does not launch or manage agents separately.
 
 ## The problem
 
@@ -62,10 +59,6 @@ different device does not mean juggling a different workflow.
 ## What you get
 
 **Run any terminal program.** Pick a server and folder, open a terminal, and launch `omp`, Claude Code, Codex, a shell, a REPL, or any other TUI. Roost keeps the PTY alive and renders the program's own terminal interface on every device.
-
-**Use OMP without terminal formatting.** Start an agent conversation on a worker
-and folder. The web UI uses that machine's actual OMP models, connected providers,
-slash commands and interactive requests; it does not invent a second agent.
 
 **Build a fleet from the machines you already own.** Connect your macOS and
 Linux hosts to one coordinator, then use each one as a worker, including the
@@ -109,13 +102,10 @@ silent splice or page reload. Retained history is bounded, not an unlimited
 lossless byte log.
 
 
-**See which agent needs you.** Every terminal running a coding agent carries one
-state — working, needs input, or done — on its sidebar row, tab, mobile card,
-and folder rollup (`2 working · 1 needs input`). Plain shells stay unmarked.
-OMP and Pi report their own lifecycle, including "waiting on you"; other agents
-are detected from what their terminal shows. When a background agent stops for input
-or finishes, you get a toast and an unseen count in the tab title. Nothing
-about status is stored: restart anything and it re-derives itself.
+**Get terminal notifications.** Programs can send OSC 9 or OSC 777
+notifications, and long-running shell commands can announce completion via
+OSC 133. Configure in-app alerts, desktop notifications and the finished sound
+in Settings → Notifications.
 
 **The terminal is the only interactive surface.** Every session owns a PTY.
 The worker feeds its output through a rio-vt-based terminal core
@@ -227,9 +217,9 @@ Claude on the web and on your phone is a control plane too, but it drives Anthro
 |---|---|---|
 | **What it drives** | Anthropic-hosted cloud sandboxes, or one local Mac tethered via `claude rc` | Every macOS or Linux worker you own, natively |
 | **Open a new terminal while away** | No; limited to sandboxes or sessions already running | Yes; open a fresh terminal in any folder on any registered worker, from your phone |
-| **What runs in it** | Claude Code only | OMP agent mode, or any agent CLI, shell, REPL or TUI in a terminal |
+| **What runs in it** | Claude Code only | Any agent CLI, shell, REPL or TUI in a terminal |
 | **Where your code lives** | A cloud VM (or the one tethered Mac) | Your own hardware, your own network |
-| **The surface** | A chat window onto the agent | Responsive OMP HTML chat or a real terminal with ANSI, scrollback and touch |
+| **The surface** | A chat window onto the agent | A real terminal with ANSI, scrollback and touch |
 | **Hosting** | SaaS, tied to a login account | Self-hosted, automatic local tenant, no login account or telemetry |
 
 Your desktop browser stays perfectly usable for claude.ai. Roost isn't a replacement for it; it's the piece the cloud can't be, which is native control of your own fleet from anywhere.

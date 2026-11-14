@@ -13,13 +13,13 @@ pub const SYNCED_EXACT_KEYS: &[&str] = &[
     "roost.paneLayout.v1",
     "roost.lastSessionByFolder",
     "roost.lastTerminalPath",
-    "roost.lastAgentConversation",
     "roost.sidebar.recent",
+    "roost.sidebar.folderOrder",
     "roost.composerDrafts.v1",
 ];
 
 /// Key prefixes that sync across devices.
-pub const SYNCED_KEY_PREFIXES: &[&str] = &["roost.lastWorkspaceId.", "roost.agent.draft."];
+pub const SYNCED_KEY_PREFIXES: &[&str] = &["roost.lastWorkspaceId."];
 
 /// Longest key the server stores.
 pub const MAX_KEY_BYTES: usize = 256;
@@ -77,9 +77,8 @@ mod tests {
     fn allowlist_admits_only_listed_keys_and_prefixes() {
         assert!(is_synced_key("roost.paneLayout.v1"));
         assert!(is_synced_key("roost.lastWorkspaceId.fp-1"));
-        assert!(is_synced_key("roost.agent.draft.conv-1"));
         assert!(!is_synced_key("roost.lastWorkspaceId."));
-        assert!(!is_synced_key("roost.agent.draft."));
+        assert!(!is_synced_key("roost.agent.draft.conv-1"));
         assert!(!is_synced_key("roost.deviceKey"));
         assert!(!is_synced_key("roost.coordinatorUrl"));
     }

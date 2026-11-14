@@ -64,7 +64,6 @@ const UI_STATE: FirehoseArm = control(24, "ui_state");
 const UI_COMMAND: FirehoseArm = control(25, "ui_command");
 const KEEPALIVE: FirehoseArm = control(26, "keepalive");
 const COORDINATOR_RELOCATION: FirehoseArm = control(27, "coordinator_relocation");
-const AGENT_STATUS: FirehoseArm = application(29, "agent_status", SyncDomain::Terminal);
 const CELL_GRID_CHUNK: FirehoseArm = application(34, "cell_grid_chunk", SyncDomain::Terminal);
 const SUBSCRIBED: FirehoseArm = control(40, "subscribed");
 const DOMAIN_RESET: FirehoseArm = control(41, "domain_reset");
@@ -82,14 +81,11 @@ const COMMAND_FINISHED: FirehoseArm =
 const CLIPBOARD_HISTORY: FirehoseArm = application(53, "clipboard_history", SyncDomain::Pair);
 const TERMINAL_BELL: FirehoseArm = application(54, "terminal_bell", SyncDomain::Terminal);
 const TERMINAL_SIGNALS: FirehoseArm = application(55, "terminal_signals", SyncDomain::Terminal);
-const AGENT_CONVERSATION: FirehoseArm = application(56, "agent_conversation", SyncDomain::Agent);
-const AGENT_CHAT_EVENTS: FirehoseArm = application(57, "agent_chat_events", SyncDomain::Agent);
 const WORKER_LIVE_METRICS: FirehoseArm = control(58, "worker_live_metrics");
-const OMP_HOST_SERVICE: FirehoseArm = control(59, "omp_host_service");
-const OMP_UI_ACTION_RECEIPT: FirehoseArm = control(60, "omp_ui_action_receipt");
+const CLIENT_STATE_CHANGED: FirehoseArm = control(61, "client_state_changed");
 /// Every arm, in field order. All of them are mapped: `decode::map_arm` has no
 /// wildcard, so an arm with no row here cannot have a mapping either.
-pub const FIREHOSE_ARMS: [FirehoseArm; 37] = [
+pub const FIREHOSE_ARMS: [FirehoseArm; 33] = [
     SESSIONS,
     SESSION_PRESENCE,
     AUDIT_ROW,
@@ -107,7 +103,6 @@ pub const FIREHOSE_ARMS: [FirehoseArm; 37] = [
     UI_COMMAND,
     KEEPALIVE,
     COORDINATOR_RELOCATION,
-    AGENT_STATUS,
     CELL_GRID_CHUNK,
     SUBSCRIBED,
     DOMAIN_RESET,
@@ -122,11 +117,8 @@ pub const FIREHOSE_ARMS: [FirehoseArm; 37] = [
     COMMAND_FINISHED,
     TERMINAL_BELL,
     TERMINAL_SIGNALS,
-    AGENT_CONVERSATION,
-    AGENT_CHAT_EVENTS,
     WORKER_LIVE_METRICS,
-    OMP_HOST_SERVICE,
-    OMP_UI_ACTION_RECEIPT,
+    CLIENT_STATE_CHANGED,
 ];
 
 /// The table row for a decoded arm.
@@ -149,7 +141,6 @@ pub const fn arm_of(frame: &Frame) -> FirehoseArm {
         Frame::UiCommand(_) => UI_COMMAND,
         Frame::Keepalive(_) => KEEPALIVE,
         Frame::CoordinatorRelocation(_) => COORDINATOR_RELOCATION,
-        Frame::AgentStatus(_) => AGENT_STATUS,
         Frame::CellGridChunk(_) => CELL_GRID_CHUNK,
         Frame::Subscribed(_) => SUBSCRIBED,
         Frame::DomainReset(_) => DOMAIN_RESET,
@@ -164,10 +155,7 @@ pub const fn arm_of(frame: &Frame) -> FirehoseArm {
         Frame::TerminalCommandFinished(_) => COMMAND_FINISHED,
         Frame::TerminalBell(_) => TERMINAL_BELL,
         Frame::TerminalSignals(_) => TERMINAL_SIGNALS,
-        Frame::AgentConversation(_) => AGENT_CONVERSATION,
-        Frame::AgentChatEvents(_) => AGENT_CHAT_EVENTS,
         Frame::WorkerLiveMetrics(_) => WORKER_LIVE_METRICS,
-        Frame::OmpHostService(_) => OMP_HOST_SERVICE,
-        Frame::OmpUiActionReceipt(_) => OMP_UI_ACTION_RECEIPT,
+        Frame::ClientStateChanged(_) => CLIENT_STATE_CHANGED,
     }
 }

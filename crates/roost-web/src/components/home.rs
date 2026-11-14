@@ -14,7 +14,6 @@ use roost_client_core::store::sidebar::SidebarIntent;
 use roost_client_core::store::sidebar::memory::last_terminal_path;
 use roost_client_core::{ClientEvent, KeyValueStore, Store};
 
-use crate::components::agent_chat::last_conversation::LAST_CONVERSATION_KEY;
 use crate::components::brand_mark::{BrandMark, HOME_MARK_SIZE, PRODUCT};
 use crate::components::layout::window_size::{use_is_compact, use_tv_layout};
 use crate::components::tv_home_board::TvHomeBoard;
@@ -25,7 +24,7 @@ use crate::components::ui::{
 use crate::pump::{use_pump, use_store};
 use crate::route_session::active_open_session_for_route;
 use crate::router_state::use_navigate;
-use crate::routes::{Route, agent_href};
+use crate::routes::Route;
 
 /// A shortcut the landing advertises. The Windows binding comes from
 /// `PlatformShortcut::windows_label` — the map the key handler matches, so the
@@ -91,7 +90,7 @@ pub const SHORTCUTS: [Shortcut; 3] = [
 ];
 
 /// Once per boot, when the synced store settles, a bare `/` opens the terminal
-/// or agent conversation the operator left. The latch lives in the authorized
+/// the operator left. The latch lives in the authorized
 /// shell, which outlives every route: a boot at `/s/...` consumes it too, so a
 /// later visit to `/` is never bounced.
 pub fn use_boot_landing(path: Signal<String>) {
@@ -119,7 +118,7 @@ pub fn use_boot_landing(path: Signal<String>) {
             landing_href(core.store(), core.storage())
         };
         let Some(href) = landing else {
-            tracing::debug!(target: "landing", "boot landing has no open terminal or conversation");
+            tracing::debug!(target: "landing", "boot landing has no open terminal");
             return;
         };
         tracing::info!(target: "landing", to = %href, "boot landing restored");
@@ -127,16 +126,10 @@ pub fn use_boot_landing(path: Signal<String>) {
     });
 }
 
-/// The href a boot at `/` opens: the last terminal while its session is still
-/// open, else the last OMP conversation while it still exists.
+/// The href a boot at `/` opens: the last terminal while its session is still open.
 fn landing_href(store: &Store, storage: &dyn KeyValueStore) -> Option<String> {
-    let terminal = last_terminal_path(storage).filter(|path| {
+    last_terminal_path(storage).filter(|path| {
         active_open_session_for_route(store, &BrowserWorkerPaths, &Route::parse(path)).is_some()
-    });
-    terminal.or_else(|| {
-        let conversation_id = storage.get(LAST_CONVERSATION_KEY)?;
-        let conversation = store.agent_chat.conversations.get(&conversation_id)?;
-        (!conversation.is_native()).then(|| agent_href(&conversation_id))
     })
 }
 
@@ -187,11 +180,11 @@ pub fn HomeLanding(reader_platform: BrowserPlatform) -> Element {
                     Empty {
                         EmptyHeader {
                             EmptyMedia { variant: EmptyMediaVariant::Icon,
-                                Icon { icon: IconType::Bot }
+                                Icon { icon: IconType::Terminal }
                             }
-                            EmptyTitle { "Open an agent workspace" }
+                            EmptyTitle { "Open a terminal" }
                             EmptyDescription { class: "max-w-[42ch]",
-                                "Select a conversation or start a new agent from the sidebar, or press "
+                                "Select a session or start a new terminal from the sidebar, or press "
                                 Kbd { class: "whitespace-nowrap",
                                     {SHORTCUTS[0].glyph(reader_platform)}
                                 }

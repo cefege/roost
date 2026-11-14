@@ -1,20 +1,20 @@
 //! Terminal-control result shaping: the pre-write / ambiguous truth mapping for
 //! `input-result`, and the reason bound. Called by `runtime::downstream` for the
-//! answers it gives itself and by the input, agent-prompt and stream owners for
+//! answers it gives itself and by the input and stream owners for
 //! theirs.
 //! Ports v2 `apps/worker/src/transport/coord-link-terminal-results.ts`
 //! (`sendTerminalInputResult`, `boundedTerminalReason`). v2's
 //! `terminalStreamFailureKind` has no port: the worker's stream outcome already
 //! carries the wire enum, and `None` is the wire's UNSPECIFIED.
 
-use roost_proto::{DAgentPrompt, DInputRequest};
+use roost_proto::DInputRequest;
 use roost_protocol::ProtocolError;
 use roost_protocol::wire::brand::SessionId;
 use roost_protocol::wire::coord_worker::{InputResult, TerminalInputStatus, TerminalWritePhase};
 
 use crate::session::input_write::WorkerInputResult;
 
-/// The longest reason, in UTF-8 bytes, an agent-originated result may carry.
+/// The longest reason, in UTF-8 bytes, a result may carry.
 const TERMINAL_REASON_MAX_BYTES: usize = 200;
 
 /// Cut a reason to at most 200 bytes on a UTF-8 boundary. `None` and `""` are
@@ -44,16 +44,6 @@ pub struct InputResultKey {
 
 impl From<&DInputRequest> for InputResultKey {
     fn from(request: &DInputRequest) -> Self {
-        Self {
-            request_id: request.request_id.clone(),
-            session_id: request.session_id.clone(),
-            input_seq: request.input_seq,
-        }
-    }
-}
-
-impl From<&DAgentPrompt> for InputResultKey {
-    fn from(request: &DAgentPrompt) -> Self {
         Self {
             request_id: request.request_id.clone(),
             session_id: request.session_id.clone(),
@@ -97,9 +87,8 @@ impl InputResultKey {
     }
 }
 
-/// v2 `sendTerminalInputResult`: the one `input-result` for a worker outcome;
-/// `bound_reason` cuts an agent-originated reason to 200 bytes. `None`, logged,
-/// when the coordinator's session id is not one the wire can carry.
+/// Shape one `input-result` for a worker outcome. `None`, logged, when the
+/// coordinator's session id is not one the wire can carry.
 pub fn worker_input_result(
     key: &InputResultKey,
     result: &WorkerInputResult,

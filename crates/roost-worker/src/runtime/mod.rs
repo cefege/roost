@@ -19,7 +19,6 @@
 //! decision can be tested without a keeper, a coordinator, or a PTY.
 //! Ports v2 `apps/worker/src/main.ts`.
 
-pub mod agent_owners;
 mod auto_update;
 mod auto_update_spawn;
 pub mod boot;

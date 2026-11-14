@@ -1,4 +1,4 @@
-//! The compact deck bar's mixed terminal/agent tab-count badge.
+//! The compact deck bar's terminal tab-count badge.
 //! Uses the folder's flattened swipe order, showing position/total or a bare
 //! total when the selected tab is absent. Read by the web `MobileDeckBar`.
 

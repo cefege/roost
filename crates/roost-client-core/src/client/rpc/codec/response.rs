@@ -45,19 +45,6 @@ pub fn decode_rpc_response(call: &RpcCall, body: &[u8]) -> Result<RpcResult, Rpc
                     .then_some(response.terminal_peer_stun_urls),
             }
         }
-        RpcCall::AgentChatList { call_id } => {
-            let response: roost_proto::AgentChatListResponse = decode(method, body)?;
-            let conversations = response
-                .conversations
-                .iter()
-                .map(roost_protocol::wire::agent_chat::conversation_from_proto)
-                .collect();
-            RpcResult::AgentChatList {
-                call_id: *call_id,
-                conversations,
-                host_connected: response.host_connected,
-            }
-        }
         RpcCall::SessionsList { call_id, .. } => {
             let response: SessionsListResponse = decode(method, body)?;
             let mut sessions = SessionMap::new();
@@ -194,16 +181,6 @@ pub fn decode_rpc_response(call: &RpcCall, body: &[u8]) -> Result<RpcResult, Rpc
             force: *force,
             accepted: KillSession::decode_response(body)?,
         },
-        RpcCall::AgentChatDelete {
-            call_id,
-            conversation_id,
-        } => {
-            let _: roost_proto::AgentChatDeleteResponse = decode(method, body)?;
-            RpcResult::AgentChatDeleteAnswered {
-                call_id: *call_id,
-                conversation_id: conversation_id.clone(),
-            }
-        }
         RpcCall::ClientStateList { call_id } => {
             let answer: roost_proto::ClientStateListResponse = decode(method, body)?;
             RpcResult::ClientStateListed {

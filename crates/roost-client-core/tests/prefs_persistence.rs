@@ -76,8 +76,6 @@ fn the_two_flags_that_default_off_load_as_off_and_the_two_that_default_on_load_a
         "enabling it is a gesture, not a preference"
     );
     assert!(store.prefs.notify.title_badge);
-    assert!(!store.prefs.notify.blocked_sound);
-    assert!(!store.prefs.notify.done_sound);
 }
 
 #[test]
@@ -113,8 +111,8 @@ fn preferences_round_trip_through_storage() {
         assert!(set_notify_pref(
             store,
             &storage,
-            NotifyPref::BlockedSound,
-            true
+            NotifyPref::CommandFinished,
+            false
         ));
         assert!(confirm_desktop_notifications(store, &storage));
     }
@@ -154,7 +152,7 @@ fn preferences_round_trip_through_storage() {
     assert_eq!(store.prefs.term_font_px, 22);
     assert!(store.prefs.terminal_ligatures);
     assert!(store.prefs.notify.desktop);
-    assert!(store.prefs.notify.blocked_sound);
+    assert!(!store.prefs.notify.command_finished);
     assert!(
         store.prefs.notify.in_app,
         "an unstored member keeps its default"
@@ -296,7 +294,7 @@ fn a_notification_member_of_the_wrong_type_costs_only_itself() {
     let storage = MemoryKeyValueStore::default();
     storage.set(
         NOTIFY_PREFS_KEY,
-        r#"{"inApp":"yes","titleBadge":false,"blockedSound":true,"futureMember":9}"#,
+        r#"{"inApp":"yes","titleBadge":false,"commandFinished":false,"futureMember":9}"#,
     );
     let mut core = client();
     load_prefs(core.store_mut(), &storage, &defaults());
@@ -306,7 +304,7 @@ fn a_notification_member_of_the_wrong_type_costs_only_itself() {
         "a member of the wrong type keeps its default"
     );
     assert!(!notify.title_badge, "its neighbours still apply");
-    assert!(notify.blocked_sound);
+    assert!(!notify.command_finished);
     assert!(
         !notify.desktop,
         "a member nobody wrote stays at its default"

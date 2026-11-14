@@ -31,7 +31,6 @@ use anyhow::Context as _;
 use roost_host::CoordConfig;
 use roost_platform::HostPlatform;
 
-use crate::agents::status_push::PushTransitions;
 use crate::auth::cf_access::{cloudflare_access_configured, install_cloudflare_jwks};
 use crate::auth::cf_access_keyring::RsaJwks;
 use crate::auth::self_hosted_tenant::SelfHostedTenant;
@@ -42,7 +41,6 @@ use crate::db::CoordDb;
 use crate::http::listener::{ListenerState, build_router};
 use crate::http::spa::SpaMount;
 use crate::push::PushRuntime;
-use crate::push::dispatch::ActiveTerminalViewers;
 use crate::push::transport::WebPushTransport;
 use crate::rpc::service::CoordinatorServiceImpl;
 use crate::services::CoordServices;
@@ -126,23 +124,10 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
         tenant.dashboard_id.clone(),
         boot.config.push_allowed_origins.clone(),
     );
-    // Agent transitions reach a phone through the production Web Push
-    // transport, which signs with the SAME VAPID store `PushGetConfig` hands
-    // the browser, and a device already viewing the terminal is not told
-    // (`push-dispatch.ts:92`). Installed once, before any worker can report.
     let web_push: Arc<dyn crate::push::transport::PushNotificationTransport> = Arc::new(
         WebPushTransport::new(services.db.clone(), push.vapid_keys().clone())
             .context("web push client")?,
     );
-    services
-        .agents
-        .status
-        .install_push_delivery(Arc::new(PushTransitions::new(
-            services.db.pool().clone(),
-            push.allowed_origins().to_vec(),
-            Arc::clone(&services.views) as Arc<dyn ActiveTerminalViewers>,
-            Arc::clone(&web_push),
-        )));
     // Long shell commands, programs' own notifications and pairing requests
     // reach a phone the same way. Held for the life of `serve`.
     let _event_pushes = crate::push::session_push::subscribe_event_pushes(

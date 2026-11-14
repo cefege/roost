@@ -166,9 +166,8 @@ kubectl -n roost exec deploy/roost-coordinator -- roost add-machine --platform l
 
 `roost-db` is a Secret holding `ROOST_COORDINATOR_DATABASE_URL`. It may also
 carry `ROOST_COORDINATOR_SECRET_KEY`, the base64 32-byte key older releases
-encrypted stored provider credentials under; nothing reads it now, and the
-chart preserves it so those rows stay decryptable if a provider backend
-returns. Or run the chart's own single Postgres: `--set postgres.enabled=true
+used for stored credentials; nothing reads it now, and the chart preserves it
+for historical rows. Or run the chart's own single Postgres: `--set postgres.enabled=true
 --set postgres.password=…`, plus
 `--set postgres.backup.enabled=true` for a daily `pg_dump` CronJob that keeps
 14 archives on its own PVC (restore with
@@ -193,53 +192,12 @@ through `ROOST_LOG_FILE_DIR`, so `kubectl -n roost exec deploy/roost-coordinator
 -- roost doctor --since 24h` reads across rollouts; doctor reads the audit log
 from the Postgres the pod's `ROOST_COORDINATOR_DATABASE_URL` names.
 
-## OMP agent mode
+## Open a terminal
 
-Choose **New agent**, select a worker and folder, and chat with OMP through the
-web UI. This creates an agent conversation, not a terminal. **Terminal** remains
-the separate launcher for shells and terminal agent CLIs.
-
-OMP is the only agent backend. Roost's custom Rust-native agent is removed: its
-engine crate and RPC paths are deleted, and stored native conversation rows are
-inert — nothing lists, reads or resumes them, and nothing is converted into an
-OMP conversation. The contract is in
-[`protocol/spec/agent-chat.md`](protocol/spec/agent-chat.md).
-
-Models, connected providers and commands come from the selected worker's actual
-OMP configuration, not the coordinator's provider-account store. Provider
-discovery finishes before choices are advertised. OMP credentials stay on that
-worker under `~/.omp`.
-
-Releases from `v3.0.5` bundle the pinned OMP fork beside the worker executable;
-they do not replace a global `omp` or the worker's provider credentials.
-The runtime pin, build and capability check are documented in
-[`deploy/omp/README.md`](deploy/omp/README.md).
-
-The composer combines model and thinking controls. Reopening the picker reloads
-the saved session in a fresh OMP process when idle; a busy chat defers refresh
-until work settles. Model and thinking pins apply independently to the next
-message; **Use inherited…** clears the corresponding pin. Settings exposes the
-OMP defaults for a machine or folder.
-
-Type `/` or open the command button for commands offered by OMP. Bare `/model`
-opens the worker-backed picker. `/plan` uses the plan and non-plan modes ACP
-actually offers; `/plan <prompt>` enters plan mode before submitting an idle,
-non-plan conversation's prompt. Commands are not translated into Roost-authored
-commands.
-
-Questions, forms, confirmations and plan approvals wait for an explicit answer.
-Closing or canceling a request is not approval. Stop also cancels unanswered
-startup requests; no terminal-only OMP screen is replaced with a fake HTML form.
-
-Tool output updates where its call began. Reads group compactly; other tools show
-a bounded preview with full output on expansion. Writes show numbered content,
-edits show contextual diffs, and live command output follows its tail. Thinking
-opens while live and folds after completion unless you chose otherwise.
-Pre-execution argument streams that ACP does not send are not simulated.
-
-Desktop uses browser-style workspace tabs with icons, titles, close buttons and
-a trailing new-tab button. Packed strips retain a readable active tab and an
-overflow list; phones retain their larger controls and workspace tab grid.
+Choose a machine and folder, then open a terminal there. Run any installed
+shell, editor, REPL, TUI or agent CLI in its own terminal interface. Roost
+does not bundle, configure or manage an agent; programs and their credentials
+remain under the worker user's control.
 
 ## Coordinator front-door networking
 
@@ -566,26 +524,22 @@ Roost device.
 
 ## Sidebar folders
 
-The Folders view keeps folders in a browser-local order. Drag a folder onto
-another to move it; the order survives reloads, and new folders append.
-Activity does not reorder folders or their conversation rows. Recent remains
-chronological.
+The sidebar groups terminal sessions by folder and keeps a manual folder order
+shared across your account's devices. Drag a folder onto another to move it;
+other open devices update automatically after the save syncs. The order
+survives reloads, new folders append, and offline drags sync on reconnect.
+Terminal activity does not reorder folders.
 
-## Turn on agent notifications
+## Terminal notifications
 
-Terminals running a coding agent show their state (working / needs input /
-done) with no setup: the sidebar row, tab, and folder rollup update themselves,
-and a background agent that stops for input or finishes raises an in-app toast
-plus an unseen count in the browser tab title.
-
-**Settings → Notifications → Desktop** subscribes this browser to Web Push: the
-switch asks for notification permission on the click, then registers the
-service worker and subscription with the coordinator. A needs-input or done
-transition then reaches you as an OS notification even when Roost is not the
-tab you are looking at, except on a device already viewing that session;
-clicking it opens the session. On iPhone and iPad, notifications reach only a
-Roost installed with **Share → Add to Home Screen**. The two sound switches
-play a short tone on the same alerts that raise a toast.
+**Settings → Notifications → Desktop** subscribes this browser to Web Push:
+the switch requests permission, then registers the service worker and
+subscription with the coordinator. Programs can send OSC 9 or OSC 777
+notifications; shell commands running for at least 10 seconds can also notify
+when they finish using OSC 133 shell integration. Settings control in-app
+notifications and the long-command finished sound. Notifications skip a device
+already viewing the session; clicking one opens it. On iPhone and iPad,
+notifications reach only a Roost installed with **Share → Add to Home Screen**.
 
 ## Add another machine
 
@@ -744,11 +698,6 @@ outside the worker's stop path. It follows a downgrade too, so rolling the
 coordinator back rolls its workers back. Each run logs to
 `self-update-<tag>.log` in the worker's log directory, and starts are at least
 an hour apart (`self-update-attempt.json` in its data directory).
-
-An older updater may omit the newly bundled OMP executable on its first upgrade.
-The new worker detects that incomplete release and reinstalls the same tag on a
-following poll, respecting the hourly attempt limit. Use
-`cargo xtask fleet install --version <tag> --host <name>` for immediate adoption.
 
 `ROOST_AUTO_UPDATE=0` in the worker's environment turns this off. Source builds
 never update themselves, and a worker on a release older than the first one

@@ -10,6 +10,7 @@ use roost_protocol::client_state::is_synced_key;
 use super::entry::ClientStateEntry;
 use super::store::ClientStateStore;
 use crate::platform::KeyValueStore;
+use crate::store::sidebar::memory::FOLDER_ORDER_KEY;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct MergeCounts {
@@ -78,6 +79,15 @@ pub(crate) fn merge_list_answer(
 ) -> MergeCounts {
     let mut counts = merge_remote_entries(storage, entries);
     let remote_keys: BTreeSet<&str> = entries.iter().map(|entry| entry.key.as_str()).collect();
+    // An unstamped order predates account sync. Seed only an empty account;
+    // another device's saved order must win over a browser merely opening.
+    if !remote_keys.contains(FOLDER_ORDER_KEY)
+        && storage.stamp_of(FOLDER_ORDER_KEY).is_none()
+        && let Some(value) = storage.get(FOLDER_ORDER_KEY)
+        && serde_json::from_str::<Vec<String>>(&value).is_ok_and(|keys| !keys.is_empty())
+    {
+        storage.set(FOLDER_ORDER_KEY, &value);
+    }
     for key in storage.stamped_keys() {
         if !remote_keys.contains(key.as_str()) {
             storage.mark_dirty(&key);

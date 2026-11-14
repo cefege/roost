@@ -200,21 +200,6 @@ pub fn deck_pointer_target(event: &PointerEvent) -> DeckPointerTarget {
     }
 }
 
-/// The pane a focus arrival inside the phone chat input belongs to.
-pub fn chat_input_focus_pane(event: &FocusEvent) -> Option<String> {
-    let native: web_sys::FocusEvent = event.try_as_web_event()?;
-    let target: web_sys::Element = native.target()?.dyn_into().ok()?;
-    target
-        .closest("[data-testid=\"mobile-chat-input\"]")
-        .ok()
-        .flatten()?;
-    target
-        .closest("[data-pane-id]")
-        .ok()
-        .flatten()?
-        .get_attribute("data-pane-id")
-}
-
 /// A one-shot timer, cancelled when dropped.
 pub struct Timeout {
     id: i32,

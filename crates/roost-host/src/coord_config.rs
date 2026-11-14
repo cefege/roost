@@ -79,9 +79,6 @@ pub struct CoordConfig {
     /// The operator-declared ceiling for retained terminal cell replicas.
     /// Unset means derive it from the cgroup or host memory ceiling at boot.
     pub terminal_memory_budget_bytes: Option<u64>,
-    /// Provider id → base URL replacing the agent harness's catalog URL
-    /// (tests and egress proxies). Empty in production.
-    pub agent_endpoint_overrides: std::collections::BTreeMap<String, String>,
     /// Whether the direct WebRTC terminal carrier is offered at all.
     pub terminal_peer_enabled: bool,
     /// The STUN servers the direct carrier resolves its candidates against.
@@ -114,7 +111,6 @@ pub struct CoordConfigInput {
     pub log_dir: Option<PathBuf>,
     pub public_url: Option<String>,
     pub terminal_memory_budget_bytes: Option<i64>,
-    pub agent_endpoint_overrides: Option<std::collections::BTreeMap<String, String>>,
     pub terminal_peer_enabled: Option<bool>,
     pub internal_url: Option<String>,
     pub probe_bind: Option<String>,
@@ -176,7 +172,6 @@ impl CoordConfig {
             web_public_url: input.web_public_url,
             log_dir: require(input.log_dir, "config.log_dir")?,
             public_url: input.public_url,
-            agent_endpoint_overrides: input.agent_endpoint_overrides.unwrap_or_default(),
             terminal_memory_budget_bytes: match input.terminal_memory_budget_bytes {
                 Some(bytes) if bytes > 0 => Some(bytes as u64),
                 Some(_) => {

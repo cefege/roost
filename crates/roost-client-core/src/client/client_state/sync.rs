@@ -24,6 +24,7 @@ pub struct ClientStateSync {
     started_ms: u64,
     settled: bool,
     list_call_id: Option<u64>,
+    refresh_pending: bool,
     observed: BTreeMap<String, Observation>,
 }
 
@@ -65,9 +66,9 @@ impl ClientStateSync {
     }
 }
 
-/// Ask the coordinator for every synced key. Called once per link generation, so
-/// a reconnect re-pulls, and it clears parked keys so they retry.
+/// Pull on boot, reconnect or invalidation, clearing parked writes for retry.
 pub(crate) fn request_list(store: &mut Store, out: &mut Vec<Effect>) {
+    store.client_state.refresh_pending = false;
     for observation in store.client_state.observed.values_mut() {
         observation.parked = false;
     }
@@ -75,6 +76,18 @@ pub(crate) fn request_list(store: &mut Store, out: &mut Vec<Effect>) {
     store.client_state.list_call_id = Some(call_id);
     tracing::info!(target: "client_state", call_id, "client state pull requested");
     out.push(Effect::Rpc(RpcCall::ClientStateList { call_id }));
+}
+
+/// Coalesce invalidations during a pull without losing a later committed write.
+pub(crate) fn refresh(store: &mut Store, generation: u64, out: &mut Vec<Effect>) {
+    if !store.sync.accepts(generation) {
+        return;
+    }
+    if store.client_state.list_call_id.is_some() {
+        store.client_state.refresh_pending = true;
+    } else {
+        request_list(store, out);
+    }
 }
 
 /// Settle on deadline, note new dirty writes, and flush the keys whose quiet
@@ -86,6 +99,9 @@ pub(crate) fn sweep(
     out: &mut Vec<Effect>,
 ) {
     settle_on_deadline(store, now_ms);
+    if store.client_state.refresh_pending && store.client_state.list_call_id.is_none() {
+        request_list(store, out);
+    }
     observe_dirty_keys(&mut store.client_state.observed, storage, now_ms);
     flush_due_keys(store, storage, now_ms, out);
 }

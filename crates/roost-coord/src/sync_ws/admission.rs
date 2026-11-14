@@ -6,15 +6,13 @@ use roost_proto::{FirehoseFrame, SyncDomain};
 
 use crate::sync_ws::ack_window::BackpressureReason;
 use crate::sync_ws::control_frames::{ResetNotice, control_frame};
-use crate::sync_ws::domain_table::{
-    DOMAIN_MAX_QUEUED_BYTES, DOMAIN_MAX_QUEUED_FRAMES, domain_slot,
-};
+use crate::sync_ws::domain_table::{DOMAIN_MAX_QUEUED_BYTES, DOMAIN_MAX_QUEUED_FRAMES};
 use crate::sync_ws::frame_meta::{FeedLane, SyncFrameMeta};
 use crate::sync_ws::retained_frame::{OwnedFrame, RetainedFrame};
 use crate::sync_ws::session::{SessionClose, SyncV2Session};
 use crate::sync_ws::terminal::snapshot::TerminalSnapshotHub;
 
-use super::send_queue::{retained_supersedes_buffered, terminal_priority_insert_index};
+use super::send_queue::terminal_priority_insert_index;
 
 /// What one admission attempt did.
 #[derive(Debug)]
@@ -82,9 +80,6 @@ impl SyncV2Session {
         let domain_id = meta.domain.unwrap_or(SyncDomain::Unspecified);
         let generation = self.domain_generation(domain_id).unwrap_or_default();
         let owned = OwnedFrame::of_copy(frame, domain_id, generation);
-        if meta.before_buffered {
-            self.coalesce_buffered(domain_id, &owned);
-        }
         let estimated_bytes = owned.conservative_bytes();
         match self.queue_refusal(&owned, meta, estimated_bytes, true) {
             Some(refusal) => self.act_on_refusal(refusal, meta, now_ms, hub),
@@ -318,30 +313,6 @@ impl SyncV2Session {
             state.queue.push(item);
         }
         state.queued_bytes += estimated_bytes;
-    }
-
-    /// Drop the buffered frames a retained seed supersedes.
-    ///
-    /// Only the LIVE segment is coalesced: the retained samples already before
-    /// the cutover ARE the cutover, and dropping one of those would reopen the
-    /// snapshot/live gap this ordering exists to close.
-    fn coalesce_buffered(&mut self, domain_id: SyncDomain, retained: &OwnedFrame) {
-        let slot = domain_slot(domain_id);
-        let seed_index = self.domains[slot].seed_insert_index;
-        let queued = std::mem::take(&mut self.domains[slot].queue);
-        let mut kept = Vec::with_capacity(queued.len());
-        let mut superseded_bytes = 0u64;
-        for (index, mut item) in queued.into_iter().enumerate() {
-            if index >= seed_index && retained_supersedes_buffered(retained, &item.frame) {
-                superseded_bytes += item.estimated_bytes();
-                self.release_charge(&mut item);
-                continue;
-            }
-            kept.push(item);
-        }
-        let domain = &mut self.domains[slot];
-        domain.queue = kept;
-        domain.queued_bytes = domain.queued_bytes.saturating_sub(superseded_bytes);
     }
 
     /// Reset one domain: clear its queue, mint a generation, and tell the caller

@@ -61,11 +61,8 @@ pub fn append_pty_chunk(
     head_seq
 }
 
-/// Alt-screen mode, agent OSC evidence and OSC 7 cwd, in one pass over the
-/// carried prefix plus this chunk.
-///
-/// The three are scanned together because they share the boundary question: a
-/// sequence split across two chunks is only recognisable if the tail that
+/// Alt-screen mode and OSC 7 cwd, scanned across chunk boundaries.
+/// A sequence split across two chunks is only recognisable if the tail that
 /// preceded the split is still in hand.
 fn scan_stream_state(
     record: &mut SessionRecord,
@@ -77,20 +74,6 @@ fn scan_stream_state(
     mode_input.extend_from_slice(chunk);
     record.alt_mode = stream_scan::scan_alt_mode(&mode_input, record.alt_mode);
     record.mode_carry = tail(&mode_input, MODE_CARRY_MAX);
-
-    let mut agent_input = Vec::with_capacity(record.agent_osc.carry.len() + chunk.len());
-    agent_input.extend_from_slice(&record.agent_osc.carry);
-    agent_input.extend_from_slice(chunk);
-    let agent = stream_scan::scan_agent_osc(&agent_input);
-    record.agent_osc.carry = agent.carry;
-    // Only a title this chunk actually carried replaces the retained one: a
-    // chunk with no OSC must not erase what a prompt set a moment ago.
-    if let Some(title) = agent.title {
-        record.agent_osc.raw_title = title;
-    }
-    if let Some(progress) = agent.progress {
-        record.agent_osc.raw_progress = progress;
-    }
 
     let mut cwd_input = Vec::with_capacity(record.osc7_carry.len() + chunk.len());
     cwd_input.extend_from_slice(&record.osc7_carry);

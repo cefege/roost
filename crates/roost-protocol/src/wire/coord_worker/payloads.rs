@@ -3,9 +3,8 @@
 //! `coord_worker::upstream` and `coord_worker::downstream`; mapped to and from
 //! protobuf by `proto_adapters::coord_worker_proto`.
 //!
-//! An arm carries a record from this file when the crate already has an owner
-//! for that shape — `AgentStatus` — or when the shape is a handful of scalars
-//! a caller in this workspace has to build without naming a protobuf type.
+//! An arm carries a record from this file when its shape is a handful of
+//! scalars a caller in this workspace builds without naming a protobuf type.
 //! Every other arm carries the generated message, re-exported here so a crate
 //! that may not depend on `roost-proto` (the worker) can still construct it.
 //! That is deliberately not a second value model: the generated message is the
@@ -18,20 +17,19 @@ use serde::{Deserialize, Serialize};
 use crate::program_status::ProgramStatusRecord;
 use crate::terminal_signals::{TerminalNotification, TerminalProgress, TerminalUserVar};
 
-use crate::wire::agent_status::AgentStatus;
 use crate::wire::brand::{ChannelId, SessionId};
 use crate::wire::coord_worker::{DIR_FROM_PTY, DIR_TO_PTY};
 use crate::{ProtocolError, ProtocolResult};
 
 pub use roost_proto::{
-    DAgentPrompt, DAttachmentChunk, DAttachmentDirectStatusRequest, DCoordMovePrepare,
-    DCoordMoveSnapshotChunk, DCoordMoveSnapshotStart, DCoordRelocate, DInputRequest,
-    DKeeperUpdatePrepare, DLocalAttachmentGrant, DLocalAttachmentGrantRevoke,
-    DLocalAttachmentPeerCancel, DLocalAttachmentPeerOffer, DLocalTerminalGrant,
-    DLocalTerminalGrantRevoke, DLocalTerminalPeerCancel, DLocalTerminalPeerOffer,
-    DTerminalDirectRetire, DTerminalInputRouteClaim, DTerminalPipelineSnapshotRequest,
-    DTerminalStreamState, DTerminalTransportProbe, DTerminalViewRelay, DTerminalViewSocketClosed,
-    DUpdateBroker, WAttachmentDirectStatus, WCellGrid, WCellGridChunk, WLocalAttachmentPeerAnswer,
+    DAttachmentChunk, DAttachmentDirectStatusRequest, DCoordMovePrepare, DCoordMoveSnapshotChunk,
+    DCoordMoveSnapshotStart, DCoordRelocate, DInputRequest, DKeeperUpdatePrepare,
+    DLocalAttachmentGrant, DLocalAttachmentGrantRevoke, DLocalAttachmentPeerCancel,
+    DLocalAttachmentPeerOffer, DLocalTerminalGrant, DLocalTerminalGrantRevoke,
+    DLocalTerminalPeerCancel, DLocalTerminalPeerOffer, DTerminalDirectRetire,
+    DTerminalInputRouteClaim, DTerminalPipelineSnapshotRequest, DTerminalStreamState,
+    DTerminalTransportProbe, DTerminalViewRelay, DTerminalViewSocketClosed, DUpdateBroker,
+    WAttachmentDirectStatus, WCellGrid, WCellGridChunk, WLocalAttachmentPeerAnswer,
     WLocalAttachmentPeerError, WLocalTerminalPeerAnswer, WLocalTerminalPeerError,
     WTerminalInputRouteResult, WTerminalPipelineSnapshot, WTerminalTransportProbeResult,
     WTerminalViewProjection, WTerminalViewState,
@@ -163,15 +161,6 @@ pub struct UpdateProgress {
     pub terminal: bool,
     pub success: bool,
     pub error: String,
-}
-
-/// A volatile agent-status observation the worker publishes for one session.
-/// Never placed in the durable outbox: a lost status is replaced by the next
-/// one, and a stale one is fenced by the status epoch. `status.active == false`
-/// is the occupant's retirement: bounded like any update, never a retained row.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AgentStatusFrame {
-    pub status: AgentStatus,
 }
 
 /// The exact `client_seq` a durable insert (or unique-index dedup) settled.

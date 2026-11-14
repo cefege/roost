@@ -1,11 +1,10 @@
 //! The phone's full-screen terminal grid: a toolbar (back, new, count, ⋮) over
-//! a two-column grid of terminal and agent cards. Selection mode toggles cards
+//! a two-column grid of terminal cards. Selection mode toggles cards
 //! and closes the selected ones. `MobileDeckBar` mounts it as a top `Sheet`
 //! only while open, so dismissal goes through its `on_close_sheet`.
 
 use crate::components::ui::{
-    Button, ButtonVariant, Card, CardContent, EmptyState, Icon, IconButton, IconType, Sheet,
-    SheetContent, SheetSide, SheetTitle, StatusDot,
+    EmptyState, IconButton, IconType, Sheet, SheetContent, SheetSide, SheetTitle,
 };
 use dioxus::prelude::*;
 use roost_client_core::store::selectors::session_by_id;
@@ -42,23 +41,14 @@ pub fn WorkspaceTabsSheet(
     let pump = use_store();
     let mut selection_mode = use_signal(|| false);
     let mut selected_ids = use_signal(Vec::<String>::new);
-    let (sessions, agents): (Vec<_>, Vec<_>) = {
+    let sessions: Vec<_> = {
         let core = pump.core();
         let core = core.borrow();
         let store = core.store();
-        (
-            tab_ids
-                .iter()
-                .filter_map(|id| session_by_id(store, id).cloned())
-                .collect(),
-            tab_ids
-                .iter()
-                .filter_map(|tab_id| {
-                    let conversation_id = tab_id.strip_prefix("agent:")?;
-                    store.agent_chat.conversations.get(conversation_id).cloned()
-                })
-                .collect(),
-        )
+        tab_ids
+            .iter()
+            .filter_map(|id| session_by_id(store, id).cloned())
+            .collect()
     };
     let mut exit_selection = move || {
         selection_mode.set(false);
@@ -94,7 +84,6 @@ pub fn WorkspaceTabsSheet(
         move |()| selected_ids.set(tab_ids.clone())
     };
     let heading = sheet_heading(selection_mode(), selected_ids.read().len(), tab_ids.len());
-    let session_count = sessions.len();
     // The dialog's z-1000 stays: the scrim is at z-1000 too, and a lower z would
     // leave the sheet under the dimmed scrim.
     rsx! {
@@ -153,7 +142,7 @@ pub fn WorkspaceTabsSheet(
                         on_close_selected: close_selected,
                     }
                 }
-                if sessions.is_empty() && agents.is_empty() {
+                if sessions.is_empty() {
                     div {
                         class: "flex flex-col items-center px-6 pt-16 pb-12",
                         "data-testid": "workspace-tabs-empty",
@@ -184,38 +173,6 @@ pub fn WorkspaceTabsSheet(
                                             None => chosen.push(id),
                                         }
                                     },
-                                }
-                            }
-                        }
-                        for (index, conversation) in agents.into_iter().enumerate() {
-                            {
-                                let tab_id = roost_client_core::deck::agent_tab_id(&conversation.id);
-                                let status = match conversation.run_state {
-                                    roost_protocol::wire::agent_chat::AgentRunState::Running => "info",
-                                    roost_protocol::wire::agent_chat::AgentRunState::Failed => "warn",
-                                    roost_protocol::wire::agent_chat::AgentRunState::Idle => "idle",
-                                };
-                                rsx! {
-                                    div {
-                                        key: "{tab_id}",
-                                        class: "min-w-0 animate-tc-card-enter motion-reduce:animate-none [animation-fill-mode:backwards]",
-                                        style: format!("animation-delay: {}ms;", card_enter_delay_ms(session_count + index)),
-                                        Card {
-                                            class: Some("min-w-0".to_owned()),
-                                            CardContent {
-                                                Button {
-                                                    variant: ButtonVariant::Ghost,
-                                                    class: Some("w-full min-w-0 justify-start".to_owned()),
-                                                    "data-testid": "workspace-agent-card-{conversation.id}",
-                                                    aria_current: (tab_id == selected_tab).then_some("page"),
-                                                    onclick: move |_| on_select.call(tab_id.clone()),
-                                                    Icon { icon: IconType::Bot, class: "size-4 shrink-0" }
-                                                    span { class: "min-w-0 flex-1 truncate", "{crate::components::agent_chat::display_conversation_title(&conversation.title)}" }
-                                                    StatusDot { status: status.to_owned() }
-                                                }
-                                            }
-                                        }
-                                    }
                                 }
                             }
                         }

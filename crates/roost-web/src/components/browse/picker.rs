@@ -1,5 +1,5 @@
 //! The folder picker's page: one machine's directory, its history, and the
-//! agent-or-terminal launch flow, composed from the toolbar, path band, entry grid,
+//! terminal launch flow, composed from the toolbar, path band, entry grid,
 //! launch bar and new-folder dialog. The state lives in the store's
 //! `BrowseState`, reached only through `BrowseIntent`; the keyboard cursor, the
 //! two menus' open flags, and the new-folder fields are the only state here.
@@ -21,7 +21,6 @@ use crate::components::browse::key_listener::use_picker_keys;
 use crate::components::browse::keys::{PickerKey, PickerKeyContext, moved_cursor};
 use crate::components::browse::listing;
 use crate::components::browse::view::{PickerReading, read_picker};
-use crate::components::browse::{BrowseLaunchMode, browse_launch_mode};
 use crate::components::browse::{BrowseStatus, newest_session_cwd};
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::ui::{Dialog, DialogContent, DialogTitle};
@@ -47,8 +46,6 @@ pub struct NewFolderForm {
 pub fn BrowsePicker(worker_fp: String) -> Element {
     let pump = use_store();
     let navigate = use_navigate();
-    let location = crate::router_state::use_location();
-    let launch_mode = browse_launch_mode(&location.read());
     let compact = use_is_compact();
     let ticket = use_signal(|| 0_u64);
     let mut cursor = use_signal(|| -1_i64);
@@ -117,15 +114,7 @@ pub fn BrowsePicker(worker_fp: String) -> Element {
             let worker_fp = worker_fp.clone();
             move |action| {
                 let reading = browse_reading(&pump, &worker_fp);
-                run_key(
-                    action,
-                    &pump,
-                    &reading,
-                    cursor,
-                    ticket,
-                    launch_mode,
-                    &navigate,
-                );
+                run_key(action, &pump, &reading, cursor, ticket, &navigate);
             }
         },
     );
@@ -143,7 +132,6 @@ pub fn BrowsePicker(worker_fp: String) -> Element {
             hide_middle,
             server_menu_open,
             crumb_menu_open,
-            launch_mode,
             navigate,
         }
     };
@@ -211,7 +199,6 @@ fn run_key(
     reading: &PickerReading,
     cursor: Signal<i64>,
     ticket: Signal<u64>,
-    launch_mode: BrowseLaunchMode,
     navigate: &EventHandler<String>,
 ) {
     let mut cursor = cursor;
@@ -250,20 +237,12 @@ fn run_key(
             navigate_to(pump, &mut ticket, &view.worker_fp, path);
             cursor.set(-1);
         }
-        PickerKey::OpenHere => match launch_mode {
-            BrowseLaunchMode::Agent => crate::components::agent_chat::launch_agent(
-                pump.clone(),
-                view.worker_fp.clone(),
-                view.resolved.clone(),
-                *navigate,
-            ),
-            BrowseLaunchMode::Terminal => listing::launch_terminal(
-                pump.clone(),
-                view.worker_fp.clone(),
-                view.resolved.clone(),
-                *navigate,
-            ),
-        },
+        PickerKey::OpenHere => listing::launch_terminal(
+            pump.clone(),
+            view.worker_fp.clone(),
+            view.resolved.clone(),
+            *navigate,
+        ),
     }
 }
 

@@ -1,88 +1,21 @@
-//! Per-device Web Push preparation for a delayed coding-agent transition.
-//!
-//! Owned by the push domain. `fire_push_for_transition` is the entry point the
-//! agents domain calls when an agent blocks or finishes; it decides WHO gets
-//! told, and `sender` decides whether they were.
-//!
-//! THE VIEWS ARE A PARAMETER, NOT A CALL. v2 imports
-//! `activeTerminalViewerFingerprints` from
-//! `terminal/view/terminal-view-hub.ts` (`push-dispatch.ts:9`), a module
-//! global. Here the answer is the [`ActiveTerminalViewers`] trait, whose one
-//! production implementation is the coordinator's `TerminalViewHub`
-//! (`push/viewers.rs`), so no two coordinators in one test process share one
-//! set of viewers.
-//!
-//! THE FENCE IS REVALIDATED ASYNCHRONOUSLY. `is_current` is checked before the
-//! database work, after it, and again inside the sender before each individual
-//! send (`push-dispatch.ts:47,132-141`). A transition that was superseded while
-//! the query ran must not notify anybody, and the window is exactly as wide as
-//! the query.
+//! Shared target selection and session metadata for Web Push notifications.
+//! Session-scoped delivery suppresses devices already viewing the terminal.
+//! Pairing and terminal notification dispatch use the same endpoint policy.
 
 use std::collections::BTreeSet;
-use std::sync::Arc;
 
-use roost_observability::LogFields;
-use roost_protocol::wire::{AgentOccupantId, SessionId, StatusEpoch};
-use serde::Serialize;
-use sha2::Digest;
+use roost_protocol::wire::SessionId;
 use sqlx::{AnyPool, Row};
 
 use crate::push::endpoint_policy::endpoint_origin;
-use crate::push::sender::{PushDeliveryOptions, PushDeliveryResult, send_push_to_subscriptions};
-use crate::push::subscription_store::{StoredSubscription, take_deliverable_subscriptions};
-use crate::push::transport::PushNotificationTransport;
+use crate::push::subscription_store::StoredSubscription;
 
-/// What a transition did, as the notification body and the topic both need it.
-///
-/// The shared value `push-dispatch.ts:14` exports. It is a type here rather
-/// than a string because every use of it here is exhaustive; a caller that
-/// forgot an arm would not compile.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+/// The kind carried by a session notification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PushTransition {
-    /// The agent is waiting on a human.
-    Blocked,
-    /// The agent finished on its own.
+    /// A terminal command or notification completed.
     Done,
-}
-
-impl PushTransition {
-    /// The word the payload carries.
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Blocked => "blocked",
-            Self::Done => "done",
-        }
-    }
-
-    /// The sentence a phone shows.
-    #[must_use]
-    pub fn notification_body(self) -> &'static str {
-        match self {
-            Self::Blocked => "Needs your input",
-            Self::Done => "Finished",
-        }
-    }
-}
-
-/// One agent status transition, with everything needed to decide whether its
-/// notification is still the truth.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AgentPushTransition {
-    /// The session the agent runs in.
-    pub session_id: SessionId,
-    /// Blocked or done.
-    pub kind: PushTransition,
-    /// The epoch the status was observed in. A stale epoch is a stale
-    /// notification even when the kind matches.
-    pub status_epoch: StatusEpoch,
-    /// Which occupant produced it, so two agents in one session do not share a
-    /// deduplication token.
-    pub occupant_id: AgentOccupantId,
-    /// Revision within the epoch, retained across same-state updates so a
-    /// retried publish does not re-notify.
-    pub revision: u64,
 }
 
 /// Which browser devices are watching one session right now.
@@ -92,140 +25,6 @@ pub struct AgentPushTransition {
 pub trait ActiveTerminalViewers: Send + Sync {
     /// The device fingerprints currently viewing `session_id`.
     fn active_viewer_fingerprints(&self, session_id: &SessionId) -> BTreeSet<String>;
-}
-
-/// What one notification says.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct AgentPushPayload {
-    /// The session the agent runs in.
-    #[serde(rename = "sessionId")]
-    pub session_id: String,
-    /// `blocked` or `done`.
-    pub kind: PushTransition,
-    /// The session's title, or its directory's leaf name.
-    pub title: String,
-    /// The sentence a phone shows.
-    pub body: String,
-    /// The status epoch this notification is about.
-    #[serde(rename = "statusEpoch")]
-    pub status_epoch: String,
-    /// The occupant that produced it.
-    #[serde(rename = "occupantId")]
-    pub occupant_id: String,
-    /// The revision within the epoch.
-    pub revision: u64,
-    /// The RFC 8030 topic, so a retried send replaces rather than stacks.
-    #[serde(rename = "deduplicationToken")]
-    pub deduplication_token: String,
-}
-
-/// Prepare and deliver the notification for one agent transition.
-///
-/// Never fails: a transition is not worth an error the caller has to handle, so
-/// every refusal and every failure ends in a log line
-/// (`push-dispatch.ts:160-169`). The agents domain calls this from a status
-/// update and has nothing useful to do with an error.
-#[allow(clippy::too_many_arguments)]
-pub async fn fire_push_for_transition(
-    pool: &AnyPool,
-    transition: &AgentPushTransition,
-    allowed_origins: &[String],
-    viewers: &dyn ActiveTerminalViewers,
-    is_current: &Arc<dyn Fn() -> bool + Send + Sync>,
-    transport: &dyn PushNotificationTransport,
-) {
-    let session_id = transition.session_id.as_str();
-    let kind = transition.kind.as_str();
-    if allowed_origins.is_empty() || !is_current() {
-        return;
-    }
-
-    let Some(session) = open_session(pool, session_id).await else {
-        roost_observability::log::info(
-            "push",
-            "session_missing",
-            LogFields::new()
-                .set("session_id", session_id)
-                .set("kind", kind),
-        );
-        return;
-    };
-    let subscriptions = match take_deliverable_subscriptions(pool).await {
-        Ok(subscriptions) => subscriptions,
-        Err(error) => {
-            log_dispatch_failed(transition, &error.to_string());
-            return;
-        }
-    };
-    if subscriptions.is_empty() {
-        return;
-    }
-
-    let viewing = viewers.active_viewer_fingerprints(&transition.session_id);
-    let (targets, suppressed) = select_targets(&subscriptions, allowed_origins, &viewing);
-    if targets.is_empty() {
-        roost_observability::log::info(
-            "push",
-            "suppressed_all",
-            LogFields::new()
-                .set("session_id", session_id)
-                .set("kind", kind)
-                .set("subscriptions", subscriptions.len()),
-        );
-        return;
-    }
-
-    let payload = AgentPushPayload {
-        session_id: session_id.to_owned(),
-        kind: transition.kind,
-        title: session_title(session.0.as_str(), session.1.as_deref()),
-        body: transition.kind.notification_body().to_owned(),
-        status_epoch: transition.status_epoch.as_str().to_owned(),
-        occupant_id: transition.occupant_id.as_str().to_owned(),
-        revision: transition.revision,
-        deduplication_token: deduplication_token(transition),
-    };
-    let deduplication_token = payload.deduplication_token.clone();
-    let body = match serde_json::to_string(&payload) {
-        Ok(body) => body,
-        Err(error) => {
-            log_dispatch_failed(transition, &error.to_string());
-            return;
-        }
-    };
-
-    if !is_current() {
-        roost_observability::log::info(
-            "push",
-            "status_superseded",
-            LogFields::new()
-                .set("session_id", session_id)
-                .set("kind", kind)
-                .set("status_epoch", transition.status_epoch.as_str())
-                .set("occupant_id", transition.occupant_id.as_str())
-                .set("revision", transition.revision),
-        );
-        return;
-    }
-
-    let result = send_push_to_subscriptions(
-        pool,
-        &targets,
-        &body,
-        PushDeliveryOptions {
-            deduplication_token: Some(deduplication_token.clone()),
-            is_current: Some(Arc::clone(is_current)),
-        },
-        transport,
-    )
-    .await;
-    log_dispatched(
-        transition,
-        subscriptions.len(),
-        suppressed,
-        targets.len(),
-        result,
-    );
 }
 
 /// Split the deliverable set into the ones to notify and the count suppressed.
@@ -296,69 +95,4 @@ pub(super) fn session_title(cwd: &str, custom_title: Option<&str>) -> String {
         .rfind(|segment| !segment.is_empty())
         .unwrap_or(cwd)
         .to_owned()
-}
-
-/// Thirty-two base64url characters derived from the transition's identity.
-///
-/// The five identity fields are hashed together, so two transitions of the same
-/// session in the same epoch by the same occupant at different revisions get
-/// DIFFERENT tokens -- the RFC 8030 topic then replaces a stale notification
-/// rather than deduplicating a new one away.
-fn deduplication_token(transition: &AgentPushTransition) -> String {
-    // `serde_json::json!` and `JSON.stringify` agree on a heterogeneous array:
-    // no spaces, strings double-quoted, the number bare. v2 hashes exactly
-    // those bytes, and a token that differed from v2's would defeat the
-    // RFC 8030 topic replacement for a coordinator that upgraded in place.
-    let identity = serde_json::to_vec(&serde_json::json!([
-        transition.session_id.as_str(),
-        transition.kind.as_str(),
-        transition.status_epoch.as_str(),
-        transition.occupant_id.as_str(),
-        transition.revision,
-    ]))
-    .unwrap_or_default();
-    let digest = sha2::Sha256::digest(&identity);
-    roost_host::b64url_encode(&digest)[..32].to_owned()
-}
-
-/// The one line that says what the dispatch did.
-#[allow(clippy::too_many_arguments)]
-fn log_dispatched(
-    transition: &AgentPushTransition,
-    subscriptions: usize,
-    suppressed: usize,
-    targeted: usize,
-    result: PushDeliveryResult,
-) {
-    roost_observability::log::info(
-        "push",
-        "dispatched",
-        LogFields::new()
-            .set("session_id", transition.session_id.as_str())
-            .set("kind", transition.kind.as_str())
-            .set("status_epoch", transition.status_epoch.as_str())
-            .set("occupant_id", transition.occupant_id.as_str())
-            .set("revision", transition.revision)
-            .set("subscriptions", subscriptions)
-            .set("suppressed", suppressed)
-            .set("targeted", targeted)
-            .set("delivered", result.delivered)
-            .set("expired", result.expired)
-            .set("failed", result.failed),
-    );
-}
-
-/// The one line that says the dispatch could not happen at all.
-fn log_dispatch_failed(transition: &AgentPushTransition, error: &str) {
-    roost_observability::log::warn(
-        "push",
-        "dispatch_failed",
-        LogFields::new()
-            .set("session_id", transition.session_id.as_str())
-            .set("kind", transition.kind.as_str())
-            .set("status_epoch", transition.status_epoch.as_str())
-            .set("occupant_id", transition.occupant_id.as_str())
-            .set("revision", transition.revision)
-            .set("error", error),
-    );
 }

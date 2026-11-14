@@ -1,5 +1,5 @@
-//! One pane's workspace strip: draggable terminal/agent tabs, the new-tab menu,
-//! active-agent actions, carrier status and overflow. `TerminalDeck` supplies
+//! One pane's workspace strip: draggable terminal tabs, new-tab control,
+//! carrier status and overflow. `TerminalDeck` supplies
 //! layout callbacks; this component owns strip gestures and hover state.
 
 use std::cell::RefCell;
@@ -16,14 +16,12 @@ use super::pane_tab::PaneTab;
 use super::pane_tab_hover_card::PaneTabHoverCard;
 use super::pane_tab_list::{PaneTabList, TAB_LIST_MENU_ID};
 use super::pane_tab_new_menu::PaneTabNewMenu;
-use crate::components::agent_chat::AgentChatHeader;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::terminal::terminal_transport_indicator::TerminalTransportIndicator;
 use crate::components::ui::{
     DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Icon, IconType, Tabs, TabsList,
     TabsVariant, Toolbar,
 };
-use crate::pump::use_store;
 /// How long a pointer rests on a tab before its hover card opens, ms.
 const HOVER_DWELL_MS: u32 = 450;
 /// How long a closing tab animates out before the close lands, ms.
@@ -41,7 +39,6 @@ pub fn PaneStrip(
     on_close: EventHandler<String>,
     on_reorder: EventHandler<Vec<String>>,
     on_new_tab: EventHandler<()>,
-    #[props(default)] on_new_agent: Option<EventHandler<()>>,
     on_tab_drag_move: Option<EventHandler<(f64, f64)>>,
     on_tab_tile_drop: Option<Callback<(String, f64, f64), bool>>,
     on_tab_drag_end: Option<EventHandler<()>>,
@@ -57,29 +54,6 @@ pub fn PaneStrip(
     let hover_timer: Rc<RefCell<Option<Timeout>>> = use_hook(Rc::default);
     let rail_watch = use_rail_scroll(gesture, pane_id.clone(), overflowing);
     let hover_card_available = !compact && !deck_dom::is_touch_device();
-    let pump = use_store();
-    let (selected_agent, online) = {
-        let core = pump.core();
-        let core = core.borrow();
-        let store = core.store();
-        let agent = selected_tab
-            .strip_prefix("agent:")
-            .and_then(|id| store.agent_chat.conversations.get(id))
-            .cloned();
-        let online = agent.as_ref().is_some_and(|conversation| {
-            store
-                .workers
-                .get(&conversation.worker_fp)
-                .is_some_and(|worker| {
-                    roost_client_core::store::navigation::worker_online(
-                        worker,
-                        store.routable_worker_fps.as_ref(),
-                        i64::try_from(core.clock().now_ms()).unwrap_or(i64::MAX),
-                    )
-                })
-        });
-        (agent, online)
-    };
     let drag = gesture.drag.read().clone();
 
     use_effect(use_reactive((&selected_tab, &tab_ids), move |_| {
@@ -218,11 +192,6 @@ pub fn PaneStrip(
             }
             PaneTabNewMenu {
                 on_new_terminal: move |_| on_new_tab.call(()),
-                on_new_agent: move |_| {
-                    if let Some(on_new_agent) = on_new_agent {
-                        on_new_agent.call(());
-                    }
-                },
             }
             div {
                 class: "flex-1 min-w-0 self-stretch",
@@ -242,16 +211,7 @@ pub fn PaneStrip(
                     }
                 },
             }
-            if let Some(conversation) = selected_agent {
-                AgentChatHeader {
-                    conversation,
-                    online: Some(online),
-                    pump: pump.clone(),
-                }
-            }
-            if !matches!(roost_client_core::deck::tab::DeckTab::parse(&selected_tab), Some(roost_client_core::deck::tab::DeckTab::Agent(_))) {
-                TerminalTransportIndicator { session_id: selected_tab.clone() }
-            }
+            TerminalTransportIndicator { session_id: selected_tab.clone() }
             if overflowing() {
                 Toolbar { class: "shrink-0", aria_label: "Terminal actions",
                     DropdownMenu {

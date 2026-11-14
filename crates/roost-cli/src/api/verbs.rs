@@ -8,11 +8,6 @@
 //! `--until` and twenty places for the twentieth to disagree. Here the row is
 //! the whole contract and `verbs::parse` is the only reader, so a verb gains an
 //! option by gaining a row.
-//!
-//! WHY THE ARITY IS DATA. `agent-wait` needs `--until` and `--timeout` and
-//! `agent-status` needs neither, and the difference is not something a reader
-//! of a call site can see. Making it a column of the row is what lets the
-//! refusal for a missing `--until` name the verb it was missing from.
 
 mod parse;
 mod table;

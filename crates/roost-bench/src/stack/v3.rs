@@ -28,8 +28,6 @@ pub fn worker_spec(layout: &RoundLayout, token: &str) -> ProcessSpec {
         "ROOST_KEEPER_EXECUTABLE".into(),
         path_value(&paths::v3_keeper()),
     ));
-    // A scratch stack must not rewrite the agent loaders an installed worker owns.
-    env.push(("ROOST_SKIP_AGENT_INTEGRATIONS".into(), "1".into()));
     ProcessSpec {
         program: paths::v3_roost(),
         args: vec![

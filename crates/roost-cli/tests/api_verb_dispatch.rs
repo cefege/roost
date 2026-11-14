@@ -66,31 +66,16 @@ async fn an_unknown_verb_exits_two_and_prints_every_verb_that_does_exist() {
 }
 
 #[tokio::test]
-async fn no_verb_at_all_is_the_same_refusal_rather_than_a_shrug() {
-    let mut captured = Captured::default();
-    let failure = run_with(None, &[], &mut captured)
-        .await
-        .expect_err("there is no default verb to run");
-
-    assert_eq!(failure.code, REJECTED_INVOCATION);
-    assert!(
-        failure.message.contains("roost api agents"),
-        "an operator who named no verb gets the list: {}",
-        failure.message
-    );
-}
-
-#[tokio::test]
 async fn a_verb_refuses_the_arguments_it_does_not_take_before_it_dials_anything() {
     let mut captured = Captured::default();
-    let failure = run_with(Some("agent-wait"), &argv(&["session-1"]), &mut captured)
+    let failure = run_with(Some("kill"), &argv(&[]), &mut captured)
         .await
-        .expect_err("--until and --timeout are both required");
+        .expect_err("a session is required");
 
     assert_eq!(failure.code, REJECTED_INVOCATION);
     assert!(
-        failure.message.contains("--until"),
-        "the refusal names the option that is missing: {}",
+        failure.message.contains("missing"),
+        "the refusal names the missing argument: {}",
         failure.message
     );
     assert!(
@@ -121,19 +106,10 @@ fn the_clap_parser_takes_a_verb_and_its_arguments_without_eating_the_arguments()
         api: ApiArgs,
     }
 
-    let parsed = Harness::try_parse_from([
-        "roost",
-        "agent-wait",
-        "session-1",
-        "--until",
-        "working",
-        "--timeout=30s",
-    ])
-    .expect("a trailing argument list carrying hyphens is what this subcommand is for");
+    let parsed =
+        Harness::try_parse_from(["roost", "cells", "session-1", "--rows", "30", "--end=40"])
+            .expect("a trailing argument list carrying hyphens is what this subcommand is for");
     let ApiArgs { verb, args } = parsed.api;
-    assert_eq!(verb.as_deref(), Some("agent-wait"));
-    assert_eq!(
-        args,
-        argv(&["session-1", "--until", "working", "--timeout=30s"])
-    );
+    assert_eq!(verb.as_deref(), Some("cells"));
+    assert_eq!(args, argv(&["session-1", "--rows", "30", "--end=40"]));
 }

@@ -95,10 +95,6 @@ pub fn canonical_frames() -> Vec<(&'static str, Value)> {
             json!({ "kind": "mkdir", "request_id": "r5", "path": "/tmp/new" }),
         ),
         (
-            "list-skills",
-            json!({ "kind": "list-skills", "request_id": "r6" }),
-        ),
-        (
             "git-diff",
             json!({ "kind": "git-diff", "request_id": "r7", "session_id": CONTROL_SESSION }),
         ),

@@ -15,18 +15,17 @@ registry, `Session` is the user-facing row, `Channel` is a PTY connection,
 | `roost-protocol` | Pure I/O-free wire and terminal logic: event variants and the canonical fold, cell and grid models, viewport geometry, peer packet framing, the keeper-update contract, layout documents. Builds for `wasm32`. | — |
 | `roost-platform` | Pure platform path and shell conventions and quoting. No I/O, no async, no logging. | — |
 | `roost-shell-tokenize` | Pure shell lexing and ECMAScript whitespace helpers, shared with terminal links. No dependencies or I/O. | — |
-| `roost-host` | `ROOST_*` config, service names, durable atomic writes, service health probes and worker OMP executable lookup. | — |
+| `roost-host` | `ROOST_*` config, service names, durable atomic writes and service health probes. | — |
 | `roost-term` | The `TerminalCore` trait, its rio-vt implementation, and the grid→`CellGridFrame` emitter. | — |
 | `roost-keeper` | The keeper daemon: PTY ownership, per-channel byte rings, the framed keeper socket protocol. | `roost-keeper` |
-| `roost-worker` | Sessions, keeper client, durable outbox, coordinator link, local door, WebRTC peer, agent tracking. | — |
+| `roost-worker` | Sessions, keeper client, durable outbox, coordinator link, local door and WebRTC peer. | — |
 | `roost-coord` | SQLite or Postgres state, auth, Connect RPC handlers, Sync and worker WebSocket links, terminal hubs, server-side web push (no browser subscribes yet). | — |
-| `roost-coord::agent` | OMP event/interaction projection, worker-backed settings and chat RPCs. | — |
 | `roost-coord::cluster` | What lets coordinator replicas share one Postgres database: the cross-replica notice channel (`pg_notify`/`LISTEN`; in-process on SQLite). | — |
 | `roost-client-core` | The UI-free client: Connect client, Sync state machine, store fold, terminal-stream replica and route election, input lanes, encoders, find paging. | — |
 | `roost-vcs` | Git-linked worktree creation: reflink staging, clean target reconciliation or retained live changes, safe plain-checkout fallback, and captured checkout hooks. | — |
 | `roost-web-terminal` | The imperative `web-sys` terminal renderer and its input, IME, mouse, selection and link controllers. | — |
 | `roost-web` | The Dioxus 0.8 alpha.3 web application: routes, components, static assets. | — |
-| `roost-cli` | The `roost` binary: `coord`, `worker`, `quickstart`, `join`, `add-machine`, `add-browser`, `status`, `doctor`, `update`, `deploy`, `push`, `api` (28 headless verbs), `skill`, `worktree add`, `db-to-postgres`, `db-to-sqlite`, `import-v2`. | `roost` |
+| `roost-cli` | The `roost` binary: `coord`, `worker`, `quickstart`, `join`, `add-machine`, `add-browser`, `status`, `doctor`, `update`, `deploy`, `push`, `api` (headless terminal and administration verbs), `worktree add`, `db-to-postgres`, `db-to-sqlite`, `import-v2`. | `roost` |
 | `roost-bench` | The v2-vs-v3 speed benchmark: boots each stack in isolation, drives one headless Chromium over CDP, samples `/proc` CPU/RSS, writes `target/bench/runs/<id>/report.md`. A developer tool, never shipped. | `roost-bench` |
 
 ## Dependency DAG

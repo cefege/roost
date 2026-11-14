@@ -3,9 +3,9 @@
 //! verb in the module; nothing else in the crate depends on it.
 //!
 //! The split is a trait rather than a pair of `println!` calls because the
-//! stdout half is a contract: `agent-status --json` promises exactly one
-//! parseable JSON document and nothing else, and the only way a test can see
-//! that promise kept is by reading what a verb wrote. A verb that reached for
+//! stdout half is a contract: `sessions --json` promises exactly one
+//! parseable JSON document and nothing else, and a test can see that promise
+//! by reading what a verb wrote. A verb that reached for
 //! `println!` directly would be a verb no test could hold to it.
 
 /// Where one verb's two kinds of line go.

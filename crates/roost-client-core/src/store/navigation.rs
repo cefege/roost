@@ -8,19 +8,6 @@
 //! matters is that a proxy handed to a subscriber reads the POST-write value
 //! (`docs/FAILURE-INDEX.md:50`).
 //!
-//! The agent facts are an INPUT, not a derivation. v2 computes the level, the
-//! attention state and the unseen flag inside `projectSession`
-//! (`navigation-search.ts:97-184`), which reads as navigation's job and is not:
-//! the level belongs to `client/agents/agentStatus.ts` and the seen revision to
-//! `lib/agentSeen.ts`, and v2's own header says the status and seen owners stay
-//! authoritative. So [`AgentStatusFacts`] is a carrier this module reads and never
-//! populates, and there is no second level type in the crate for it to disagree
-//! with.
-//!
-//! The query half — normalization, filtering, and the attention ordering — is in
-//! `navigation::query`, because a filter is not a projection and the two are
-//! changed for different reasons.
-//!
 //! DEVIATION: the query normalizer does not apply NFKC. `unicode-normalization`
 //! is not in this crate's dependency set, and a search index that lowercased one
 //! side of a query and normalised the other would be worse than one that
@@ -41,86 +28,6 @@ pub use projection::project_navigation_search_documents;
 /// The freshness fallback for worker reachability, in milliseconds.
 pub const WORKER_FRESHNESS_MS: i64 = 90_000;
 
-/// Why a row wants the operator's attention.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NavigationSearchAttention {
-    /// An agent is blocked and cannot continue without a human.
-    Blocked,
-    /// An agent finished.
-    Done,
-}
-
-impl NavigationSearchAttention {
-    /// The stored spelling.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Blocked => "blocked",
-            Self::Done => "done",
-        }
-    }
-}
-
-/// Map the agent-status owner's level token onto the attention state a
-/// navigation row shows.
-///
-/// THE ONE PLACE the two vocabularies meet, and a MAPPING rather than a second
-/// derivation: the level, the unseen flag and the acknowledged revision belong to
-/// `client::agents::agentStatus`, and re-deriving any of them here would be a
-/// second answer to a question another module already owns. Five tokens in
-/// (`blocked`, `working`, `done`, `idle`, `unknown`) and two states out, because
-/// those are the only two that make a row want a human: an agent waiting on a
-/// person, and an agent that has finished.
-///
-/// The attention ORDER is derived from the token too, not from the enum. A sort
-/// keyed on the enum would still put a blocked row first today, and would keep
-/// doing so after a fourth attention state arrived with a different order — with
-/// neither this crate's tests nor the agent module's noticing.
-pub fn attention_for_level_token(level_token: &str) -> Option<NavigationSearchAttention> {
-    match level_token {
-        "blocked" => Some(NavigationSearchAttention::Blocked),
-        "done" => Some(NavigationSearchAttention::Done),
-        _ => None,
-    }
-}
-
-/// The rank an attention row sorts by, taken from the shared token vocabulary
-/// and not from the enum's own order.
-pub fn attention_rank(document: &NavigationSearchDocument) -> u8 {
-    match document.agent_status.as_deref() {
-        Some("blocked") => 0,
-        Some("done") => 1,
-        Some(_) => 2,
-        None => 3,
-    }
-}
-
-/// What the agent-status owner resolved for one session.
-///
-/// The projection reads these and derives nothing: the level, the attention state
-/// and the unseen flag are all policy belonging to the module that owns agent
-/// status, and a second derivation here would be a second answer.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct AgentStatusFacts {
-    /// The level as the owner spells it, for the search text. `None` when the
-    /// session has no status.
-    pub level_token: Option<String>,
-    /// Whether the status wants attention, and of which kind.
-    pub attention: Option<NavigationSearchAttention>,
-    /// Whether the operator has not yet seen this status.
-    pub unseen: bool,
-    /// The agent's own id, for the search text.
-    pub agent_id: Option<String>,
-    /// The status message, for the card and the search text.
-    pub message: Option<String>,
-    /// When the worker observed it.
-    pub updated_at_ms: Option<i64>,
-    /// The BROWSER's arrival counter for this status, not a worker clock.
-    ///
-    /// Worker wall clocks are unsynchronized, so ordering by `updated_at_ms`
-    /// would let one machine running minutes ahead own the top of the list.
-    pub arrival: u64,
-}
-
 /// Everything the projection reads, named.
 #[derive(Debug)]
 pub struct NavigationSources<'a> {
@@ -134,8 +41,6 @@ pub struct NavigationSources<'a> {
     pub terminal_titles: &'a BTreeMap<String, String>,
     /// The coordinator's last-activity stamp, by session.
     pub last_activity_ms: &'a BTreeMap<String, i64>,
-    /// The agent facts, by session, as the agent-status owner resolved them.
-    pub agent_status: &'a BTreeMap<String, AgentStatusFacts>,
     /// The fingerprints the coordinator can reach RIGHT NOW, or `None` before the
     /// first list. `None` is not "nothing is reachable": it is "ask the heartbeat
     /// instead", so a pre-bootstrap render is not all-offline.
@@ -199,20 +104,6 @@ pub struct NavigationSearchDocument {
     /// Whether an operator could actually get to this row: open, on a known
     /// machine, and that machine reachable now.
     pub available: bool,
-    /// The agent level as its owner spells it.
-    pub agent_status: Option<String>,
-    /// Whether the status wants attention, and of which kind.
-    pub agent_attention: Option<NavigationSearchAttention>,
-    /// Whether the operator has not seen it.
-    pub agent_unseen: bool,
-    /// The agent's id.
-    pub agent_id: Option<String>,
-    /// The status message.
-    pub agent_message: Option<String>,
-    /// When the worker observed the status. Display only; ordering uses arrival.
-    pub agent_updated_at_ms: Option<i64>,
-    /// The browser's arrival counter for the status.
-    pub agent_arrival: u64,
     /// Whether this browser minted the row and the coordinator has not published
     /// it yet.
     pub client_only: bool,

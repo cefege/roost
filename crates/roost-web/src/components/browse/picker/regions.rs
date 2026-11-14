@@ -8,7 +8,6 @@
 
 use dioxus::prelude::*;
 
-use crate::components::browse::BrowseLaunchMode;
 use crate::components::browse::dom;
 use crate::components::browse::entry_list::BrowseEntryList;
 use crate::components::browse::new_folder::NewFolderDialog;
@@ -41,8 +40,6 @@ pub fn PickerRegions(
     let folder_name = c.folder_name.clone();
     let crumb_views = c.crumb_views.clone();
     let unavailable = c.unavailable;
-    let launch_mode = c.launch_mode;
-    let on_start_agent = c.on_start_agent;
     let on_open_here = c.on_open_here;
     let on_toggle_filter = c.on_toggle_filter;
     let on_toggle_show_files = c.on_toggle_show_files;
@@ -136,40 +133,13 @@ pub fn PickerRegions(
                 }
             }
             div { class: "flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-3",
-                if let BrowseLaunchMode::Agent = launch_mode {
-                    Button {
-                        variant: ButtonVariant::Default,
-                        icon: Some(IconType::Bot),
-                        "data-testid": "browse-start-agent",
-                        disabled: !view.scoped,
-                        onclick: move |_| on_start_agent.call(()),
-                        "New agent here"
-                    }
-                    Button {
-                        variant: ButtonVariant::Outline,
-                        icon: Some(IconType::Terminal),
-                        "data-testid": "browse-open",
-                        disabled: !view.scoped,
-                        onclick: move |_| on_open_here.call(()),
-                        "Open terminal here"
-                    }
-                } else {
-                    Button {
-                        variant: ButtonVariant::Default,
-                        icon: Some(IconType::Terminal),
-                        "data-testid": "browse-open",
-                        disabled: !view.scoped,
-                        onclick: move |_| on_open_here.call(()),
-                        "Open terminal here"
-                    }
-                    Button {
-                        variant: ButtonVariant::Outline,
-                        icon: Some(IconType::Bot),
-                        "data-testid": "browse-start-agent",
-                        disabled: !view.scoped,
-                        onclick: move |_| on_start_agent.call(()),
-                        "New agent here"
-                    }
+                Button {
+                    variant: ButtonVariant::Default,
+                    icon: Some(IconType::Terminal),
+                    "data-testid": "browse-open",
+                    disabled: !view.scoped,
+                    onclick: move |_| on_open_here.call(()),
+                    "Open terminal here"
                 }
             }
             NewFolderDialog {

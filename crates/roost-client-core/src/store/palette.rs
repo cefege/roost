@@ -148,9 +148,8 @@ pub struct CommandPaletteContext {
 }
 
 /// The catalog's closed set of core action ids.
-pub const CORE_ACTION_IDS: [&str; 6] = [
+pub const CORE_ACTION_IDS: [&str; 5] = [
     "core.search.all",
-    "core.attention.open",
     "core.clipboard.history",
     "core.task.queue-folder",
     "core.session.new-sibling",
@@ -214,9 +213,8 @@ pub fn build_default_items(
 
 /// The core rows, in the order the closed set names them.
 ///
-/// Two are always present — they navigate, and there is nothing to be contextual
-/// about. The other two are compiled only when there is a target, which is what
-/// `compileQueueFolder` and `compileNewSibling` return `null` for.
+/// Navigation and clipboard actions are always present. Folder and session
+/// actions are compiled only when their target is available.
 pub fn core_action_items(context: &CommandPaletteContext) -> Vec<PaletteItem> {
     let mut items = vec![
         PaletteItem {
@@ -226,16 +224,6 @@ pub fn core_action_items(context: &CommandPaletteContext) -> Vec<PaletteItem> {
             hint: Some("metadata".to_owned()),
             search: Some("global search sessions workspaces workers git ports".to_owned()),
             href: Some("/search".to_owned()),
-            action: None,
-            captured_auth_generation: None,
-        },
-        PaletteItem {
-            id: "core.attention.open".to_owned(),
-            kind: ItemKind::Action,
-            label: "Open attention".to_owned(),
-            hint: Some("blocked and completed agents".to_owned()),
-            search: Some("attention blocked done unseen agents".to_owned()),
-            href: Some("/search?scope=attention".to_owned()),
             action: None,
             captured_auth_generation: None,
         },

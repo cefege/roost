@@ -192,7 +192,7 @@ pub async fn handle_delete_attachment(
     })
 }
 
-/// Resolve an attachment ID to its live terminal or conversation worker.
+/// Resolve an attachment ID to its live terminal worker.
 async fn session_binding(
     core: &CoordCore,
     raw: &str,
@@ -206,27 +206,6 @@ async fn session_binding(
     }
     let target_id = AttachmentTargetId::try_from(raw)
         .map_err(|_| ConnectError::new(ErrorCode::NotFound, "session not found"))?;
-    if target_id.is_conversation() {
-        let target =
-            super::conversation_target::conversation_attachment_target(core, &target_id, None)
-                .await?
-                .ok_or_else(|| ConnectError::new(ErrorCode::NotFound, "session not found"))?;
-        let handle = core
-            .services
-            .scrollback
-            .workers()
-            .current_routable(&target.worker_fp)
-            .ok_or_else(|| {
-                ConnectError::new(ErrorCode::FailedPrecondition, "worker not connected")
-            })?;
-        return Ok((
-            target_id,
-            SessionWorkerBinding {
-                worker_fp: target.worker_fp,
-                handle,
-            },
-        ));
-    }
     let session = SessionId::try_from(raw)
         .map_err(|_| ConnectError::new(ErrorCode::NotFound, "session not found"))?;
     let binding = core

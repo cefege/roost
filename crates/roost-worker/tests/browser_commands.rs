@@ -116,20 +116,17 @@ fn a_frame_that_does_not_decode_never_reaches_a_handler() {
     );
 }
 
-/// TWO COMMANDS THE WORKER DOES NOT HAVE ARE ANSWERED WITH A REASON. Each
-/// carries a request id, so dropping either leaves the coordinator's pending
-/// entry to expire against nothing.
+/// An unavailable command must answer its request rather than leave the
+/// coordinator's pending entry to expire.
 #[test]
 fn a_command_this_build_cannot_run_is_answered_with_a_reason() {
     let harness = harness();
-    for kind in ["list-skills", "git-diff"] {
-        let reply = only(tokio::runtime::Runtime::new().expect("a runtime").block_on(
-            roost_worker::browser_commands::dispatch(&command(frame_of(kind)), &harness.deps),
-        ));
-        assert!(!reply.is_ok(), "{kind} is answered as a success");
-        let message = reply.message().expect("a refusal carries a message");
-        assert!(!message.is_empty(), "{kind} is refused with a cause");
-    }
+    let reply = only(tokio::runtime::Runtime::new().expect("a runtime").block_on(
+        roost_worker::browser_commands::dispatch(&command(frame_of("git-diff")), &harness.deps),
+    ));
+    assert!(!reply.is_ok(), "git-diff is answered as a success");
+    let message = reply.message().expect("a refusal carries a message");
+    assert!(!message.is_empty(), "git-diff is refused with a cause");
 }
 
 /// ATTACH ANSWERS WITH THE OFFSET THE SESSION LAYER NAMED. A hardcoded zero

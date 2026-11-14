@@ -4,12 +4,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::duplicate_mod)]
 
-#[path = "agent_attention.rs"]
-mod agent_attention;
-#[path = "agent_attention_count.rs"]
-mod agent_attention_count;
-#[path = "agent_notification_scheduler.rs"]
-mod agent_notification_scheduler;
 #[path = "carrier_layer.rs"]
 mod carrier_layer;
 #[path = "composer_slot_claim.rs"]
@@ -82,8 +76,6 @@ mod phase_marks;
 mod pump_carrier_environment;
 #[path = "pump_frame_listeners.rs"]
 mod pump_frame_listeners;
-#[path = "queue_task_dialog_mount.rs"]
-mod queue_task_dialog_mount;
 #[path = "resize_drag.rs"]
 mod resize_drag;
 #[path = "route_session.rs"]

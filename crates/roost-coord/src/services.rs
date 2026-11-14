@@ -30,7 +30,6 @@
 //! the one thing the boot-facts rule exists to prevent.
 use std::sync::Arc;
 
-use crate::agents::AgentsRuntime;
 use crate::attachments::AttachmentsRuntime;
 use crate::auth::jwt_key_cache::JwtKeyCache;
 use crate::auth::pairing::PairingRuntime;
@@ -138,12 +137,6 @@ pub struct CoordServices {
     pub pairing: PairingRuntime,
     /// The session lifecycle, its pending spawns, and its list projection.
     pub sessions: SessionsRuntime,
-    /// Per-session agent status, its wait queues, and the agent configuration.
-    pub agents: AgentsRuntime,
-    /// Durable chat event delivery and cluster membership.
-    pub agent: Arc<crate::agent::AgentService>,
-    /// OMP conversations: the per-conversation writer and the worker frames that feed it.
-    pub omp: Arc<crate::agent::omp::OmpService>,
     /// File RPCs, the chunk relay, direct grants, and peer negotiations.
     pub attachments: AttachmentsRuntime,
     /// Global session search across every worker, and its cancellations.
@@ -226,7 +219,11 @@ impl CoordServices {
     /// of them would ever be published to.
     #[must_use]
     pub fn booted(db: CoordDb, boot: BootFacts) -> Self {
-        let instance_id = crate::agent::random_hex("coord-");
+        let random = crate::coord_core::ids::draw::<16>().unwrap_or_else(|error| {
+            tracing::error!(%error, "cannot mint coordinator instance identity");
+            std::process::abort();
+        });
+        let instance_id = format!("coord-{}", hex::encode(random));
         let workers = Arc::new(WorkerRegistry::new());
         // ONE store, shared by clone. A second `PendingPublicationStore` would
         // be two answers to "what is pending publication" -- the same defect as
@@ -289,19 +286,6 @@ impl CoordServices {
         );
         let deploy = DeployRuntime::new();
         let cluster = crate::cluster::notify::ClusterNotifier::new(db.clone());
-        let agent = crate::agent::AgentService::new(
-            db.clone(),
-            Arc::clone(&buses),
-            crate::agent::ClusterMembership {
-                instance_id: instance_id.clone(),
-                notifier: Arc::clone(&cluster),
-            },
-        );
-        let omp = Arc::new(crate::agent::omp::OmpService::new(
-            db.clone(),
-            Arc::clone(&workers),
-            Arc::clone(&agent.sink),
-        ));
         let catch_up_on_ready = Arc::new(crate::deploy::catchup_on_ready::CatchUpOnReady::new(
             deploy.clone(),
             db.clone(),
@@ -318,8 +302,6 @@ impl CoordServices {
             attachments.worker_lifecycle_observer(),
             catch_up_on_ready
                 as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
-            Arc::clone(&omp)
-                as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
         ]);
         Self {
             db,
@@ -333,8 +315,6 @@ impl CoordServices {
             pending_publications,
             live_metrics: std::sync::Mutex::new(LiveMetricsHub::default()),
             worker_lifecycle,
-            agent,
-            omp,
             diag_pipelines: WorkerTerminalPipelineSnapshotCache::new(scrollback.clone()),
             terminal_capture,
             scrollback,
@@ -342,7 +322,6 @@ impl CoordServices {
             ui_state: UiStateRuntime::new(),
             pairing: PairingRuntime::new(),
             sessions,
-            agents: AgentsRuntime::new(),
             attachments,
             search: GlobalSearchRuntime::new(),
             deploy,

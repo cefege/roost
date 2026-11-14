@@ -153,64 +153,14 @@ message CoordinatorRelocationFrame {
   string target_url = 3;
 }
 
-// Agent conversations are coordinator-owned and independent of terminal sessions.
-message AgentConversationFrame {
-  string conversation_id = 1;
-  bool removed = 2;
-  AgentConversation conversation = 3;
-  bool host_connected = 4;
-}
-message AgentChatEventsFrame {
-  string conversation_id = 1;
-  uint64 seq = 2;
-  string events_json = 3;
-}
-
-// Agent status is volatile per-session runtime metadata. Inactive frames delete
-// the retained status; active frames are seeded on Sync reconnect.
-message AgentStatusFrame {
-  string session_id = 1;
-  string agent_id = 2;
-  string state = 3;
-  optional string message = 4;
-  uint64 revision = 5;
-  uint64 completed_revision = 6;
-  double updated_at = 7;
-  bool active = 8;
-  optional string status_epoch = 9;
-  optional string occupant_id = 10;
-  optional string source = 11;
-  bool occupant_exited = 12;
-}
-message AgentConversation {
-  string id = 1;
-  string title = 2;
-  string worker_fp = 3;
-  string worker_label = 4;
-  string cwd = 5;
-  string model_provider = 6;
-  string model_id = 7;
-  string thinking_level = 8;
-  string run_state = 9;
-  string error = 10;
-  int64 created_ms = 11;
-  int64 updated_ms = 12;
-  string mode = 13;
-  string parent_id = 14;
-  string agent = 15;
-  bool advisor = 16;
-  string effective_model_provider = 17;
-  string effective_model_id = 18;
-  string backend = 19;
-}
 
 
 // Sync v2 divides application traffic into independently hydrated domains.
 // Enum values are stable wire identifiers; controls themselves are never
 // delivery-sequenced and therefore never consume the application ACK window.
 enum SyncDomain {
-  reserved 5, 8;
-  reserved "SYNC_DOMAIN_PERMISSIONS", "SYNC_DOMAIN_WEBHOOK";
+  reserved 5, 8, 10;
+  reserved "SYNC_DOMAIN_PERMISSIONS", "SYNC_DOMAIN_WEBHOOK", "SYNC_DOMAIN_AGENT";
   SYNC_DOMAIN_UNSPECIFIED = 0;
   SYNC_DOMAIN_TERMINAL = 1;
   SYNC_DOMAIN_WORKERS = 2;
@@ -219,7 +169,6 @@ enum SyncDomain {
   SYNC_DOMAIN_MCP = 6;
   SYNC_DOMAIN_PAIR = 7;
   SYNC_DOMAIN_AUDIT = 9;
-  SYNC_DOMAIN_AGENT = 10;
 }
 
 
@@ -360,32 +309,17 @@ message InputAmbiguous {
 }
 
 
-// One-shot host service request, never replayed or stored in a transcript.
-message OmpHostServiceFrame {
-  string service_id = 1;
-  string origin_request_id = 2;
-  string conversation_id = 3;
-  string view_id = 4;
-  string transport_id = 5;
-  string kind = 6;
-  string value = 7;
-  bool cancelled = 8;
-}
 
-// A private native action result; apply only after the transcript fence.
-message OmpUiActionReceiptFrame {
-  string origin_request_id = 1;
-  string conversation_id = 2;
-  string view_id = 3;
-  string transport_id = 4;
-  uint64 after_seq = 5;
-  string error = 6;
-}
+// Account-scoped invalidation only: clients re-read ClientStateList.
+// Unsequenced, never retained; reconnect already pulls the durable state.
+message ClientStateChangedFrame {}
 
 message FirehoseFrame {
-  reserved 7, 14, 15, 28, 30, 42, 43, 47;  // retired fields
+  reserved 7, 14, 15, 28, 29, 30, 42, 43, 47, 56, 57, 59, 60;
   reserved "webhook_token_delta", "permission_delta",
-    "viewport_accepted", "viewport_rejected", "viewport_ambiguous";
+    "viewport_accepted", "viewport_rejected", "viewport_ambiguous",
+    "agent_status", "agent_conversation", "agent_chat_events",
+    "omp_host_service", "omp_ui_action_receipt";
   // Per-socket application-delivery sequence. Zero means legacy/unenforced or
   // an unsequenced v2 control frame.
   uint64 delivery_seq = 31;
@@ -416,9 +350,6 @@ message FirehoseFrame {
     UiCommandFrame ui_command = 25;
     KeepaliveFrame keepalive = 26;
     CoordinatorRelocationFrame coordinator_relocation = 27;
-    AgentStatusFrame agent_status = 29;
-    AgentConversationFrame agent_conversation = 56;
-    AgentChatEventsFrame agent_chat_events = 57;
 
     // v2 controls. These are emitted only to sync_v=2 sockets with
     // delivery_seq=0, so cached flow=1 clients never observe them.
@@ -436,8 +367,7 @@ message FirehoseFrame {
     TerminalBellFrame terminal_bell = 54;
     TerminalSignalsFrame terminal_signals = 55;
     WorkerLiveMetricsFrame worker_live_metrics = 58;
-    OmpHostServiceFrame omp_host_service = 59;
-    OmpUiActionReceiptFrame omp_ui_action_receipt = 60;
+    ClientStateChangedFrame client_state_changed = 61;
   }
 }
 

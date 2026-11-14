@@ -1,6 +1,5 @@
-//! The resolver fixtures `shell_spec_resolution` and `shell_spec_overlay`
-//! share: a service-like environment carrying the keeper credentials a PTY must
-//! never inherit, and an overlay that answers the same thing for every session.
+//! Resolver fixtures with a service-like environment carrying keeper
+//! credentials that a PTY must never inherit.
 
 #![allow(dead_code)]
 
@@ -9,7 +8,6 @@ use std::path::Path;
 
 use roost_host::{HostPlatform, supported_host_platform};
 use roost_worker::host::shell_spec_resolver::HostShellSpecResolver;
-use roost_worker::session::spawn::SessionEnvironmentOverlay;
 use roost_worker::shell_spec::KEEPER_CONTROL_ENV_PREFIX;
 
 pub fn platform() -> HostPlatform {
@@ -43,13 +41,4 @@ pub fn resolver_with(
     environment.insert("roost_keeper_token".into(), "lower-case".into());
     environment.extend(extra);
     HostShellSpecResolver::new(environment, host, requested)
-}
-
-/// A per-session overlay that answers the same thing for every session.
-pub struct FixedOverlay(pub Result<Vec<(String, String)>, String>);
-
-impl SessionEnvironmentOverlay for FixedOverlay {
-    fn session_overlay(&self, _session_id: &str) -> Result<Vec<(String, String)>, String> {
-        self.0.clone()
-    }
 }

@@ -52,9 +52,7 @@ pub async fn run(args: &SelfUpdateArgs) -> Result<ExitCode, CommandFailure> {
             "this roost is a source checkout, not a release, so it cannot update itself",
         ));
     }
-    if identity.artifact_version == args.to
-        && gate::release_is_complete(&args.to, platform, &std::env::current_exe()?)
-    {
+    if identity.artifact_version == args.to {
         println!("RoostSelfUpdate=current {}", args.to);
         return Ok(ExitCode::SUCCESS);
     }

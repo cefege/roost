@@ -27,7 +27,7 @@ pub struct SyncResourceIndex {
     /// The worker a read-only worker socket is scoped to, or `None` for a
     /// browser, which admits every resource in the install.
     pub owner_worker_fp: Option<String>,
-    /// Sessions whose title, presence, activity and agent status this socket
+    /// Sessions whose title, presence and activity this socket
     /// receives. Durable `opened`/`snapshot`/`closed` events keep it current.
     pub session_ids: BTreeSet<String>,
     /// Workers whose routability this socket receives.

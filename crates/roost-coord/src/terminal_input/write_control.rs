@@ -7,7 +7,6 @@
 
 use std::sync::Arc;
 
-use roost_protocol::terminal_input::AGENT_PROMPT_MAX_REASON_LENGTH;
 use roost_protocol::wire::WorkerFp;
 use roost_protocol::wire::coord_worker::{InputResult, TerminalInputStatus, TerminalWritePhase};
 
@@ -82,14 +81,6 @@ pub enum TerminalWriteAcceptance {
         /// The batch length.
         written_bytes: u32,
     },
-    /// A worker-built write (the fenced agent prompt of
-    /// `agents::prompt_control`): the worker proves the `Written` phase and a
-    /// non-zero byte count no larger than the cap, since only it knows the
-    /// final bytes it put on the PTY.
-    WorkerWritten {
-        /// The largest write the worker may report.
-        maximum_written_bytes: u32,
-    },
 }
 
 /// A definite pre-write refusal.
@@ -111,10 +102,7 @@ pub fn terminal_write_rejected(
 /// A reason capped at the length a client displays.
 #[must_use]
 pub fn bounded_reason(reason: &str) -> String {
-    reason
-        .chars()
-        .take(AGENT_PROMPT_MAX_REASON_LENGTH)
-        .collect()
+    reason.chars().take(200).collect()
 }
 
 /// Route one logical PTY write exactly once.
@@ -206,20 +194,10 @@ fn classify_worker_result(
     result: &InputResult,
     acceptance: TerminalWriteAcceptance,
 ) -> TerminalWriteControlResult {
-    let (maximum, accepted) = match acceptance {
-        // Raw input predates write-phase proof and keeps its exact-byte rule.
-        TerminalWriteAcceptance::ExactBytes {
-            written_bytes: sent,
-        } => (sent, result.written_bytes == sent),
-        TerminalWriteAcceptance::WorkerWritten {
-            maximum_written_bytes,
-        } => (
-            maximum_written_bytes,
-            result.phase == TerminalWritePhase::Written
-                && result.written_bytes > 0
-                && result.written_bytes <= maximum_written_bytes,
-        ),
-    };
+    let TerminalWriteAcceptance::ExactBytes {
+        written_bytes: maximum,
+    } = acceptance;
+    let accepted = result.written_bytes == maximum;
     let written_bytes = result.written_bytes.min(maximum);
     if result.status == TerminalInputStatus::Accepted && accepted {
         return TerminalWriteControlResult {

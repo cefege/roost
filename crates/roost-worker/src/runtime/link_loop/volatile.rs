@@ -1,8 +1,8 @@
 //! The volatile half of the coordinator link: the terminal metadata producer,
 //! whose newest record SUPERSEDES its predecessor. Ports v2
 //! `transport/coord-link-terminal-metadata.ts` (latest merged record per
-//! channel, bounded, dropped on reconnect); agent status lives in
-//! `agent_status.rs`. Owned by [`super::LinkLoop`]; the uplink admission routes
+//! channel, bounded, dropped on reconnect). Owned by [`super::LinkLoop`]; the
+//! uplink admission routes
 //! `TerminalMetadata` frames here, and the link end calls
 //! [`LinkLoop::forget_terminal_metadata`]. Depends on `crate::outbox` only.
 

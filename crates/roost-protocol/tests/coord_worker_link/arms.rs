@@ -4,13 +4,11 @@
 #![allow(dead_code)]
 
 use super::fixtures::{FINGERPRINT, SESSION, STREAM, channel, hello, session};
-use roost_proto as proto;
 use roost_protocol::wire::control::ClientControlFrame;
 use roost_protocol::wire::coord_worker::{
-    AgentStatusFrame, Binary, CoordWorkerDownstream, CoordWorkerUpstream, EventAck, InputResult,
-    RefreshJwt, TerminalInputStatus, TerminalMetadata, TerminalSnapshotRequest,
-    TerminalStreamFailureKind, TerminalStreamResult, TerminalStreamStatus, TerminalWritePhase,
-    UpdateProgress,
+    Binary, CoordWorkerDownstream, CoordWorkerUpstream, EventAck, InputResult, RefreshJwt,
+    TerminalInputStatus, TerminalMetadata, TerminalSnapshotRequest, TerminalStreamFailureKind,
+    TerminalStreamResult, TerminalStreamStatus, TerminalWritePhase, UpdateProgress,
 };
 
 #[path = "live_metrics_arms.rs"]
@@ -116,26 +114,6 @@ pub fn upstream_arms() -> Vec<(&'static str, CoordWorkerUpstream)> {
             }),
         ),
         (
-            "agent-status",
-            CoordWorkerUpstream::AgentStatus(AgentStatusFrame {
-                status: serde_json::from_value(serde_json::json!({
-                    "session_id": SESSION,
-                    "agent_id": "claude",
-                    "state": "working",
-                    "message": "reading",
-                    "revision": 4,
-                    "completed_revision": 1,
-                    "updated_at": 1_700_000_000_001i64,
-                    "status_epoch": "6f1a0b1e-6c1f-4a3a-9f0e-2b7d5c8e4a11",
-                    "occupant_id": "6f1a0b1e-6c1f-4a3a-9f0e-2b7d5c8e4a11",
-                    "source": "integration",
-                    "occupant_exited": false,
-                    "active": true,
-                }))
-                .expect("a canonical agent status"),
-            }),
-        ),
-        (
             "update-progress",
             CoordWorkerUpstream::UpdateProgress(UpdateProgress {
                 request_id: "req-5".to_owned(),
@@ -208,33 +186,6 @@ pub fn upstream_arms() -> Vec<(&'static str, CoordWorkerUpstream)> {
         (
             "terminal-pipeline-snapshot",
             CoordWorkerUpstream::TerminalPipelineSnapshot(Default::default()),
-        ),
-        (
-            "omp-host-service-request",
-            CoordWorkerUpstream::OmpHostServiceRequest(proto::WOmpHostServiceRequest {
-                conversation_id: "c-1".to_owned(),
-                service_id: "svc-1".to_owned(),
-                origin_request_id: "req-ui-1".to_owned(),
-                client_id: "device:view-1".to_owned(),
-                view_id: "view-1".to_owned(),
-                transport_id: "nonce-1".to_owned(),
-                kind: "copy_text".to_owned(),
-                value: "clipboard text".to_owned(),
-                cancelled: false,
-                ..Default::default()
-            }),
-        ),
-        (
-            "omp-ui-action-receipt",
-            CoordWorkerUpstream::OmpUiActionReceipt(proto::WOmpUiActionReceipt {
-                conversation_id: "c-1".to_owned(),
-                origin_request_id: "req-ui-2".to_owned(),
-                client_id: "device:view-1".to_owned(),
-                view_id: "view-1".to_owned(),
-                transport_id: "nonce-1".to_owned(),
-                error: String::new(),
-                ..Default::default()
-            }),
         ),
     ];
     arms.extend(live_metrics_arms::upstream_arms());

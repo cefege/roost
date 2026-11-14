@@ -419,18 +419,6 @@ The `--repo` flag is new: v2 resolved the repository root from its own source
 path (`new URL("../../../", import.meta.url)`), which a compiled binary does not
 have.
 
-## `roost skill`
-
-```
-roost skill
-```
-
-Prints `skills/roost/SKILL.md` **verbatim, with no decoration**, embedded at
-compile time with `include_str!`. A compiled binary has no source tree to resolve
-the path against, and a command whose output depends on the working directory is
-not a command an agent can rely on. The embedding also makes the pairing honest:
-a released binary prints the skill that was in the tree at that commit.
-
 ## `roost test`
 
 ```
@@ -525,7 +513,6 @@ Paths are relative to the repository root; tests to `crates/roost-cli/tests/`.
 | Quoting a systemd path directive because quoting is "safer" | Writer: `services/systemd_unit.rs::render_systemd_unit` via `raw_path_value` — `WorkingDirectory=`, `StandardOutput=`, `StandardError=` are emitted **raw**; `ExecStart=` and `Environment=` stay quoted. Reader: `deploy/installed.rs::systemd_working_directory` reads the raw value and reverses only the writer's own `%%` | `services_definition_text.rs` — `the_linux_coordinator_unit_names_its_binary_its_paths_and_its_limits`, `a_linux_unit_is_accepted_by_systemd_itself_when_the_tool_is_present`; `deploy_installed_release.rs` — `a_working_directory_is_read_raw` |
 | A fresh macOS account has no LaunchAgents directory | `services/install.rs::ensure_service_directories` creates the data directory, the log directory **and the definition's own parent**; `deploy/apply.rs::apply` calls it before anything is staged into that parent | `services_install_idempotence.rs` — `the directories a service needs are created before the first definition` |
 | A remote deploy hands the target the deploying box's identity | `deploy/identity_env.rs::DEPLOY_IDENTITY_ENV_FLAGS` names the identity keys and the flag that supplies each; `resolve_deploy_env_value` takes an explicit `EnvTarget` and gives an identity key **no ambient fallback at all** for `EnvTarget::Remote`; `resolve_remote_deploy_identity` refuses with exit 6 when the deploying shell exported that key and nothing else resolved it | `deploy_remote_identity.rs` — `an_identity_key_never_resolves_from_the_deploying_shell`, `an_ambient_identity_export_refuses_and_names_the_flag`, `an_unresolvable_identity_with_nothing_exported_is_allowed` |
-| Roost cannot upgrade the integration asset Roost installed | **Not in this command's path, and not yet ported.** The asset installer lives in the worker (`agents/{install,manifests}.rs`, Track W slice W7b) and v3 has no agent-integration installer, so a v3 deploy installs no integration asset and cannot produce the symptom. Recorded here so the absence is not read as coverage — the guard has to land with that slice, and it is `hasIntegrationOwnership` accepting the marker as a whitespace-delimited token on **any** `//` line, never a positional window | not yet — see the Track W agents installer |
 | A one-shot deploy flag stops at the installer process | `services/service_spec.rs::ServiceSpec::with_decided_one_shots` is the ONE arming site: it copies `ROOST_BOOTSTRAP_TOKEN` and `KEEPER_FORCE_LIVE_RETIRE_ENV` out of the manifest's **decided** environment onto the resolved spec, and `deploy/apply.rs:149` calls it immediately after `ServiceSpec::resolve`. `deploy/identity_env.rs::worker_install_environment` strips both from a prior install, so a grant is armed for exactly one deploy and is not inherited by the next. **This row previously pointed at `worker_install_environment` and `definition_environment` and was wrong**: both are composition sites, and composition was never where the flag died. `ServiceSpec::resolve` refuses one-shot keys because an ambient environment must never arm a credential — that refusal is correct and was the *only* link in the chain, so "a plain resolve refuses to arm a grant" read in practice as "no grant can ever be armed". The gap was the missing link between the refusal and the writer, not a wrong rule at the refusal. | `services_definition_text.rs` — `a_decided_one_shot_reaches_the_rendered_definition` (the load-bearing one: it asserts on the **rendered unit text** in both directions, that a decided grant reaches the bytes a service manager reads and that an install which decided nothing arms nothing); `a_one_shot_grant_is_never_carried_into_a_definition` holds the resolve-side refusal; `deploy_remote_identity.rs` — `a_deploy_never_carries_a_one_shot_grant_forward` holds never-carried-forward. The worker's side of the same entry — spending the grant at activation — is `crates/roost-worker/src/host/install.rs::spend_keeper_force_live_retire_authorization`, called from `runtime/mod.rs:146` in `serve_until` after keeper admission and before the link, guarded by `crates/roost-worker/tests/worker_retire_authorization.rs`. |
 | Repairing a dead worker demands that the dead worker be running | `deploy/admission.rs::keeper_admission_staging` returns the coordinator's refusal as a **claim about the registry**, and `deploy/keeper_step.rs::decide` is what decides it — against `deploy/target_evidence.rs::installed_service_verdict`. The one probe is `target_worker_evidence_command`: it corroborates darwin with a `launchctl print-disabled` domain query, refuses when `pgrep` is absent, and a keeper **socket file** decides nothing (it outlives the keeper that made it) | `deploy_keeper_admission.rs` — `a_stale_row_over_a_target_running_nothing_stages`, `a_stale_row_over_a_running_worker_still_refuses`, `a_keeper_holding_channels_refuses_even_with_the_worker_stopped`, `an_unknown_never_stages`, `a_keeper_socket_file_decides_nothing`, `the_darwin_probe_distinguishes_an_unreachable_launchd` |
 | A rollback proof no release can satisfy wedges every later deploy | `deploy/apply.rs::apply` calls the already-ported `services::deploy_transaction::resolve_interrupted_deploy` **before it writes anything**, so the definition this deploy replaces is one the machine can actually run | `services_deploy_recovery.rs` — `a_deploy_left_in_flight_is_resolved_before_the_next_one_starts`, `a_journal_whose_shape_this_build_does_not_know_is_refused_rather_than_ignored` |
@@ -534,12 +521,6 @@ Paths are relative to the repository root; tests to `crates/roost-cli/tests/`.
 | An installer inherits a sibling service's dist path from the shell that ran it | The v2 shell installers do not exist in v3, so the hole they had is closed structurally: a definition is rendered from a `ServiceSpec` by `services/systemd_unit.rs` / `services/launchd_plist.rs`, and the environment it carries is `deploy/apply_release.rs::install_environment` — the target's own `HOME` and `PATH` plus the manifest's **decided** values. There is no route by which an ambient `ROOST_WEB_DIST_PATH` reaches a worker definition | `deploy_remote_identity.rs` — `a_deploy_never_carries_a_one_shot_grant_forward` (the dist key is on the same never-carried list) |
 | Moving a keeper-imported file makes every live keeper unadoptable | `deploy/admission.rs::direct_keeper_update_admission` delegates to `roost_protocol::keeper_update::keeper_update_admission`, which compares the implementation digest the **running** keeper reports against the one the release ships. `deploy/release.rs::read_keeper_contract` reads that contract from the **staged bytes** rather than from this process, because in this process `roost-keeper` is whatever release the CLI was built from | `deploy_keeper_classification.rs` — `a_different_keeper_binary_is_unadoptable_only_while_it_holds_channels`, `a_keeper_that_cannot_name_its_binary_is_unproven`, `the_same_keeper_binary_is_preservable` |
 | Coordinator-started worker deploys exit 7 from a detached release worktree | `deploy/identity.rs::coordinator_release_git_sha_or_die`, selected by `deploy/invocation.rs::prove_identity` when `--coordinator-release` is given. The authority is the **installed service definition**: it must name this checkout as the release directory, stamp the expected build, and the clean HEAD there must match | `deploy_coordinator_release.rs` — `a_detached_coordinator_release_at_its_installed_sha_is_admitted`, `a_checkout_that_is_not_the_installed_release_is_refused`, `an_installed_build_that_is_not_the_required_one_is_refused`, `a_dirty_release_tree_is_refused`, `a_definition_that_stamps_no_build_is_refused` |
-
-**One row is deliberately empty.** "Roost cannot upgrade the integration asset"
-is the only entry on this list with no Rust behind it, and it is recorded that
-way rather than quietly dropped: a row that is present and says "not yet, and
-here is where" is a promise the repo can keep, and a row that is absent is the
-failure mode this table exists to prevent.
 
 ### What a release is
 
@@ -973,10 +954,7 @@ invented here would be a second answer beside the table in `api::verbs`.
 
 | Verb | Takes |
 | --- | --- |
-| `agents`, `sessions`, `workers`, `cells`, `tasks`, `workspaces` | filters only |
-| `agent-status <session>` | `--json` |
-| `agent-wait <session>` | `--until STATES --timeout DURATION` |
-| `agent-prompt` | the prompt, plus its proof flags |
+| `sessions`, `workers`, `cells`, `tasks`, `workspaces` | listing and terminal-read arguments from `api::verbs` |
 | `input` | `<text>` or `--stdin`, plus `--enter` |
 | `spawn`, `attach`, `assign`, `kill` | the session arguments each needs |
 | `rename` | `<id> <title…>` |
@@ -989,8 +967,8 @@ answerable, and answer with a refusal naming the replacement — `cells` for
 scrollback, and nothing for the live output stream — at **exit 1**. A stale
 script that still types them gets told what to use; a usage error about a name
 that used to work would only tell it the name is wrong.
-**stdout** is whatever the verb produces, and for the one verb that produces
-JSON (`agent-status --json`) it is the only thing on the stream. **stderr**
+**stdout** is whatever the verb produces; JSON readouts such as
+`sessions --json` contain no decoration. **stderr**
 carries diagnostics. The task queue's payload column collapses every run of
 whitespace to one space **without trimming**, so a pretty-printed document
 still occupies one row and a stored payload compares as it was written.

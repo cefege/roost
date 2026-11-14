@@ -138,38 +138,6 @@ impl OwnedFrame {
         }
     }
 
-    /// The session an agent-status frame is about, and `None` for every other
-    /// shape. Agent status is the one current-value projection in the feed, so
-    /// the queue needs to identify it by session and nothing else does.
-    #[must_use]
-    pub fn agent_status_session(&self) -> Option<&str> {
-        match &self.payload {
-            OwnedPayload::Shared(_) => None,
-            OwnedPayload::Copy(frame) => match &frame.frame {
-                Some(Frame::AgentStatus(status)) => Some(&status.session_id),
-                _ => None,
-            },
-        }
-    }
-
-    /// The revision an agent-status frame carries, and `None` for every other
-    /// shape.
-    ///
-    /// Agent status is a CURRENT VALUE, not a log, so "newer" is the only thing
-    /// that makes one report about a session displace another. Coalescing on
-    /// the session alone would make the FIRST report for a session the only one
-    /// a hydrating client ever sees.
-    #[must_use]
-    pub fn agent_status_revision(&self) -> Option<u64> {
-        match &self.payload {
-            OwnedPayload::Shared(_) => None,
-            OwnedPayload::Copy(frame) => match &frame.frame {
-                Some(Frame::AgentStatus(status)) => Some(status.revision),
-                _ => None,
-            },
-        }
-    }
-
     /// Whether this frame is cell material: a whole grid or one chunk part.
     ///
     /// The one predicate the whole terminal half turns on, because cell

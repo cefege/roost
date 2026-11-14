@@ -90,9 +90,7 @@ pub async fn run(_args: &UpdateArgs) -> Result<ExitCode, CommandFailure> {
     let asset = release_asset_name(platform, &listing.arch)?;
     let executable = current_executable()?;
     #[cfg(unix)]
-    if version::ReleaseVersion::parse(&listing.tag)?.bundles_omp()
-        && release_tree::is_managed_worker(&env, platform, &executable)
-    {
+    if release_tree::is_managed_worker(&env, platform, &executable) {
         return crate::self_update::run(&crate::self_update::SelfUpdateArgs { to: listing.tag })
             .await;
     }
@@ -105,16 +103,7 @@ pub async fn run(_args: &UpdateArgs) -> Result<ExitCode, CommandFailure> {
     );
     #[cfg(unix)]
     let (verified, bundle_executable) =
-        if version::ReleaseVersion::parse(&listing.tag)?.bundles_omp() {
-            release_tree::stage(&env, platform, &listing.arch, &listing.tag, &executable).await?
-        } else {
-            (
-                release::download_and_verify(&env, &listing.tag, asset, &executable)
-                    .await
-                    .map_err(refusal)?,
-                executable.clone(),
-            )
-        };
+        release_tree::stage(&env, platform, &listing.arch, &listing.tag, &executable).await?;
     #[cfg(not(unix))]
     let (verified, bundle_executable) = (
         release::download_and_verify(&env, &listing.tag, asset, &executable)

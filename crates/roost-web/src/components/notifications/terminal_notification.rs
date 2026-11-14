@@ -10,7 +10,7 @@ use roost_client_core::store::selectors::session_by_id;
 use roost_client_core::store::terminal_signals::TerminalNotificationRequest;
 use roost_client_core::store::toasts::{ToastId, ToastKind, ToastOptions, ToastSource, add_toast};
 
-use super::agent_notifications::agent_attention;
+use super::page_attention;
 use super::store_write::write_store;
 use crate::components::terminal::dom::now_ms;
 use crate::platform::worker_paths::BrowserWorkerPaths;
@@ -39,7 +39,7 @@ pub fn notification_text(program_title: &str, session_title: &str, body: &str) -
 pub fn TerminalNotification() -> Element {
     let pump = use_store();
     let path = use_location();
-    let attention = agent_attention::use_page_attention();
+    let attention = page_attention::use_page_attention();
     use_effect(move || {
         let _ = pump.revision().read();
         let attended = *attention.read();

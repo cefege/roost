@@ -49,7 +49,7 @@ const fn pane(
 }
 
 /// Rail order is the navigation contract: Network first, then the rest.
-pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
+pub const SETTINGS_GROUPS: [SettingsRailGroup; 3] = [
     SettingsRailGroup {
         label: "Network",
         panes: &[
@@ -76,35 +76,6 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
                 "Paired devices",
                 "Browsers and phones that can access Roost. Review or revoke access.",
                 "pairing browsers phones access",
-            ),
-        ],
-    },
-    SettingsRailGroup {
-        label: "Agents",
-        panes: &[
-            pane(
-                "launcher",
-                "Agent launcher",
-                IconType::Rocket,
-                "Agent launcher",
-                "The agent command used when opening a terminal session.",
-                "omp command launch",
-            ),
-            pane(
-                "omp",
-                "OMP",
-                IconType::Bot,
-                "OMP",
-                "Default model and thinking for OMP chats, per machine and folder.",
-                "omp oh my pi acp model thinking machine folder defaults",
-            ),
-            pane(
-                "mcp",
-                "Tool integrations",
-                IconType::Puzzle,
-                "Tool integrations",
-                "MCP relays that connect agents to external tools and services.",
-                "external tools relay",
             ),
         ],
     },
@@ -140,7 +111,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
                 "Notifications",
                 IconType::Bell,
                 "Notifications",
-                "Alerts when agents need attention or finish their work.",
+                "Terminal notifications and command-completion alerts.",
                 "sound alerts",
             ),
         ],

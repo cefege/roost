@@ -3,17 +3,14 @@
 //! mounts `SidebarRoot`; its state and derivations live in
 //! `roost_client_core::store::sidebar`.
 
-pub mod agent_conversation_row;
 pub mod all_view;
 pub mod context_menu_frame;
 #[cfg(target_arch = "wasm32")]
 mod dom;
-pub mod folder_conversations;
 pub mod folder_list;
 pub mod folder_row;
 pub mod folder_row_context_menu;
 pub mod machine_action_items;
-pub mod recent_conversations;
 pub mod rel_time_tick;
 pub mod row_chips;
 pub mod row_swipe;

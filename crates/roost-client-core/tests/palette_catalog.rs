@@ -20,7 +20,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use roost_client_core::store::navigation::{
-    AgentStatusFacts, NavigationSources, project_navigation_search_documents,
+    NavigationSources, project_navigation_search_documents,
 };
 use roost_client_core::store::optimistic_spawn::ClientOnlySession;
 use roost_client_core::store::palette::{
@@ -69,7 +69,6 @@ fn session_map(rows: Vec<Session>) -> SessionMap {
 fn sources<'a>(
     sessions: &'a SessionMap,
     workers: &'a BTreeMap<String, Worker>,
-    agent_status: &'a BTreeMap<String, AgentStatusFacts>,
     terminal_titles: &'a BTreeMap<String, String>,
     last_activity: &'a BTreeMap<String, i64>,
     routable: Option<&'a BTreeSet<String>>,
@@ -81,7 +80,6 @@ fn sources<'a>(
         workspaces: &[],
         terminal_titles,
         last_activity_ms: last_activity,
-        agent_status,
         routable_worker_fps: routable,
         now_ms: 1_700_000_000_000,
         paths: &ExactWorkerPaths,
@@ -209,12 +207,10 @@ fn a_session_row_says_unavailable_when_its_machine_cannot_be_reached() {
     workers.insert(MACHINE.to_owned(), worker(MACHINE, 1_699_999_000_000));
     let empty: BTreeMap<String, String> = BTreeMap::new();
     let no_activity = BTreeMap::new();
-    let status = BTreeMap::new();
     let routable: BTreeSet<String> = BTreeSet::new();
     let documents = project_navigation_search_documents(&sources(
         &sessions,
         &workers,
-        &status,
         &empty,
         &no_activity,
         Some(&routable),

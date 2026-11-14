@@ -1,4 +1,4 @@
-<!-- Session-event contract: durable ordering, public projection, and private recovery variants. -->
+<!-- Session-event contract: durable ordering and public projection. -->
 <!-- Clients consume protocol/spec/session-events.md; @roost/protocol is the TypeScript oracle. -->
 <!-- Conformance vectors live in protocol/conformance/session-fold/. -->
 
@@ -42,5 +42,4 @@
 - Durable worker store and replay: `apps/worker/src/transport/session-event-store.ts`, `apps/worker/src/transport/coord-link-unacked.ts`
 - Coordinator transaction/publication: `apps/coord/src/events/event-log.ts`, `apps/coord/src/events/event-projection.ts`
 - Browser fold: `apps/web/src/store/projector.ts`
-- Private reference validation/fold: `packages/protocol/src/agent-conversation-reference.ts`
 - Conformance: `protocol/conformance/session-fold/`

@@ -1,15 +1,12 @@
-//! The sidebar's folder groups, cursor and visit memory, as well as the agent
-//! conversations retained inside folders.
+//! The sidebar's folder groups, cursor and visit memory.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod sidebar_support;
 
 use roost_client_core::KeyValueStore as _;
-use roost_client_core::client::agents::status_policy::AgentStatusRollup;
 use roost_client_core::platform::MemoryKeyValueStore;
 use roost_client_core::store::paths::ExactWorkerPaths;
-use roost_client_core::store::sidebar::folder_group_filter::filter_folder_groups_for_store;
 use roost_client_core::store::sidebar::folder_groups::{
     FolderGroup, build_folder_groups, filter_folder_groups, order_folder_groups,
 };
@@ -121,7 +118,6 @@ fn folder_order_survives_activity_reordering_and_reload() {
             session(SESSION_B, FIRST_FP, "/tmp/b", 2_000),
         ],
         &[(FIRST_FP, "First worker")],
-        &[],
     );
     let mut groups = build_folder_groups(core.store(), &ExactWorkerPaths, 5_000);
     order_folder_groups(&mut groups, memory.folder_order());
@@ -189,8 +185,6 @@ fn folder(key: &str, name: &str, server: &str, spawn_cwd: &str) -> FolderGroup {
         branch: None,
         ports: Vec::new(),
         reach_addr: None,
-        agent_status: AgentStatusRollup::default(),
-        agent_conversation_ids: Vec::new(),
     }
 }
 
@@ -213,119 +207,4 @@ fn an_empty_filter_keeps_order_and_a_missing_term_excludes() {
     let groups = [web, api];
     assert_eq!(filter_folder_groups(&groups, "   "), groups);
     assert!(filter_folder_groups(&groups, "web deploy").is_empty());
-}
-
-#[test]
-fn agent_conversations_join_and_create_folder_groups() {
-    use roost_protocol::wire::agent_chat::{AgentRunState, ConversationSummary};
-    let session = session(SESSION_A, FIRST_FP, "/tmp/repo", 1_000);
-    let mut core = seeded(&[session], &[(FIRST_FP, "First worker")], &[]);
-    let summary = |id: &str, cwd: &str, updated_ms| ConversationSummary {
-        backend: roost_protocol::wire::agent_chat::AgentBackend::Omp,
-        id: id.into(),
-        title: id.into(),
-        worker_fp: FIRST_FP.into(),
-        worker_label: "First worker".into(),
-        cwd: cwd.into(),
-        mode: "normal".into(),
-        parent_id: None,
-        agent: None,
-        advisor: false,
-        model: None,
-        effective_model: None,
-        thinking_level: None,
-        run_state: AgentRunState::Idle,
-        error: None,
-        created_ms: 1,
-        updated_ms,
-    };
-    core.store_mut().agent_chat.conversations.insert(
-        "agent-mixed".into(),
-        summary("agent-mixed", "/tmp/repo", 2_000),
-    );
-    core.store_mut().agent_chat.conversations.insert(
-        "agent-only".into(),
-        summary("agent-only", "/tmp/other", 3_000),
-    );
-    let mut archived = summary("agent-native", "/tmp/repo", 5_000);
-    archived.backend = roost_protocol::wire::agent_chat::AgentBackend::Native;
-    core.store_mut()
-        .agent_chat
-        .conversations
-        .insert("agent-native".into(), archived);
-    let mut child = summary("agent-child", "/tmp/nested", 4_000);
-    child.title = "child-only-needle".into();
-    child.parent_id = Some("agent-only".into());
-    core.store_mut()
-        .agent_chat
-        .conversations
-        .insert("agent-child".into(), child);
-    let groups = build_folder_groups(core.store(), &ExactWorkerPaths, 5_000);
-    let mixed = groups
-        .iter()
-        .find(|group| group.spawn_cwd == "/tmp/repo")
-        .expect("mixed folder");
-    assert_eq!(mixed.session_ids, [SESSION_A.to_owned()]);
-    assert_eq!(mixed.agent_conversation_ids, ["agent-mixed"]);
-    assert!(
-        core.store()
-            .agent_chat
-            .conversations
-            .contains_key("agent-native")
-    );
-    let tab_candidates = core.store().agent_chat.conversations_in_folder(
-        &ExactWorkerPaths,
-        core.store(),
-        &mixed.key,
-    );
-    assert_eq!(tab_candidates, ["agent-mixed"]);
-    let only = groups
-        .iter()
-        .find(|group| group.spawn_cwd == "/tmp/other")
-        .expect("agent-only folder");
-    assert!(only.session_ids.is_empty());
-    assert!(only.lead_id.is_empty());
-    assert_eq!(only.agent_conversation_ids, ["agent-only", "agent-child"]);
-    let folder_match = filter_folder_groups_for_store(core.store(), &groups, "other");
-    assert_eq!(
-        folder_match.len(),
-        1,
-        "folder-only matches retain agent rows"
-    );
-    assert_eq!(
-        folder_match[0].agent_conversation_ids,
-        ["agent-only", "agent-child"]
-    );
-    let child_match = filter_folder_groups_for_store(core.store(), &groups, "child-only-needle");
-    assert_eq!(child_match.len(), 1, "a child-only match keeps its folder");
-    assert_eq!(
-        child_match[0].agent_conversation_ids,
-        ["agent-only", "agent-child"],
-        "the matching child remains reachable with parent context"
-    );
-    core.store_mut().agent_chat.conversations.insert(
-        "agent-second".into(),
-        summary("agent-second", "/tmp/repo", 10_000),
-    );
-    let before = build_folder_groups(core.store(), &ExactWorkerPaths, 10_000);
-    let before = before
-        .iter()
-        .find(|group| group.spawn_cwd == "/tmp/repo")
-        .unwrap();
-    assert_eq!(
-        before.agent_conversation_ids,
-        ["agent-mixed", "agent-second"]
-    );
-    core.store_mut()
-        .agent_chat
-        .conversations
-        .get_mut("agent-mixed")
-        .unwrap()
-        .updated_ms = 20_000;
-    let after = build_folder_groups(core.store(), &ExactWorkerPaths, 20_000);
-    let after = after
-        .iter()
-        .find(|group| group.spawn_cwd == "/tmp/repo")
-        .unwrap();
-    assert_eq!(after.agent_conversation_ids, before.agent_conversation_ids);
 }

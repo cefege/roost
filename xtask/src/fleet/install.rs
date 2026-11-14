@@ -126,11 +126,6 @@ fn place_script(platform: Platform, tag: &str) -> String {
         Platform::Macos => "xattr -dr com.apple.quarantine \"$REL\" 2>/dev/null || true\n",
         Platform::Linux | Platform::Windows => "",
     };
-    let binaries = if super::fetch::bundles_omp(tag).unwrap_or(true) {
-        "roost roost-keeper omp"
-    } else {
-        "roost roost-keeper"
-    };
     format!(
         "set -euo pipefail\n\
          STAGE=\"$HOME/{STAGE_DIR}/{tag}\"\n\
@@ -139,7 +134,7 @@ fn place_script(platform: Platform, tag: &str) -> String {
          mkdir -p \"$REL\"\n\
          rm -rf \"$REL/bin.roost-incoming\"\n\
          mkdir \"$REL/bin.roost-incoming\"\n\
-         for binary in {binaries}; do\n\
+         for binary in roost roost-keeper; do\n\
            cp \"$STAGE/bin/$binary\" \"$REL/bin.roost-incoming/$binary\"\n\
            chmod 755 \"$REL/bin.roost-incoming/$binary\"\n\
          done\n\
@@ -174,11 +169,6 @@ fn pid_script(platform: Platform) -> String {
 /// [`place_script`] for a Windows host, in PowerShell.
 fn windows_place_script(tag: &str) -> String {
     let root = Platform::Windows.data_root();
-    let binaries = if super::fetch::bundles_omp(tag).unwrap_or(true) {
-        "'roost.exe', 'roost-keeper.exe', 'omp.exe'"
-    } else {
-        "'roost.exe', 'roost-keeper.exe'"
-    };
     format!(
         r#"$STAGE = Join-Path $HOME '{STAGE_DIR}\{tag}'
 $ROOT = "{root}"
@@ -190,7 +180,7 @@ $retired = Join-Path $REL 'bin.roost-retired'
 $bin = Join-Path $REL 'bin'
 Remove-Item -Recurse -Force $incoming,$retired -ErrorAction SilentlyContinue
 New-Item -ItemType Directory $incoming | Out-Null
-foreach ($b in {binaries}) {{
+foreach ($b in 'roost.exe', 'roost-keeper.exe') {{
   Copy-Item (Join-Path $STAGE "bin\$b") (Join-Path $incoming $b)
 }}
 if (Test-Path $bin) {{ Move-Item $bin $retired }}

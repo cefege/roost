@@ -17,7 +17,7 @@ use roost_client_core::store::toasts::{
 use super::notify_target::NotifyTarget;
 use super::store_write::write_store;
 use crate::components::deck::deck_dom;
-use crate::components::deck::terminal_deck_model::{deck_folder_for, deck_folder_for_agent};
+use crate::components::deck::terminal_deck_model::deck_folder_for;
 use crate::components::hooks::use_copy_clipboard::{copy_text_then, use_copy_clipboard};
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::terminal::dom::now_ms;
@@ -32,19 +32,6 @@ fn reveal_deck_target(pump: &Pump, target_id: &str, compact: bool, navigate: Eve
         let core = core.borrow();
         let store = core.store();
         match DeckTab::parse(target_id) {
-            Some(DeckTab::Agent(conversation_id)) => store
-                .agent_chat
-                .conversations
-                .get(&conversation_id)
-                .map(|conversation| DeckIntent::SelectTab {
-                    folder: deck_folder_for_agent(
-                        store,
-                        &crate::platform::worker_paths::BrowserWorkerPaths,
-                        conversation,
-                    ),
-                    session_id: target_id.to_owned(),
-                    compact,
-                }),
             Some(DeckTab::Terminal(session_id)) => session_by_id(store, session_id.as_str())
                 .filter(|session| session.status == SessionStatus::Open)
                 .map(|session| DeckIntent::SelectTab {

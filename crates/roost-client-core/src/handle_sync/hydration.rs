@@ -154,19 +154,6 @@ pub(crate) fn settle_hydration_result(
             super::fold_controls::replace_pair_requests(store, &pending, now_ms);
             None
         }
-        (
-            SyncDomain::Agent,
-            RpcResult::AgentChatList {
-                conversations,
-                host_connected,
-                ..
-            },
-        ) => {
-            store
-                .agent_chat
-                .hydrate(conversations.clone(), *host_connected);
-            None
-        }
         (domain, other) => {
             tracing::error!(
                 target: "sync",

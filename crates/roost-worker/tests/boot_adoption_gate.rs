@@ -84,10 +84,6 @@ async fn restarted_stack(pool: Arc<KeeperPool>, root: &std::path::Path) -> Sessi
         root,
         FINGERPRINT.to_owned(),
         "boot-adoption-epoch",
-        &roost_worker::agents::environment::AgentReportSite {
-            data_dir: root.to_path_buf(),
-            configured: None,
-        },
     )
     .expect("this host can build a session layer")
 }

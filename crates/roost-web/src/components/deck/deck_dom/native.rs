@@ -70,11 +70,6 @@ pub fn deck_pointer_target(_event: &PointerEvent) -> DeckPointerTarget {
     DeckPointerTarget::default()
 }
 
-/// No target.
-pub fn chat_input_focus_pane(_event: &FocusEvent) -> Option<String> {
-    None
-}
-
 /// No timer runs natively.
 #[derive(Debug)]
 pub struct Timeout;

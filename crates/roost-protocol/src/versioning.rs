@@ -25,14 +25,6 @@ pub const CAPABILITY_TERMINAL_VIEW_OWNER_V1: &str = "terminal-view-owner-v1";
 /// and a mixed fleet negotiates on the exact string.
 pub const CAPABILITY_TERMINAL_METADATA_V1: &str = "terminal_metadata_v1";
 
-pub const CAPABILITY_OMP_ACP_V1: &str = "omp_acp_v1";
-
-/// Worker capability for opening an OMP ACP session without a prompt.
-pub const CAPABILITY_OMP_ACP_SESSION_V1: &str = "omp_acp_session_v1";
-
-/// Worker capability for live OMP modes and pending ACP interactions.
-pub const CAPABILITY_OMP_ACP_INTERACTIONS_V1: &str = "omp_acp_interactions_v1";
-
 /// Direct-terminal WebRTC control-channel label.
 pub const CHANNEL_TERMINAL_CONTROL_V1: &str = "roost-terminal-control-v1";
 

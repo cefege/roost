@@ -95,12 +95,6 @@ pub enum RpcResult {
         /// The pending requests, keyed by ephemeral id.
         requests: BTreeMap<String, PairRequest>,
     },
-    /// Agent conversation list and host connectivity.
-    AgentChatList {
-        call_id: u64,
-        conversations: Vec<roost_protocol::wire::agent_chat::ConversationSummary>,
-        host_connected: bool,
-    },
     /// A pairing token was redeemed.
     PairTokenRedeemed {
         /// Which call this answers.
@@ -164,11 +158,6 @@ pub enum RpcResult {
         /// Whether the coordinator accepted it.
         accepted: bool,
     },
-    /// `AgentChatDelete` succeeded.
-    AgentChatDeleteAnswered {
-        call_id: u64,
-        conversation_id: String,
-    },
     /// `ClientStateList` answered with every synced key on the account.
     ClientStateListed {
         call_id: u64,
@@ -194,13 +183,11 @@ impl RpcResult {
             | Self::McpList { call_id, .. }
             | Self::PairList { call_id, .. }
             | Self::PairTokenRedeemed { call_id }
-            | Self::AgentChatList { call_id, .. }
             | Self::DirectoryListed { call_id, .. }
             | Self::DirectoryCreated { call_id, .. }
             | Self::SearchPage { call_id, .. }
             | Self::GlobalSearchCancelled { call_id, .. }
             | Self::SessionKillAnswered { call_id, .. }
-            | Self::AgentChatDeleteAnswered { call_id, .. }
             | Self::ClientStateListed { call_id, .. }
             | Self::ClientStateSetAnswered { call_id, .. } => *call_id,
         }
@@ -217,14 +204,12 @@ impl RpcResult {
             Self::TasksList { .. } => "tasks_list",
             Self::McpList { .. } => "mcp_list",
             Self::PairList { .. } => "pair_list",
-            Self::AgentChatList { .. } => "agent_chat_list",
             Self::PairTokenRedeemed { .. } => "pair_token_redeemed",
             Self::DirectoryListed { .. } => "directory_listed",
             Self::DirectoryCreated { .. } => "directory_created",
             Self::SearchPage { .. } => "search_page",
             Self::GlobalSearchCancelled { .. } => "global_search_cancelled",
             Self::SessionKillAnswered { .. } => "session_kill_answered",
-            Self::AgentChatDeleteAnswered { .. } => "agent_chat_delete_answered",
             Self::ClientStateListed { .. } => "client_state_listed",
             Self::ClientStateSetAnswered { .. } => "client_state_set_answered",
         }

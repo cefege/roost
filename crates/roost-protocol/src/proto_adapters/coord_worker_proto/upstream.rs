@@ -15,9 +15,8 @@ use super::control_outcomes::{
     stream_result_to_proto,
 };
 use super::records::{
-    agent_status_from_proto, agent_status_to_proto, channel_id, data_from_json, data_to_json,
-    metadata_from_proto, metadata_to_proto, narrow_i64, update_progress_from_proto,
-    update_progress_to_proto, widen_u64,
+    channel_id, data_from_json, data_to_json, metadata_from_proto, metadata_to_proto, narrow_i64,
+    update_progress_from_proto, update_progress_to_proto, widen_u64,
 };
 use super::{UPSTREAM, empty_arm, unknown_arm};
 use crate::proto_adapters::live_metrics_proto::{
@@ -99,9 +98,6 @@ pub(super) fn to_proto(frame: &CoordWorkerUpstream) -> ProtocolResult<CoordWorke
         CoordWorkerUpstream::TerminalStreamResult(result) => {
             Frame::TerminalStreamResult(Box::new(stream_result_to_proto(result)?))
         }
-        CoordWorkerUpstream::AgentStatus(status) => {
-            Frame::AgentStatus(Box::new(agent_status_to_proto(status)?))
-        }
         CoordWorkerUpstream::UpdateProgress(progress) => {
             Frame::UpdateProgress(Box::new(update_progress_to_proto(progress)?))
         }
@@ -142,13 +138,6 @@ pub(super) fn to_proto(frame: &CoordWorkerUpstream) -> ProtocolResult<CoordWorke
             snapshot: MessageField::some(live_host_snapshot_to_proto(snapshot)?),
             ..Default::default()
         })),
-        CoordWorkerUpstream::OmpEvents(events) => Frame::OmpEvents(Box::new((*events).clone())),
-        CoordWorkerUpstream::OmpHostServiceRequest(request) => {
-            Frame::OmpHostServiceRequest(Box::new(request.clone()))
-        }
-        CoordWorkerUpstream::OmpUiActionReceipt(receipt) => {
-            Frame::OmpUiActionReceipt(Box::new(receipt.clone()))
-        }
     };
     Ok(CoordWorkerUp {
         frame: Some(arm),
@@ -218,11 +207,6 @@ pub(super) fn from_proto(message: &CoordWorkerUp) -> ProtocolResult<CoordWorkerU
         Frame::TerminalStreamResult(result) => {
             CoordWorkerUpstream::TerminalStreamResult(stream_result_from_proto(result)?)
         }
-        Frame::AgentStatus(status) => {
-            CoordWorkerUpstream::AgentStatus(crate::wire::coord_worker::AgentStatusFrame {
-                status: agent_status_from_proto(status)?,
-            })
-        }
         Frame::UpdateProgress(progress) => {
             CoordWorkerUpstream::UpdateProgress(update_progress_from_proto(progress))
         }
@@ -267,13 +251,6 @@ pub(super) fn from_proto(message: &CoordWorkerUp) -> ProtocolResult<CoordWorkerU
                 )
             })?;
             CoordWorkerUpstream::LiveMetrics(live_host_snapshot_from_proto(snapshot)?)
-        }
-        Frame::OmpEvents(events) => CoordWorkerUpstream::OmpEvents((**events).clone()),
-        Frame::OmpHostServiceRequest(request) => {
-            CoordWorkerUpstream::OmpHostServiceRequest((**request).clone())
-        }
-        Frame::OmpUiActionReceipt(receipt) => {
-            CoordWorkerUpstream::OmpUiActionReceipt((**receipt).clone())
         }
     };
     frame.check()?;
