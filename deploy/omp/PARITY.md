@@ -127,3 +127,25 @@ controller events; exercise session switches and disclosure controls as well.
 A conversation without images or ranked Find results needs the corresponding
 native-component scenarios too.
 One frozen conversation is evidence for its elements, not a full parity verdict.
+
+## Transcript presentation
+
+The HTML transcript follows the compact activity-row and reading-column patterns
+in [pi-pocket](https://github.com/TannerMidd/pi-pocket/tree/5d009fa4d1e2b69db54f05e04f750a6f2e591bb1),
+adapted to Roost's stock Rust/UI components:
+
+- History and composer share the responsive `max-w-reading` column.
+- Tool calls use borderless rows, with verb, status, target and quiet actions in
+  one heading; details sit underneath. They do not add a padded Card around
+  code, output or diffs.
+- Disclosure chevrons reflect the native controller's state. Long target labels
+  truncate visually, retaining their full title, source and link action.
+- Prose uses the default Markdown body size. Code/output/diff copy controls use
+  the stock compact icon button and retain the clipboard hook's success state.
+
+For presentation acceptance, inspect real frozen-history views at desktop and
+phone widths. Exercise disclosure and exact-source copying, including commands
+that wrap on phones; check page overflow and render errors. A read-only picture
+pass requires no inference or operator credentials. Isolated model metadata can
+point at an owned loopback deny endpoint; unexpected inference requests fail
+acceptance.

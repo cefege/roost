@@ -3,8 +3,8 @@
 //!
 //! OMP owns execution, status and collapse. The head's Copy command is the one
 //! host-local behaviour (the command never reaches the worker); every other
-//! action id is forwarded unchanged. The enclosing tool card is the only
-//! disclosure owner, so children never grow an independent collapse control.
+//! action id is forwarded unchanged. The tool row is the only disclosure
+//! owner, so children never grow an independent collapse control.
 
 use super::super::body_preview::{self, Preview};
 use super::super::elapsed_clock::NativeElapsed;
@@ -13,8 +13,8 @@ use super::render_icon;
 use super::{duration, event, prop_text, text_value, tone_variant};
 use crate::components::hooks::use_copy_clipboard::use_copy_clipboard;
 use crate::components::ui::{
-    Badge, BadgeSize, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, CardContent, CardSize,
-    Collapsible, CollapsibleContent, CollapsibleTrigger, Kbd, KbdGroup, Spinner, button_class,
+    Badge, BadgeSize, BadgeVariant, Button, ButtonSize, ButtonVariant, Collapsible,
+    CollapsibleContent, CollapsibleTrigger, Icon, IconType, Kbd, KbdGroup, Spinner, button_class,
 };
 use dioxus::prelude::*;
 use roost_client_core::client::agent_chat::OmpTimerKind;
@@ -69,29 +69,45 @@ fn render_frame(
     let target = prop_text(node, "target");
     let copy_text = copy_text(node);
     let head = tool_head(node, surface, &status, &target, &intent, live);
+    let target_line = (!target.is_empty()).then(|| {
+        target_text(
+            &target,
+            &prop_text(node, "targetKind"),
+            &prop_text(node, "href"),
+        )
+    });
     let details = tool_details(node);
     let actions = tool_actions(node, action_target, &copy_text);
     let head_title = if live { String::new() } else { intent.clone() };
     let content = rsx! {
-        div { class: "flex min-w-0 flex-col gap-2",
-            div { class: "flex min-w-0 flex-wrap items-start gap-2", title: "{head_title}",
+        div { class: "flex min-w-0 flex-col gap-1",
+            div { class: "flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1", title: "{head_title}",
                 if collapsible {
                     CollapsibleTrigger {
                         size: ButtonSize::Sm,
                         variant: ButtonVariant::Ghost,
-                        class: "h-auto min-w-0 flex-1 justify-start gap-2 whitespace-normal px-0 text-left",
+                        class: "min-w-0 justify-start gap-1 whitespace-normal px-0 text-left",
+                        Icon {
+                            icon: if collapsed { IconType::ChevronRight } else { IconType::ChevronDown },
+                            class: Some("size-3.5 text-muted-foreground".to_owned()),
+                        }
                         {head}
                     }
                 } else {
-                    div { class: "flex min-w-0 flex-1 flex-wrap items-center gap-2", {head} }
+                    div { class: "flex min-w-0 flex-wrap items-center gap-2", {head} }
+                }
+                if let Some(target_line) = target_line {
+                    div { class: "min-w-0 flex-1", {target_line} }
                 }
                 div { class: "ml-auto flex shrink-0 flex-wrap items-center gap-1", {actions} }
             }
-            {details}
-            if collapsible && !collapsed {
-                CollapsibleContent { class: "min-w-0", {body} }
-            } else {
-                {body}
+            div { class: "min-w-0 pl-4",
+                {details}
+                if collapsible && !collapsed {
+                    CollapsibleContent { class: "min-w-0", {body} }
+                } else {
+                    {body}
+                }
             }
         }
     };
@@ -113,19 +129,11 @@ fn render_frame(
     } else {
         content
     };
-    if node.p.get("frame").and_then(Value::as_str) == Some("inline") {
-        rsx! { div { class: "flex min-w-0 flex-col gap-2", {framed} } }
-    } else {
-        rsx! {
-            Card { size: CardSize::Sm, class: "min-w-0",
-                CardContent { class: "min-w-0", {framed} }
-            }
-        }
-    }
+    rsx! { section { class: "min-w-0", {framed} } }
 }
 
-/// The head verb, state, elapsed time and source badges. The primary argument
-/// stays in [`tool_details`] so it is rendered once and can be a real link.
+/// The head verb, state, elapsed time and source badges. The linked target
+/// stays beside the disclosure trigger so a path never becomes a nested link.
 fn tool_head(
     node: &OmpUiNode,
     surface: &str,
@@ -171,7 +179,6 @@ fn tool_head(
             }
             if let Some(took) = took {
                 span { class: "text-xs text-muted-foreground", title: "Duration",
-                    "Took "
                     time { "{took}" }
                 }
             }
@@ -218,19 +225,14 @@ fn status_chip(status: &str) -> Element {
     }
 }
 
-/// The primary argument shown once, followed by the quiet facts OMP authored.
+/// Quiet source-authored metadata below the tool's single-line heading.
 fn tool_details(node: &OmpUiNode) -> Element {
-    let target = prop_text(node, "target");
-    let kind = prop_text(node, "targetKind");
-    let href = prop_text(node, "href");
     let meta = node.p.get("meta").and_then(Value::as_array);
-    if target.is_empty() && meta.is_none() {
+    if meta.is_none() {
         return rsx! {};
     }
-    let target_line = (!target.is_empty()).then(|| target_text(&target, &kind, &href));
     rsx! {
         div { class: "flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1",
-            if let Some(target_line) = target_line { {target_line} }
             for (idx, fact) in meta.into_iter().flatten().enumerate() {
                 if idx > 0 { span { class: "text-xs text-muted-foreground", "·" } }
                 span { class: "text-xs text-muted-foreground", "{text_value(fact)}" }
@@ -241,10 +243,10 @@ fn tool_details(node: &OmpUiNode) -> Element {
 
 fn target_text(target: &str, kind: &str, href: &str) -> Element {
     let class = match kind {
-        "command" => "min-w-0 break-all font-mono text-xs text-foreground",
-        "path" => "min-w-0 break-all font-mono text-xs",
-        "pattern" | "query" => "min-w-0 break-all font-mono text-xs text-primary",
-        _ => "min-w-0 break-words text-sm text-muted-foreground",
+        "command" => "block min-w-0 truncate font-mono text-xs text-foreground",
+        "path" => "block min-w-0 truncate font-mono text-xs",
+        "pattern" | "query" => "block min-w-0 truncate font-mono text-xs text-primary",
+        _ => "block min-w-0 truncate text-sm text-muted-foreground",
     };
     let label = match kind {
         "pattern" | "query" => format!("\"{target}\""),
@@ -305,7 +307,7 @@ fn tool_actions(
                         } else if action_id == "open" && !href.is_empty() && !disabled {
                             NativeLink {
                                 href: href.clone(),
-                                class: Some(button_class(ButtonVariant::Outline, ButtonSize::Sm, None)),
+                                class: Some(button_class(ButtonVariant::Ghost, ButtonSize::Sm, None)),
                                 title: Some(label.clone()),
                                 "{label}"
                             }
@@ -349,7 +351,7 @@ fn CopyCommand(label: String, command: String, disabled: bool, reason: String) -
     rsx! {
         Button {
             size: ButtonSize::Sm,
-            variant: ButtonVariant::Outline,
+            variant: ButtonVariant::Ghost,
             disabled: disabled || value.is_empty(),
             title: reason,
             aria_label: "Copy command".to_owned(),
@@ -381,6 +383,6 @@ fn action_variant(action: &Value) -> ButtonVariant {
     } else if action.get("primary").and_then(Value::as_bool) == Some(true) {
         ButtonVariant::Default
     } else {
-        ButtonVariant::Outline
+        ButtonVariant::Ghost
     }
 }

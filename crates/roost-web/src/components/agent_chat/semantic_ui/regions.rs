@@ -93,7 +93,7 @@ pub(super) fn NativeRegions(
                         }
                     }
                 },
-                div { class: "mx-auto w-full min-w-0 px-4 py-3", {main} }
+                div { class: "{content_width} px-4 py-3", {main} }
             }
             div {
                 class: "relative {content_width} max-h-full shrink-0",

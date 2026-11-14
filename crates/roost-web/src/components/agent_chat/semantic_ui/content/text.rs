@@ -3,7 +3,7 @@
 //! semantics; links and files resolve through the authenticated surface link.
 use super::prop_text;
 use crate::components::agent_chat::markdown_figures::FenceFigures;
-use crate::components::ui::{Markdown, MarkdownSize};
+use crate::components::ui::Markdown;
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::semantic_ui::OmpUiNode;
 use serde_json::Value;
@@ -78,7 +78,7 @@ fn render_md(node: &OmpUiNode) -> Element {
     rsx! {
         div { class: "min-w-0",
             if streaming { span { class: "sr-only", "Response is streaming" } }
-            Markdown { html, size: MarkdownSize::Sm }
+            Markdown { html }
         }
     }
 }
