@@ -60,18 +60,21 @@ async fn key_has_worker_row(
             describe_database(database)
         ))
     })?;
-    let row: Option<(i64,)> =
-        sqlx::query_as("SELECT 1 FROM workers WHERE fp = $1 AND deleted_at_ms IS NULL")
-            .bind(fingerprint.as_str())
-            .fetch_optional(opened.pool())
-            .await
-            .map_err(|error| {
-                CommandFailure::generic(format!(
-                    "the worker roster in {} could not be read: {error}",
-                    describe_database(database)
-                ))
-            })?;
-    Ok(row.is_some())
+    let result = sqlx::query_as::<_, (i64,)>(
+        "SELECT 1 FROM workers WHERE fp = $1 AND deleted_at_ms IS NULL",
+    )
+    .bind(fingerprint.as_str())
+    .fetch_optional(opened.pool())
+    .await
+    .map(|row| row.is_some())
+    .map_err(|error| {
+        CommandFailure::generic(format!(
+            "the worker roster in {} could not be read: {error}",
+            describe_database(database)
+        ))
+    });
+    opened.pool().close().await;
+    result
 }
 
 #[cfg(test)]
@@ -120,6 +123,7 @@ mod tests {
         .execute(opened.pool())
         .await
         .expect("a worker row");
+        opened.pool().close().await;
     }
 
     /// A rerun on an enrolled machine must not arm a fresh grant, and a first
@@ -128,7 +132,8 @@ mod tests {
     async fn only_a_key_with_a_live_worker_row_counts_as_enrolled() {
         let scratch = Scratch::new("roster");
         let database = DatabaseLocation::SqliteFile(scratch.0.join("coordinator.sqlite"));
-        roost_coord::db::open(&database).await.expect("migrated");
+        let opened = roost_coord::db::open(&database).await.expect("migrated");
+        opened.pool().close().await;
         let key = scratch.0.join("worker.key");
 
         assert!(
@@ -153,9 +158,10 @@ mod tests {
 
         let deleted = Scratch::new("deleted");
         let deleted_database = DatabaseLocation::SqliteFile(deleted.0.join("coordinator.sqlite"));
-        roost_coord::db::open(&deleted_database)
+        let opened = roost_coord::db::open(&deleted_database)
             .await
             .expect("migrated");
+        opened.pool().close().await;
         register(&deleted_database, &fingerprint, Some(5)).await;
         assert!(
             !key_has_worker_row(&key, &deleted_database).await.unwrap(),

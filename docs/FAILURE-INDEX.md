@@ -4911,3 +4911,18 @@ starts, while retaining the session's explicit `cwd`.
 **Guard** — `deploy/omp/runtime-smoke.ts` starts the real compiled fork outside
 its requested workspace, opens its semantic UI and requires that workspace in
 the native render. Omitting the launch binding fails this check.
+
+### A queued prompt expiry test misses its queue state under CI load
+
+**Symptom** — `a_prompt_expires_behind_an_unresolved_predecessor_without_losing_receive_order`
+fails with “the prompt queued behind the predecessor never happened”.
+
+**Wrong** — poll for a transient queue depth against a short wall-clock request
+budget. Scheduling delays can let the prompt expire before the observer runs.
+
+**Right** — pause Tokio time, synchronize with the process scan, queue the prompt
+and subsequent raw input, then advance the admission timeout. Require the expired
+prompt to write nothing and raw input to remain blocked until its predecessor releases.
+
+**Guard** — the same `agent_prompt_control` regression exercises expiry and the
+surviving raw input's receive order without a wall-clock race.

@@ -161,7 +161,12 @@ pub async fn mint_host_grant(
             format!("the coordinator database {described} could not be opened: {error}"),
         )
     })?;
-    let tenant = roost_coord::auth::self_hosted_tenant::ensure_self_hosted_tenant(&opened, now_ms)
+    // Dropping a pool does not wait for its SQLite connection to close.
+    // The next quickstart operation may immediately reopen the same file.
+    let result = async {
+        let tenant = roost_coord::auth::self_hosted_tenant::ensure_self_hosted_tenant(
+            &opened, now_ms,
+        )
         .await
         .map_err(|error| {
             codes::refuse(
@@ -171,32 +176,36 @@ pub async fn mint_host_grant(
                 ),
             )
         })?;
-    sqlx::query(
-        "INSERT INTO bootstrap_tokens (\
-           token_hash, account_id, dashboard_id, kind, label,\
-           created_at_ms, expires_at_ms, used_at_ms, used_by_fp, minted_by_fp)\
-         VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NULL, NULL)",
-    )
-    .bind(&digest)
-    .bind(&tenant.account_id)
-    .bind(&tenant.dashboard_id)
-    .bind(kind.as_str())
-    .bind(label)
-    .bind(now_ms)
-    .bind(expires_at_ms)
-    .execute(opened.pool())
-    .await
-    .map_err(|error| {
-        codes::refuse(
-            codes::NO_COORDINATOR_URL,
-            format!("the {kind:?} grant could not be recorded in {described}: {error}"),
+        sqlx::query(
+            "INSERT INTO bootstrap_tokens (\
+               token_hash, account_id, dashboard_id, kind, label,\
+               created_at_ms, expires_at_ms, used_at_ms, used_by_fp, minted_by_fp)\
+             VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NULL, NULL)",
         )
-    })?;
+        .bind(&digest)
+        .bind(&tenant.account_id)
+        .bind(&tenant.dashboard_id)
+        .bind(kind.as_str())
+        .bind(label)
+        .bind(now_ms)
+        .bind(expires_at_ms)
+        .execute(opened.pool())
+        .await
+        .map_err(|error| {
+            codes::refuse(
+                codes::NO_COORDINATOR_URL,
+                format!("the {kind:?} grant could not be recorded in {described}: {error}"),
+            )
+        })?;
 
-    Ok(OneShotGrant {
-        bearer,
-        expires_at_ms,
-    })
+        Ok(OneShotGrant {
+            bearer,
+            expires_at_ms,
+        })
+    }
+    .await;
+    opened.pool().close().await;
+    result
 }
 
 /// The database as an operator-facing message names it: the file path, or the
@@ -270,9 +279,10 @@ mod tests {
     /// the only database a grant is ever minted into.
     async fn coordinator_database(tree: &TempTree) -> DatabaseLocation {
         let database = DatabaseLocation::SqliteFile(tree.database());
-        roost_coord::db::open(&database)
+        let opened = roost_coord::db::open(&database)
             .await
             .expect("the coordinator database is created and migrated");
+        opened.pool().close().await;
         database
     }
 
@@ -299,6 +309,7 @@ mod tests {
                 .fetch_all(pool.pool())
                 .await
                 .expect("the grant row is readable");
+        pool.pool().close().await;
         assert_eq!(rows.len(), 1, "one mint writes one row");
         let (hash, kind, label, expires_at_ms) = &rows[0];
         assert_eq!(

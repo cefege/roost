@@ -133,21 +133,36 @@ async fn utf8_bytes_safe_revision_and_the_hop_budget_are_enforced_before_any_sca
     assert_eq!(harness.written().len(), 2);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_prompt_expires_behind_an_unresolved_predecessor_without_losing_receive_order() {
-    let harness = PromptHarness::new(ScriptedProver::proving());
+    let (scan_started, scan_observed) = tokio::sync::oneshot::channel();
+    let scan_started = std::sync::Mutex::new(Some(scan_started));
+    let prover = ScriptedProver::answering(Box::new(move |_| {
+        scan_started
+            .lock()
+            .unwrap()
+            .take()
+            .unwrap()
+            .send(())
+            .unwrap();
+        Box::pin(std::future::ready(Some(process_proof())))
+    }));
+    let harness = PromptHarness::new(prover);
     let predecessor = harness.hold_lane().await;
-    let budget = TestBudget::until(Instant::now() + Duration::from_millis(50));
+    let budget = TestBudget::fixed(Duration::from_millis(50));
     let prompt = harness.spawn_prompt(request_for(&harness.status_proof()), budget);
-    eventually("the prompt queued behind the predecessor", || {
-        harness.lane().0 == 2
-    })
-    .await;
+    scan_observed.await.unwrap();
+    assert_eq!(harness.lane().0, 2);
+    assert!(!prompt.is_finished());
     let raw = harness.spawn_raw(b"later-raw-input");
+    assert_eq!(harness.lane().0, 3);
+    tokio::time::advance(Duration::from_millis(50)).await;
 
     assert_eq!(prompt.await.unwrap(), rejected("prompt budget expired"));
     assert_eq!(harness.prover.calls(), 1);
     assert!(harness.written().is_empty());
+    assert!(!raw.is_finished());
+    assert_eq!(harness.lane().0, 2);
     predecessor.release();
     assert_eq!(
         raw.await.unwrap(),
