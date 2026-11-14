@@ -24,6 +24,9 @@ invalidate that account's open Sync sockets after commit. Keep discovered
 folders in a device-local cache, subordinate to shared manual positions.
 Promote an unstamped local order only when the account has no saved order.
 
+PostgreSQL Sync fixtures must start and await the cluster notice listener:
+serving the router alone does not receive `pg_notify`.
+
 **Guard** — `client_state_sync::a_folder_drag_reaches_an_open_device_without_echoing`,
 `discovering_folders_before_the_first_pull_cannot_overwrite_the_account_order`,
 `an_unstamped_browser_order_seeds_only_an_account_without_an_order`, and

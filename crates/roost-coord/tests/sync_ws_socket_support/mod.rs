@@ -54,6 +54,7 @@ pub struct SyncFixture {
     account_id: String,
     root: PathBuf,
     server: tokio::task::JoinHandle<()>,
+    notice_listener: tokio::task::JoinHandle<()>,
 }
 
 impl SyncFixture {
@@ -91,6 +92,14 @@ impl SyncFixture {
                 boot_ms: 0,
             },
         ));
+        let notice_listener = tokio::spawn(Arc::clone(&services.cluster).listen());
+        tokio::time::timeout(EXPECT, async {
+            while !services.cluster.connected() {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("the cluster notice listener is ready");
         let service = Arc::new(CoordinatorServiceImpl::new(
             CoordCore::new(Arc::clone(&services)),
             resolved.clone(),
@@ -128,6 +137,7 @@ impl SyncFixture {
             account_id,
             root,
             server,
+            notice_listener,
         }
     }
 
@@ -188,6 +198,7 @@ impl SyncFixture {
 impl Drop for SyncFixture {
     fn drop(&mut self) {
         self.server.abort();
+        self.notice_listener.abort();
         let _ = std::fs::remove_dir_all(&self.root);
     }
 }
