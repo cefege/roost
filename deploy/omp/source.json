@@ -2,6 +2,7 @@
   "repository": "https://github.com/cefege/oh-my-pi.git",
   "revision": "650f3a108229ee11bf68ba3377f4e8c3391cd424",
   "patches": [
-    "command-ui-parity.patch"
+    "command-ui-parity.patch",
+    "transcript-fidelity.patch"
   ]
 }

@@ -1,0 +1,395 @@
+--- a/packages/tui/src/native/node.ts
++++ b/packages/tui/src/native/node.ts
+@@ -116,7 +116,7 @@
+  * component's root node, `"body/3"` for a nested keyed child).
+  */
+ export type NativeUiEvent =
+-	| { readonly type: "toggle"; readonly key: string; readonly collapsed: boolean }
++	| { readonly type: "toggle"; readonly key: string; readonly part?: string; readonly collapsed: boolean }
+ 	| { readonly type: "select"; readonly key: string; readonly item: string }
+ 	| { readonly type: "activate"; readonly key: string; readonly item: string }
+ 	| {
+@@ -250,7 +250,7 @@
+ 
+ /** The expanded state a `toggle` on the component's root node asks for, else undefined. */
+ export function rootToggleExpanded(event: NativeUiEvent): boolean | undefined {
+-	return event.type === "toggle" && event.key === "" ? !event.collapsed : undefined;
++	return event.type === "toggle" && event.key === "" && event.part === undefined ? !event.collapsed : undefined;
+ }
+ 
+ /** The last segment of an event keypath (`"split/sidebar/toc"` → `"toc"`). */
+--- a/packages/tui/src/native/backend.ts
++++ b/packages/tui/src/native/backend.ts
+@@ -901,7 +901,7 @@
+ 		let ui: NativeUiEvent;
+ 		switch (event.ev) {
+ 			case "toggle":
+-				ui = { type: "toggle", key: target.keypath, collapsed: event.collapsed };
++				ui = { type: "toggle", key: target.keypath, ...(event.key === undefined ? {} : { part: event.key }), collapsed: event.collapsed };
+ 				break;
+ 			case "select":
+ 				ui = { type: "select", key: target.keypath, item: item(event.item) };
+--- a/packages/tui/src/chat/tool-execution.ts
++++ b/packages/tui/src/chat/tool-execution.ts
+@@ -402,6 +402,7 @@
+ 	#toolLabel: string;
+ 	#args: unknown;
+ 	#expanded = false;
++	readonly #todoPhaseCollapsed = new Map<string, boolean>();
+ 	#allocation = Number.POSITIVE_INFINITY;
+ 	#presentationFrame: AnimationFrame = { tick: 0, now: 0 };
+ 	#toolActivityVisible = true;
+@@ -675,6 +676,7 @@
+ 		// separately for links and media through the built-in render context.
+ 		const details = sanitizeTextDeep(result.details);
+ 		this.#result = details === result.details ? result : { ...result, details };
++		this.#todoPhaseCollapsed.clear();
+ 		this.#resultVersion++;
+ 		this.#blockVersion++;
+ 		this.#isPartial = isPartial;
+@@ -996,7 +998,19 @@
+ 	/** Mirrors the card collapsed or expanded in the terminal, so `Ctrl+O` and native toggles share one state. */
+ 	handleNativeEvent(event: NativeUiEvent): void {
+ 		const expanded = rootToggleExpanded(event);
+-		if (expanded !== undefined) this.setExpanded(expanded);
++		if (expanded !== undefined) {
++			this.setExpanded(expanded);
++			return;
++		}
++		if (this.#toolName !== "todo" || event.type !== "toggle" || event.key !== "checklist" || event.part === undefined) return;
++		const details = this.#result?.details;
++		if (!isTodoToolDetails(details) || this.#result?.isError) return;
++		const phases = details.phases.filter(phase => phase.tasks.length > 0);
++		if (!phases.some((_, index) => `p${index}` === event.part)) return;
++		if (this.#todoPhaseCollapsed.get(event.part) === event.collapsed) return;
++		this.#todoPhaseCollapsed.set(event.part, event.collapsed);
++		this.#blockVersion++;
++		this.#native.clear();
+ 	}
+ 
+ 	/** The file paths this call targets (edit/write/apply_patch args), display-relative. */
+@@ -1110,12 +1124,32 @@
+ 		};
+ 	}
+ 
++	#withTodoPhaseDisclosure(view: NativeToolView): NativeToolView {
++		if (this.#toolName !== "todo" || this.#todoPhaseCollapsed.size === 0 || !view.body) return view;
++		return {
++			...view,
++			body: view.body.map(child => {
++				if (!("k" in child) || child.k !== "checklist" || child.key !== "checklist" || !child.p) return child;
++				return {
++					...child,
++					p: {
++						...child.p,
++						phases: child.p.phases.map(phase => ({
++							...phase,
++							collapsed: this.#todoPhaseCollapsed.get(phase.id) ?? phase.collapsed,
++						})),
++					},
++				};
++			}),
++		};
++	}
++
+ 	/**
+ 	 * The data-first `tool` node (§7.2): the renderer's head data, status,
+ 	 * timer, exit and intent as props; its body as borderless children.
+ 	 */
+ 	#describeTool(host: NativeHostKinds): NativeNode {
+-		const view = this.#nativeView(host);
++		const view = this.#withTodoPhaseDisclosure(this.#nativeView(host));
+ 		const status = this.#nativeStatus();
+ 		const head = view.tool;
+ 		const late = this.#lateDiagnosticsParts();
+@@ -1185,7 +1219,7 @@
+ 	}
+ 
+ 	#describeCard(host: NativeHostKinds): NativeNode {
+-		const view = this.#nativeView(host);
++		const view = this.#withTodoPhaseDisclosure(this.#nativeView(host));
+ 		const status = this.#nativeStatus();
+ 		const late = this.#lateDiagnosticsParts();
+ 		const fallbackHead = this.#fallbackHead(view);
+--- a/packages/tui/src/render/file-list.ts
++++ b/packages/tui/src/render/file-list.ts
+@@ -6,7 +6,7 @@
+ import type { NativeNode } from "../native/node";
+ import type { Theme } from "../theme/theme";
+ import { fileLinkSpan } from "./hyperlink";
+-import { formatStyledPath } from "./render-utils";
++import { formatMoreItems, formatStyledPath } from "./render-utils";
+ import { renderTreeList } from "./tree-list";
+ 
+ /** A file-list item with optional display metadata. */
+@@ -30,30 +30,26 @@
+ 	hyperlinkFn?: (absPath: string, displayText: string) => string;
+ }
+ 
+-/**
+- * The native form of {@link renderFileList}: a `list` of path `item`s keyed
+- * by path, linked to their absolute path, with language/folder icons and the
+- * meta as detail. Collapsed, the list is clamped to `maxCollapsed` lines and
+- * the terminal scrolls the rest.
+- */
++/** Native branch list, with the same ordering and collapsed limit as the terminal. */
+ export function describeFileList(options: Omit<FileListOptions, "hyperlinkFn">): NativeNode {
+ 	const { files, expanded = false, maxCollapsed = 8, showIcons = true } = options;
+-	const items = files.map(entry => {
++	const shown = expanded ? files : files.slice(0, maxCollapsed);
++	const nodes = shown.map((entry, index) => {
+ 		const isDirectory = entry.isDirectory ?? entry.path.endsWith("/");
+ 		const s = isDirectory ? "path accent" : "path";
+-		const label = entry.absPath ? fileLinkSpan(entry.absPath, entry.path, s) : span(entry.path, s);
+-		return node(
+-			"item",
+-			{
+-				label: [label],
+-				icon: showIcons ? (isDirectory ? "folder" : (getLanguageFromPath(entry.path) ?? "file")) : undefined,
+-				detail: entry.meta ? [span(entry.meta, "dim")] : undefined,
+-			},
+-			undefined,
+-			entry.path,
+-		);
++		return {
++			id: `file-${index}`,
++			label: [
++				entry.absPath ? fileLinkSpan(entry.absPath, entry.path, s) : span(entry.path, s),
++				...(entry.meta ? [span(` ${entry.meta}`, "dim")] : []),
++			],
++			icon: showIcons ? (isDirectory ? "folder" : (getLanguageFromPath(entry.path) ?? "file")) : undefined,
++		};
+ 	});
+-	return node("list", { max: expanded ? undefined : { lines: maxCollapsed } }, items);
++	if (shown.length < files.length) {
++		nodes.push({ id: "summary", label: [span(formatMoreItems(files.length - shown.length, "file"), "muted")], icon: undefined });
++	}
++	return node("tree", { nodes });
+ }
+ 
+ /** Render file entries as a themed tree listing. */
+--- a/packages/tui/src/tools/proc-render.ts
++++ b/packages/tui/src/tools/proc-render.ts
+@@ -369,7 +369,7 @@
+ 				),
+ 			),
+ 	]);
+-	return { head, tone: error ? "error" : undefined, body: children };
++	return { head, tone: error ? "error" : undefined, body: children, preview: { lines: PREVIEW_LIMITS.COLLAPSED_LINES } };
+ }
+ 
+ /** TSP view of a `proc://` write (stdin, mode change, kill). */
+--- a/packages/tui/src/tools/read.ts
++++ b/packages/tui/src/tools/read.ts
+@@ -820,7 +820,8 @@
+ 		}
+ 
+ 		const renderPath = splitReadRenderPath(rawPath);
+-		const content: NativeChild[] = readResultIsMarkdown(details, args)
++		const isMarkdown = readResultIsMarkdown(details, args);
++		const content: NativeChild[] = isMarkdown
+ 			? [md(contentText)]
+ 			: readContentCode(
+ 					contentText,
+@@ -828,7 +829,12 @@
+ 					details?.displayContent?.lineNumbers,
+ 					renderPath.path,
+ 				);
+-		return { tool: head, inline: true, body: compact<NativeChild>([media, ...content, foot]) };
++		return {
++			tool: head,
++			inline: !isMarkdown,
++			preview: isMarkdown ? { lines: 12 } : undefined,
++			body: compact<NativeChild>([media, ...content, foot]),
++		};
+ 	},
+ 	mergeCallAndResult: true,
+ } satisfies ToolRenderer<ReadRenderArgs, ReadToolDetails>;
+--- a/packages/tui/src/chat/assistant-message.ts
++++ b/packages/tui/src/chat/assistant-message.ts
+@@ -43,6 +43,7 @@
+ import { svgFigureRendering } from "./svg-figure";
+ import { hasSvgFence } from "./svg-source";
+ import { chartFence, hasChartTable, lookupTableChart, splitTableCharts } from "./table-chart";
++import { Ellipsis, truncateToWidth } from "../utils";
+ 
+ /**
+  * Max wrapped rows of a turn-ending provider error rendered inline in the
+@@ -1040,7 +1041,9 @@
+ 					if (this.#hideThinkingBlock && !thinkingLive) continue;
+ 					const tokens = thinkingLive ? this.#thinkingTokens : (clock?.tokens ?? 0);
+ 					const title = tokens > 0 ? `${formatNumber(tokens)} tokens` : undefined;
+-					// Live: starburst · "Thinking…" · ticking timer · tok/s. Done: "Thought for 12s".
++					const collapsed = this.#thinkingCollapsed.get(index) ??
++						(this.#hideThinkingBlock || (!thinkingLive && !this.#expandThinkingBlocks));
++					const preview = !thinkingLive && collapsed ? display.text.replace(/\s*\n\s*/g, " · ") : undefined;
+ 					const head = thinkingLive
+ 						? node(
+ 								"row",
+@@ -1053,7 +1056,9 @@
+ 								],
+ 								"head",
+ 							)
+-						: node("text", { spans: [span(thoughtLabel(clock), "muted")], title }, undefined, "head");
++						: collapsed && preview
++							? markdown(`k${index}.head`, "head", truncateToWidth(preview, 160, Ellipsis.Unicode), false)
++							: node("text", { spans: [span(thoughtLabel(clock), "muted")], title }, undefined, "head");
+ 					const body = markdown(`k${index}`, "body", display.text, streaming);
+ 					children.push(
+ 						node(
+@@ -1062,10 +1067,7 @@
+ 								// `.live` while streaming: the body clamps to its tail under a fade.
+ 								role: thinkingLive ? "omp.thinking.live" : "omp.thinking",
+ 								collapsible: true,
+-								// Open while it streams; a finished thought folds to its "Thought for 12s" line unless the user keeps thinking expanded.
+-								collapsed:
+-									this.#thinkingCollapsed.get(index) ??
+-									(this.#hideThinkingBlock || (!thinkingLive && !this.#expandThinkingBlocks)),
++								collapsed,
+ 								// Tern's fold head sums it into "Worked for 12s".
+ 								took: clock?.end === undefined ? undefined : Math.max(0, Math.round(clock.end - clock.start)),
+ 							},
+--- a/packages/tui/test/native/transcript-native.test.ts
++++ b/packages/tui/test/native/transcript-native.test.ts
+@@ -19,9 +19,11 @@
+ import { TtsrNotificationComponent } from "@oh-my-pi/pi-tui/chat/ttsr-notification";
+ import { CollapsedSyntheticMessageComponent, UserMessageComponent } from "@oh-my-pi/pi-tui/chat/user-message";
+ import { text } from "@oh-my-pi/pi-tui/native/describe";
++import { describeFileList } from "@oh-my-pi/pi-tui/render/file-list";
++import { describeAgentWrite } from "@oh-my-pi/pi-tui/tools/proc-render";
+ import { setNativeRendering } from "@oh-my-pi/pi-tui/native/state";
+ import { initTheme, theme } from "@oh-my-pi/pi-tui/theme";
+-import type { TspNode, TspOp } from "@oh-my-pi/pi-wire";
++import type { TspChecklistProps, TspNode, TspOp } from "@oh-my-pi/pi-wire";
+ import { TspHarness } from "./tsp-harness";
+ 
+ beforeAll(async () => {
+@@ -97,6 +99,97 @@
+ }
+ 
+ describe("native transcript", () => {
++	it("routes checklist phase toggles and resets them when the result changes", async () => {
++		let tool!: ToolExecutionComponent;
++		const result = {
++			content: [{ type: "text" as const, text: "ok" }],
++			isError: false,
++			details: { storage: "memory", phases: [
++				{ name: "Setup", tasks: [{ content: "init", status: "completed" }] },
++				{ name: "Build", tasks: [
++					{ content: "lex", status: "in_progress" },
++					{ content: "old", status: "abandoned" },
++					{ content: "deploy", status: "blocked", blocker: "no creds" },
++				] },
++			] },
++		};
++		const h = await startWith(h => {
++			tool = new ToolExecutionComponent("todo", { op: "start", task: "lex" }, {}, undefined, h.tui);
++			tool.setArgsComplete("call-1");
++			tool.setExecutionStarted("call-1");
++			tool.updateResult(result);
++			h.tui.addChild(tool);
++		});
++		try {
++			const checklist = h.find(node => node.k === "checklist")!;
++			const phases = () => (h.byId(checklist.id)!.p as TspChecklistProps).phases;
++			expect(phases().map(phase => phase.collapsed)).toEqual([true, false]);
++			h.event({ ev: "toggle", sf: h.terminal.surface!, id: checklist.id, key: "p0", collapsed: false });
++			h.event({ ev: "toggle", sf: h.terminal.surface!, id: checklist.id, key: "p1", collapsed: true });
++			expect(phases().map(phase => phase.collapsed)).toEqual([false, true]);
++			expect(phases()[1]!.items.map(item => [item.text, item.status, item.note])).toEqual([
++				["lex", "active", undefined], ["old", "dropped", undefined], ["deploy", "blocked", "no creds"],
++			]);
++			h.event({ ev: "toggle", sf: h.terminal.surface!, id: checklist.id, key: "missing", collapsed: false });
++			expect(phases().map(phase => phase.collapsed)).toEqual([false, true]);
++			tool.updateResult(result);
++			await h.render();
++			expect(phases().map(phase => phase.collapsed)).toEqual([true, false]);
++			expect(h.errors).toEqual([]);
++		} finally {
++			tool.dispose();
++		}
++	});
++
++	it("shows a bounded markdown read preview while retaining the full source", async () => {
++		const source = Array.from({ length: 30 }, (_, index) => `## Section ${index}`).join("\n");
++		let tool!: ToolExecutionComponent;
++		const h = await startWith(h => {
++			tool = new ToolExecutionComponent("read", { path: "local://plan.md" }, {}, undefined, h.tui);
++			tool.setArgsComplete("call-1");
++			tool.setExecutionStarted("call-1");
++			tool.updateResult({
++				content: [{ type: "text", text: source }],
++				details: { contentType: "text/markdown", displayContent: { text: source, startLine: 1 } },
++			});
++			h.tui.addChild(tool);
++		});
++		try {
++			const read = h.find(node => node.k === "tool" && node.p?.role === "omp.tool.read")!;
++			expect(read.p).toMatchObject({ frame: "card", collapsed: true, preview: { lines: 12 } });
++			expect(read.c?.find(child => child.k === "md")?.p).toMatchObject({ text: source });
++			h.event({ ev: "toggle", sf: h.terminal.surface!, id: read.id, collapsed: false });
++			expect(h.byId(read.id)?.p).toMatchObject({ collapsed: false });
++			expect(h.byId(read.id)?.c?.find(child => child.k === "md")?.p).toMatchObject({ text: source });
++			expect(h.errors).toEqual([]);
++		} finally {
++			tool.dispose();
++		}
++	});
++
++	it("keeps repeated file paths as distinct ordered branch nodes", () => {
++		const tree = describeFileList({
++			files: [
++				{ path: "same.ts", absPath: "/tmp/same.ts", meta: "first" },
++				{ path: "same.ts", meta: "second" },
++				{ path: "other.ts" },
++			],
++			maxCollapsed: 2,
++		});
++		expect(tree.k).toBe("tree");
++		if (tree.k !== "tree") throw new Error("expected tree");
++		expect(new Set(tree.p?.nodes.map(item => item.id)).size).toBe(3);
++		expect(tree.p?.nodes[0]?.label).toMatchObject([{ t: "same.ts" }, { t: " first" }]);
++		expect(tree.p?.nodes[1]?.label).toMatchObject([{ t: "same.ts" }, { t: " second" }]);
++	});
++
++	it("bounds an IRC preview without discarding its message", () => {
++		const source = Array.from({ length: 30 }, (_, index) => `message ${index}`).join("\n");
++		const view = describeAgentWrite("peer", source, undefined, undefined);
++		expect(view.preview).toEqual({ lines: 3 });
++		expect(view.body?.[0]).toMatchObject({ k: "text", p: { spans: [{ t: source }] } });
++	});
++
+ 	it("streams assistant text as appends to one md node that stops streaming when final", async () => {
+ 		const component = new AssistantMessageComponent();
+ 		const h = await startWith(h => h.tui.addChild(component));
+--- a/packages/tui/test/native/transcript-redesign-native.test.ts
++++ b/packages/tui/test/native/transcript-redesign-native.test.ts
+@@ -87,7 +87,7 @@
+ 		expect(harness.errors).toEqual([]);
+ 	});
+ 
+-	it("streams thinking under a live head, then settles to a collapsed 'Thought' line", async () => {
++	it("streams thinking and preserves its short headings in the collapsed head", async () => {
+ 		const component = new AssistantMessageComponent();
+ 		harness = await TspHarness.start();
+ 		harness.tui.addChild(component);
+@@ -105,12 +105,17 @@
+ 		expect(harness.find(node => node.k === "elapsed")).toBeDefined();
+ 		expect(prop(live, "took")).toBeUndefined();
+ 
+-		component.updateContent(thinking("Weighing it carefully"));
++		const finished = "**Weighing it carefully**\n\n**Checking the source**\n\n**Choosing the result**";
++		component.updateContent(thinking(finished));
+ 		component.markTranscriptBlockFinalized();
+ 		await harness.render();
+ 		const done = harness.find(node => node.k === "section" && node.p?.role === "omp.thinking");
+ 		expect(done?.p).toMatchObject({ collapsed: true });
+-		expect(texts(done)).toStartWith("Thought");
++		expect(done?.c?.[0]?.p).toMatchObject({ text: "**Weighing it carefully** · **Checking the source** · **Choosing the result**" });
++		harness.event({ ev: "toggle", sf: harness.terminal.surface!, id: done!.id, collapsed: false });
++		const expanded = harness.byId(done!.id);
++		expect(expanded?.p).toMatchObject({ collapsed: false });
++		expect(expanded?.c?.[1]?.p).toMatchObject({ text: finished });
+ 		expect(prop(done, "took")).toBeNumber();
+ 		expect(harness.find(node => node.k === "spinner")).toBeUndefined();
+ 		expect(harness.errors).toEqual([]);

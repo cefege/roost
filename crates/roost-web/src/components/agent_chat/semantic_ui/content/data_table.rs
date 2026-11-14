@@ -140,7 +140,7 @@ fn TreeItem(node: Value) -> Element {
                             icon: if open() { IconType::ChevronDown } else { IconType::ChevronRight },
                             class: "size-4 shrink-0 text-muted-foreground",
                         }
-                        if !icon.is_empty() { span { class: "mr-1 text-muted-foreground", "{icon}" } }
+                        if !icon.is_empty() { {super::data::icon_element(&icon, "mr-1 size-4 shrink-0 text-muted-foreground")} }
                         {render_spans(label, "")}
                     }
                     CollapsibleContent { class: Some("pl-3".into()),
@@ -157,7 +157,7 @@ fn TreeItem(node: Value) -> Element {
         rsx! {
             li { class: "ml-3 flex flex-col gap-1",
                 span { class: "text-sm",
-                    if !icon.is_empty() { span { class: "mr-1 text-muted-foreground", "{icon}" } }
+                    if !icon.is_empty() { {super::data::icon_element(&icon, "mr-1 inline size-4 text-muted-foreground")} }
                     {render_spans(label, "")}
                 }
             }

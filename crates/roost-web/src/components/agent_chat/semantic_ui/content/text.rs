@@ -44,7 +44,7 @@ pub(super) fn render(node: &OmpUiNode, expanded: bool) -> Element {
                 .unwrap_or_default(),
             "whitespace-pre-wrap break-words",
         ),
-        "md" => markdown(node),
+        "md" => render_md(node),
         "code" => code::render(node, expanded),
         "diff" => diff::render(node),
         "ansi" => ansi::render(node, expanded),
@@ -66,6 +66,23 @@ pub(super) fn render(node: &OmpUiNode, expanded: bool) -> Element {
     }
 }
 
+fn render_md(node: &OmpUiNode) -> Element {
+    let source = prop_text(node, "text");
+    let figures = FenceFigures::from_props(node.p.get("mermaid"), node.p.get("svg"));
+    let html = spans::markdown_with_marks(&source, node.p.get("marks"), &figures);
+    let streaming = node
+        .p
+        .get("stream")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    rsx! {
+        div { class: "min-w-0",
+            if streaming { span { class: "sr-only", "Response is streaming" } }
+            Markdown { html, size: MarkdownSize::Sm }
+        }
+    }
+}
+
 /// Rows a disclosure can address without rewriting the node. Code and ANSI
 /// report source-line counts; every other text leaf is rendered whole.
 pub(super) fn line_count(node: &OmpUiNode) -> Option<usize> {
@@ -84,26 +101,6 @@ pub(super) fn render_window(node: &OmpUiNode, range: Range<usize>) -> Element {
         "code" => code::render_window(node, range),
         "ansi" => ansi::render_window(node, range),
         _ => render(node, true),
-    }
-}
-
-fn markdown(node: &OmpUiNode) -> Element {
-    let source = prop_text(node, "text");
-    let html = spans::markdown_with_marks(
-        &source,
-        node.p.get("marks"),
-        &FenceFigures::from_props(node.p.get("mermaid"), node.p.get("svg")),
-    );
-    let streaming = node
-        .p
-        .get("stream")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    rsx! {
-        div { class: "min-w-0",
-            if streaming { span { class: "sr-only", "Response is streaming" } }
-            Markdown { html, size: MarkdownSize::Sm }
-        }
     }
 }
 

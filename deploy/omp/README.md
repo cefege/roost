@@ -14,7 +14,15 @@ The source identity is [`source.json`](source.json):
 
 - `https://github.com/cefege/oh-my-pi.git`
 - base commit `650f3a108229ee11bf68ba3377f4e8c3391cd424`
-- [`command-ui-parity.patch`](command-ui-parity.patch), applied on top
+- [`command-ui-parity.patch`](command-ui-parity.patch), then
+  [`transcript-fidelity.patch`](transcript-fidelity.patch), in `source.json` order
+
+The transcript patch preserves compact thinking headings, rich Read previews,
+ordered file lists, bounded agent-message previews and keyed Todo phase toggles.
+
+HTML keeps a view-local rendered history snapshot. Composer and unrelated store
+updates reuse it; history, focus, blob or sender changes invalidate it. History
+is neither virtualized nor discarded.
 
 `bun deploy/omp/runtime.ts` prepares that exact source, provisions its matching
 published native binding and compiles a standalone executable. Its isolated

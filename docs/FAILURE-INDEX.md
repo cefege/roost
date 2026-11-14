@@ -4637,6 +4637,22 @@ abandoned states; an empty plan still clears all tasks.
 **Guard** — `roost-coord`'s
 `omp_todo_keeps_native_phases_and_blockers_across_flat_plan_updates`.
 
+### OMP Todo phase headings ignore clicks
+
+**Symptom** — HTML Todo phases do not expand or collapse, or an expanded phase
+cannot be closed again.
+
+**Wrong** — discard the TSP toggle's phase key while resolving its component
+keypath, treat it as a root toggle, or replace an open phase's trigger with text.
+
+**Right** — preserve the phase key as `NativeUiEvent.part`, leave `key` as the
+component keypath, and let the Todo component own phase disclosure state.
+Keep both open and closed phases under a controlled disclosure trigger.
+
+**Guard** — native transcript test `routes checklist phase toggles and resets
+them when the result changes`; parity case
+`native-checklist-phase-toggle-carries-its-key`.
+
 ### Browser swallows the picker's Backspace delete action
 
 **Symptom** — Backspace or Delete over an empty native search query does nothing

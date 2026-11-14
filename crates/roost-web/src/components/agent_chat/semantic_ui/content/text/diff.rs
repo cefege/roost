@@ -20,9 +20,6 @@ pub(super) fn render(node: &OmpUiNode) -> Element {
     } else {
         unified_rows(&text)
     };
-    let path = prop_text(node, "path");
-    let lang = prop_text(node, "lang");
-    let label = if !path.is_empty() { path } else { lang };
     let wrap = node.p.get("wrap").and_then(Value::as_bool).unwrap_or(false);
     let text_layout = if wrap {
         "min-w-0 whitespace-pre-wrap wrap-anywhere"
@@ -32,15 +29,13 @@ pub(super) fn render(node: &OmpUiNode) -> Element {
     rsx! {
         div { class: "flex min-w-0 flex-col rounded-none border border-border",
             div { class: "flex min-w-0 items-center justify-between gap-2 border-b border-border px-2 py-1",
-                span { class: "min-w-0 truncate font-mono text-xs text-muted-foreground",
-                    if label.is_empty() { "diff" } else { "{label}" }
-                }
+                span { class: "min-w-0 truncate font-mono text-xs text-muted-foreground", "diff" }
                 CopyButton { text: copy }
             }
             if node.p.get("mode").and_then(Value::as_str) == Some("split") {
                 {split::render(&rows, wrap)}
             } else {
-            pre { class: "m-0 overflow-x-auto bg-terminal p-2 font-mono text-xs leading-5 text-terminal-foreground",
+            pre { class: "m-0 min-w-0 max-w-full overflow-x-auto bg-terminal p-2 font-mono text-xs leading-5 text-terminal-foreground",
                     for (index, row) in rows.iter().enumerate() {
                         div {
                             class: row.classes(),

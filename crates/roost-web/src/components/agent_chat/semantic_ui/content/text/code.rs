@@ -43,6 +43,8 @@ fn view(node: &OmpUiNode, expanded: bool, window: Option<Range<usize>>) -> Eleme
             path: data.path,
             lang: data.lang,
             grammar: data.grammar,
+            wrap: data.wrap,
+            title: data.title,
         }
     }
 }
@@ -115,6 +117,8 @@ fn prepare(node: &OmpUiNode, expanded: bool, window: Option<Range<usize>>) -> Co
         window,
         path,
         lang,
+        wrap: node.p.get("wrap").and_then(Value::as_bool).unwrap_or(true),
+        title: prop_text(node, "title"),
         grammar,
     }
 }
@@ -131,6 +135,8 @@ struct CodeViewProps {
     path: String,
     lang: String,
     grammar: String,
+    wrap: bool,
+    title: String,
 }
 
 #[component]
@@ -167,20 +173,16 @@ fn CodeView(props: CodeViewProps) -> Element {
             div { class: "flex min-w-0 items-center justify-between gap-2 border-b border-border px-2 py-1",
                 span { class: "min-w-0 truncate font-mono text-xs text-muted-foreground", "{label}" }
                 CopyButton { text: props.source.clone() }
+                if !props.title.is_empty() {
+                    span { class: "text-xs text-muted-foreground", "{props.title}" }
+                }
             }
-            pre { class: "m-0 overflow-x-auto bg-terminal p-2 font-mono text-xs leading-5 text-terminal-foreground",
+            pre { class: "m-0 min-w-0 max-w-full overflow-x-auto bg-terminal p-2 font-mono text-xs leading-5 text-terminal-foreground",
                     for (offset, line) in lines[visible_start..visible_end].iter().enumerate() {
                         { line_row(
                             visible_start + offset,
                             line,
-                            props.show_numbers,
-                            props.show_numbers.then_some(props.line_numbers.get(visible_start + offset).copied()).flatten(),
-                            props.show_numbers && props.gaps && visible_start + offset > 0
-                                && gap_before(&props.line_numbers, visible_start + offset),
-                            props.line_numbers
-                                .get(visible_start + offset)
-                                .and_then(|number| props.marks.get(number))
-                                .copied(),
+                            &props,
                             tokens.as_ref().and_then(|rows| rows.get(visible_start + offset)).map(Vec::as_slice),
                         ) }
                     }
@@ -196,15 +198,12 @@ fn CodeView(props: CodeViewProps) -> Element {
                             if open() { "Show fewer lines" } else { "Show all {total} lines" }
                         }
                         CollapsibleContent {
-                            pre { class: "m-0 overflow-x-auto bg-terminal p-2 font-mono text-xs leading-5 text-terminal-foreground",
+                            pre { class: "m-0 min-w-0 max-w-full overflow-x-auto bg-terminal p-2 font-mono text-xs leading-5 text-terminal-foreground",
                                 for (idx, line) in lines.iter().enumerate().skip(visible_end) {
                                     { line_row(
                                         idx,
                                         line,
-                                        props.show_numbers,
-                                        props.show_numbers.then_some(props.line_numbers.get(idx).copied()).flatten(),
-                                        props.show_numbers && props.gaps && idx > 0 && gap_before(&props.line_numbers, idx),
-                                        props.line_numbers.get(idx).and_then(|number| props.marks.get(number)).copied(),
+                                        &props,
                                         tokens.as_ref().and_then(|rows| rows.get(idx)).map(Vec::as_slice),
                                     ) }
                                 }
@@ -216,17 +215,24 @@ fn CodeView(props: CodeViewProps) -> Element {
     }
 }
 
-fn line_row(
-    idx: usize,
-    line: &str,
-    show_numbers: bool,
-    number: Option<u64>,
-    gap: bool,
-    mark: Option<&'static str>,
-    tokens: Option<&[Token]>,
-) -> Element {
+fn line_row(idx: usize, line: &str, props: &CodeViewProps, tokens: Option<&[Token]>) -> Element {
+    let number = props
+        .show_numbers
+        .then(|| props.line_numbers.get(idx).copied())
+        .flatten();
+    let gap = props.show_numbers && props.gaps && idx > 0 && gap_before(&props.line_numbers, idx);
+    let mark = props
+        .line_numbers
+        .get(idx)
+        .and_then(|number| props.marks.get(number))
+        .copied();
     let row_class = format!("flex min-w-0 gap-3 {}", mark.unwrap_or(""));
     let line_number = number.unwrap_or((idx + 1) as u64);
+    let text_layout = if props.wrap {
+        "min-w-0 whitespace-pre-wrap wrap-anywhere"
+    } else {
+        "whitespace-pre"
+    };
     rsx! {
         if gap {
             div { class: "flex min-w-0 gap-3 text-muted-foreground", "aria-hidden": "true",
@@ -237,14 +243,14 @@ fn line_row(
         div {
             class: "{row_class}",
             "data-line": "{line_number}",
-            if show_numbers {
+            if props.show_numbers {
                 if let Some(number) = number {
                     span { class: "w-10 flex-none select-none text-right text-muted-foreground", "{number}" }
                 } else {
                     span { class: "w-10 flex-none select-none text-right text-muted-foreground", "" }
                 }
             }
-            span { class: "min-w-0 whitespace-pre",
+            span { class: "{text_layout}",
                 if let Some(tokens) = tokens {
                     for token in tokens {
                         if token.kind == TokenKind::Plain {
@@ -322,5 +328,17 @@ mod tests {
         assert_eq!(props.window, Some(1..3));
         assert_eq!(props.preview, None);
         assert_eq!(props.line_numbers, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn explicit_wrap_and_score_title_survive_preparation() {
+        let mut node = code_node("long source line");
+        node.p.insert("wrap".into(), json!(true));
+        node.p.insert("title".into(), json!("0.85"));
+        let props = prepare(&node, true, None);
+        assert!(props.wrap);
+        assert_eq!(props.title, "0.85");
+        node.p.insert("wrap".into(), json!(false));
+        assert!(!prepare(&node, true, None).wrap);
     }
 }

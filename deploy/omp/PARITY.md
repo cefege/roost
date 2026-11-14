@@ -1,8 +1,8 @@
 # OMP terminal / HTML parity contract
 
 OMP is Roost's only agent. The reference is the fork pinned in `README.md`,
-including `command-ui-parity.patch`. Parity covers its whole interface, not
-only chat, model selection, or a list of smoke checks.
+including the ordered patches in `source.json`. Parity covers its whole
+interface, not only chat, model selection, or a list of smoke checks.
 
 ## One implementation of behavior
 
@@ -102,6 +102,7 @@ fresh stack, an isolated HOME and deny-all networking.
 | `--jobs N` | Runs up to N cases concurrently (1–16); cases that bind the same fixed port never overlap. |
 | `--merge DIR` | Repeatable; merges shard results and evaluates coverage over the whole inventory. |
 | `--list` | Prints the case ids. |
+| `--output DIR` | Keep the directory under this checkout's `target/omp-parity/`; instrumentation rejects traces outside that owned root. |
 
 Only a full run or a merge of every shard of one inventory decides coverage.
 Shard and full runs keep compacted provenance in each case's `result.json`
@@ -111,3 +112,18 @@ checkpoint cursors) and delete a passing case's raw `probe.jsonl`.
 CI (`.github/workflows/omp-parity.yml`) builds the product once, runs 32
 shards with `--jobs 2` against that build, then merges every shard's results
 into the coverage verdict.
+
+## Frozen-conversation picture passes
+
+Use separate isolated HOME copies for TUI and HTML; never resume the operator's
+original conversation. Match source elements and disclosure states, not scroll
+percentages. Include checkpoints before compaction: a short current window does
+not exercise older, larger transcript costs.
+
+Record typing, scrolling, navigation and native-update frame times, long tasks
+and rendered-node counts. Unchanged history must not be reconstructed for composer
+or unrelated store updates. Reuse must preserve changed text, images, focus and
+controller events; exercise session switches and disclosure controls as well.
+A conversation without images or ranked Find results needs the corresponding
+native-component scenarios too.
+One frozen conversation is evidence for its elements, not a full parity verdict.

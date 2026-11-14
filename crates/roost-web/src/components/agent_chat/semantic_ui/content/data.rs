@@ -3,7 +3,7 @@
 use super::super::elapsed_clock::{NativeElapsed, PropElapsed};
 use super::{prop_text, render_spans, text_value, tone_variant};
 use crate::components::agent_chat::output_lines::{render_run, styled_rows};
-use crate::components::ui::{Badge, Icon, IconType, Kbd, Progress, Spinner};
+use crate::components::ui::{Badge, Icon, IconType, Kbd, Progress, Spinner, StatusDot};
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::semantic_ui::OmpUiNode;
 use serde_json::Value;
@@ -141,12 +141,37 @@ fn progress(node: &OmpUiNode) -> Element {
     let label = native_label
         .map(text_value)
         .filter(|label| !label.is_empty())
+        .or_else(|| {
+            node.p
+                .get("title")
+                .map(text_value)
+                .filter(|title| !title.is_empty())
+        })
         .unwrap_or_else(|| "Progress".to_owned());
+    let tone = node.p.get("tone").and_then(Value::as_str);
     rsx! {
         div { class: "flex min-w-0 flex-col gap-1",
             {render_spans(native_label, "")}
-            Progress { value: value.map(|value| value.clamp(0.0, 1.0)), label, class: Some("w-full".into()) }
+            div { class: "flex min-w-0 items-center gap-2",
+                if let Some(tone) = tone {
+                    span { role: "img", "aria-label": "{tone}",
+                        StatusDot { status: progress_status(tone).to_owned(), title: Some(tone.to_owned()) }
+                    }
+                }
+                Progress { value: value.map(|value| value.clamp(0.0, 1.0)), label, class: Some("w-full".into()) }
+            }
         }
+    }
+}
+
+fn progress_status(tone: &str) -> &'static str {
+    match tone {
+        "success" => "ok",
+        "warning" => "warn",
+        "error" => "error",
+        "info" => "info",
+        "accent" => "running",
+        _ => "idle",
     }
 }
 
@@ -171,5 +196,18 @@ fn rows(node: &OmpUiNode) -> Element {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::progress_status;
+
+    #[test]
+    fn progress_keeps_ranked_find_tones_distinct() {
+        assert_eq!(progress_status("success"), "ok");
+        assert_eq!(progress_status("warning"), "warn");
+        assert_eq!(progress_status("muted"), "idle");
+        assert_eq!(progress_status("error"), "error");
     }
 }

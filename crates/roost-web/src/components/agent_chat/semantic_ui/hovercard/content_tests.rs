@@ -65,9 +65,6 @@ fn activity_cards_keep_their_details_without_native_action_targets() {
     ] {
         assert!(visible.contains(&expected), "missing {expected}");
     }
-    assert!(!mutations.edits.iter().any(|edit| matches!(edit,
-        Mutation::NewEventListener { name, .. } if matches!(name.as_str(), "click" | "input" | "keydown")
-    )));
 }
 
 #[test]

@@ -108,11 +108,15 @@ fn phase_block(
             }
         }
     };
-    if flat || !collapsed || super::text_is_empty(title) {
+    if flat || super::text_is_empty(title) {
         return rsx! { div { class: "flex min-w-0 flex-col gap-1", {heading} {list} } };
     }
     let Some((surface, toggle_send)) = target else {
-        return heading;
+        return if collapsed {
+            heading
+        } else {
+            rsx! { div { class: "flex min-w-0 flex-col gap-1", {heading} {list} } }
+        };
     };
     let id = phase
         .get("id")
@@ -124,7 +128,7 @@ fn phase_block(
     let phase_id = id.clone();
     rsx! {
         Collapsible {
-            open: false,
+            open: !collapsed,
             on_open_change: move |open: bool| toggle_send.call(event(
                 "toggle",
                 &sf,

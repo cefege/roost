@@ -13,8 +13,8 @@ use super::render_icon;
 use super::{duration, event, prop_text, text_value, tone_variant};
 use crate::components::hooks::use_copy_clipboard::use_copy_clipboard;
 use crate::components::ui::{
-    Badge, BadgeSize, BadgeVariant, Button, ButtonSize, ButtonVariant, Collapsible,
-    CollapsibleContent, CollapsibleTrigger, Kbd, KbdGroup, Spinner, button_class,
+    Badge, BadgeSize, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, CardContent, CardSize,
+    Collapsible, CollapsibleContent, CollapsibleTrigger, Kbd, KbdGroup, Spinner, button_class,
 };
 use dioxus::prelude::*;
 use roost_client_core::client::agent_chat::OmpTimerKind;
@@ -113,7 +113,15 @@ fn render_frame(
     } else {
         content
     };
-    rsx! { div { class: "flex min-w-0 flex-col gap-2", {framed} } }
+    if node.p.get("frame").and_then(Value::as_str) == Some("inline") {
+        rsx! { div { class: "flex min-w-0 flex-col gap-2", {framed} } }
+    } else {
+        rsx! {
+            Card { size: CardSize::Sm, class: "min-w-0",
+                CardContent { class: "min-w-0", {framed} }
+            }
+        }
+    }
 }
 
 /// The head verb, state, elapsed time and source badges. The primary argument

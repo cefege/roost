@@ -12,7 +12,7 @@ pub(super) fn render(rows: &[DiffRow], wrap: bool) -> Element {
         ("w-max", "whitespace-pre")
     };
     rsx! {
-        div { class: "overflow-x-auto bg-terminal p-2 text-terminal-foreground",
+        div { class: "min-w-0 max-w-full overflow-x-auto bg-terminal p-2 text-terminal-foreground",
         div { class: "grid {width} min-w-full grid-cols-2 font-mono text-xs leading-5",
             for line in SplitRows::new(rows) {
                 match line {

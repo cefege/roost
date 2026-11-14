@@ -9,6 +9,7 @@ mod controls;
 mod editor;
 mod editors;
 mod elapsed_clock;
+mod history;
 pub(crate) mod host_services;
 mod hovercard;
 mod key_hint;
@@ -248,7 +249,16 @@ fn render_regions(
     });
     let focused = surface.focus.as_deref();
     let main = main
-        .map(|node| render_node_with_focus(node, &surface.id, send, blobs, focused))
+        .map(|node| {
+            rsx! { history::NativeHistory {
+                key: "{context.view_id}-{surface.id}-{node.id}",
+                pump: context.pump.clone(),
+                conversation_id: context.conversation_id.to_owned(),
+                surface_id: surface.id.clone(),
+                node_id: node.id.clone(),
+                send: *send,
+            } }
+        })
         .unwrap_or_else(|| rsx! {});
     let dock = dock
         .map(|node| render_node_with_focus(node, &surface.id, send, blobs, focused))
