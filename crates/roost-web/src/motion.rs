@@ -11,6 +11,7 @@ pub mod drag_threshold;
 pub mod drawer_drag;
 pub mod drop_zones;
 pub mod edge_swipe_drawer;
+pub mod gesture_owner;
 pub mod grid_flip;
 pub mod overlay_motion;
 pub mod resize_drag;

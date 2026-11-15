@@ -1691,15 +1691,18 @@ that cursor's id list is EMPTY, so the keys move nothing while still cancelling 
 "fixing" it per-route, or gating on the route path — the predicate is whether a cursor target exists, not where
 you are.
 
-**Right** — **claim a key only when there is something to move.** `crates/roost-web/src/keyboard_shortcuts.rs`'s
-arrow/⏎ branch bails before `preventDefault()` on `!hasCursorTargets()` (arrows) and `cursorSessionId() === null`
-(⏎), both from `crates/roost-client-core/src/store/sidebar/cursor.rs`. Two distinct defaults are at stake and both are invisible
-until they are gone: arrows are the DOCUMENT'S native scroll, and keydown `preventDefault()` cancels a focused
-`<button>`'s click activation — so ⏎ on a real button dies silently with no console trace. Generalizable rule:
-a capture-phase router must prove it will act before it cancels.
+**Right** — **claim a key only when the router owns its target and will act.**
+`crates/roost-web/src/keyboard_shortcuts.rs` yields bare ↑/↓/⏎ when
+`target_is_control` is true, even when sidebar rows and a highlighted session
+exist. Otherwise arrows require cursor targets and ⏎ requires a selected
+session. Cancelling a focused button's Enter also cancels its native click.
+The folder picker's own document-capture listener handles local navigation
+before the window-bubble spatial-navigation fallback; global command chords
+remain available.
 
-**Guard** — `crates/roost-web/tests/keyboard_shortcuts.rs` — `arrows_stay_native_scroll_when_no_cursor_rows_exist`
-and `enter_stays_a_focused_buttons_activation_until_a_row_is_highlighted`.
+**Guard** — `crates/roost-web/tests/keyboard_shortcuts.rs` —
+`arrows_stay_native_scroll_when_no_cursor_rows_exist` and
+`focused_controls_keep_their_keys_even_when_sidebar_rows_exist`.
 
 ### The first D-pad press does nothing because `<body>` counts as the origin
 
@@ -2824,20 +2827,25 @@ swipe stops following and never releases. Also wrong: resetting the touch tracke
 without ending the armed swipe (the lift then reads as "nothing armed"), and treating `touchcancel` as a
 release that may commit.
 
-**Right** — `crates/roost-web/src/components/deck/deck_dom/web_listeners.rs` `deck_touches` also follows each
-touch on its own target (`follow_touch_target`), delivering a move or end only once the deck no longer contains
-that target; the follower is replaced at the next touchstart from the deck's own listener, never dropped from
-inside one of its closures. `deck_swipe_touch` ends an armed drag with `TouchStep::Cancelled` on a second
-finger, a `touchcancel`, or a new touch while the drag is still armed, and the deck springs it back
-(`deck_swipe::cancel_swipe`). Every settle ends on a bounded timer (`SwipeRelease::drop_deadline_ms`), never on a
-`transitionend` an interrupted or no-op transition does not fire.
+**Right** — `crates/roost-web/src/components/deck/deck_dom/web_listeners.rs`
+provides `follow_detached_touches` for the deck and drawer: it follows the
+original target and delivers events only after that target leaves its owner.
+Replace the follower at the next touchstart, never from inside its own callback.
+Track one touch identifier; another finger, `touchcancel`, lost ownership or
+an interrupted viewport cancels rather than commits. Deck, drawer, sidebar
+row and terminal-card cancellation must restore the original state regardless
+of drag distance. Every settle has a bounded deadline, not a dependency on
+`transitionend`, which an interrupted or no-op transition may never fire.
 
-**Guard** — `crates/roost-web/tests/deck_swipe_touch.rs` `a_second_finger_during_an_armed_drag_cancels_it`,
-`a_cancelled_touch_cancels_the_drag_instead_of_releasing_it`,
-`a_new_touch_over_a_drag_that_never_released_cancels_it_and_tracks_anew`; `crates/roost-web/tests/deck_swipe_settle.rs`
-`a_short_pull_past_the_last_tab_springs_back_at_any_release_speed`,
-`a_cancelled_drag_springs_back_however_far_it_travelled`, `every_settle_has_a_bounded_drop_deadline`. The target
-follower is browser-only and has no Rust test: a native build has no DOM to detach a node from.
+**Guard** — `crates/roost-web/tests/deck_swipe_touch.rs` covers second fingers,
+cancelled contacts and replacement contacts; `tests/deck_swipe_settle.rs`
+covers cancellation and bounded deadlines. `tests/sidebar_logic.rs` has
+`row_touch_cancellation_and_finger_changes_never_close`; `tests/deck_swipe.rs`
+has `card_touch_cancellation_and_finger_changes_never_dismiss`.
+`src/components/layout/drawer_gesture.rs` covers long-drag rollback,
+second-finger cancellation and reversing an armed gesture. Paths are under
+`crates/roost-web/`. The detached-target follower requires browser verification;
+native tests have no DOM to detach a node from.
 
 ### The workspace tabs sheet swipes the deck underneath
 
@@ -2845,9 +2853,13 @@ follower is browser-only and has no Rust test: a native build has no DOM to deta
 
 **Wrong** — relying on the sheet backdrop to isolate its touches. `WorkspaceTabsSheet` is a descendant of the deck, so its touch events reach the deck's capture-phase `deck_touches` listener.
 
-**Right** — `TerminalDeck` owns the sheet-open signal and includes it in `SwipeFrame`; `terminal_deck_swipe::step_touch` cancels the tracker while the sheet is open, so the sheet owns all touches and an in-progress deck drag springs back.
+**Right** — `motion::gesture_owner::overlay_owns_gesture` gives mounted dialogs,
+menus and select popovers ownership. The deck and drawer yield to them and
+cancel any already-armed background drag instead of committing it.
 
-**Guard** — `crates/roost-web/src/components/deck/terminal_deck_swipe.rs::tests::workspace_tabs_sheet_owns_horizontal_gestures` covers a gesture started while the sheet is open, a sheet opened during an armed drag, and moves continuing after it closes.
+**Guard** — `crates/roost-web/src/components/deck/deck_swipe_touch.rs::tests::overlays_own_horizontal_gestures`
+covers a gesture started under an overlay, an overlay opened during an armed
+drag, and movement continuing after it closes.
 
 ### A multi-line draft leaves the desktop pane: the composer is clipped and its first lines are hidden
 

@@ -60,6 +60,9 @@ pub fn use_deck_swipe(
     *latest.borrow_mut() = Some(frame);
     let listeners: Rc<RefCell<Option<Listeners>>> = use_hook(Rc::default);
     let timers: Rc<RefCell<SettleTimers>> = use_hook(Rc::default);
+    let tracker = use_hook(|| Rc::new(RefCell::new(SwipeTouchTracker::default())));
+    let listener_tracker = Rc::clone(&tracker);
+    let route_tracker = Rc::clone(&tracker);
     use_effect(move || {
         let Some(deck) = deck_element.read().clone() else {
             return;
@@ -69,44 +72,65 @@ pub fn use_deck_swipe(
         }
         let latest = Rc::clone(&latest);
         let timers = Rc::clone(&timers);
-        let mut tracker = SwipeTouchTracker::default();
+        let tracker = Rc::clone(&listener_tracker);
         let mut fab_armed = false;
         *listeners.borrow_mut() = Listeners::deck_touches(&deck, move |touch| {
             let Some(frame) = latest.borrow().clone() else {
                 return false;
             };
-            let step = step_touch(&mut tracker, touch, frame.compact, frame.tabs_sheet_open);
+            let step = step_touch(
+                &mut tracker.borrow_mut(),
+                touch,
+                frame.compact,
+                frame.tabs_sheet_open || crate::motion::gesture_owner::overlay_owns_gesture(),
+            );
             frame.apply(swipe, step, &mut fab_armed, &timers);
             step.consumes()
         });
     });
     use_effect(use_reactive((&followed,), move |(followed,)| {
-        let Some(active) = followed else { return };
-        let outlived = swipe
-            .peek()
-            .as_ref()
-            .is_some_and(|current| route_outlives_swipe(current, &active));
+        route_tracker.borrow_mut().step(DeckTouch::Cancel, true);
+        let outlived = swipe.peek().as_ref().is_some_and(|current| {
+            followed
+                .as_deref()
+                .is_none_or(|active| route_outlives_swipe(current, active))
+        });
         if outlived {
-            tracing::debug!(target: "deck", followed = %active, "deck swipe dropped for the route");
+            tracing::debug!(target: "deck", ?followed, "deck swipe dropped for the route");
+            if swipe
+                .peek()
+                .as_ref()
+                .is_some_and(|current| current.mode == SwipeMode::Workspace)
+            {
+                deck_dom::drawer_settle_open(false);
+            }
             let mut clearing = swipe;
             clearing.set(None);
         }
     }));
     use_effect(use_reactive((&folder_key,), move |_| {
+        tracker.borrow_mut().step(DeckTouch::Cancel, true);
         if swipe.peek().is_some() {
+            if swipe
+                .peek()
+                .as_ref()
+                .is_some_and(|current| current.mode == SwipeMode::Workspace)
+            {
+                deck_dom::drawer_settle_open(false);
+            }
             let mut clearing = swipe;
             clearing.set(None);
         }
     }));
 }
 
-fn step_touch(
+pub(super) fn step_touch(
     tracker: &mut SwipeTouchTracker,
     touch: DeckTouch,
     compact: bool,
-    tabs_sheet_open: bool,
+    overlay_open: bool,
 ) -> TouchStep {
-    if tabs_sheet_open {
+    if overlay_open || !compact {
         tracker.step(DeckTouch::Cancel, compact)
     } else {
         tracker.step(touch, compact)
@@ -238,6 +262,13 @@ impl SwipeFrame {
         let waits_for_route = completion.waits_for_route();
         let landed = settling.clone();
         let completion_timer = Timeout::after(timer_ms(delay_ms), move || {
+            if swipe.peek().as_ref() != Some(&landed) {
+                return;
+            }
+            if crate::motion::gesture_owner::overlay_owns_gesture() {
+                drop_swipe_if_still(swipe, &landed);
+                return;
+            }
             match completion {
                 SwipeCompletion::SelectNeighbor(session_id) => operations.select(session_id),
                 SwipeCompletion::NewTerminal => {
@@ -278,108 +309,4 @@ fn drop_swipe_if_still(swipe: Signal<Option<Swipe>>, settle: &Swipe) -> bool {
 
 fn timer_ms(delay_ms: u64) -> u32 {
     u32::try_from(delay_ms).unwrap_or(u32::MAX)
-}
-#[cfg(test)]
-mod tests {
-    use super::{DeckTouch, SwipeTouchTracker, TouchStep, step_touch};
-
-    #[test]
-    fn workspace_tabs_sheet_owns_horizontal_gestures() {
-        let mut tracker = SwipeTouchTracker::default();
-        assert_eq!(
-            step_touch(
-                &mut tracker,
-                DeckTouch::Start {
-                    x: 120.0,
-                    y: 100.0,
-                    touches: 1,
-                    at_ms: 0.0,
-                },
-                true,
-                false,
-            ),
-            TouchStep::Ignored
-        );
-        assert_eq!(
-            step_touch(
-                &mut tracker,
-                DeckTouch::Move {
-                    x: 160.0,
-                    y: 100.0,
-                    at_ms: 20.0,
-                },
-                true,
-                false,
-            ),
-            TouchStep::Armed { delta_x: 40.0 }
-        );
-        assert_eq!(
-            step_touch(
-                &mut tracker,
-                DeckTouch::Move {
-                    x: 180.0,
-                    y: 100.0,
-                    at_ms: 40.0,
-                },
-                true,
-                true,
-            ),
-            TouchStep::Cancelled
-        );
-        assert_eq!(
-            step_touch(
-                &mut tracker,
-                DeckTouch::Move {
-                    x: 200.0,
-                    y: 100.0,
-                    at_ms: 60.0,
-                },
-                true,
-                false,
-            ),
-            TouchStep::Ignored
-        );
-
-        let mut sheet_tracker = SwipeTouchTracker::default();
-        assert_eq!(
-            step_touch(
-                &mut sheet_tracker,
-                DeckTouch::Start {
-                    x: 120.0,
-                    y: 100.0,
-                    touches: 1,
-                    at_ms: 0.0,
-                },
-                true,
-                true,
-            ),
-            TouchStep::Ignored
-        );
-        assert_eq!(
-            step_touch(
-                &mut sheet_tracker,
-                DeckTouch::Move {
-                    x: 160.0,
-                    y: 100.0,
-                    at_ms: 20.0,
-                },
-                true,
-                true,
-            ),
-            TouchStep::Ignored
-        );
-        assert_eq!(
-            step_touch(
-                &mut sheet_tracker,
-                DeckTouch::Move {
-                    x: 200.0,
-                    y: 100.0,
-                    at_ms: 40.0,
-                },
-                true,
-                false,
-            ),
-            TouchStep::Ignored
-        );
-    }
 }

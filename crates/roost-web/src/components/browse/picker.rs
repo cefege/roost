@@ -1,9 +1,7 @@
-//! The folder picker's page: one machine's directory, its history, and the
-//! terminal launch flow, composed from the toolbar, path band, entry grid,
-//! launch bar and new-folder dialog. The state lives in the store's
-//! `BrowseState`, reached only through `BrowseIntent`; the keyboard cursor, the
-//! two menus' open flags, and the new-folder fields are the only state here.
-//! Ports `apps/web/src/components/browse/WorkerBrowsePage.tsx`.
+//! The folder picker composes places, a directory listing and terminal launch.
+//! BrowseState owns navigation; the picker owns selection and form state.
+//! The interaction is informed by Tanner Middleton's MIT-licensed Pi Pocket:
+//! <https://github.com/TannerMidd/pi-pocket/blob/5d009fa4d1e2b69db54f05e04f750a6f2e591bb1/web/sheets/folder.js>.
 
 mod control_set;
 mod controls;
@@ -54,6 +52,7 @@ pub fn BrowsePicker(worker_fp: String) -> Element {
     let server_menu_open = use_signal(|| false);
     let crumb_menu_open = use_signal(|| false);
     let new_folder = use_signal(NewFolderForm::default);
+    let show_hidden = use_signal(|| false);
 
     // Opened during render, not in an effect: an effect runs after the first
     // paint, which would paint and list the `~` placeholder before the real
@@ -65,7 +64,8 @@ pub fn BrowsePicker(worker_fp: String) -> Element {
     // around the core's revision counter; reading the ticket is what repaints
     // on them.
     let _ = ticket();
-    let reading = browse_reading(&pump, &worker_fp);
+    let reading = browse_reading(&pump, &worker_fp, show_hidden());
+    let mut path_input = use_signal(|| reading.view.resolved.clone());
 
     // The listing is asked for whenever the directory, the machine's presence or
     // the retry nonce moves — and NOT when the answer lands, which is what stops
@@ -80,41 +80,50 @@ pub fn BrowsePicker(worker_fp: String) -> Element {
         },
     ));
 
-    // Navigating drops the highlight: a selected row in a directory the reader
-    // has left is a drill into the wrong place.
-    use_effect(use_reactive((&reading.view.cwd,), move |_| {
-        if *cursor.peek() != -1 {
-            cursor.set(-1);
-        }
-    }));
-    dom::scroll_entry_into_view(cursor());
+    // A row index must never carry over to another listing.
+    let scope = (
+        worker_fp.clone(),
+        reading.view.cwd.clone(),
+        reading.view.filter.clone(),
+        reading.view.folders.clone(),
+    );
+    let mut last_scope = use_signal(|| scope.clone());
+    if *last_scope.peek() != scope {
+        last_scope.set(scope);
+        cursor.set(-1);
+    }
+    use_effect(move || dom::scroll_entry_into_view(cursor()));
+    let mut key_worker = use_signal(|| worker_fp.clone());
+    if *key_worker.peek() != worker_fp {
+        key_worker.set(worker_fp.clone());
+    }
 
     use_picker_keys(
         {
             let pump = pump.clone();
-            let worker_fp = worker_fp.clone();
-            let cursor = cursor;
-            let dialog_open = new_folder().open;
+            let dialog = new_folder;
             move || {
-                let reading = browse_reading(&pump, &worker_fp);
+                let reading = browse_reading(&pump, &key_worker.peek(), *show_hidden.peek());
                 PickerKeyContext {
                     default_prevented: false,
-                    dialog_open,
+                    dialog_open: dialog.peek().open,
                     inside_results: false,
                     scoped: reading.view.scoped,
                     compact,
-                    folder_count: reading.view.folders.len(),
-                    columns: dom::grid_columns(),
                     has_active: *cursor.peek() >= 0,
                 }
             }
         },
         {
             let pump = pump.clone();
-            let worker_fp = worker_fp.clone();
             move |action| {
-                let reading = browse_reading(&pump, &worker_fp);
-                run_key(action, &pump, &reading, cursor, ticket, &navigate);
+                if let PickerKey::EditPath(path) = action {
+                    path_input.set(path);
+                    dom::focus_by_id("browse-path-input");
+                } else {
+                    let reading = browse_reading(&pump, &key_worker.peek(), *show_hidden.peek());
+                    run_key(action, &pump, &reading, cursor, ticket, &navigate);
+                }
             }
         },
     );
@@ -123,9 +132,11 @@ pub fn BrowsePicker(worker_fp: String) -> Element {
         page::PickerPage {
             pump: pump.clone(),
             worker_fp: worker_fp.clone(),
-            reading: reading.clone(),
+            reading,
             compact,
             cursor,
+            show_hidden,
+            path_input,
             new_folder,
             ticket,
             retry,
@@ -156,7 +167,7 @@ pub fn BrowsePicker(worker_fp: String) -> Element {
 
 /// One read of everything the picker paints, in a single borrow of the core.
 #[must_use]
-pub fn browse_reading(pump: &Pump, worker_fp: &str) -> PickerReading {
+pub fn browse_reading(pump: &Pump, worker_fp: &str, show_hidden: bool) -> PickerReading {
     let core = pump.core();
     let core = core.borrow();
     let now_ms = i64::try_from(core.clock().now_ms()).unwrap_or(i64::MAX);
@@ -168,7 +179,7 @@ pub fn browse_reading(pump: &Pump, worker_fp: &str) -> PickerReading {
             || BROWSE_HOME.to_owned(),
             |machine| machine.cwd().to_owned(),
         );
-    read_picker(store, worker_fp, &start, now_ms)
+    read_picker(store, worker_fp, &start, now_ms, show_hidden)
 }
 
 /// Open `worker_fp`'s browser on its newest session directory unless it is
@@ -205,11 +216,20 @@ fn run_key(
     let mut ticket = ticket;
     let view = &reading.view;
     match action {
-        PickerKey::Ignore | PickerKey::Leave => {}
+        PickerKey::Ignore | PickerKey::EditPath(_) => {}
+        PickerKey::Leave => navigate.call("/".to_owned()),
         PickerKey::Move(delta) => {
             let next = moved_cursor(*cursor.peek(), delta, view.folders.len());
             cursor.set(next);
-            dom::scroll_entry_into_view(next);
+        }
+        PickerKey::Typeahead(prefix) => {
+            if let Some(index) = view
+                .folders
+                .iter()
+                .position(|entry| entry.name.to_lowercase().starts_with(&prefix))
+            {
+                cursor.set(index as i64);
+            }
         }
         PickerKey::Drill => {
             let Some(name) = view
@@ -221,7 +241,7 @@ fn run_key(
             };
             let Some(path) = crate::platform::worker_paths::palette::child_path(
                 view.worker_os.as_deref(),
-                &view.cwd,
+                &view.resolved,
                 &name,
             ) else {
                 return;
@@ -240,10 +260,24 @@ fn run_key(
         PickerKey::OpenHere => listing::launch_terminal(
             pump.clone(),
             view.worker_fp.clone(),
-            view.resolved.clone(),
+            selected_target(view, *cursor.peek()),
             *navigate,
         ),
     }
+}
+
+fn selected_target(view: &crate::components::browse::BrowseView, cursor: i64) -> String {
+    usize::try_from(cursor)
+        .ok()
+        .and_then(|index| view.folders.get(index))
+        .and_then(|entry| {
+            crate::platform::worker_paths::palette::child_path(
+                view.worker_os.as_deref(),
+                &view.resolved,
+                &entry.name,
+            )
+        })
+        .unwrap_or_else(|| view.resolved.clone())
 }
 
 /// Move one machine's browser and let the listing effect follow it.

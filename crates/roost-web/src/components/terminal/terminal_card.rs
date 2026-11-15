@@ -54,11 +54,11 @@ pub fn TerminalCard(
     let activate = {
         let id = id.clone();
         move || {
-            if selection_mode {
-                on_toggle_select.call(id.clone());
+            if swipe.write().take_swiped() {
                 return;
             }
-            if swipe.write().take_swiped() {
+            if selection_mode {
+                on_toggle_select.call(id.clone());
                 return;
             }
             on_select.call(id.clone());
@@ -97,25 +97,48 @@ pub fn TerminalCard(
             style,
             onclick: move |_| on_click(),
             ontouchstart: move |event: TouchEvent| {
-                if selection_mode {
+                let touches = event.touches();
+                if selection_mode || touch_on_control(&event) {
+                    swipe.write().cancel();
+                    swiping.set(false);
                     return;
                 }
-                let Some(touch) = event.touches().into_iter().next() else { return };
-                let point = touch.client_coordinates();
-                swipe.write().start(point.x, point.y, now_ms() as f64);
-                swiping.set(true);
-            },
-            ontouchmove: move |event: TouchEvent| {
-                let Some(touch) = event.touches().into_iter().next() else { return };
-                let point = touch.client_coordinates();
-                let moved = swipe.write().move_to(point.x, point.y, now_ms() as f64);
-                if moved.is_some() {
-                    event.prevent_default();
+                if let (Some(touch), Some(id)) = (touches.first(), touch_identifier(&event, false)) {
+                    let point = touch.client_coordinates();
+                    let started = swipe.write().start_touch(id, touches.len(), point.x, point.y, now_ms() as f64);
+                    swiping.set(started);
+                } else {
+                    swipe.write().cancel();
+                    swiping.set(false);
                 }
             },
-            ontouchend: move |_| {
+            ontouchmove: move |event: TouchEvent| {
+                let touches = event.touches();
+                if let (Some(touch), Some(id)) = (touches.first(), touch_identifier(&event, false)) {
+                    let point = touch.client_coordinates();
+                    let moved = swipe.write().move_touch(id, touches.len(), point.x, point.y, now_ms() as f64);
+                    if !swipe.read().tracking() {
+                        swiping.set(false);
+                    }
+                    if moved.is_some() {
+                        event.prevent_default();
+                    }
+                } else {
+                    swipe.write().cancel();
+                    swiping.set(false);
+                }
+            },
+            ontouchcancel: move |_| {
+                swipe.write().cancel();
                 swiping.set(false);
-                if swipe.write().end() {
+            },
+            ontouchend: move |event: TouchEvent| {
+                swiping.set(false);
+                let Some(id) = touch_identifier(&event, true) else {
+                    swipe.write().cancel();
+                    return;
+                };
+                if swipe.write().end_touch(id, event.touches().len()) {
                     let session = end_session.clone();
                     spawn(async move {
                         sleep_ms(DISMISS_SLIDE_MS).await;
@@ -148,6 +171,11 @@ pub fn TerminalCard(
                     class: Some("absolute top-0 right-0 size-12".to_owned()),
                     "data-testid": "terminal-card-close-{id}",
                     onclick: move |event: MouseEvent| {
+                        if swipe.write().take_swiped() {
+                            event.stop_propagation();
+                            event.prevent_default();
+                            return;
+                        }
                         event.stop_propagation();
                         event.prevent_default();
                         on_close.call(close_session.clone());
@@ -200,4 +228,43 @@ fn PreviewRow(row: CellRow) -> Element {
             }
         }
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn touch_identifier(event: &TouchEvent, changed: bool) -> Option<i32> {
+    let event = event.downcast::<web_sys::TouchEvent>()?;
+    let touches = if changed {
+        event.changed_touches()
+    } else {
+        event.touches()
+    };
+    (touches.length() == 1)
+        .then(|| touches.get(0).map(|touch| touch.identifier()))
+        .flatten()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn touch_identifier(_event: &TouchEvent, _changed: bool) -> Option<i32> {
+    None
+}
+
+#[cfg(target_arch = "wasm32")]
+fn touch_on_control(event: &TouchEvent) -> bool {
+    use wasm_bindgen::JsCast;
+    event
+        .downcast::<web_sys::TouchEvent>()
+        .and_then(|event| event.target())
+        .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
+        .and_then(|element| {
+            element
+                .closest("button, input, textarea, select, a, [role=menuitem]")
+                .ok()
+                .flatten()
+        })
+        .is_some()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn touch_on_control(_event: &TouchEvent) -> bool {
+    false
 }

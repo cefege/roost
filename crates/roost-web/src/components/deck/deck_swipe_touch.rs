@@ -145,3 +145,112 @@ impl SwipeTouchTracker {
         }
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::super::terminal_deck_swipe::step_touch;
+    use super::{DeckTouch, SwipeTouchTracker, TouchStep};
+
+    #[test]
+    fn overlays_own_horizontal_gestures() {
+        let mut tracker = SwipeTouchTracker::default();
+        assert_eq!(
+            step_touch(
+                &mut tracker,
+                DeckTouch::Start {
+                    x: 120.0,
+                    y: 100.0,
+                    touches: 1,
+                    at_ms: 0.0,
+                },
+                true,
+                false,
+            ),
+            TouchStep::Ignored
+        );
+        assert_eq!(
+            step_touch(
+                &mut tracker,
+                DeckTouch::Move {
+                    x: 160.0,
+                    y: 100.0,
+                    at_ms: 20.0,
+                },
+                true,
+                false,
+            ),
+            TouchStep::Armed { delta_x: 40.0 }
+        );
+        assert_eq!(
+            step_touch(
+                &mut tracker,
+                DeckTouch::Move {
+                    x: 180.0,
+                    y: 100.0,
+                    at_ms: 40.0,
+                },
+                true,
+                true,
+            ),
+            TouchStep::Cancelled
+        );
+        assert_eq!(
+            step_touch(
+                &mut tracker,
+                DeckTouch::Move {
+                    x: 200.0,
+                    y: 100.0,
+                    at_ms: 60.0,
+                },
+                true,
+                false,
+            ),
+            TouchStep::Ignored
+        );
+        assert_eq!(
+            step_touch(&mut tracker, DeckTouch::End { at_ms: 80.0 }, true, false),
+            TouchStep::Ignored
+        );
+
+        let mut sheet_tracker = SwipeTouchTracker::default();
+        assert_eq!(
+            step_touch(
+                &mut sheet_tracker,
+                DeckTouch::Start {
+                    x: 120.0,
+                    y: 100.0,
+                    touches: 1,
+                    at_ms: 0.0,
+                },
+                true,
+                true,
+            ),
+            TouchStep::Ignored
+        );
+        assert_eq!(
+            step_touch(
+                &mut sheet_tracker,
+                DeckTouch::Move {
+                    x: 160.0,
+                    y: 100.0,
+                    at_ms: 20.0,
+                },
+                true,
+                true,
+            ),
+            TouchStep::Ignored
+        );
+        assert_eq!(
+            step_touch(
+                &mut sheet_tracker,
+                DeckTouch::Move {
+                    x: 200.0,
+                    y: 100.0,
+                    at_ms: 40.0,
+                },
+                true,
+                false,
+            ),
+            TouchStep::Ignored
+        );
+    }
+}

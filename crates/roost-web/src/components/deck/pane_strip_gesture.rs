@@ -85,10 +85,23 @@ impl StripGesture {
     }
 
     /// A primary-button press on tab `id` at `index`, at client (`x`, `y`).
-    pub fn press(&self, id: String, index: usize, start: (f64, f64), outlets: StripDragOutlets) {
+    pub fn press(
+        &self,
+        id: String,
+        index: usize,
+        pointer_id: i32,
+        start: (f64, f64),
+        outlets: StripDragOutlets,
+    ) {
         self.cancel_settle();
         let gesture = *self;
         let mut drag = self.drag;
+        if drag.peek().is_some() {
+            drag.set(None);
+            if let Some(end) = outlets.on_drag_end {
+                end.call(());
+            }
+        }
         let rail = self.rail;
         let outlets = Rc::new(outlets);
         let on_move = {
@@ -138,7 +151,8 @@ impl StripGesture {
                 end.call(());
             }
         };
-        *listeners.borrow_mut() = Listeners::window_pointer_drag(on_move, on_up, on_cancel);
+        *listeners.borrow_mut() =
+            Listeners::window_pointer_drag(pointer_id, on_move, on_up, on_cancel);
     }
 
     fn release(&self, outlets: &StripDragOutlets, x: f64, y: f64) {
@@ -152,8 +166,8 @@ impl StripGesture {
         if let Some(end) = outlets.on_drag_end {
             end.call(());
         }
+        deck_dom::swallow_next_click();
         if tiled {
-            deck_dom::swallow_next_click();
             drag.set(None);
             return;
         }
@@ -161,7 +175,6 @@ impl StripGesture {
             drag.set(None);
             return;
         }
-        deck_dom::swallow_next_click();
         let ordered = current.reordered(&outlets.tab_ids);
         let on_reorder = outlets.on_reorder;
         tracing::debug!(target: "deck", from = current.from_idx, to = current.to_idx, "tab reordered");

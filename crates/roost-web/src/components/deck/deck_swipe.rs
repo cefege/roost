@@ -297,18 +297,9 @@ pub fn cancel_swipe(swipe: &Swipe, width: f64) -> Option<SwipeRelease> {
     Some(spring_back(swipe, width))
 }
 
-/// Whether the route has moved past a live swipe, so the deck drops it: a
-/// drag whose card is no longer the route's, or a slide that has landed, the
-/// route now showing the neighbour it settled onto.
+/// Whether the route has moved away from the swipe's original session.
 pub fn route_outlives_swipe(swipe: &Swipe, followed_session_id: &str) -> bool {
-    match swipe.phase {
-        SwipePhase::Track => swipe.current_id != followed_session_id,
-        SwipePhase::Settle => {
-            swipe.mode == SwipeMode::Slide
-                && swipe.settle_target == Some(SettleTarget::Commit)
-                && swipe.neighbor_id.as_deref() == Some(followed_session_id)
-        }
-    }
+    swipe.current_id != followed_session_id
 }
 
 fn spring_back(swipe: &Swipe, width: f64) -> SwipeRelease {

@@ -67,6 +67,8 @@ pub struct KeydownContext {
     pub target_is_text_field: bool,
     /// The target is editable (text field or contenteditable).
     pub target_editable: bool,
+    /// A focused control or local navigation surface owns bare arrows and Enter.
+    pub target_is_control: bool,
     /// A TV remote or pad drives the arrows.
     pub directional_input_active: bool,
     /// The sidebar cursor highlights a row.
@@ -171,6 +173,7 @@ pub fn keydown_action(key: &ShortcutKey, context: &KeydownContext) -> KeydownAct
         || context.help_open
         || context.controller_map_open
         || context.target_editable
+        || context.target_is_control
         || context.terminal_owns_keyboard
         || key.meta
         || key.ctrl
@@ -180,8 +183,7 @@ pub fn keydown_action(key: &ShortcutKey, context: &KeydownContext) -> KeydownAct
     if blocked {
         return A::Ignore;
     }
-    // ⏎ is a focused control's own activation until a row is highlighted; the
-    // arrows are the document's native scroll until rows exist at all.
+    // Unowned keys fall back to the sidebar cursor, never to an empty target.
     match key.key.as_str() {
         "Enter" if context.cursor_row_selected => A::ActivateCursor,
         "ArrowDown" if context.has_cursor_targets => A::MoveCursor(1),

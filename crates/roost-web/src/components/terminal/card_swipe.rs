@@ -32,9 +32,60 @@ pub struct CardSwipe {
     dx: f64,
     axis: Axis,
     swiped: bool,
+    touch_id: Option<i32>,
 }
 
 impl CardSwipe {
+    /// Begin only an exclusive touch; a second finger cancels the drag.
+    pub fn start_touch(&mut self, id: i32, count: usize, x: f64, y: f64, now_ms: f64) -> bool {
+        if count != 1 || self.touch_id.is_some() {
+            self.cancel();
+            return false;
+        }
+        self.start(x, y, now_ms);
+        self.touch_id = Some(id);
+        true
+    }
+
+    /// Follow only the finger that began the gesture.
+    pub fn move_touch(
+        &mut self,
+        id: i32,
+        count: usize,
+        x: f64,
+        y: f64,
+        now_ms: f64,
+    ) -> Option<f64> {
+        if count != 1 || self.touch_id != Some(id) {
+            self.cancel();
+            return None;
+        }
+        self.move_to(x, y, now_ms)
+    }
+
+    /// Release only the original finger, with no other fingers remaining.
+    pub fn end_touch(&mut self, id: i32, remaining: usize) -> bool {
+        if self.touch_id != Some(id) || remaining != 0 {
+            self.cancel();
+            return false;
+        }
+        self.touch_id = None;
+        self.end()
+    }
+
+    /// Cancellation can never dismiss a card.
+    pub fn cancel(&mut self) {
+        self.touch_id = None;
+        self.dx = 0.0;
+        self.velocity = 0.0;
+        self.axis = Axis::None;
+        self.swiped = false;
+    }
+    /// Whether the original finger still owns this gesture.
+    pub fn tracking(&self) -> bool {
+        self.touch_id.is_some()
+    }
+
     /// A finger went down.
     pub fn start(&mut self, x: f64, y: f64, now_ms: f64) {
         *self = Self {
@@ -77,15 +128,13 @@ impl CardSwipe {
         Some(dx)
     }
 
-    /// The finger lifted: true when the card is dismissed. A short drag that
-    /// did not dismiss does not swallow the next tap.
+    /// The finger lifted: true when the card is dismissed.
     pub fn end(&mut self) -> bool {
         let dismissed = should_dismiss_card(self.dx, self.velocity);
         if dismissed {
             self.swiped = true;
         } else {
             self.dx = 0.0;
-            self.swiped = false;
         }
         dismissed
     }

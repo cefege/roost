@@ -103,6 +103,16 @@ pub fn install_keyboard_shortcuts(
                 || target
                     .as_ref()
                     .is_some_and(HtmlElement::is_content_editable),
+            target_is_control: target.as_ref().is_some_and(|element| {
+                element
+                    .closest(concat!(
+                        "a,button,select,[tabindex],[role='menu'],[role='listbox'],",
+                        "[role='combobox'],[role='dialog'],[role='alertdialog']"
+                    ))
+                    .ok()
+                    .flatten()
+                    .is_some()
+            }),
             directional_input_active: modality.peek().directional_input_active(),
             cursor_row_selected,
             has_cursor_targets,

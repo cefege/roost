@@ -252,6 +252,31 @@ fn a_swipe_closes_only_past_the_threshold_and_a_vertical_drag_never_claims() {
 }
 
 #[test]
+fn row_touch_cancellation_and_finger_changes_never_close() {
+    let mut swipe = RowSwipe::default();
+    swipe.start_touch(7, 1, 300.0, 0.0);
+    assert!(swipe.track_touch(7, 1, 100.0, 0.0, 400.0));
+    swipe.cancel();
+    assert_eq!(swipe.offset_x(), 0.0);
+    assert!(!swipe.tracking());
+    assert_eq!(swipe.end_touch(7, 0, 400.0), SwipeRelease::SpringBack);
+    assert!(!swipe.take_swiped());
+
+    swipe.start_touch(7, 1, 300.0, 0.0);
+    swipe.track_touch(7, 1, 100.0, 0.0, 400.0);
+    swipe.start_touch(8, 2, 100.0, 0.0);
+    assert_eq!(swipe.end_touch(7, 0, 400.0), SwipeRelease::SpringBack);
+    assert_eq!(swipe.offset_x(), 0.0);
+    swipe.start_touch(9, 1, 300.0, 0.0);
+    assert!(!swipe.track_touch(10, 1, 100.0, 0.0, 400.0));
+    assert_eq!(swipe.end_touch(10, 0, 400.0), SwipeRelease::SpringBack);
+
+    swipe.start_touch(11, 1, 300.0, 0.0);
+    swipe.track_touch(11, 1, 100.0, 0.0, 400.0);
+    assert_eq!(swipe.end_touch(11, 0, 400.0), SwipeRelease::Close);
+}
+
+#[test]
 fn the_machine_menu_opens_upward_from_its_trigger() {
     let viewport = ClientBox {
         left: 0.0,

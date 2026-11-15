@@ -1,12 +1,6 @@
-//! The folder picker's content region: a dense responsive grid of folder and
-//! file entries plus every state that region can show — loading skeletons, a
-//! named listing failure, an offline machine, an empty folder, and a filter that
-//! matched nothing. The page owns the listing, the filter, the terminal-count
-//! subtitles and the keyboard cursor; this file paints them.
-//!
-//! Called by `browse::picker`. Ports
-//! `apps/web/src/components/browse/BrowseEntryList.tsx`; the row filter and the
-//! relative-time text are `store::browse_entries`'s.
+//! Folder-picker entries, loading and error states.
+//! Called by `browse::picker`; listing/filter state and selection stay with it.
+//! Store entry helpers provide timestamps; file rows retain viewing and downloads.
 
 use std::collections::BTreeMap;
 
@@ -23,7 +17,7 @@ use crate::components::ui::{
 use crate::platform::worker_paths::palette::child_path;
 use crate::terminal_href::child_file_href;
 
-/// The placeholder rows a loading directory paints, one per grid line.
+/// The placeholder rows painted while a directory listing loads.
 const SKELETON_ROWS: usize = 8;
 
 /// The content region.
@@ -56,13 +50,12 @@ pub fn BrowseEntryList(
     terminal_counts: BTreeMap<String, usize>,
     /// The reader-facing failure, when the last listing failed.
     error_message: Option<String>,
-    /// Content that scrolls WITH the entries, so the picker keeps no permanent
-    /// chrome above the grid.
-    header: Option<Element>,
+    on_select: EventHandler<i64>,
     on_drill: EventHandler<String>,
     on_clear_filter: EventHandler<()>,
     on_retry: EventHandler<()>,
 ) -> Element {
+    let mut pointer_type = use_signal(String::new);
     let nothing_to_show = folders.is_empty() && (!show_files || files.is_empty());
     let filtering = !filter.trim().is_empty();
     let mut rows: Vec<Element> = Vec::new();
@@ -76,25 +69,44 @@ pub fn BrowseEntryList(
             .filter(|count| *count > 0);
         let support = relative_entry_time(entry.mtime_ms, now_ms);
         rows.push(rsx! {
-            ListRow {
-                dense: true,
-                leading_icon: Some(IconType::Folder),
-                headline: rsx! { span { title: name.clone(), {name.clone()} } },
-                support: Some(rsx! { {support} }),
-                trailing: terminals.map(|count| rsx! {
-                    Chip {
-                        label: count.to_string(),
-                        icon: Some(IconType::Terminal),
-                        title: Some(format!("{count} terminal{}", if count == 1 { "" } else { "s" })),
-                        small: true,
-                    }
-                }),
-                selected: active_idx == index as i64,
-                test_id: Some("browse-row".to_owned()),
+            div {
+                "data-browse-folder": "",
+                onfocusin: move |_| on_select.call(index as i64),
+                onpointerdown: move |event: PointerEvent| pointer_type.set(event.pointer_type()),
                 onclick: {
                     let drill = name.clone();
-                    move |_| on_drill.call(drill.clone())
+                    move |event: MouseEvent| {
+                        if pointer_type.peek().as_str() != "touch" && is_double_click(&event) {
+                            on_drill.call(drill.clone());
+                        }
+                    }
                 },
+                ListRow {
+                    dense: true,
+                    leading_icon: Some(IconType::Folder),
+                    headline: rsx! { span { title: name.clone(), {name.clone()} } },
+                    support: Some(rsx! { {support} }),
+                    trailing: terminals.map(|count| rsx! {
+                        Chip {
+                            label: count.to_string(),
+                            icon: Some(IconType::Terminal),
+                            title: Some(format!("{count} terminal{}", if count == 1 { "" } else { "s" })),
+                            small: true,
+                        }
+                    }),
+                    selected: active_idx == index as i64,
+                    test_id: Some("browse-row".to_owned()),
+                    onclick: {
+                        let drill = name.clone();
+                        move |_| {
+                            if pointer_type.peek().as_str() == "touch" {
+                                on_drill.call(drill.clone());
+                            } else {
+                                on_select.call(index as i64);
+                            }
+                        }
+                    },
+                }
             }
         });
     }
@@ -132,14 +144,11 @@ pub fn BrowseEntryList(
             class: "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2 outline-none",
             id: RESULTS_ID,
             tabindex: "-1",
-            if let Some(header) = header {
-                {header}
-            }
             match status {
                 BrowseStatus::Loading => rsx! {
                     div { "data-testid": "browse-loading", role: "status", "aria-live": "polite", "aria-busy": "true",
                         div { "aria-hidden": "true",
-                            List { layout: ListLayout::Grid,
+                            List { layout: ListLayout::Stack,
                                 for _ in 0..SKELETON_ROWS {
                                     ListRow { dense: true, headline: rsx! { Skeleton { class: "h-4 w-full" } } }
                                 }
@@ -204,9 +213,21 @@ pub fn BrowseEntryList(
                     }
                 },
                 BrowseStatus::Ready => rsx! {
-                    List { layout: ListLayout::Grid, {rows.into_iter()} }
+                    List { layout: ListLayout::Stack, {rows.into_iter()} }
                 },
             }
         }
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn is_double_click(event: &MouseEvent) -> bool {
+    event
+        .downcast::<web_sys::MouseEvent>()
+        .is_some_and(|event| event.detail() == 2)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn is_double_click(_: &MouseEvent) -> bool {
+    false
 }

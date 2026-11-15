@@ -1,7 +1,7 @@
-//! The picker's window keydown listener and its scope-owned action callback.
-//! `browse::picker` installs it while mounted; teardown removes the listener.
-//! DOM facts feed the pure `keys::picker_key` decision, and the resulting action
-//! executes inside the picker's Dioxus runtime and scope.
+//! The picker's document-capture key listener and scope-owned action callback.
+//! `browse::picker` mounts it; teardown removes it. Local navigation runs before
+//! the window's directional-focus fallback. DOM facts feed `keys::picker_key`;
+//! actions execute inside the picker's Dioxus runtime and scope.
 
 use std::rc::Rc;
 
@@ -33,10 +33,11 @@ impl Drop for PickerKeysGuard {
         #[cfg(target_arch = "wasm32")]
         {
             use wasm_bindgen::JsCast as _;
-            if let Some(window) = web_sys::window() {
-                let _ = window.remove_event_listener_with_callback(
+            if let Some(document) = web_sys::window().and_then(|window| window.document()) {
+                let _ = document.remove_event_listener_with_callback_and_bool(
                     "keydown",
                     self.listener.as_ref().unchecked_ref(),
+                    true,
                 );
             }
         }
@@ -61,17 +62,79 @@ pub fn install_picker_keys(
                 on_key(action);
             }
         });
+        let typeahead = RefCell::new((String::new(), 0.0_f64));
         let listener = Closure::<dyn FnMut(web_sys::KeyboardEvent)>::new(
             move |event: web_sys::KeyboardEvent| {
                 let context = facts();
-                let action = picker_key(
-                    &event.key(),
-                    event.alt_key(),
-                    &PickerKeyContext {
-                        inside_results: dom::press_path_contains(dom::RESULTS_ID, &event),
-                        ..context
-                    },
-                );
+                if event.key().eq_ignore_ascii_case("l")
+                    && (event.ctrl_key() || event.meta_key())
+                    && !context.dialog_open
+                    && !event.default_prevented()
+                {
+                    event.prevent_default();
+                    dom::focus_by_id("browse-path-input");
+                    return;
+                }
+                let target = event
+                    .target()
+                    .and_then(|target| target.dyn_into::<web_sys::Element>().ok());
+                let independent_control = target.as_ref().is_some_and(|element| {
+                    element
+                        .closest("a, button, input, textarea, select, [contenteditable='true']")
+                        .ok()
+                        .flatten()
+                        .is_some()
+                        && element
+                            .closest("[data-browse-folder]")
+                            .ok()
+                            .flatten()
+                            .is_none()
+                });
+                if independent_control || event.is_composing() {
+                    return;
+                }
+                let context = PickerKeyContext {
+                    inside_results: dom::press_path_contains(dom::RESULTS_ID, &event),
+                    default_prevented: event.default_prevented(),
+                    ..context
+                };
+                let action = if event.key() == "Enter"
+                    && (event.ctrl_key() || event.meta_key())
+                    && context.scoped
+                    && context.inside_results
+                    && !context.dialog_open
+                    && !context.default_prevented
+                {
+                    PickerKey::OpenHere
+                } else if context.inside_results
+                    && context.scoped
+                    && !context.dialog_open
+                    && !context.default_prevented
+                    && !event.ctrl_key()
+                    && !event.meta_key()
+                    && (event.key() == "/" || event.key() == "~")
+                {
+                    PickerKey::EditPath(event.key())
+                } else if context.inside_results
+                    && context.scoped
+                    && !context.dialog_open
+                    && !context.default_prevented
+                    && !event.ctrl_key()
+                    && !event.meta_key()
+                    && !event.alt_key()
+                    && event.key().chars().count() == 1
+                    && event.key() != " "
+                {
+                    let mut typed = typeahead.borrow_mut();
+                    if event.time_stamp() - typed.1 > 1000.0 {
+                        typed.0.clear();
+                    }
+                    typed.0.push_str(&event.key().to_lowercase());
+                    typed.1 = event.time_stamp();
+                    PickerKey::Typeahead(typed.0.clone())
+                } else {
+                    picker_key(&event.key(), event.alt_key(), &context)
+                };
                 if matches!(action, PickerKey::Ignore) {
                     return;
                 }
@@ -79,12 +142,15 @@ pub fn install_picker_keys(
                 on_key.call(action);
             },
         );
-        if let Some(window) = web_sys::window() {
-            let _ = window
-                .add_event_listener_with_callback("keydown", listener.as_ref().unchecked_ref());
+        if let Some(document) = web_sys::window().and_then(|window| window.document()) {
+            let _ = document.add_event_listener_with_callback_and_bool(
+                "keydown",
+                listener.as_ref().unchecked_ref(),
+                true,
+            );
         }
         tracing::debug!(target: "browse", "picker keys installed");
-        return Rc::new(PickerKeysGuard { listener });
+        Rc::new(PickerKeysGuard { listener })
     }
     #[cfg(not(target_arch = "wasm32"))]
     {

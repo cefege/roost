@@ -1,7 +1,7 @@
 //! How a phone swipe ends: a release short of the commit line springs back at
 //! any release speed, a cancelled drag never commits, every settle has a
-//! bounded drop deadline, and a landed slide is dropped once its route
-//! follows. Pins `release_swipe`, `cancel_swipe`, `route_outlives_swipe` and
+//! bounded drop deadline, and a swipe is dropped when its route moves away.
+//! Pins `release_swipe`, `cancel_swipe`, `route_outlives_swipe` and
 //! `SwipeRelease::drop_deadline_ms`.
 
 use roost_web::components::deck::deck_swipe::{
@@ -109,8 +109,11 @@ fn the_route_outlives_a_landed_slide_or_a_drag_it_moved_away_from() {
         "the route shows the neighbour"
     );
     let springing = cancel_swipe(&drag, WIDTH).expect("tracking").settling;
-    assert!(
-        !route_outlives_swipe(&springing, "b"),
-        "a spring-back ends on its own timer"
-    );
+    assert!(route_outlives_swipe(&springing, "b"));
+    assert!(route_outlives_swipe(&landing, "elsewhere"));
+    let bloom = release_swipe(&dragged("b", -300.0), -300.0, 0.0, WIDTH)
+        .expect("tracking")
+        .settling;
+    assert!(!route_outlives_swipe(&bloom, "b"));
+    assert!(route_outlives_swipe(&bloom, "a"));
 }

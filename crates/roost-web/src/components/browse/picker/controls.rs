@@ -11,7 +11,7 @@ use roost_client_core::store::browse_state::intent::BrowseIntent;
 use crate::components::browse::dom;
 use crate::components::browse::listing;
 use crate::components::browse::picker::control_set::PickerControls;
-use crate::components::browse::picker::parts::{commit_new_folder, history_move, recents_header};
+use crate::components::browse::picker::parts::{commit_new_folder, history_move};
 use crate::components::browse::view::PickerReading;
 use crate::pump::Pump;
 use crate::routes::browse_href;
@@ -98,7 +98,7 @@ pub fn build_controls(
         let pump = pump.clone();
         let worker_fp = worker_fp.to_owned();
         let worker_os = view.worker_os.clone();
-        let base = view.cwd.clone();
+        let base = view.resolved.clone();
         let mut cursor = cursor;
         let mut ticket = ticket;
         move |name: String| {
@@ -158,16 +158,9 @@ pub fn build_controls(
     let on_open_here = EventHandler::new({
         let pump = pump.clone();
         let worker_fp = worker_fp.to_owned();
-        let folder = view.resolved.clone();
+        let folder = super::selected_target(view, cursor());
         move |()| {
             listing::launch_terminal(pump.clone(), worker_fp.clone(), folder.clone(), navigate);
-        }
-    });
-    let on_pick_recent = EventHandler::new({
-        let pump = pump.clone();
-        let worker_fp = worker_fp.to_owned();
-        move |folder: String| {
-            listing::launch_terminal(pump.clone(), worker_fp.clone(), folder, navigate)
         }
     });
     let on_retry = EventHandler::new({
@@ -271,7 +264,6 @@ pub fn build_controls(
         )
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| view.resolved.clone()),
-        header: recents_header(view, on_pick_recent),
         unavailable: !view.scoped && view.hydrated,
         on_close,
         on_toggle_filter,

@@ -39,6 +39,7 @@ fn context(deck_present: bool) -> KeydownContext {
         focus_on_body: deck_present,
         target_is_text_field: false,
         target_editable: false,
+        target_is_control: false,
         directional_input_active: false,
         cursor_row_selected: true,
         has_cursor_targets: true,
@@ -102,16 +103,20 @@ fn arrows_stay_native_scroll_when_no_cursor_rows_exist() {
 }
 
 #[test]
-fn enter_stays_a_focused_buttons_activation_until_a_row_is_highlighted() {
-    let unselected = KeydownContext {
-        cursor_row_selected: false,
-        has_cursor_targets: false,
-        ..context(false)
-    };
-    assert_eq!(
-        keydown_action(&key("Enter"), &unselected),
-        KeydownAction::Ignore
-    );
+fn focused_controls_keep_their_keys_even_when_sidebar_rows_exist() {
+    for cursor_row_selected in [false, true] {
+        let focused_control = KeydownContext {
+            target_is_control: true,
+            cursor_row_selected,
+            ..context(false)
+        };
+        for pressed in ["ArrowUp", "ArrowDown", "Enter"] {
+            assert_eq!(
+                keydown_action(&key(pressed), &focused_control),
+                KeydownAction::Ignore
+            );
+        }
+    }
 }
 
 #[test]

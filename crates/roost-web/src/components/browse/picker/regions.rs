@@ -17,7 +17,7 @@ use crate::components::browse::picker::control_set::PickerControls;
 use crate::components::browse::toolbar::BrowseToolbar;
 use crate::components::browse::unavailable::MachineUnavailable;
 use crate::components::browse::view::PickerReading;
-use crate::components::ui::{Button, ButtonVariant, IconType};
+use crate::components::ui::{Button, ButtonVariant, IconType, TextField};
 use crate::pump::Pump;
 
 /// The page's content for the machine in `worker_fp`.
@@ -28,6 +28,8 @@ pub fn PickerRegions(
     reading: PickerReading,
     compact: bool,
     cursor: Signal<i64>,
+    mut show_hidden: Signal<bool>,
+    mut path_input: Signal<String>,
     new_folder: Signal<NewFolderForm>,
     server_menu_open: Signal<bool>,
     crumb_menu_open: Signal<bool>,
@@ -36,7 +38,6 @@ pub fn PickerRegions(
     let view = reading.view;
     let c = controls;
     let on_close = c.on_close;
-    let header = c.header.clone();
     let folder_name = c.folder_name.clone();
     let crumb_views = c.crumb_views.clone();
     let unavailable = c.unavailable;
@@ -63,6 +64,26 @@ pub fn PickerRegions(
     let on_close_new_folder = c.on_close_new_folder;
     let on_create_folder = c.on_create_folder;
     let online_workers = reading.online_workers;
+    let active_idx = cursor();
+    let target = super::selected_target(&view, active_idx);
+    use_effect(use_reactive((&view.resolved,), move |(path,)| {
+        path_input.set(path)
+    }));
+    let root = view
+        .crumbs
+        .first()
+        .map(|crumb| crumb.path.clone())
+        .unwrap_or_else(|| view.resolved.clone());
+    let places = reading.places;
+    let mut recents = view.recents;
+    recents.retain(|path| !places.iter().any(|(_, saved)| saved == path));
+    let recents = recents.into_iter().map(|path| {
+        let label =
+            crate::platform::worker_paths::worker_path_basename(view.worker_os.as_deref(), &path)
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| path.clone());
+        (label, path)
+    });
     rsx! {
         div {
             class: "flex h-full min-h-0 flex-col overflow-hidden",
@@ -107,6 +128,33 @@ pub fn PickerRegions(
                 on_toggle_menu: on_toggle_crumb_menu,
                 on_close_menu: on_close_crumb_menu,
             }
+            div { class: "px-2 pb-1",
+                TextField {
+                    id: Some("browse-path-input".to_owned()),
+                    value: path_input(),
+                    aria_label: Some("Folder path".to_owned()),
+                    test_id: Some("browse-path-input".to_owned()),
+                    on_input: move |value: String| path_input.set(value),
+                    onkeydown: move |event: KeyboardEvent| {
+                        if event.key() == Key::Named(NamedKey::Enter) {
+                            event.prevent_default();
+                            let path = path_input.peek().trim().to_owned();
+                            if !path.is_empty() { on_navigate.call(path); }
+                        }
+                    },
+                }
+            }
+            div { class: "flex min-h-0 flex-1 flex-col md:flex-row",
+                div { class: "flex shrink-0 gap-1 overflow-auto border-b border-border p-2 md:w-48 md:flex-col md:border-r md:border-b-0", "data-testid": "browse-places",
+                    Button { variant: ButtonVariant::Ghost, onclick: move |_| on_home.call(()), "Home" }
+                    Button { variant: ButtonVariant::Ghost, onclick: move |_| on_navigate.call(root.clone()), "Computer" }
+                    for (name, path) in places {
+                        Button { key: "{path}", variant: ButtonVariant::Ghost, title: path.clone(), onclick: move |_| on_navigate.call(path.clone()), "{name}" }
+                    }
+                    for (label, path) in recents {
+                        Button { key: "recent-{path}", variant: ButtonVariant::Ghost, title: path.clone(), onclick: move |_| on_navigate.call(path.clone()), "{label}" }
+                    }
+                }
             if unavailable {
                 MachineUnavailable {
                     on_go_home,
@@ -123,23 +171,33 @@ pub fn PickerRegions(
                     worker_os: view.worker_os.clone(),
                     cwd: view.resolved.clone(),
                     now_ms: reading.now_ms,
-                    active_idx: *cursor.peek(),
+                    active_idx,
                     terminal_counts: view.terminal_counts.clone(),
                     error_message: view.error_message.clone(),
-                    header,
+                    on_select: move |index| { let mut cursor = cursor; cursor.set(index); },
                     on_drill,
                     on_clear_filter: on_close_filter,
                     on_retry,
                 }
             }
+            }
             div { class: "flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-3",
+                span { class: "mr-auto min-w-0 truncate text-sm text-muted-foreground", "data-testid": "browse-target", title: target.clone(), "{target}" }
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    "data-testid": "browse-hidden-toggle",
+                    "aria-pressed": if show_hidden() { "true" } else { "false" },
+                    onclick: move |_| show_hidden.toggle(),
+                    if show_hidden() { "Hide hidden" } else { "Show hidden" }
+                }
+                Button { variant: ButtonVariant::Ghost, onclick: move |_| on_close.call(()), "Cancel" }
                 Button {
                     variant: ButtonVariant::Default,
                     icon: Some(IconType::Terminal),
                     "data-testid": "browse-open",
                     disabled: !view.scoped,
                     onclick: move |_| on_open_here.call(()),
-                    "Open terminal here"
+                    "Open terminal"
                 }
             }
             NewFolderDialog {

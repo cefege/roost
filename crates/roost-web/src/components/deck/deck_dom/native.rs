@@ -108,6 +108,7 @@ impl Listeners {
 
     /// No window.
     pub fn window_pointer_drag(
+        _pointer_id: i32,
         _on_move: impl FnMut(f64, f64) + 'static,
         _on_up: impl FnMut(f64, f64) + 'static,
         _on_cancel: impl FnMut() + 'static,

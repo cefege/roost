@@ -16,8 +16,6 @@ pub struct PickerControls {
     pub crumb_views: Vec<crate::platform::worker_paths::palette::CrumbView>,
     /// The title the toolbar shows.
     pub folder_name: String,
-    /// The recents strip the entry region scrolls above the grid.
-    pub header: Option<Element>,
     /// Whether the machine is absent from a hydrated registry.
     pub unavailable: bool,
     /// Leave the picker.

@@ -37,15 +37,53 @@ pub struct RowSwipe {
     offset_x: f64,
     swiped: bool,
     tracking: bool,
+    touch_id: Option<i32>,
 }
 
 impl RowSwipe {
+    /// Begin only an exclusive touch; a second finger cancels the drag.
+    pub fn start_touch(&mut self, id: i32, count: usize, x: f64, y: f64) {
+        if count != 1 || self.touch_id.is_some() {
+            self.cancel();
+            return;
+        }
+        self.start(x, y);
+        self.touch_id = Some(id);
+    }
+
+    /// Follow only the finger that began the gesture.
+    pub fn track_touch(&mut self, id: i32, count: usize, x: f64, y: f64, width: f64) -> bool {
+        if count != 1 || self.touch_id != Some(id) {
+            self.cancel();
+            return false;
+        }
+        self.track(x, y, width)
+    }
+
+    /// Release only the original finger, with no other fingers remaining.
+    pub fn end_touch(&mut self, id: i32, remaining: usize, width: f64) -> SwipeRelease {
+        if self.touch_id != Some(id) || remaining != 0 {
+            self.cancel();
+            return SwipeRelease::SpringBack;
+        }
+        self.touch_id = None;
+        self.release(width)
+    }
+
+    /// Cancellation can never commit a close.
+    pub fn cancel(&mut self) {
+        self.touch_id = None;
+        self.tracking = false;
+        self.swiped = false;
+        self.offset_x = 0.0;
+    }
+
     /// A finger landed.
     pub fn start(&mut self, x: f64, y: f64) {
         *self = Self {
             start_x: x,
             start_y: y,
-            offset_x: self.offset_x,
+            offset_x: 0.0,
             tracking: true,
             ..Self::default()
         };
@@ -54,6 +92,9 @@ impl RowSwipe {
     /// The finger moved. `true` when the row owns the gesture now, so the
     /// caller must prevent the page from scrolling.
     pub fn track(&mut self, x: f64, y: f64, viewport_width: f64) -> bool {
+        if !self.tracking {
+            return false;
+        }
         let dx = x - self.start_x;
         let dy = y - self.start_y;
         if self.axis == SwipeAxis::Undecided {
@@ -78,6 +119,9 @@ impl RowSwipe {
 
     /// The finger lifted.
     pub fn release(&mut self, viewport_width: f64) -> SwipeRelease {
+        if !self.tracking {
+            return SwipeRelease::SpringBack;
+        }
         self.tracking = false;
         if self.offset_x <= -SWIPE_CLOSE_THRESHOLD_PX {
             self.offset_x = -viewport_width.max(0.0);

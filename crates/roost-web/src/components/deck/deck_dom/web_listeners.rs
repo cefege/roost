@@ -59,16 +59,20 @@ impl Listeners {
 
     /// A tab drag's window listeners: move, release, cancel, in client px.
     pub fn window_pointer_drag(
+        pointer_id: i32,
         mut on_move: impl FnMut(f64, f64) + 'static,
         mut on_up: impl FnMut(f64, f64) + 'static,
-        mut on_cancel: impl FnMut() + 'static,
+        on_cancel: impl FnMut() + 'static,
     ) -> Option<Self> {
         let listeners = Self::on(web_sys::window()?.into());
-        let point = |event: &web_sys::Event| {
+        let point = move |event: &web_sys::Event| {
             event
                 .dyn_ref::<web_sys::PointerEvent>()
+                .filter(|pointer| pointer.pointer_id() == pointer_id)
                 .map(|pointer| (f64::from(pointer.client_x()), f64::from(pointer.client_y())))
         };
+        let on_cancel = Rc::new(RefCell::new(on_cancel));
+        let cancel_pointer = Rc::clone(&on_cancel);
         listeners.add(
             "pointermove",
             false,
@@ -93,7 +97,17 @@ impl Listeners {
             "pointercancel",
             false,
             true,
-            Closure::new(move |_| on_cancel()),
+            Closure::new(move |event: web_sys::Event| {
+                if point(&event).is_some() {
+                    cancel_pointer.borrow_mut()();
+                }
+            }),
+        );
+        listeners.add(
+            "blur",
+            false,
+            true,
+            Closure::new(move |_| on_cancel.borrow_mut()()),
         );
         Some(listeners)
     }
@@ -195,47 +209,44 @@ impl Listeners {
         deck: &web_sys::Node,
         on_touch: &TouchSink,
     ) -> Option<Self> {
+        let on_touch = Rc::clone(on_touch);
+        Self::follow_detached_touches(target, deck, move |event| match event.type_().as_str() {
+            "touchmove" => deliver_touch_move(&on_touch, &event),
+            "touchend" => {
+                on_touch.borrow_mut()(DeckTouch::End { at_ms: now_ms() });
+            }
+            "touchcancel" => {
+                on_touch.borrow_mut()(DeckTouch::Cancel);
+            }
+            _ => {}
+        })
+    }
+
+    /// Follow an origin detached from its capture owner. Keep this follower
+    /// until the next touchstart, never drop it from its own event callback.
+    pub fn follow_detached_touches(
+        target: web_sys::EventTarget,
+        owner: &web_sys::Node,
+        on_event: impl FnMut(web_sys::Event) + 'static,
+    ) -> Option<Self> {
         let target_node = target.dyn_ref::<web_sys::Node>()?.clone();
         let follower = Self::on(target);
-        let detached = {
-            let deck = deck.clone();
-            move || !deck.contains(Some(&target_node))
-        };
-        let moving = Rc::clone(on_touch);
-        let move_detached = detached.clone();
-        follower.add(
-            "touchmove",
-            false,
-            false,
-            Closure::new(move |event: web_sys::Event| {
-                if move_detached() {
-                    deliver_touch_move(&moving, &event);
-                }
-            }),
-        );
-        let ending = Rc::clone(on_touch);
-        let end_detached = detached.clone();
-        follower.add(
-            "touchend",
-            false,
-            true,
-            Closure::new(move |_| {
-                if end_detached() {
-                    ending.borrow_mut()(DeckTouch::End { at_ms: now_ms() });
-                }
-            }),
-        );
-        let cancelling = Rc::clone(on_touch);
-        follower.add(
-            "touchcancel",
-            false,
-            true,
-            Closure::new(move |_| {
-                if detached() {
-                    cancelling.borrow_mut()(DeckTouch::Cancel);
-                }
-            }),
-        );
+        let on_event = Rc::new(RefCell::new(on_event));
+        for name in ["touchmove", "touchend", "touchcancel"] {
+            let owner = owner.clone();
+            let target_node = target_node.clone();
+            let on_event = Rc::clone(&on_event);
+            follower.add(
+                name,
+                false,
+                name != "touchmove",
+                Closure::new(move |event: web_sys::Event| {
+                    if !owner.contains(Some(&target_node)) {
+                        on_event.borrow_mut()(event);
+                    }
+                }),
+            );
+        }
         Some(follower)
     }
 }
@@ -271,7 +282,14 @@ fn first_touch(event: &web_sys::TouchEvent) -> Option<(f64, f64)> {
 /// A touch move for the swipe; one it claims is consumed so the terminal
 /// does not also scroll it.
 fn deliver_touch_move(on_touch: &TouchSink, event: &web_sys::Event) {
-    let Some((x, y)) = event.dyn_ref::<web_sys::TouchEvent>().and_then(first_touch) else {
+    let Some(touch) = event.dyn_ref::<web_sys::TouchEvent>() else {
+        return;
+    };
+    if touch.touches().length() != 1 {
+        on_touch.borrow_mut()(DeckTouch::Cancel);
+        return;
+    }
+    let Some((x, y)) = first_touch(touch) else {
         return;
     };
     if on_touch.borrow_mut()(DeckTouch::Move {

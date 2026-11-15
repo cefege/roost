@@ -48,8 +48,8 @@ pub struct DrawerGesture {
 }
 
 impl DrawerGesture {
-    /// A touch began. `excluded_target` is a touch on the deck's tab bar or a
-    /// swipeable row, which keep their own horizontal gestures.
+    /// A new touch cancels any prior drag. Excluded controls and overlays own
+    /// their gestures even at the closed drawer's opening edge.
     pub fn touch_start(
         &mut self,
         touches: u32,
@@ -58,21 +58,17 @@ impl DrawerGesture {
         drawer_open: bool,
         excluded_target: bool,
         now_ms: f64,
-    ) {
-        self.mode = None;
-        self.candidate = false;
-        if touches != 1 {
-            return;
+    ) -> Option<(DrawerSettle, bool)> {
+        let cancelled = self.touch_cancel();
+        if touches != 1 || excluded_target {
+            return cancelled;
         }
         if drawer_open {
-            if excluded_target {
-                return;
-            }
             self.mode = Some(DrawerSettle::Close);
         } else if x <= EDGE_PX {
             self.mode = Some(DrawerSettle::Open);
         } else {
-            return;
+            return cancelled;
         }
         self.candidate = true;
         self.start_x = x;
@@ -80,7 +76,13 @@ impl DrawerGesture {
         self.latest_x = x;
         self.axis_locked = false;
         self.armed = false;
-        self.samples = vec![Sample { x, at_ms: now_ms }];
+        self.samples.push(Sample { x, at_ms: now_ms });
+        cancelled
+    }
+
+    /// Whether this contact still owns a possible horizontal drawer gesture.
+    pub fn is_tracking(&self) -> bool {
+        self.candidate
     }
 
     /// The finger moved; `width` is the viewport width.
@@ -104,7 +106,7 @@ impl DrawerGesture {
             DrawerSettle::Open => dx <= 0.0,
             DrawerSettle::Close => dx >= 0.0,
         };
-        if wrong_way {
+        if wrong_way && !self.armed {
             self.candidate = false;
             return DrawerMove::Ignore;
         }
@@ -121,8 +123,7 @@ impl DrawerGesture {
         DrawerMove::Drag { offset_px }
     }
 
-    /// The finger lifted (or the touch was cancelled): the settle to perform
-    /// and whether it commits, or `None` when no drag was armed.
+    /// The tracked finger lifted: settle by its final distance and velocity.
     pub fn touch_end(&mut self, width: f64, now_ms: f64) -> Option<(DrawerSettle, bool)> {
         let mode = self.mode.filter(|_| self.armed);
         let result = mode.map(|mode| {
@@ -137,15 +138,116 @@ impl DrawerGesture {
                 _ => 0.0,
             };
             let commit = match mode {
-                DrawerSettle::Open => should_open(dx, velocity, width),
-                DrawerSettle::Close => should_close(dx, velocity, width),
+                DrawerSettle::Open => dx > 0.0 && should_open(dx, velocity, width),
+                DrawerSettle::Close => dx < 0.0 && should_close(dx, velocity, width),
             };
             (mode, commit)
         });
+        self.reset();
+        result
+    }
+
+    /// Cancellation never commits, including interruptions by another finger.
+    pub fn touch_cancel(&mut self) -> Option<(DrawerSettle, bool)> {
+        let result = self.mode.filter(|_| self.armed).map(|mode| (mode, false));
+        self.reset();
+        result
+    }
+
+    fn reset(&mut self) {
         self.mode = None;
         self.armed = false;
         self.candidate = false;
+        self.axis_locked = false;
         self.samples.clear();
-        result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn opening() -> DrawerGesture {
+        let mut gesture = DrawerGesture::default();
+        assert_eq!(gesture.touch_start(1, 10.0, 80.0, false, false, 0.0), None);
+        assert_eq!(
+            gesture.touch_move(220.0, 80.0, 400.0, 20.0),
+            DrawerMove::Drag { offset_px: -190.0 },
+        );
+        gesture
+    }
+
+    #[test]
+    fn cancellation_rolls_back_instead_of_committing_a_long_swipe() {
+        let mut gesture = opening();
+        assert_eq!(gesture.touch_cancel(), Some((DrawerSettle::Open, false)));
+        assert_eq!(gesture.touch_end(400.0, 30.0), None);
+        assert_eq!(
+            gesture.touch_move(350.0, 80.0, 400.0, 40.0),
+            DrawerMove::Ignore
+        );
+    }
+
+    #[test]
+    fn a_second_finger_cancels_and_cannot_resume_the_original_swipe() {
+        let mut gesture = opening();
+        assert_eq!(
+            gesture.touch_start(2, 220.0, 80.0, false, false, 21.0),
+            Some((DrawerSettle::Open, false)),
+        );
+        assert_eq!(
+            gesture.touch_move(350.0, 80.0, 400.0, 40.0),
+            DrawerMove::Ignore
+        );
+        assert_eq!(gesture.touch_end(400.0, 50.0), None);
+    }
+
+    #[test]
+    fn reversing_an_armed_open_follows_the_finger_back_to_the_closed_edge() {
+        let mut gesture = opening();
+        assert_eq!(
+            gesture.touch_move(0.0, 80.0, 400.0, 40.0),
+            DrawerMove::Drag { offset_px: -400.0 },
+        );
+        assert_eq!(
+            gesture.touch_end(400.0, 50.0),
+            Some((DrawerSettle::Open, false))
+        );
+    }
+
+    #[test]
+    fn excluded_targets_own_the_closed_edge_and_open_drawer() {
+        for open in [false, true] {
+            let mut gesture = DrawerGesture::default();
+            assert_eq!(gesture.touch_start(1, 10.0, 80.0, open, true, 0.0), None);
+            assert_eq!(
+                gesture.touch_move(220.0, 80.0, 400.0, 20.0),
+                DrawerMove::Ignore
+            );
+            assert_eq!(gesture.touch_end(400.0, 30.0), None);
+        }
+    }
+
+    #[test]
+    fn a_new_touch_does_not_inherit_the_cancelled_flick_velocity() {
+        let mut gesture = opening();
+        assert_eq!(
+            gesture.touch_start(1, 10.0, 80.0, false, false, 21.0),
+            Some((DrawerSettle::Open, false)),
+        );
+        let _ = gesture.touch_move(30.0, 80.0, 400.0, 120.0);
+        assert_eq!(
+            gesture.touch_end(400.0, 500.0),
+            Some((DrawerSettle::Open, false))
+        );
+    }
+
+    #[test]
+    fn cancellation_keeps_an_open_drawer_open() {
+        let mut gesture = DrawerGesture::default();
+        let _ = gesture.touch_start(1, 300.0, 80.0, true, false, 0.0);
+        let _ = gesture.touch_move(40.0, 80.0, 400.0, 20.0);
+        assert_eq!(gesture.touch_cancel(), Some((DrawerSettle::Close, false)));
+        assert_eq!(gesture.touch_end(400.0, 30.0), None);
     }
 }

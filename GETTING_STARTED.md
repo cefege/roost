@@ -199,6 +199,17 @@ shell, editor, REPL, TUI or agent CLI in its own terminal interface. Roost
 does not bundle, configure or manage an agent; programs and their credentials
 remain under the worker user's control.
 
+The folder picker provides Home, Computer, saved folders and recent locations,
+with a path field for entering a directory directly (Cmd/Ctrl+L).
+
+- Mouse: click to select a folder; double-click to enter it.
+- Touch: tap a folder to enter it.
+- Keyboard: ↑/↓ selects, typing finds a folder, and Enter enters it. File
+  links, download buttons and other focused controls retain their own keys.
+- **Open terminal** opens the selected folder, or the current directory when
+  nothing is selected. Hidden folders, file previews, downloads and creating
+  a new folder are available from the picker.
+
 ## Coordinator front-door networking
 
 When the front door is a TCP proxy on another machine rather than an ingress

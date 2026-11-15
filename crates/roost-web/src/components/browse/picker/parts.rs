@@ -1,54 +1,15 @@
-//! The page's three side questions, kept beside it for the line cap: what the
-//! recents strip offers, what Back and Forward ask the store for, and what a
-//! Create press commits.
-//!
-//! Called by `browse::picker`. Depends on the store, the path codec and the
-//! coordinator; it holds no state of its own.
+//! Browser-history navigation and remote folder creation.
+//! Called by `browse::picker`; validates names before issuing a create request.
+//! The store owns navigation and the coordinator relays filesystem operations.
 
 use dioxus::prelude::*;
 use roost_client_core::store::browse_state::intent::BrowseIntent;
 use roost_client_core::store::folder_name_validation::validate_new_folder_name;
 
-use crate::components::browse::BrowseView;
 use crate::components::browse::listing;
 use crate::components::browse::picker::NewFolderForm;
-use crate::components::ui::{Chip, IconType, SectionTitle};
 use crate::platform::worker_paths::palette::child_path;
 use crate::pump::Pump;
-
-/// The recents strip, shown only while the browser still stands where it opened
-/// and this machine has somewhere it has been.
-#[must_use]
-pub fn recents_header(view: &BrowseView, on_pick: EventHandler<String>) -> Option<Element> {
-    if view.cwd != view.home || view.recents.is_empty() {
-        return None;
-    }
-    let worker_os = view.worker_os.clone();
-    let mut chips = Vec::with_capacity(view.recents.len());
-    for recent in &view.recents {
-        let folder = recent.clone();
-        let label =
-            crate::platform::worker_paths::worker_path_basename(worker_os.as_deref(), recent)
-                .filter(|name| !name.is_empty())
-                .unwrap_or_else(|| recent.clone());
-        let target = folder.clone();
-        chips.push(rsx! {
-            Chip {
-                label,
-                icon: Some(IconType::Folder),
-                title: Some(recent.clone()),
-                test_id: Some("browse-recent".to_owned()),
-                onclick: move |_| on_pick.call(target.clone()),
-            }
-        });
-    }
-    Some(rsx! {
-        div { class: "flex flex-wrap items-center gap-2 px-2 py-1",
-            SectionTitle { "Recent" }
-            {chips.into_iter()}
-        }
-    })
-}
 
 /// Back or Forward, whichever `back` names.
 #[must_use]

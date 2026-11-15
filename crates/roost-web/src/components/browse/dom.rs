@@ -1,13 +1,6 @@
-//! The picker's browser questions: focus an element by id, where a floating
-//! menu anchors, whether a key press happened inside a region, and how many
-//! columns the entry grid is painting. Called by `browse::picker` and
-//! `browse::picker::parts`; inert off the browser, because a native build paints
-//! nothing.
-//!
-//! The column count is read from the LIVE grid rather than from a width
-//! breakpoint because CSS owns it: `auto-fill` decides how many entries fit, and
-//! a second copy of that arithmetic here would be a second answer to "one row
-//! down".
+//! Browser focus, event-scope and scrolling adapters for the folder picker.
+//! Called by `browse::picker` and its controls; path and listing state live there.
+//! DOM operations are inert in native builds.
 
 /// The picker's own surface element id.
 pub const SURFACE_ID: &str = "browse-surface";
@@ -38,11 +31,6 @@ pub fn focus_by_id(id: &str) {
 pub fn focus_by_id(_id: &str) {}
 
 /// Whether the element a key press landed on is `id` or lives inside it.
-///
-/// Browser-only, and with no host twin on purpose: the picker installs this
-/// question from inside its `window` keydown listener, and a build with no
-/// window never gets the event that would answer it. The sibling functions
-/// above keep host twins because the page CALLS them while rendering.
 #[cfg(target_arch = "wasm32")]
 #[must_use]
 pub fn press_path_contains(id: &str, event: &web_sys::KeyboardEvent) -> bool {
@@ -68,29 +56,6 @@ pub fn press_path_contains(id: &str, event: &web_sys::KeyboardEvent) -> bool {
     }
 }
 
-/// How many columns the entry grid is painting, at least one.
-#[must_use]
-pub fn grid_columns() -> usize {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let selector = crate::components::ui::list::GRID_LAYOUT_SELECTOR;
-        let template = web_sys::window()
-            .and_then(|window| window.document())
-            .and_then(|document| document.query_selector(selector).ok())
-            .flatten()
-            .and_then(|grid| {
-                web_sys::window()
-                    .and_then(|window| window.get_computed_style(&grid).ok())
-                    .flatten()
-                    .and_then(|style| style.get_property_value("grid-template-columns").ok())
-            })
-            .unwrap_or_default();
-        return template.split_whitespace().count().max(1);
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    1
-}
-
 /// Scroll the entry at `index` into view, so the keyboard cursor stays visible.
 #[cfg(target_arch = "wasm32")]
 pub fn scroll_entry_into_view(index: i64) {
@@ -109,7 +74,10 @@ pub fn scroll_entry_into_view(index: i64) {
         return;
     };
     if let Some(row) = row.dyn_ref::<web_sys::Element>() {
-        row.scroll_into_view();
+        let options = web_sys::ScrollIntoViewOptions::new();
+        options.set_block(web_sys::ScrollLogicalPosition::Nearest);
+        options.set_inline(web_sys::ScrollLogicalPosition::Nearest);
+        row.scroll_into_view_with_scroll_into_view_options(&options);
     }
 }
 

@@ -155,25 +155,49 @@ pub fn SessionRow(
                 oncontextmenu: move |event: MouseEvent| {
                     event.prevent_default();
                     event.stop_propagation();
+                    swipe.write().cancel();
                     let at = event.client_coordinates();
                     menu_at.set(Some((at.x, at.y)));
                 },
                 ontouchstart: move |event: TouchEvent| {
-                    if let Some(point) = event.touches().first() {
+                    if crate::motion::gesture_owner::overlay_owns_gesture() {
+                        swipe.write().cancel();
+                        return;
+                    }
+                    let touches = event.touches();
+                    if let (Some(point), Some(id)) = (touches.first(), touch_identifier(&event, false)) {
                         let at = point.client_coordinates();
-                        swipe.write().start(at.x, at.y);
+                        swipe.write().start_touch(id, touches.len(), at.x, at.y);
+                    } else {
+                        swipe.write().cancel();
                     }
                 },
                 ontouchmove: move |event: TouchEvent| {
-                    if let Some(point) = event.touches().first() {
+                    if crate::motion::gesture_owner::overlay_owns_gesture() {
+                        swipe.write().cancel();
+                        return;
+                    }
+                    let touches = event.touches();
+                    if let (Some(point), Some(id)) = (touches.first(), touch_identifier(&event, false)) {
                         let at = point.client_coordinates();
-                        if swipe.write().track(at.x, at.y, viewport_width()) {
+                        if swipe.write().track_touch(id, touches.len(), at.x, at.y, viewport_width()) {
                             event.prevent_default();
                         }
+                    } else {
+                        swipe.write().cancel();
                     }
                 },
-                ontouchend: move |_| {
-                    if swipe.write().release(viewport_width()) == SwipeRelease::Close {
+                ontouchcancel: move |_| swipe.write().cancel(),
+                ontouchend: move |event: TouchEvent| {
+                    if crate::motion::gesture_owner::overlay_owns_gesture() {
+                        swipe.write().cancel();
+                        return;
+                    }
+                    let Some(id) = touch_identifier(&event, true) else {
+                        swipe.write().cancel();
+                        return;
+                    };
+                    if swipe.write().end_touch(id, event.touches().len(), viewport_width()) == SwipeRelease::Close {
                         let close = close_on_swipe.clone();
                         spawn(async move {
                             #[cfg(target_arch = "wasm32")]
@@ -343,4 +367,22 @@ fn viewport_width() -> f64 {
 #[cfg(not(target_arch = "wasm32"))]
 fn viewport_width() -> f64 {
     0.0
+}
+
+#[cfg(target_arch = "wasm32")]
+fn touch_identifier(event: &TouchEvent, changed: bool) -> Option<i32> {
+    let event = event.downcast::<web_sys::TouchEvent>()?;
+    let touches = if changed {
+        event.changed_touches()
+    } else {
+        event.touches()
+    };
+    (touches.length() == 1)
+        .then(|| touches.get(0).map(|touch| touch.identifier()))
+        .flatten()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn touch_identifier(_event: &TouchEvent, _changed: bool) -> Option<i32> {
+    None
 }

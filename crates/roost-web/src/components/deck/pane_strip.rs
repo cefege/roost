@@ -154,9 +154,13 @@ pub fn PaneStrip(
                                         if event.trigger_button() != Some(dioxus::html::input_data::MouseButton::Primary) {
                                             return;
                                         }
+                                        let Some(native) = event.try_as_web_event() else { return };
+                                        if !native.is_primary() {
+                                            return;
+                                        }
                                         clear_hover();
                                         let point = event.client_coordinates();
-                                        gesture.press(session_id.clone(), index, (point.x, point.y), outlets.clone());
+                                        gesture.press(session_id.clone(), index, native.pointer_id(), (point.x, point.y), outlets.clone());
                                     }
                                 },
                                 on_hover_start: {

@@ -1,26 +1,20 @@
-//! The keyboard cursor for the folder picker's entry grid: left and right walk
-//! entries, up and down jump a whole row, Enter drills, Backspace goes to the
-//! parent, and Escape leaves on a phone. The page owns every value this reads
-//! and mounts the listener; this file owns only the key-to-intent mapping, as a
-//! pure decision a test can reach without a document.
-//!
-//! Called by `browse::picker`. Ports
-//! `apps/web/src/components/browse/browsePickerKeys.ts`.
+//! Folder-list keyboard decisions: movement, drill, parent and terminal launch.
+//! Called by the picker's scoped DOM listener; the picker owns cursor state.
+//! Pure decisions remain testable without a browser.
 
-// `PickerKey`'s only constructor is `picker_key`, and the only caller of THAT
-// is the picker's `window` keydown listener — a document a host build does not
-// have. The page still matches every arm (`picker::run_key`) and the mapping is
-// still fully exercised by the unit tests below, so the variants are
-// unreachable on this target without being dead.
+// Native builds do not mount the listener that constructs these variants.
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-
 /// What a key press in the picker asks for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PickerKey {
     /// Not the picker's.
     Ignore,
     /// Move the cursor by this many entries.
     Move(i64),
+    /// Select the first folder matching a typed prefix.
+    Typeahead(String),
+    /// Edit an absolute or home-relative path.
+    EditPath(String),
     /// Descend into the entry under the cursor.
     Drill,
     /// Go to the parent directory.
@@ -44,10 +38,6 @@ pub struct PickerKeyContext {
     pub scoped: bool,
     /// The surface is a phone, where Escape leaves rather than doing nothing.
     pub compact: bool,
-    /// How many folders the region is showing.
-    pub folder_count: usize,
-    /// How many columns the live grid is painting.
-    pub columns: usize,
     /// Whether the cursor has an entry under it.
     pub has_active: bool,
 }
@@ -70,13 +60,15 @@ pub fn picker_key(key: &str, alt: bool, context: &PickerKeyContext) -> PickerKey
     if !context.scoped || !context.inside_results {
         return K::Ignore;
     }
-    let row = context.columns.max(1) as i64;
     match key {
         "ArrowRight" => K::Move(1),
         "ArrowLeft" if alt => K::Parent,
         "ArrowLeft" => K::Move(-1),
-        "ArrowDown" => K::Move(row),
-        "ArrowUp" => K::Move(-row),
+        "ArrowDown" => K::Move(1),
+        "ArrowUp" if alt => K::Parent,
+        "ArrowUp" => K::Move(-1),
+        "Home" => K::Move(-i64::MAX),
+        "End" => K::Move(i64::MAX),
         "Backspace" => K::Parent,
         "Enter" if context.has_active => K::Drill,
         "Enter" => K::OpenHere,
@@ -97,9 +89,9 @@ pub fn moved_cursor(current: i64, delta: i64, count: usize) -> i64 {
     }
     let last = count as i64 - 1;
     if current < 0 {
-        return 0;
+        return if delta == i64::MAX { last } else { 0 };
     }
-    (current + delta).clamp(0, last)
+    current.saturating_add(delta).clamp(0, last)
 }
 
 #[cfg(test)]
@@ -115,30 +107,16 @@ mod tests {
             inside_results: true,
             scoped: true,
             compact: false,
-            folder_count: 6,
-            columns: 3,
             has_active: true,
         }
     }
 
     #[test]
-    fn arrows_move_by_one_and_by_a_whole_row() {
+    fn arrows_move_by_one_folder() {
         assert_eq!(picker_key("ArrowRight", false, &browsing()), K::Move(1));
         assert_eq!(picker_key("ArrowLeft", false, &browsing()), K::Move(-1));
-        assert_eq!(picker_key("ArrowDown", false, &browsing()), K::Move(3));
-        assert_eq!(picker_key("ArrowUp", false, &browsing()), K::Move(-3));
-    }
-
-    #[test]
-    fn a_grid_painting_no_column_still_moves_by_one_row() {
-        // `columns` is read off the live element; a grid measured before its
-        // first layout pass reports nothing, and a row step of zero would
-        // make the down arrow a no-op.
-        let context = PickerKeyContext {
-            columns: 0,
-            ..browsing()
-        };
-        assert_eq!(picker_key("ArrowDown", false, &context), K::Move(1));
+        assert_eq!(picker_key("ArrowDown", false, &browsing()), K::Move(1));
+        assert_eq!(picker_key("ArrowUp", false, &browsing()), K::Move(-1));
     }
 
     #[test]
@@ -155,6 +133,15 @@ mod tests {
             ..browsing()
         };
         assert_eq!(picker_key("Enter", false, &resting), K::OpenHere);
+    }
+
+    #[test]
+    fn list_boundaries_and_alt_up_are_available() {
+        assert_eq!(picker_key("Home", false, &browsing()), K::Move(-i64::MAX));
+        assert_eq!(picker_key("End", false, &browsing()), K::Move(i64::MAX));
+        assert_eq!(picker_key("ArrowUp", true, &browsing()), K::Parent);
+        assert_eq!(moved_cursor(-1, i64::MAX, 4), 3);
+        assert_eq!(moved_cursor(2, i64::MAX, 4), 3);
     }
 
     #[test]

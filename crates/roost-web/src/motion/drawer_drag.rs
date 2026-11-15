@@ -37,17 +37,23 @@ pub fn settle_style(gesture: DrawerSettle, commit: bool) -> (&'static str, &'sta
     }
 }
 
-/// How long after a settle the inline transform is cleared even without a
-/// `transitionend` (a zero-distance settle fires none).
+/// Settle deadline, including transitions that travel zero distance and fire no
+/// `transitionend`. Every completion is fenced to the motion that scheduled it.
 pub const HANDOFF_FALLBACK_MS: i32 = 350;
 
 #[cfg(target_arch = "wasm32")]
 mod dom {
     use wasm_bindgen::JsCast as _;
-    use wasm_bindgen::closure::Closure;
+    use wasm_bindgen::{JsValue, closure::Closure};
     use web_sys::HtmlElement;
 
     use super::{DRAWER_TEST_ID, DrawerSettle, HANDOFF_FALLBACK_MS, settle_style};
+
+    const HANDOFF_OWNER: &str = "__roostDrawerHandoff";
+
+    fn set_owner(element: &HtmlElement, owner: &JsValue) {
+        let _ = js_sys::Reflect::set(element, &JsValue::from_str(HANDOFF_OWNER), owner);
+    }
 
     fn drawer() -> Option<HtmlElement> {
         web_sys::window()?
@@ -62,6 +68,7 @@ mod dom {
     /// Follow the finger: `offset_px` is the drawer's `translateX`.
     pub fn drag_drawer(offset_px: f64) {
         let Some(element) = drawer() else { return };
+        set_owner(&element, &JsValue::UNDEFINED);
         let style = element.style();
         let _ = style.set_property("transition", "none");
         let _ = style.set_property("transform", &format!("translateX({offset_px}px)"));
@@ -70,43 +77,32 @@ mod dom {
     /// Animate the released drawer, then hand its transform back to CSS.
     pub fn settle_drawer(gesture: DrawerSettle, commit: bool) {
         let Some(element) = drawer() else { return };
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let owner = JsValue::from(js_sys::Object::new());
+        set_owner(&element, &owner);
         let (transition, transform) = settle_style(gesture, commit);
         let style = element.style();
         let _ = style.set_property("transition", transition);
         let _ = style.set_property("transform", transform);
-        let clear = {
-            let element = element.clone();
-            move || {
-                let style = element.style();
-                if style
-                    .get_property_value("transform")
-                    .unwrap_or_default()
-                    .is_empty()
-                {
-                    return;
-                }
-                let _ = style.set_property("transition", "none");
-                let _ = style.remove_property("transform");
-                // A reflow here makes the snap back to the CSS position instant.
-                let _ = element.offset_width();
-                let _ = style.remove_property("transition");
+        let completion = Closure::once_into_js(move || {
+            let current = js_sys::Reflect::get(&element, &JsValue::from_str(HANDOFF_OWNER));
+            if current.ok().as_ref() != Some(&owner) {
+                return;
             }
-        };
-        let on_end = Closure::once_into_js(clear.clone());
-        let options = web_sys::AddEventListenerOptions::new();
-        options.set_once(true);
-        let _ = element.add_event_listener_with_callback_and_add_event_listener_options(
-            "transitionend",
-            on_end.unchecked_ref(),
-            &options,
+            set_owner(&element, &JsValue::UNDEFINED);
+            let style = element.style();
+            let _ = style.set_property("transition", "none");
+            let _ = style.remove_property("transform");
+            // The drawer's CSS state must land before its transition returns.
+            let _ = element.offset_width();
+            let _ = style.remove_property("transition");
+        });
+        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+            completion.unchecked_ref(),
+            HANDOFF_FALLBACK_MS,
         );
-        if let Some(window) = web_sys::window() {
-            let fallback = Closure::once_into_js(clear);
-            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
-                fallback.unchecked_ref(),
-                HANDOFF_FALLBACK_MS,
-            );
-        }
     }
 }
 

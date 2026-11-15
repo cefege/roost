@@ -13,6 +13,7 @@ use roost_web::components::deck::deck_swipe_style::{
     peek_card, swipe_offsets_px, swipe_style_for,
 };
 use roost_web::components::deck::inline_style::InlineStyle;
+use roost_web::components::terminal::card_swipe::CardSwipe;
 
 use SwipeDirection::{Next, Previous};
 
@@ -139,6 +140,53 @@ fn a_card_dismisses_on_travel_or_a_same_way_flick() {
     assert_eq!(card_swipe_alpha(0.0), 1.0);
     assert!((card_swipe_alpha(144.0) - 0.2).abs() < 1e-10);
     assert_eq!(card_swipe_alpha(1000.0), 0.2);
+}
+
+#[test]
+fn card_touch_cancellation_and_finger_changes_never_dismiss() {
+    let mut swipe = CardSwipe::default();
+    assert!(swipe.start_touch(1, 1, 0.0, 0.0, 0.0));
+    assert!(swipe.move_touch(1, 1, 160.0, 0.0, 100.0).is_some());
+    swipe.cancel();
+    assert_eq!(swipe.dx(), 0.0);
+    assert!(!swipe.end_touch(1, 0));
+    assert!(!swipe.take_swiped());
+    assert!(swipe.start_touch(2, 1, 0.0, 0.0, 0.0));
+    swipe.move_touch(2, 1, 160.0, 0.0, 100.0);
+    assert!(!swipe.start_touch(3, 2, 0.0, 0.0, 110.0));
+    assert!(!swipe.end_touch(2, 0));
+    assert_eq!(swipe.dx(), 0.0);
+    assert!(swipe.start_touch(4, 1, 0.0, 0.0, 0.0));
+    assert!(swipe.move_touch(5, 1, 160.0, 0.0, 100.0).is_none());
+    assert!(!swipe.end_touch(5, 0));
+    assert!(swipe.start_touch(6, 1, 0.0, 0.0, 0.0));
+    swipe.move_touch(6, 1, 160.0, 0.0, 100.0);
+    assert!(swipe.end_touch(6, 0));
+}
+
+#[test]
+fn a_short_card_drag_suppresses_its_click_but_not_the_next_tap() {
+    let mut swipe = CardSwipe::default();
+    swipe.start_touch(1, 1, 0.0, 0.0, 0.0);
+    swipe.move_touch(1, 1, 40.0, 0.0, 1000.0);
+    assert!(!swipe.end_touch(1, 0));
+    assert!(swipe.take_swiped());
+    swipe.start_touch(2, 1, 0.0, 0.0, 1100.0);
+    assert!(!swipe.end_touch(2, 0));
+    assert!(!swipe.take_swiped());
+}
+
+#[test]
+fn card_vertical_scroll_stays_with_grid_and_a_tap_still_selects() {
+    let mut swipe = CardSwipe::default();
+    swipe.start_touch(1, 1, 0.0, 0.0, 0.0);
+    assert!(swipe.move_touch(1, 1, 5.0, 50.0, 20.0).is_none());
+    assert!(swipe.move_touch(1, 1, 180.0, 55.0, 40.0).is_none());
+    assert!(!swipe.end_touch(1, 0));
+    assert!(!swipe.take_swiped());
+    swipe.start_touch(2, 1, 0.0, 0.0, 50.0);
+    assert!(!swipe.end_touch(2, 0));
+    assert!(!swipe.take_swiped());
 }
 
 #[test]

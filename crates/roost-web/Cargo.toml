@@ -229,6 +229,7 @@ features = [
   "Touch",
   "TouchEvent",
   "TouchList",
+  "UiEvent",
   "Url",
   "UrlSearchParams",
   "VisibilityState",

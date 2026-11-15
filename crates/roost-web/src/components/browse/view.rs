@@ -1,25 +1,22 @@
-//! One render's read of the folder picker: the machine, its browser state, the
-//! listing the grid paints and the terminal counts beside each row. Every value
-//! the four bands paint is computed here so no band re-derives one.
-//!
-//! Called by `browse::picker`. Depends on the store, the path codec and the
-//! clock; it writes nothing.
+//! Reads the machine, directory listing, sidebar places and terminal counts.
+//! The picker consumes this store projection without mutating it.
 
 use std::collections::BTreeMap;
 
 use roost_client_core::Store;
-use roost_client_core::store::browse_entries::{
-    BrowseEntry, folder_names, visible_files, visible_folders,
-};
+use roost_client_core::store::browse_entries::folder_names;
 use roost_client_core::store::browse_machine::BrowseListing;
 use roost_client_core::store::folder_activity::compute_folder_activity;
 use roost_client_core::store::navigation::worker_online;
 use roost_client_core::store::selectors::all_sessions;
+use roost_client_core::store::sidebar::folder_groups::{build_folder_groups, order_folder_groups};
 use roost_protocol::wire::WorkerFp;
 
 use crate::components::browse::{BrowseStatus, BrowseView, short_worker_label, workers_hydrated};
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::platform::worker_paths::palette::{child_path, parent_path, path_crumbs};
+
+mod visibility;
 
 /// What the picker needs from the store, read in one borrow.
 #[derive(Debug, Clone, PartialEq)]
@@ -32,6 +29,8 @@ pub struct PickerReading {
     pub sibling_names: Vec<String>,
     /// The machines that are online, for the switcher.
     pub online_workers: Vec<roost_protocol::wire::Worker>,
+    /// Sidebar folders on this machine, in the sidebar's manual order.
+    pub places: Vec<(String, String)>,
 }
 
 /// Read the picker for `worker_fp`.
@@ -39,7 +38,13 @@ pub struct PickerReading {
 /// `start_dir` is the directory the browser opens on: a machine's browser keeps
 /// the directory the reader left it in, so this is only the FIRST answer.
 #[must_use]
-pub fn read_picker(store: &Store, worker_fp: &str, start_dir: &str, now_ms: i64) -> PickerReading {
+pub fn read_picker(
+    store: &Store,
+    worker_fp: &str,
+    start_dir: &str,
+    now_ms: i64,
+    show_hidden: bool,
+) -> PickerReading {
     let hydrated = workers_hydrated(store);
     let worker = store.workers.get(worker_fp);
     let worker_os = worker.map(|worker| worker.os.as_str().to_owned());
@@ -60,18 +65,12 @@ pub fn read_picker(store: &Store, worker_fp: &str, start_dir: &str, now_ms: i64)
     let recents = machine.map_or_else(Vec::new, |machine| {
         machine.recents(store.sessions.sessions())
     });
-    // A LISTING NAMES THE DIRECTORY IT ANSWERED FOR. A move changes the
-    // directory without disturbing the outstanding listing, so between the two
-    // the machine still holds the folder the reader has LEFT — and projecting
-    // its rows, its failure or its resolved path under the new breadcrumb
-    // paints a listing that belongs to a directory nobody is standing in.
-    // `BrowseState::apply_listing` fences the write half of that fact; this is
-    // the read half, and without it a listing that has not answered reads as
-    // an EMPTY FOLDER rather than as the pending region it is.
+    // An outstanding listing belongs to its requested directory, not the new cwd.
+    // The read fence complements BrowseState::apply_listing's write fence.
     let listing = machine.map(|machine| machine.listing());
     let for_this_directory = listing.filter(|_| answers_directory(listing, &cwd));
-    let entries: Vec<BrowseEntry> = for_this_directory
-        .map(|listing| listing.entries().to_vec())
+    let entries = for_this_directory
+        .map(BrowseListing::entries)
         .unwrap_or_default();
     let is_loading = for_this_directory.is_none_or(BrowseListing::is_loading);
     let resolved = for_this_directory
@@ -91,9 +90,8 @@ pub fn read_picker(store: &Store, worker_fp: &str, start_dir: &str, now_ms: i64)
     } else {
         BrowseStatus::Ready
     };
-    let folders = visible_folders(&entries, &filter);
-    let files = visible_files(&entries, &filter);
-    let sibling_names = folder_names(&entries);
+    let (folders, files) = visibility::visible_entries(entries, &filter, show_hidden);
+    let sibling_names = folder_names(entries);
     let child_paths: Vec<String> = folders
         .iter()
         .filter_map(|entry| child_path(worker_os.as_deref(), &resolved, &entry.name))
@@ -117,6 +115,13 @@ pub fn read_picker(store: &Store, worker_fp: &str, start_dir: &str, now_ms: i64)
         .filter(|worker| worker_online(worker, store.routable_worker_fps.as_ref(), now_ms))
         .collect();
     online_workers.sort_by(|left, right| left.label.cmp(&right.label));
+    let mut groups = build_folder_groups(store, &BrowserWorkerPaths, now_ms);
+    order_folder_groups(&mut groups, store.sidebar.memory.folder_order());
+    let places = groups
+        .into_iter()
+        .filter(|group| group.spawn_fp == worker_fp)
+        .map(|group| (group.name, group.spawn_cwd))
+        .collect();
     PickerReading {
         view: BrowseView {
             worker_fp: worker_fp.to_owned(),
@@ -145,6 +150,7 @@ pub fn read_picker(store: &Store, worker_fp: &str, start_dir: &str, now_ms: i64)
         now_ms,
         sibling_names,
         online_workers: online_workers.into_iter().cloned().collect(),
+        places,
     }
 }
 
@@ -256,7 +262,7 @@ mod tests {
             .apply_listing(&request, HOME.to_owned(), rows);
         assert!(stood, "the listing stands for the directory it answered");
 
-        let reading = read_picker(core.store(), MACHINE, HOME, NOW);
+        let reading = read_picker(core.store(), MACHINE, HOME, NOW, false);
         assert_eq!(reading.view.status, BrowseStatus::Ready);
         assert_eq!(
             reading.view.folders.len(),
@@ -276,7 +282,7 @@ mod tests {
         let mut core = core();
         let outstanding = ask(&mut core);
 
-        let reading = read_picker(core.store(), MACHINE, HOME, NOW);
+        let reading = read_picker(core.store(), MACHINE, HOME, NOW, false);
         assert_eq!(outstanding.path, HOME);
         assert_eq!(reading.view.status, BrowseStatus::Loading);
         assert!(reading.view.folders.is_empty());
@@ -294,7 +300,7 @@ mod tests {
             "never asked"
         );
 
-        let reading = read_picker(core.store(), MACHINE, HOME, NOW);
+        let reading = read_picker(core.store(), MACHINE, HOME, NOW, false);
         assert_eq!(reading.view.status, BrowseStatus::Loading);
     }
 
@@ -309,7 +315,7 @@ mod tests {
         let failed = store.browse.fail_listing(&request, named.to_owned());
         assert!(failed, "the failure belongs to the directory that failed");
 
-        let reading = read_picker(core.store(), MACHINE, HOME, NOW);
+        let reading = read_picker(core.store(), MACHINE, HOME, NOW, false);
         assert_eq!(reading.view.status, BrowseStatus::Error);
         assert_eq!(reading.view.error_message.as_deref(), Some(named));
         assert!(reading.view.folders.is_empty());
@@ -329,7 +335,7 @@ mod tests {
         assert!(stood, "the machine answered before it went away");
         core.store_mut().routable_worker_fps = Some(BTreeSet::new());
 
-        let reading = read_picker(core.store(), MACHINE, HOME, NOW);
+        let reading = read_picker(core.store(), MACHINE, HOME, NOW, false);
         assert_eq!(reading.view.status, BrowseStatus::Offline);
     }
 
@@ -347,7 +353,7 @@ mod tests {
         assert!(stood, "the listing stands for HOME");
         drill(&mut core);
 
-        let reading = read_picker(core.store(), MACHINE, HOME, NOW);
+        let reading = read_picker(core.store(), MACHINE, HOME, NOW, false);
         assert_eq!(reading.view.status, BrowseStatus::Loading);
         assert_eq!(reading.view.resolved, CHILD, "the child's own breadcrumb");
         assert!(
@@ -373,7 +379,7 @@ mod tests {
             "a reply for an abandoned directory must not publish"
         );
 
-        let reading = read_picker(core.store(), MACHINE, HOME, NOW);
+        let reading = read_picker(core.store(), MACHINE, HOME, NOW, false);
         assert_eq!(reading.view.status, BrowseStatus::Loading);
     }
 
@@ -384,7 +390,7 @@ mod tests {
         let mut core = core();
         core.store_mut().workers.clear();
 
-        let reading = read_picker(core.store(), MACHINE, HOME, NOW);
+        let reading = read_picker(core.store(), MACHINE, HOME, NOW, false);
         assert_eq!(reading.view.status, BrowseStatus::Loading);
         assert!(!reading.view.scoped, "the page reads this as unavailable");
     }
