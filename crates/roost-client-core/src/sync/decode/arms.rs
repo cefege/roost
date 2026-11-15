@@ -52,8 +52,6 @@ const SESSION_PRESENCE: FirehoseArm = application(8, "session_presence", SyncDom
 const AUDIT_ROW: FirehoseArm = application(10, "audit_row", SyncDomain::Audit);
 const SESSION_EVENT: FirehoseArm = application(11, "session_event", SyncDomain::Terminal);
 const WORKSPACE_DELTA: FirehoseArm = application(12, "workspace_delta", SyncDomain::Workspaces);
-const TASK_DELTA: FirehoseArm = application(13, "task_delta", SyncDomain::Tasks);
-const MCP_MSG: FirehoseArm = application(16, "mcp_msg", SyncDomain::Mcp);
 const WORKER_PRESENCE: FirehoseArm = application(17, "worker_presence", SyncDomain::Workers);
 const WORKER_ROUTABLE: FirehoseArm = application(19, "worker_routable", SyncDomain::Workers);
 const CELL_GRID: FirehoseArm = application(20, "cell_grid", SyncDomain::Terminal);
@@ -85,14 +83,12 @@ const WORKER_LIVE_METRICS: FirehoseArm = control(58, "worker_live_metrics");
 const CLIENT_STATE_CHANGED: FirehoseArm = control(61, "client_state_changed");
 /// Every arm, in field order. All of them are mapped: `decode::map_arm` has no
 /// wildcard, so an arm with no row here cannot have a mapping either.
-pub const FIREHOSE_ARMS: [FirehoseArm; 33] = [
+pub const FIREHOSE_ARMS: [FirehoseArm; 31] = [
     SESSIONS,
     SESSION_PRESENCE,
     AUDIT_ROW,
     SESSION_EVENT,
     WORKSPACE_DELTA,
-    TASK_DELTA,
-    MCP_MSG,
     WORKER_PRESENCE,
     WORKER_ROUTABLE,
     CELL_GRID,
@@ -129,8 +125,6 @@ pub const fn arm_of(frame: &Frame) -> FirehoseArm {
         Frame::AuditRow(_) => AUDIT_ROW,
         Frame::SessionEvent(_) => SESSION_EVENT,
         Frame::WorkspaceDelta(_) => WORKSPACE_DELTA,
-        Frame::TaskDelta(_) => TASK_DELTA,
-        Frame::McpMsg(_) => MCP_MSG,
         Frame::WorkerPresence(_) => WORKER_PRESENCE,
         Frame::WorkerRoutable(_) => WORKER_ROUTABLE,
         Frame::CellGrid(_) => CELL_GRID,

@@ -1,4 +1,4 @@
-//! The registry arms: audit rows, workspace/task/MCP deltas, worker presence,
+//! The registry arms: audit rows, workspace deltas, worker presence,
 //! the routable set, and pair requests, each converted into the shared wire
 //! shape the folds take.
 //!
@@ -14,24 +14,17 @@
 //! "unapplied" (`sync-flow.ts:52-55`), and `_consumeSyncFrame` throws into
 //! `_closeFailedSyncLink` (`sync-inbound.ts:74-83`). The code is what ships.
 
-use roost_proto::__buffa::oneof::mcp_stream_message_proto::Kind as McpKind;
 use roost_proto::__buffa::oneof::pair_request_delta_proto::Kind as PairKind;
-use roost_proto::__buffa::oneof::task_delta_proto::Kind as TaskKind;
 use roost_proto::__buffa::oneof::worker_presence_proto::Kind as PresenceKind;
 use roost_proto::__buffa::oneof::workspace_delta_proto::Kind as WorkspaceKind;
 use roost_proto::{
-    AuditRow, McpStreamMessageProto, PairRequestDeltaProto, TaskDeltaProto, WorkerPresenceProto,
-    WorkerRoutableFrame, WorkspaceDeltaProto,
+    AuditRow, PairRequestDeltaProto, WorkerPresenceProto, WorkerRoutableFrame, WorkspaceDeltaProto,
 };
 use roost_protocol::proto_adapters::terminal_core_capacity_report_from_proto;
-use roost_protocol::wire::{
-    McpRelayDelta, McpRelayEvent, McpRelayId, McpStreamMessage, SessionId, TaskDelta, WorkerFp,
-    WorkerPresenceEvent, WorkspaceDelta, WorkspaceId,
-};
+use roost_protocol::wire::{SessionId, WorkerFp, WorkerPresenceEvent, WorkspaceDelta, WorkspaceId};
 
 use crate::client::rpc::codec::wire_rows::{
-    host_metrics_from_proto, mcp_relay_from_proto, pair_request_from_proto, task_from_proto,
-    worker_from_proto, workspace_from_proto,
+    host_metrics_from_proto, pair_request_from_proto, worker_from_proto, workspace_from_proto,
 };
 use crate::store::sync_feeds::ROUTABLE_SEED_CHUNKS_MAX;
 use crate::sync::inbound::{
@@ -78,43 +71,6 @@ pub(super) fn workspace_delta(value: WorkspaceDeltaProto) -> Result<SyncFrame, S
         },
     };
     Ok(SyncFrame::WorkspaceDelta { delta })
-}
-
-/// A task created or moved to a new state.
-pub(super) fn task_delta(value: TaskDeltaProto) -> Result<SyncFrame, String> {
-    let delta = match value.kind.ok_or("task_delta carries no change")? {
-        TaskKind::Created(task) => TaskDelta::Created {
-            task: task_from_proto(&task).map_err(|error| error.to_string())?,
-        },
-        TaskKind::State(task) => TaskDelta::State {
-            task: task_from_proto(&task).map_err(|error| error.to_string())?,
-        },
-    };
-    Ok(SyncFrame::TaskDelta { delta })
-}
-
-/// A relay change, or a relay event whose payload must parse
-/// (`decodeWireJson` returning undefined makes the adapter return null).
-pub(super) fn mcp_message(value: McpStreamMessageProto) -> Result<SyncFrame, String> {
-    let message = match value.kind.ok_or("mcp_msg carries no change")? {
-        McpKind::Created(relay) => McpStreamMessage::Delta(McpRelayDelta::Created {
-            relay: mcp_relay_from_proto(&relay).map_err(|error| error.to_string())?,
-        }),
-        McpKind::Updated(relay) => McpStreamMessage::Delta(McpRelayDelta::Updated {
-            relay: mcp_relay_from_proto(&relay).map_err(|error| error.to_string())?,
-        }),
-        McpKind::DeletedId(id) => McpStreamMessage::Delta(McpRelayDelta::Deleted {
-            id: McpRelayId::try_from(id.as_str()).map_err(|error| error.to_string())?,
-        }),
-        McpKind::Event(event) => McpStreamMessage::Event(McpRelayEvent {
-            relay_id: McpRelayId::try_from(event.relay_id.as_str())
-                .map_err(|error| error.to_string())?,
-            payload: serde_json::from_str(&event.payload_json)
-                .map_err(|error| format!("mcp relay event payload is not JSON: {error}"))?,
-            ts: signed("mcp_msg.event.ts", event.ts)?,
-        }),
-    };
-    Ok(SyncFrame::McpMessage { message })
 }
 
 /// A worker registered, heartbeat, or was removed. An invalid capacity report

@@ -449,45 +449,9 @@ message WorkspacesSetSessionsRequest {
 }
 message WorkspacesSetSessionsResponse { Workspace workspace = 1; }
 
-// ─── tasks ────────────────────────────────────────────────────────────────
-
-message TasksListRequest { optional string state = 1; }
-message TasksListResponse { repeated Task tasks = 1; }
-
-message TasksEnqueueRequest {
-  string payload_json = 1;
-  optional string completion_check = 2;
-  optional uint64 claim_ttl_ms = 3;
-}
-message TasksEnqueueResponse { Task task = 1; }
-
-message TasksNextPendingRequest {}
-message TasksNextPendingResponse { optional Task task = 1; }
-
-message TasksSetStateRequest {
-  string id = 1;
-  string state = 2;
-  optional string result_json = 3;
-}
-message TasksSetStateResponse { Task task = 1; }
-
-message TasksCancelRequest { string id = 1; }
-message TasksCancelResponse { Task task = 1; }
-
-// ─── mcp ──────────────────────────────────────────────────────────────────
-
-message McpListRequest {}
-message McpListResponse { repeated McpRelay relays = 1; }
-
-message McpCreateRequest { string label = 1; string kind = 2; string config_json = 3; }
-message McpCreateResponse { McpRelay relay = 1; }
-
-message McpDeleteRequest { string id = 1; }
-message McpDeleteResponse { bool ok = 1; }
-
-message McpPublishRequest { string id = 1; string payload_json = 2; }
-message McpPublishResponse { bool ok = 1; }
-
+// Task-queue and MCP-relay messages were retired. Proto3 has no package-level
+// reserved declaration, so their message names cannot be reserved after the
+// message definitions are removed.
 
 message ClipboardEntry {
   string id = 1;
@@ -978,19 +942,6 @@ service CoordinatorService {
   rpc WorkspacesUpdate(WorkspacesUpdateRequest) returns (WorkspacesUpdateResponse);
   rpc WorkspacesDelete(WorkspacesDeleteRequest) returns (WorkspacesDeleteResponse);
   rpc WorkspacesSetSessions(WorkspacesSetSessionsRequest) returns (WorkspacesSetSessionsResponse);
-
-  // tasks
-  rpc TasksList(TasksListRequest) returns (TasksListResponse);
-  rpc TasksEnqueue(TasksEnqueueRequest) returns (TasksEnqueueResponse);
-  rpc TasksNextPending(TasksNextPendingRequest) returns (TasksNextPendingResponse);
-  rpc TasksSetState(TasksSetStateRequest) returns (TasksSetStateResponse);
-  rpc TasksCancel(TasksCancelRequest) returns (TasksCancelResponse);
-
-  // mcp
-  rpc McpList(McpListRequest) returns (McpListResponse);
-  rpc McpCreate(McpCreateRequest) returns (McpCreateResponse);
-  rpc McpDelete(McpDeleteRequest) returns (McpDeleteResponse);
-  rpc McpPublish(McpPublishRequest) returns (McpPublishResponse);
 
   // clipboard
   rpc ClipboardList(ClipboardListRequest) returns (ClipboardListResponse);

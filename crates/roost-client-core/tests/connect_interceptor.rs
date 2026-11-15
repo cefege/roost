@@ -40,7 +40,7 @@ impl ConnectDispatcher for Recorder {
 /// Every call the state machine can ask for. The set is closed and this
 /// fixture is deliberately exhaustive: a call added to `RpcCall` and not here is
 /// a call no test has ever put on the wire.
-fn calls() -> [RpcCall; 13] {
+fn calls() -> [RpcCall; 11] {
     [
         RpcCall::CoordIdentity { call_id: 1 },
         RpcCall::SessionsList {
@@ -79,11 +79,9 @@ fn calls() -> [RpcCall; 13] {
             search_id: "search-1".to_owned(),
         },
         RpcCall::WorkspacesList { call_id: 9 },
-        RpcCall::TasksList { call_id: 10 },
-        RpcCall::McpList { call_id: 11 },
-        RpcCall::PairList { call_id: 12 },
+        RpcCall::PairList { call_id: 10 },
         RpcCall::SessionsKill {
-            call_id: 13,
+            call_id: 11,
             session_id: "s-1".to_owned(),
             force: false,
         },
@@ -96,8 +94,6 @@ fn call_id_of(call: &RpcCall) -> u64 {
         | RpcCall::SessionsList { call_id, .. }
         | RpcCall::WorkersList { call_id }
         | RpcCall::WorkspacesList { call_id }
-        | RpcCall::TasksList { call_id }
-        | RpcCall::McpList { call_id }
         | RpcCall::PairList { call_id }
         | RpcCall::RedeemPairToken { call_id, .. }
         | RpcCall::FilesListDir { call_id, .. }

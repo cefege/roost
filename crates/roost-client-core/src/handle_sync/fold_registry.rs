@@ -1,20 +1,15 @@
-//! The registry folds: workspaces, tasks, MCP relays, worker presence and the
-//! routable worker set, each applied from an already-decoded wire value.
+//! The registry folds: workspaces, worker presence and the routable worker
+//! set, each applied from an already-decoded wire value.
 //!
-//! Called by `apply_frame` only, downstream of the admission gate. Ported from
-//! `apps/web/src/store/sync-handlers.ts` (`_handleWorkspacesDelta`,
-//! `_handleTasksDelta`, `_handleMcpEvent`, `_handlePresenceEvent`) and
-//! `apps/web/src/store/sync-inbound.ts:150-178` (`dispatchRoutableChunk`).
+//! Called by `apply_frame` only, downstream of the admission gate.
 
 use std::collections::BTreeSet;
 
-use roost_protocol::wire::{
-    McpRelayDelta, McpStreamMessage, TaskDelta, WorkerPresenceEvent, WorkspaceDelta,
-};
+use roost_protocol::wire::{WorkerPresenceEvent, WorkspaceDelta};
 
 use crate::effect::Effect;
 use crate::store::Store;
-use crate::store::mutations::{delete_mcp_relay, delete_worker, upsert_mcp_relay};
+use crate::store::mutations::delete_worker;
 use crate::store::sync_feeds::RoutableProgress;
 use crate::sync::inbound::RoutableChunk;
 
@@ -54,34 +49,6 @@ pub(super) fn fold_workspace_delta(store: &mut Store, delta: &WorkspaceDelta) {
         store.note_change();
     }
     tracing::debug!(target: "sync", changed, count = store.workspaces.len(), "workspace delta folded");
-}
-
-/// A task created or moved to a new state: either way the row replaces the
-/// held one.
-pub(super) fn fold_task_delta(store: &mut Store, delta: &TaskDelta) {
-    let (TaskDelta::Created { task } | TaskDelta::State { task }) = delta;
-    let id = task.id.as_str();
-    let changed = store.tasks.get(id) != Some(task);
-    if changed {
-        store.tasks.insert(id.to_owned(), task.clone());
-        store.note_change();
-    }
-    tracing::debug!(target: "sync", changed, task = id, state = task.state.as_str(), "task delta folded");
-}
-
-/// A relay created, updated or deleted. A relay EVENT is traffic for whoever
-/// is watching the relay, not registry state, and v2's handler ignores it.
-pub(super) fn fold_mcp_message(store: &mut Store, message: &McpStreamMessage) {
-    let changed = match message {
-        McpStreamMessage::Delta(
-            McpRelayDelta::Created { relay } | McpRelayDelta::Updated { relay },
-        ) => upsert_mcp_relay(store, relay.clone()),
-        McpStreamMessage::Delta(McpRelayDelta::Deleted { id }) => {
-            delete_mcp_relay(store, id.as_str())
-        }
-        McpStreamMessage::Event(_) => false,
-    };
-    tracing::debug!(target: "sync", changed, "mcp message folded");
 }
 
 /// A worker registered, heartbeat, or was removed.

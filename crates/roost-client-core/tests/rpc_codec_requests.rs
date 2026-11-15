@@ -11,7 +11,7 @@ use roost_proto::buffa::Message;
 use roost_proto::{
     AuthRedeemBrowserRequest, FilesListDirRequest, FilesMkdirRequest,
     SessionsCancelGlobalSearchRequest, SessionsKillRequest, SessionsListRequest,
-    SessionsSearchGlobalRequest, TasksListRequest,
+    SessionsSearchGlobalRequest,
 };
 
 fn body(call: &RpcCall) -> Vec<u8> {
@@ -49,8 +49,7 @@ fn the_list_and_identity_calls_send_an_empty_request() {
         RpcCall::CoordIdentity { call_id: 1 },
         RpcCall::WorkersList { call_id: 2 },
         RpcCall::WorkspacesList { call_id: 3 },
-        RpcCall::McpList { call_id: 4 },
-        RpcCall::PairList { call_id: 5 },
+        RpcCall::PairList { call_id: 4 },
     ] {
         assert!(
             body(&call).is_empty(),
@@ -58,10 +57,6 @@ fn the_list_and_identity_calls_send_an_empty_request() {
             connect_method(&call)
         );
     }
-    // The tasks snapshot is every task: no state filter.
-    let tasks =
-        TasksListRequest::decode_from_slice(&body(&RpcCall::TasksList { call_id: 6 })).unwrap();
-    assert_eq!(tasks.state, None);
 }
 
 #[test]
@@ -160,8 +155,6 @@ fn each_domain_hydrates_through_v2s_list_call() {
     assert_eq!(method(SyncDomain::Terminal), Some("SessionsList"));
     assert_eq!(method(SyncDomain::Workers), Some("WorkersList"));
     assert_eq!(method(SyncDomain::Workspaces), Some("WorkspacesList"));
-    assert_eq!(method(SyncDomain::Tasks), Some("TasksList"));
-    assert_eq!(method(SyncDomain::Mcp), Some("McpList"));
     assert_eq!(method(SyncDomain::Pair), Some("PairList"));
     assert_eq!(
         method(SyncDomain::Audit),

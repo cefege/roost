@@ -55,13 +55,6 @@ impl ItemKind {
 /// can perform one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PaletteAction {
-    /// Open the task dialog for a folder.
-    QueueFolderTask {
-        /// The machine the task runs on.
-        worker_fp: String,
-        /// The folder it runs in.
-        cwd: String,
-    },
     /// Spawn a terminal beside this one, in the same folder.
     SpawnSibling {
         /// The machine to spawn on.
@@ -119,13 +112,9 @@ impl PaletteItem {
 }
 
 /// The thing a contextual action acts on.
-///
-/// One type, because v2 declared the same three fields twice: a "session target"
-/// and a "folder target" are the same scalar triple, and the difference between
-/// them was which closure read it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaletteTarget {
-    /// The session, or the folder, this target names.
+    /// The session this target names.
     pub id: String,
     /// The machine it is on.
     pub worker_fp: String,
@@ -140,18 +129,15 @@ pub struct CommandPaletteContext {
     pub auth_generation: u64,
     /// The session the current route resolved to, if any.
     pub active_session: Option<PaletteTarget>,
-    /// The folder the current route resolved to, if any.
-    pub active_folder: Option<PaletteTarget>,
     /// Whether the active machine can be reached now. A sibling spawn against an
     /// unreachable machine fails, so the row is not offered.
     pub worker_routable: bool,
 }
 
 /// The catalog's closed set of core action ids.
-pub const CORE_ACTION_IDS: [&str; 5] = [
+pub const CORE_ACTION_IDS: [&str; 4] = [
     "core.search.all",
     "core.clipboard.history",
-    "core.task.queue-folder",
     "core.session.new-sibling",
     "core.session.copy-last-command-output",
 ];
@@ -238,18 +224,6 @@ pub fn core_action_items(context: &CommandPaletteContext) -> Vec<PaletteItem> {
             captured_auth_generation: None,
         },
     ];
-    if let Some(target) = context.active_folder.clone() {
-        items.push(targeted_action(
-            "core.task.queue-folder",
-            &target,
-            context.auth_generation,
-            "Queue task for this folder",
-            PaletteAction::QueueFolderTask {
-                worker_fp: target.worker_fp.clone(),
-                cwd: target.cwd.clone(),
-            },
-        ));
-    }
     if let Some(target) = context.active_session.clone() {
         items.push(targeted_action(
             "core.session.copy-last-command-output",

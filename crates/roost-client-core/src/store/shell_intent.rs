@@ -1,8 +1,5 @@
 //! The shell's user actions as one event the pump dispatches: the sidebar
-//! resizer's width, terminal zoom, and the rename / queue-task dialogs. The
-//! actions of `apps/web/src/components/layout/SidebarResizer.tsx`,
-//! `apps/web/src/lib/keyboardShortcuts.ts` (zoom), and
-//! `apps/web/src/store/{renameDialog,queueTaskDialog}.ts`. Handled by
+//! resizer's width, terminal zoom, and the rename dialog. Handled by
 //! `handle_event` for `ClientEvent::Shell`; dispatched by roost-web's layout,
 //! keyboard router and dialog hosts. The drawer and rail are
 //! `sidebar::SidebarIntent`'s.
@@ -100,17 +97,6 @@ pub enum ShellIntent {
     OpenRenameDialog(RenameDialogRequest),
     /// Close the rename dialog.
     CloseRenameDialog,
-    /// Open "Queue a task" with its prefill.
-    OpenQueueTaskDialog {
-        /// Folder to prefill.
-        cwd: Option<String>,
-        /// Body to prefill.
-        body: Option<String>,
-        /// Machine to pin.
-        worker_fp: Option<String>,
-    },
-    /// Close "Queue a task".
-    CloseQueueTaskDialog,
     /// A shell action the coordinator refused; raised as an error card.
     ActionFailed {
         /// What the card says.
@@ -166,8 +152,6 @@ impl ShellIntent {
             Self::SetTerminalLigatures { .. } => "set_terminal_ligatures",
             Self::OpenRenameDialog(_) => "open_rename_dialog",
             Self::CloseRenameDialog => "close_rename_dialog",
-            Self::OpenQueueTaskDialog { .. } => "open_queue_task_dialog",
-            Self::CloseQueueTaskDialog => "close_queue_task_dialog",
             Self::ActionFailed { .. } => "action_failed",
             Self::ActionSucceeded { .. } => "action_succeeded",
             Self::DismissPairRequest { .. } => "dismiss_pair_request",
@@ -220,14 +204,6 @@ pub fn apply_shell_intent(
             note(store, |dialogs| dialogs.open_rename(request.clone()))
         }
         ShellIntent::CloseRenameDialog => note(store, |dialogs| dialogs.close_rename()),
-        ShellIntent::OpenQueueTaskDialog {
-            cwd,
-            body,
-            worker_fp,
-        } => note(store, |dialogs| {
-            dialogs.open_queue_task(cwd.clone(), body.clone(), worker_fp.clone())
-        }),
-        ShellIntent::CloseQueueTaskDialog => note(store, |dialogs| dialogs.close_queue_task()),
         ShellIntent::ToggleNavPad => {
             crate::store::terminal_nav_pad::toggle_terminal_nav_pad(store, storage)
         }

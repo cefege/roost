@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use roost_coord::coord_core::CoordCore;
 use roost_coord::coord_core::boot_facts::BootFacts;
-use roost_coord::events::bus_messages::{TaskBusMsg, TaskBusMsgKind};
+use roost_coord::events::bus_messages::PairRequestDelta;
 use roost_coord::http::listener::{ListenerState, build_router};
 use roost_coord::http::spa::SpaMount;
 use roost_coord::rpc::service::CoordinatorServiceImpl;
@@ -26,7 +26,7 @@ use roost_proto::__buffa::oneof::firehose_frame::Frame;
 use roost_proto::__buffa::oneof::sync_client_frame::Command;
 use roost_proto::buffa::Message as _;
 use roost_proto::{
-    FirehoseFrame, SyncClientFrame, SyncDomain, SyncDomainReadyCommand, SyncSubscribedFrame, Task,
+    FirehoseFrame, SyncClientFrame, SyncDomain, SyncDomainReadyCommand, SyncSubscribedFrame,
 };
 use sqlx::AssertSqlSafe;
 use tokio_tungstenite::tungstenite::Message;
@@ -181,17 +181,28 @@ impl SyncFixture {
         dial(self.address, &path, &["roost-auth", token]).await
     }
 
-    /// Publish one task row whose payload is `payload_bytes` long.
-    pub fn publish_task(&self, id: &str, payload_bytes: usize) {
-        self.services.buses.task_bus.publish(TaskBusMsg {
-            kind: TaskBusMsgKind::Created,
-            task: Task {
-                id: id.to_owned(),
-                state: "pending".to_owned(),
-                payload_json: "x".repeat(payload_bytes),
-                ..Task::default()
-            },
-        });
+    /// Publish one pending pair request whose label is `payload_bytes` long.
+    pub fn publish_pair_request(&self, id: &str, payload_bytes: usize) {
+        self.services
+            .buses
+            .pair_bus
+            .publish(PairRequestDelta::Pending {
+                ephemeral_id: id.to_owned(),
+                label: "x".repeat(payload_bytes),
+                created_at_ms: 0,
+                user_agent: String::new(),
+                client_browser: String::new(),
+                client_os: String::new(),
+                client_device_type: String::new(),
+                source_ip: String::new(),
+                country_code: String::new(),
+                region: String::new(),
+                city: String::new(),
+                edge_identity_provider: String::new(),
+                edge_identity: String::new(),
+                edge_identity_verified: false,
+                expires_at_ms: 0,
+            });
     }
 }
 
@@ -260,14 +271,14 @@ pub fn domain_ready(domain: SyncDomain, generation: u64) -> Command {
     }))
 }
 
-/// The task id a `task_delta` frame carries.
-pub fn task_id_of(frame: &FirehoseFrame) -> String {
-    use roost_proto::__buffa::oneof::task_delta_proto::Kind;
+/// The ephemeral id a pending pair-request frame carries.
+pub fn pair_request_id_of(frame: &FirehoseFrame) -> String {
+    use roost_proto::__buffa::oneof::pair_request_delta_proto::Kind;
     match &frame.frame {
-        Some(Frame::TaskDelta(delta)) => match &delta.kind {
-            Some(Kind::Created(task) | Kind::State(task)) => task.id.clone(),
-            None => panic!("a task delta with no kind"),
+        Some(Frame::PairRequestDelta(delta)) => match &delta.kind {
+            Some(Kind::Pending(request)) => request.ephemeral_id.clone(),
+            other => panic!("expected a pending pair request, got {other:?}"),
         },
-        other => panic!("expected a task delta, got {other:?}"),
+        other => panic!("expected a pair request delta, got {other:?}"),
     }
 }

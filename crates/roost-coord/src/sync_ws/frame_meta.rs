@@ -30,8 +30,8 @@ pub enum FeedLane {
     Session,
     /// A retained seed that must precede the pre-ready live segment.
     Retained,
-    /// Everything the per-domain registries own: workers, workspaces, tasks,
-    /// MCP, pair requests, audit rows.
+    /// Everything the per-domain registries own: workers, workspaces, pair
+    /// requests, audit rows.
     Nonterminal,
     /// A control frame. Unsequenced, never queued, never windowed.
     #[default]
@@ -149,8 +149,6 @@ pub fn frame_meta_for(frame: &Frame) -> SyncFrameMeta {
         Frame::LastActivity(activity) => session_keyed_meta(Some(&activity.session_id)),
         Frame::WorkerPresence(_) | Frame::WorkerRoutable(_) => domain_meta(SyncDomain::Workers),
         Frame::WorkspaceDelta(_) => domain_meta(SyncDomain::Workspaces),
-        Frame::TaskDelta(_) => domain_meta(SyncDomain::Tasks),
-        Frame::McpMsg(_) => domain_meta(SyncDomain::Mcp),
         Frame::PairRequestDelta(_) => domain_meta(SyncDomain::Pair),
         Frame::ClipboardHistory(_) => domain_meta(SyncDomain::Pair),
         Frame::AuditRow(_) => domain_meta(SyncDomain::Audit),

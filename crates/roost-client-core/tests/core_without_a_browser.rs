@@ -160,7 +160,12 @@ fn the_sync_domain_wire_numbers_are_the_ones_sync_proto_declares() {
     // A domain the proto retired must not come back through the client: the
     // coordinator no longer subscribes to it, so a client that offers it is
     // offering a channel nothing reads.
-    for retired in ["SYNC_DOMAIN_PERMISSIONS", "SYNC_DOMAIN_WEBHOOK"] {
+    for retired in [
+        "SYNC_DOMAIN_PERMISSIONS",
+        "SYNC_DOMAIN_WEBHOOK",
+        "SYNC_DOMAIN_TASKS",
+        "SYNC_DOMAIN_MCP",
+    ] {
         assert!(
             !stated.contains_key(retired),
             "{retired} is reserved in sync.proto and has no business in SyncDomain"
@@ -204,7 +209,7 @@ fn declared_sync_domains() -> BTreeMap<String, i32> {
         declared.insert(name.to_string(), parsed);
     }
     assert!(
-        declared.len() >= 7,
+        declared.len() >= 5,
         "sync.proto no longer declares the SyncDomain enum this guard reads"
     );
     declared

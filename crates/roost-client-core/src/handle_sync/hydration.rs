@@ -141,14 +141,6 @@ pub(crate) fn settle_hydration_result(
             store.workspaces = workspaces.clone();
             None
         }
-        (SyncDomain::Tasks, RpcResult::TasksList { tasks, .. }) => {
-            store.tasks = tasks.clone();
-            None
-        }
-        (SyncDomain::Mcp, RpcResult::McpList { relays, .. }) => {
-            store.mcp_relays = relays.clone();
-            None
-        }
         (SyncDomain::Pair, RpcResult::PairList { requests, .. }) => {
             let pending: Vec<_> = requests.values().cloned().collect();
             super::fold_controls::replace_pair_requests(store, &pending, now_ms);

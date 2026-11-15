@@ -31,8 +31,6 @@ impl SyncFrame {
             | Self::LastActivity { .. } => Some(SyncDomain::Terminal),
             Self::WorkerPresence { .. } | Self::WorkerRoutable { .. } => Some(SyncDomain::Workers),
             Self::WorkspaceDelta { .. } => Some(SyncDomain::Workspaces),
-            Self::TaskDelta { .. } => Some(SyncDomain::Tasks),
-            Self::McpMessage { .. } => Some(SyncDomain::Mcp),
             Self::PairRequestDelta { .. } => Some(SyncDomain::Pair),
             Self::AuditRow { .. } => Some(SyncDomain::Audit),
             // The session plane IS the terminal domain's snapshot and its live
@@ -76,8 +74,6 @@ impl SyncFrame {
             Self::SessionPresence { .. } => "session_presence",
             Self::AuditRow { .. } => "audit_row",
             Self::WorkspaceDelta { .. } => "workspace_delta",
-            Self::TaskDelta { .. } => "task_delta",
-            Self::McpMessage { .. } => "mcp_msg",
             Self::WorkerPresence { .. } => "worker_presence",
             Self::WorkerRoutable { .. } => "worker_routable",
             Self::TerminalTitle { .. } => "terminal_title",

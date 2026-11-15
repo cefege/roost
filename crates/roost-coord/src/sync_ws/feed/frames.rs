@@ -1,34 +1,28 @@
 //! Bus payload → `FirehoseFrame` for the domains whose bus message is already a
-//! domain value: durable sessions, workspaces, tasks, MCP relays, pair
-//! requests, audit rows and terminal titles.
+//! domain value: durable sessions, workspaces, pair requests, audit rows and
+//! terminal titles.
 //!
-//! Ported from `apps/coord/src/sync/sync-feed-frames.ts:169-393`. Each function
-//! is TOTAL where v2's was partial: `workspaceFrame`, `mcpFrame` and
-//! `presenceFrame` returned `null` for a payload they did not recognise, because
-//! the bus carried a union typed `unknown` at that boundary. The Rust buses
-//! carry closed enums, so every message they accept has a frame and the
-//! `null`-and-fall-back-to-`JsonEvent` path has no states left to serve.
+//! Each function is TOTAL: the buses carry closed enums, so every message they
+//! accept has a frame and there is no fall-back path.
 //!
 //! The worker registry's two frames are in `worker_frames.rs` and the browser
 //! UI stream's in `ui.rs`, because those two fan out under rules the plain
 //! domains do not have.
 
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
-use roost_proto::__buffa::oneof::mcp_stream_message_proto::Kind as McpKind;
 use roost_proto::__buffa::oneof::pair_request_delta_proto::Kind as PairKind;
-use roost_proto::__buffa::oneof::task_delta_proto::Kind as TaskKind;
 use roost_proto::__buffa::oneof::workspace_delta_proto::Kind as WorkspaceKind;
 use roost_proto::{
-    AuditRow as PbAuditRow, ClipboardHistoryFrame, FirehoseFrame, McpRelayEvent,
-    McpStreamMessageProto, PairCompleted, PairRequest, PairRequestDeltaProto, TaskDeltaProto,
-    TerminalClipboardEntry, TerminalClipboardFrame, TerminalCommandFinishedFrame,
-    TerminalTitleFrame, Workspace as PbWorkspace, WorkspaceDeltaProto, WorkspaceSessionsSet,
+    AuditRow as PbAuditRow, ClipboardHistoryFrame, FirehoseFrame, PairCompleted, PairRequest,
+    PairRequestDeltaProto, TerminalClipboardEntry, TerminalClipboardFrame,
+    TerminalCommandFinishedFrame, TerminalTitleFrame, Workspace as PbWorkspace,
+    WorkspaceDeltaProto, WorkspaceSessionsSet,
 };
-use roost_protocol::wire::{McpRelayDelta, McpStreamMessage, WorkspaceDelta, event_to_proto};
+use roost_protocol::wire::{WorkspaceDelta, event_to_proto};
 
 use crate::events::bus_messages::{
     AuditRow, PairRequestDelta, SessionBell, SessionBusMessage, SessionClipboardWrite,
-    SessionCommandFinished, SessionTitleUpdate, TaskBusMsg, TaskBusMsgKind,
+    SessionCommandFinished, SessionTitleUpdate,
 };
 use crate::sync_ws::feed::{FeedFrame, FeedRefusal, as_u32, as_u64};
 
@@ -77,46 +71,6 @@ pub fn workspace_frame(delta: &WorkspaceDelta) -> FeedFrame {
         }))),
         ..FirehoseFrame::default()
     })
-}
-
-/// One task row change as its frame. The row arrives already in its generated
-/// wire shape, so this is a wrapper and not a mapping.
-pub fn task_frame(message: &TaskBusMsg) -> FeedFrame {
-    let kind = match message.kind {
-        TaskBusMsgKind::Created => TaskKind::Created(Box::new(message.task.clone())),
-        TaskBusMsgKind::State => TaskKind::State(Box::new(message.task.clone())),
-    };
-    FeedFrame::of(FirehoseFrame {
-        frame: Some(Frame::TaskDelta(Box::new(TaskDeltaProto {
-            kind: Some(kind),
-            ..TaskDeltaProto::default()
-        }))),
-        ..FirehoseFrame::default()
-    })
-}
-
-/// One MCP registry change or relay event as its frame.
-pub fn mcp_frame(message: &McpStreamMessage) -> Result<FeedFrame, FeedRefusal> {
-    let kind = match message {
-        McpStreamMessage::Delta(delta) => match delta {
-            McpRelayDelta::Created { relay } => McpKind::Created(Box::new(relay_to_proto(relay)?)),
-            McpRelayDelta::Updated { relay } => McpKind::Updated(Box::new(relay_to_proto(relay)?)),
-            McpRelayDelta::Deleted { id } => McpKind::DeletedId(id.as_str().to_owned()),
-        },
-        McpStreamMessage::Event(event) => McpKind::Event(Box::new(McpRelayEvent {
-            relay_id: event.relay_id.as_str().to_owned(),
-            payload_json: json_text("mcp_relay_event.payload", &event.payload)?,
-            ts: as_u64(event.ts),
-            ..McpRelayEvent::default()
-        })),
-    };
-    Ok(FeedFrame::of(FirehoseFrame {
-        frame: Some(Frame::McpMsg(Box::new(McpStreamMessageProto {
-            kind: Some(kind),
-            ..McpStreamMessageProto::default()
-        }))),
-        ..FirehoseFrame::default()
-    }))
 }
 
 /// One `audit_log` insert as its frame. `caller_label` is absent on every value
@@ -321,24 +275,4 @@ fn workspace_to_proto(workspace: &roost_protocol::wire::Workspace) -> PbWorkspac
             .collect(),
         ..PbWorkspace::default()
     }
-}
-
-/// A relay row as the message a browser renders, with its free-form config
-/// carried as the JSON text the wire field is declared as.
-fn relay_to_proto(
-    relay: &roost_protocol::wire::McpRelay,
-) -> Result<roost_proto::McpRelay, FeedRefusal> {
-    Ok(roost_proto::McpRelay {
-        id: relay.id.as_str().to_owned(),
-        label: relay.label.clone(),
-        kind: relay.kind.as_str().to_owned(),
-        config_json: json_text("mcp_relay.config", &relay.config)?,
-        created_at_ms: as_u64(relay.created_at_ms),
-        ..roost_proto::McpRelay::default()
-    })
-}
-
-fn json_text(field: &'static str, value: &impl serde::Serialize) -> Result<String, FeedRefusal> {
-    serde_json::to_string(value)
-        .map_err(|error| roost_protocol::ProtocolError::new(field, error.to_string()).into())
 }

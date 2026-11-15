@@ -13,7 +13,6 @@ pub mod audit;
 pub mod bootstrap;
 pub mod devices;
 pub mod machines;
-pub mod mcp;
 pub mod metrics;
 pub mod push;
 pub mod transcription;

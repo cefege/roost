@@ -21,7 +21,7 @@
 
 use std::collections::BTreeMap;
 
-use roost_protocol::wire::{McpRelay, Worker};
+use roost_protocol::wire::Worker;
 
 use crate::store::Store;
 
@@ -123,36 +123,5 @@ pub fn delete_pair_request(store: &mut Store, ephemeral_id: &str) -> bool {
     }
     store.note_change();
     tracing::debug!(target: "store", ephemeral_id, "pair request dismissed");
-    true
-}
-
-/// Replace the relay set with an authoritative one.
-pub fn replace_mcp_relays(store: &mut Store, relays: BTreeMap<String, McpRelay>) -> bool {
-    if store.mcp_relays == relays {
-        return false;
-    }
-    store.mcp_relays = relays;
-    store.note_change();
-    true
-}
-
-/// Add or replace one relay, keyed by its own id.
-pub fn upsert_mcp_relay(store: &mut Store, relay: McpRelay) -> bool {
-    let id = relay.id.to_string();
-    if store.mcp_relays.get(&id) == Some(&relay) {
-        return false;
-    }
-    store.mcp_relays.insert(id, relay);
-    store.note_change();
-    true
-}
-
-/// Remove one relay.
-pub fn delete_mcp_relay(store: &mut Store, id: &str) -> bool {
-    if store.mcp_relays.remove(id).is_none() {
-        return false;
-    }
-    store.note_change();
-    tracing::debug!(target: "store", relay = %id, "mcp relay removed");
     true
 }

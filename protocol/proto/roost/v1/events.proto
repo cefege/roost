@@ -140,13 +140,6 @@ message WorkspaceDeltaProto {
   }
 }
 
-message TaskDeltaProto {
-  oneof kind {
-    Task created = 1;
-    Task state = 2;
-  }
-}
-
 // Pair-request delta (perf sweep C2.4 — replaces the SPA's 5 s pairList
 // poller). `pending` upserts one request, `removed_id` drops one (approved
 // or denied), `snapshot` carries the FULL pending set — seeded on every Sync
@@ -177,20 +170,6 @@ message PairCompleted {
 
 message PairRequestsSnapshot {
   repeated PairRequest pending = 1;
-}
-
-message McpRelayEvent {
-  string relay_id = 1;
-  string payload_json = 2;
-  uint64 ts = 3;
-}
-message McpStreamMessageProto {
-  oneof kind {
-    McpRelay created = 1;
-    McpRelay updated = 2;
-    string deleted_id = 3;
-    McpRelayEvent event = 4;
-  }
 }
 
 // Worker presence (post-MVP — workers/registered/heartbeat/removed share

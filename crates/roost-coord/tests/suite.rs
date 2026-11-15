@@ -102,14 +102,6 @@ mod maintenance_audit_window;
 mod maintenance_backup;
 #[path = "maintenance_startup_janitor.rs"]
 mod maintenance_startup_janitor;
-#[path = "mcp_relays_authority.rs"]
-mod mcp_relays_authority;
-#[path = "mcp_relays_refusals.rs"]
-mod mcp_relays_refusals;
-#[path = "mcp_relays_registry.rs"]
-mod mcp_relays_registry;
-#[path = "mcp_relays_tenancy.rs"]
-mod mcp_relays_tenancy;
 #[path = "method_route_arm_pairing.rs"]
 mod method_route_arm_pairing;
 #[path = "method_route_coverage.rs"]
@@ -236,10 +228,6 @@ mod sync_ws_socket_fences;
 mod sync_ws_socket_lifecycle;
 #[path = "sync_ws_socket_terminal.rs"]
 mod sync_ws_socket_terminal;
-#[path = "tasks_queue.rs"]
-mod tasks_queue;
-#[path = "tasks_refusals.rs"]
-mod tasks_refusals;
 #[path = "terminal_capture_admission.rs"]
 mod terminal_capture_admission;
 #[path = "terminal_capture_freeze.rs"]

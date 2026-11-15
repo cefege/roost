@@ -112,7 +112,6 @@ fn a_palette_row_carries_the_credential_generation_its_action_captured() {
             worker_fp: MACHINE.to_owned(),
             cwd: "/home/dev/api".to_owned(),
         }),
-        active_folder: None,
         worker_routable: true,
     };
     let items = core_action_items(&context);
@@ -142,12 +141,6 @@ fn a_palette_row_carries_the_credential_generation_its_action_captured() {
             session_id: "00000000-0000-4000-8000-00000000000a".to_owned(),
         })
     );
-    assert!(
-        !items
-            .iter()
-            .any(|item| item.id.starts_with("core.task.queue-folder")),
-        "no folder target, no row"
-    );
     // The same context one generation later is a different row.
     let later = core_action_items(&CommandPaletteContext {
         auth_generation: 8,
@@ -165,19 +158,9 @@ fn a_palette_row_for_an_unreachable_machine_is_not_offered() {
             worker_fp: MACHINE.to_owned(),
             cwd: "/home/dev/api".to_owned(),
         }),
-        active_folder: Some(PaletteTarget {
-            id: "/home/dev/api".to_owned(),
-            worker_fp: MACHINE.to_owned(),
-            cwd: "/home/dev/api".to_owned(),
-        }),
         worker_routable: false,
     };
     let items = core_action_items(&context);
-    assert!(
-        items
-            .iter()
-            .any(|item| item.id.starts_with("core.task.queue-folder"))
-    );
     assert!(
         !items
             .iter()

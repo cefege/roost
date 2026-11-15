@@ -88,8 +88,8 @@ Windows is outside this operator's managed deployment fleet.
 | Terminal WebRTC | data channels `roost-terminal-control-v1`, `-data-v1`, `-history-v1` | browser ↔ worker (DTLS/SCTP over UDP) | `crates/roost-worker/src/peer/`; signaling in `crates/roost-coord/src/terminal_direct/` | `protocol/spec/direct-terminal.md` |
 | Keeper socket | Unix-domain socket, length-prefixed frames, channel id per frame | worker ↔ keeper | `crates/roost-keeper/src/server.rs`, `crates/roost-worker/src/keeper_pool/` | `protocol/spec/keeper.md` |
 
-Sync multiplexes exactly seven generation domains — terminal, workers,
-workspaces, tasks, MCP, pair, and audit (`SyncDomain::ALL` in
+Sync multiplexes exactly five generation domains — terminal, workers,
+workspaces, pair, and audit (`SyncDomain::ALL` in
 `crates/roost-client-core/src/sync/link.rs`, checked against
 `protocol/proto/roost/v1/sync.proto`). Delivery is ACK-windowed per socket
 (`crates/roost-coord/src/sync_ws/ack_window.rs`).

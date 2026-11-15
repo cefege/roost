@@ -7,12 +7,11 @@ use roost_client_core::client::rpc::decode_rpc_response;
 use roost_client_core::{RpcCall, RpcResult};
 use roost_proto::buffa::Message;
 use roost_proto::{
-    HostIdentity as PbHostIdentity, HostMetrics as PbHostMetrics, McpListResponse,
-    McpRelay as PbMcpRelay, PairListResponse, PairRequest as PbPairRequest, Task as PbTask,
-    TasksListResponse, TerminalCoreCapacityReport as PbCapacity, Worker as PbWorker,
+    HostIdentity as PbHostIdentity, HostMetrics as PbHostMetrics, PairListResponse,
+    PairRequest as PbPairRequest, TerminalCoreCapacityReport as PbCapacity, Worker as PbWorker,
     WorkersListResponse, Workspace as PbWorkspace, WorkspacesListResponse,
 };
-use roost_protocol::wire::{McpRelayKind, TaskState, WorkerOs};
+use roost_protocol::wire::WorkerOs;
 
 const ID_A: &str = "00000000-0000-4000-8000-00000000000a";
 const ID_B: &str = "00000000-0000-4000-8000-00000000000b";
@@ -167,73 +166,6 @@ fn a_workspace_row_maps_its_membership_and_cas_version() {
             .collect::<Vec<_>>(),
         [ID_B]
     );
-}
-
-#[test]
-fn a_task_whose_json_column_does_not_parse_is_dropped() {
-    let task = |id: &str, payload: &str, result: Option<&str>| PbTask {
-        id: id.to_owned(),
-        state: "claimed".to_owned(),
-        payload_json: payload.to_owned(),
-        enqueued_at_ms: 1,
-        claimed_at_ms: Some(2),
-        claimed_by: Some(fp('d')),
-        result_json: result.map(str::to_owned),
-        claim_ttl_ms: 60_000,
-        ..Default::default()
-    };
-    let bytes = TasksListResponse {
-        tasks: vec![
-            task(ID_A, r#"{"cmd":"ls"}"#, Some("")),
-            task(ID_B, "{not json", None),
-        ],
-        ..Default::default()
-    }
-    .encode_to_vec();
-    let RpcResult::TasksList { tasks, .. } =
-        decode_rpc_response(&RpcCall::TasksList { call_id: 1 }, &bytes).unwrap()
-    else {
-        panic!("a TasksList answer must decode as TasksList");
-    };
-    assert_eq!(tasks.keys().collect::<Vec<_>>(), [ID_A]);
-    let row = &tasks[ID_A];
-    assert_eq!(row.state, TaskState::Claimed);
-    assert_eq!(row.payload["cmd"], "ls");
-    assert_eq!(row.claimed_at_ms, Some(2));
-    assert_eq!(
-        row.claimed_by.as_ref().map(|fp| fp.as_str().to_owned()),
-        Some(fp('d'))
-    );
-    assert_eq!(
-        row.result, None,
-        "an empty result column is no result, as in v2"
-    );
-    assert_eq!(row.claim_ttl_ms, 60_000);
-}
-
-#[test]
-fn a_relay_whose_config_does_not_parse_is_dropped() {
-    let relay = |id: &str, config: &str| PbMcpRelay {
-        id: id.to_owned(),
-        label: "files".to_owned(),
-        kind: "stdio".to_owned(),
-        config_json: config.to_owned(),
-        created_at_ms: 3,
-        ..Default::default()
-    };
-    let bytes = McpListResponse {
-        relays: vec![relay(ID_A, r#"{"command":"mcp"}"#), relay(ID_B, "[1,2")],
-        ..Default::default()
-    }
-    .encode_to_vec();
-    let RpcResult::McpList { relays, .. } =
-        decode_rpc_response(&RpcCall::McpList { call_id: 1 }, &bytes).unwrap()
-    else {
-        panic!("an McpList answer must decode as McpList");
-    };
-    assert_eq!(relays.keys().collect::<Vec<_>>(), [ID_A]);
-    assert_eq!(relays[ID_A].kind, McpRelayKind::Stdio);
-    assert_eq!(relays[ID_A].config["command"], "mcp");
 }
 
 #[test]

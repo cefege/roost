@@ -159,14 +159,13 @@ message CoordinatorRelocationFrame {
 // Enum values are stable wire identifiers; controls themselves are never
 // delivery-sequenced and therefore never consume the application ACK window.
 enum SyncDomain {
-  reserved 5, 8, 10;
-  reserved "SYNC_DOMAIN_PERMISSIONS", "SYNC_DOMAIN_WEBHOOK", "SYNC_DOMAIN_AGENT";
+  reserved 4, 5, 6, 8, 10;
+  reserved "SYNC_DOMAIN_PERMISSIONS", "SYNC_DOMAIN_WEBHOOK", "SYNC_DOMAIN_AGENT",
+    "SYNC_DOMAIN_TASKS", "SYNC_DOMAIN_MCP";
   SYNC_DOMAIN_UNSPECIFIED = 0;
   SYNC_DOMAIN_TERMINAL = 1;
   SYNC_DOMAIN_WORKERS = 2;
   SYNC_DOMAIN_WORKSPACES = 3;
-  SYNC_DOMAIN_TASKS = 4;
-  SYNC_DOMAIN_MCP = 6;
   SYNC_DOMAIN_PAIR = 7;
   SYNC_DOMAIN_AUDIT = 9;
 }
@@ -315,11 +314,11 @@ message InputAmbiguous {
 message ClientStateChangedFrame {}
 
 message FirehoseFrame {
-  reserved 7, 14, 15, 28, 29, 30, 42, 43, 47, 56, 57, 59, 60;
+  reserved 7, 13, 14, 15, 16, 28, 29, 30, 42, 43, 47, 56, 57, 59, 60;
   reserved "webhook_token_delta", "permission_delta",
     "viewport_accepted", "viewport_rejected", "viewport_ambiguous",
     "agent_status", "agent_conversation", "agent_chat_events",
-    "omp_host_service", "omp_ui_action_receipt";
+    "omp_host_service", "omp_ui_action_receipt", "task_delta", "mcp_msg";
   // Per-socket application-delivery sequence. Zero means legacy/unenforced or
   // an unsequenced v2 control frame.
   uint64 delivery_seq = 31;
@@ -334,8 +333,6 @@ message FirehoseFrame {
     // T1.2 part 2 — typed bus deltas. Both sides accept either form;
     // older clients fall back to the JsonEvent equivalents above.
     WorkspaceDeltaProto workspace_delta = 12;
-    TaskDeltaProto task_delta = 13;
-    McpStreamMessageProto mcp_msg = 16;
     WorkerPresenceProto worker_presence = 17;
     WorkerRoutableFrame worker_routable = 19;
     // R11 cell-grid cell-shipping — pre-rendered grid, SPA paints + never reflows.

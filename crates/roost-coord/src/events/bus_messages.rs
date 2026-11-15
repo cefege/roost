@@ -1,29 +1,25 @@
 //! What the coordinator's buses carry: the payloads that are its own, and the
 //! protocol types the rest are.
 //!
-//! Owned by the coordinator and ported from the type half of
-//! `apps/coord/src/events/buses.ts:6-78`. Which bus carries which payload is
+//! Owned by the coordinator. Which bus carries which payload is
 //! `bus_domains`'s table; this file is the vocabulary those buses speak.
 //!
-//! THREE OF THESE ARE COORD-INTERNAL BY DESIGN. `PairRequestDelta` has no shared
+//! TWO OF THESE ARE COORD-INTERNAL BY DESIGN. `PairRequestDelta` has no shared
 //! wire schema because it never crosses a boundary: it is published by the pair
-//! handlers and the retention sweep and consumed only by the firehose adapter
-//! (`buses.ts:30-35`). `AuditRow` is an `audit_log` row as inserted, which is why
-//! `caller_label` is a field that is *always* null here -- the insert path has
-//! no key label to write (`apps/coord/src/middleware/security.ts:215`) and the
-//! RPC read path joins `authorized_keys` to supply it. `TaskBusMsg` and
-//! `UiBusMsg` carry generated protobuf messages, so the firehose can build a
-//! frame without the JSON round-trip the old Zod-shape relay cost
-//! (`buses.ts:22-28`).
+//! handlers and the retention sweep and consumed only by the firehose adapter.
+//! `AuditRow` is an `audit_log` row as inserted, which is why `caller_label` is
+//! a field that is *always* null here -- the insert path has no key label to
+//! write and the RPC read path joins `authorized_keys` to supply it. `UiBusMsg`
+//! carries generated protobuf messages, so the firehose can build a frame
+//! without a JSON round-trip.
 //!
 //! WHY THE PROTO TYPES GET HAND-WRITTEN `Debug`. Generated buffa messages are
 //! not `Debug` -- the generated code suppresses that lint on purpose, because
 //! materialising a debug rendering of a view type defeats its purpose. These
 //! wrappers print the fields an operator actually reads off a fan-out line
-//! (which task, which tab, which session) instead of a derived dump they cannot
-//! produce.
+//! (which tab, which session) instead of a derived dump they cannot produce.
 
-use roost_proto::{Task, UiCommand, UiReportStateRequest};
+use roost_proto::{UiCommand, UiReportStateRequest};
 use roost_protocol::wire::{SessionEvent, WorkerFp};
 use serde_json::Value;
 
@@ -53,34 +49,6 @@ impl SessionBusMessage {
             event,
             event_id: Some(event_id),
         }
-    }
-}
-
-/// Which of the two task mutations a [`TaskBusMsg`] reports.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TaskBusMsgKind {
-    /// A task row appeared.
-    Created,
-    /// A task row changed state.
-    State,
-}
-
-/// A task row as the firehose should carry it: the generated message, not a row.
-#[derive(Clone, PartialEq)]
-pub struct TaskBusMsg {
-    /// Which mutation produced this.
-    pub kind: TaskBusMsgKind,
-    /// The task row, already in its wire shape.
-    pub task: Task,
-}
-
-impl std::fmt::Debug for TaskBusMsg {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("TaskBusMsg")
-            .field("kind", &self.kind)
-            .field("task_id", &self.task.id)
-            .finish()
     }
 }
 

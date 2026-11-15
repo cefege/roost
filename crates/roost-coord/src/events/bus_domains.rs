@@ -24,13 +24,13 @@
 use std::sync::Arc;
 
 use roost_protocol::wire::live_metrics::WorkerLiveMetricsFrame;
-use roost_protocol::wire::{McpStreamMessage, WorkerPresenceEvent, WorkspaceDelta};
+use roost_protocol::wire::{WorkerPresenceEvent, WorkspaceDelta};
 
 use crate::events::bus::BoundedBus;
 use crate::events::bus_messages::{
     AuditRow, ClipboardHistoryChange, LastActivityUpdate, PairRequestDelta, SessionBell,
     SessionBusMessage, SessionClipboardWrite, SessionCommandFinished, SessionPresenceUpdate,
-    SessionTerminalSignals, SessionTitleUpdate, TaskBusMsg, UiBusMsg, WorkerRoutableSet,
+    SessionTerminalSignals, SessionTitleUpdate, UiBusMsg, WorkerRoutableSet,
 };
 
 /// Every in-process broadcast bus the coordinator owns.
@@ -45,10 +45,6 @@ pub struct Buses {
     pub session_bus: BoundedBus<SessionBusMessage>,
     /// Workspace create/update/delete and junction deltas. 64.
     pub workspace_bus: BoundedBus<WorkspaceDelta>,
-    /// Task rows, already in their generated wire shape. 64.
-    pub task_bus: BoundedBus<TaskBusMsg>,
-    /// MCP relay stream messages. 128.
-    pub mcp_bus: BoundedBus<McpStreamMessage>,
     /// Pair-request deltas: low traffic, a handful per ceremony. 32.
     pub pair_bus: BoundedBus<PairRequestDelta>,
     /// `audit_log` inserts. 256, quoted from the source: "ring size 256 so
@@ -96,8 +92,6 @@ impl Buses {
         Self {
             session_bus: BoundedBus::new(256),
             workspace_bus: BoundedBus::new(64),
-            task_bus: BoundedBus::new(64),
-            mcp_bus: BoundedBus::new(128),
             pair_bus: BoundedBus::new(32),
             audit_bus: BoundedBus::new(256),
             presence_bus: BoundedBus::new(128),

@@ -255,19 +255,19 @@ async fn a_revoked_device_loses_every_open_sync_socket_with_4001() {
     assert_eq!(close_code(&mut legacy, EXPECT).await, Some(Some(4001)));
     assert_eq!(close_code(&mut v2, EXPECT).await, Some(Some(4001)));
 
-    fixture.publish_task("still-live", 4);
-    let tasks = generation_of(&bystander, SyncDomain::Tasks);
+    fixture.publish_pair_request("still-live", 4);
+    let pair = generation_of(&bystander, SyncDomain::Pair);
     send_client_frame(
         &mut other,
         &bystander.socket_id,
         None,
-        Some(domain_ready(SyncDomain::Tasks, tasks)),
+        Some(domain_ready(SyncDomain::Pair, pair)),
     )
     .await;
     let frame = next_firehose(&mut other, EXPECT)
         .await
         .expect("the bystander is untouched");
-    assert!(matches!(frame.frame, Some(Frame::TaskDelta(_))));
+    assert!(matches!(frame.frame, Some(Frame::PairRequestDelta(_))));
 }
 
 // handlers-workers.ts `onWorkerDeletedSocketClose`: deleting a worker closes

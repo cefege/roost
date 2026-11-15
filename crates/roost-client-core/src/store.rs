@@ -69,13 +69,13 @@ pub use view_rotation::{RotationView, SyncViewRotation};
 /// this crate's API. A host — and this crate's own behaviour tests — should not
 /// need a `roost-protocol` dependency to name a row.
 pub use roost_protocol::wire::{
-    ChannelId, McpRelay, Session, SessionId, SessionKind, SessionMap, SessionStatus, Worker,
-    WorkerFp, WorkerOs, WorkspaceId,
+    ChannelId, Session, SessionId, SessionKind, SessionMap, SessionStatus, Worker, WorkerFp,
+    WorkerOs, WorkspaceId,
 };
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use roost_protocol::wire::{Task, Workspace};
+use roost_protocol::wire::Workspace;
 
 use crate::client::client_state::ClientStateSync;
 use crate::search::FindMatch;
@@ -163,7 +163,7 @@ pub struct Store {
     pub terminal_nav_pad: crate::store::terminal_nav_pad::TerminalNavPad,
     /// The sidebar's cursor and visit memory. Mutated only through `store::sidebar`.
     pub sidebar: crate::store::sidebar::SidebarState,
-    /// The rename and queue-task dialogs. Mutated only through `store::shell_intent`.
+    /// The rename dialog. Mutated only through `store::shell_intent`.
     pub shell_dialogs: crate::store::shell_dialogs::ShellDialogs,
     /// The deck's stored arrangements and pending route. Mutated only through `deck::intent`.
     pub deck: crate::deck::DeckState,
@@ -187,9 +187,6 @@ pub struct Store {
     /// Sessions whose close is waiting out its undo window. Mutated only
     /// through `store::pending_close`.
     pub pending_closes: PendingCloses,
-    /// The MCP relays the coordinator published. Mutated only through
-    /// `store::mutations`.
-    pub mcp_relays: BTreeMap<String, McpRelay>,
     /// Pair requests this browser is waiting on, keyed by their ephemeral id.
     /// Mutated only through `store::mutations`.
     pub pair_requests: BTreeMap<String, PairRequest>,
@@ -197,8 +194,6 @@ pub struct Store {
     // ---- Sync feed slices: written only by the folds under `handle_sync/` ---
     /// Workspaces by id (v2 `_handleWorkspacesDelta`).
     pub workspaces: BTreeMap<String, Workspace>,
-    /// Tasks by id (v2 `_handleTasksDelta`).
-    pub tasks: BTreeMap<String, Task>,
     /// The fingerprints the coordinator can route to RIGHT NOW, or `None`
     /// before the first set, which means "ask heartbeat freshness instead"
     /// (`sync-routable.ts:14-19`).

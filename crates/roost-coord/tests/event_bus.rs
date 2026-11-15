@@ -163,8 +163,6 @@ fn the_buses_carry_their_bounds() {
     let buses = Buses::new();
     assert_eq!(buses.session_bus.capacity(), 256);
     assert_eq!(buses.workspace_bus.capacity(), 64);
-    assert_eq!(buses.task_bus.capacity(), 64);
-    assert_eq!(buses.mcp_bus.capacity(), 128);
     assert_eq!(buses.pair_bus.capacity(), 32);
     assert_eq!(buses.audit_bus.capacity(), 256);
     assert_eq!(buses.presence_bus.capacity(), 128);

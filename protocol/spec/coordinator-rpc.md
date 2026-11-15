@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | Workers | `Workers*`, `WorkersDeploy*`, `WorkersPrepareKeeperUpdate*`; `coordinator.proto:938-945` | Browser and worker methods share one service; principal is method-specific. |
 | Sessions | `Sessions*`; `coordinator.proto:948-964` | Includes lifecycle, input, scrollback/search, direct terminal grant/signaling, attachment-peer signaling. |
-| Organization | `Workspaces*`, `Tasks*`, `Mcp*`; `coordinator.proto:972-989` | Durable dashboard-local coordination state. |
+| Organization | `Workspaces*`; `coordinator.proto` | Durable dashboard-local coordination state. |
 | Auth/devices/pair | `Auth*`, `Devices*`, `Pair*`; `coordinator.proto:992-1025` | Public identity/bootstrap redemption alternate with device-gated and split pairing authority. |
 | System/audit | `Misc*`, `Audit*`; `coordinator.proto:1028-1034` | Health is public; DB export URL additionally requires on-host; metrics/diagnostics/audit require device authority. |
 | Files/attachments | `Files*`, `Attachments*`, `AttachFileChunk`, `AttachmentProbe`, `ListAttachments`, `DeleteAttachment`; `coordinator.proto:1037-1041,1073-1091` | AttachFileChunk is coordinator relay fallback, not the direct-carrier ACK contract. |
@@ -76,8 +76,6 @@ The method list is the `service CoordinatorService` block in `protocol/proto/roo
 | Keeper update | `apps/coord/src/deploy/handlers-workers-update.ts` | Device plus update/on-host policy. |
 | Sessions | `apps/coord/src/sessions/handlers-sessions.ts` | `SessionsList`: device, or worker restricted to its own open recovery; all other methods: device. |
 | Workspaces | `apps/coord/src/sessions/handlers-workspaces.ts` | Device. |
-| Tasks | `apps/coord/src/sessions/handlers-tasks.ts` | Device. |
-| MCP | `apps/coord/src/sessions/handlers-mcp.ts` | Device. |
 | Auth/pair/devices | `apps/coord/src/auth/handlers-auth.ts` | Mixed: public identity/bootstrap redemption; device mint/logout/devices; pairing public-token/on-host/device rules per [`auth-and-pairing.md`](auth-and-pairing.md). |
 | System/diagnostics/audit | `apps/coord/src/rpc/handlers-system.ts` | Health public; DB export URL device + on-host; remaining implemented methods device. |
 | Transcription | `apps/coord/src/rpc/handlers-transcription.ts` | Device. |

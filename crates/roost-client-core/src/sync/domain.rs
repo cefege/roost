@@ -172,8 +172,6 @@ impl SyncState {
             | SyncFrame::TransportProbeResult { .. } => !self.domains.is_empty(),
             SyncFrame::AuditRow { .. }
             | SyncFrame::WorkspaceDelta { .. }
-            | SyncFrame::TaskDelta { .. }
-            | SyncFrame::McpMessage { .. }
             | SyncFrame::WorkerPresence { .. }
             | SyncFrame::WorkerRoutable { .. }
             | SyncFrame::PairRequestDelta { .. }

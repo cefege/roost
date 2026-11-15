@@ -3,13 +3,11 @@
 //! its adapter in `sync_ws::feed`, and delivered into the socket's link.
 //!
 //! Installed by `sync_ws::socket` before the `subscribed` barrier escapes, and
-//! dropped at teardown, which is the unsubscribe. Ports the listener engine of
-//! `apps/coord/src/sync/sync-feed.ts` (`startSyncFeed`'s `unsubs` list and the
-//! lazy audit source). Which live session events a recovery holds or drops is
-//! `sync_ws::session_replay`; the durable rows and retained seeds themselves
-//! are `sync_ws::backfill` and `sync_ws::seed`.
+//! dropped at teardown, which is the unsubscribe. Which live session events a
+//! recovery holds or drops is `sync_ws::session_replay`; the durable rows and
+//! retained seeds themselves are `sync_ws::backfill` and `sync_ws::seed`.
 //!
-//! TWENTY eager subscriptions, one per bus in `Buses` except `audit_bus`,
+//! FIFTEEN eager subscriptions, one per bus in `Buses` except `audit_bus`,
 //! which is on demand -- eagerly for a v1 socket, which has no domain
 //! commands, and only on `domainSubscribe` for a v2 one.
 use std::any::Any;
@@ -24,9 +22,8 @@ use crate::sync_ws::backfill::reset_terminal_for_recovery;
 use crate::sync_ws::driver::{LinkState, SyncLink};
 use crate::sync_ws::feed::FeedFrame;
 use crate::sync_ws::feed::frames::{
-    audit_frame, clipboard_history_frame, mcp_frame, pair_frame, session_bell_frame,
-    session_clipboard_frame, session_command_finished_frame, session_message_frame,
-    session_title_frame, task_frame, workspace_frame,
+    audit_frame, clipboard_history_frame, pair_frame, session_bell_frame, session_clipboard_frame,
+    session_command_finished_frame, session_message_frame, session_title_frame, workspace_frame,
 };
 use crate::sync_ws::feed::last_activity::last_activity_frame;
 use crate::sync_ws::feed::presence::{presence_echo_is_own_notice, session_presence_frame};
@@ -37,7 +34,7 @@ use crate::sync_ws::session_replay::LiveVerdict;
 
 /// One socket's live subscriptions. Dropping it unsubscribes every bus.
 pub struct LiveFeed {
-    /// The sixteen eager subscriptions, held only to be dropped.
+    /// The fifteen eager subscriptions, held only to be dropped.
     subscriptions: Vec<Box<dyn Any + Send + Sync>>,
     /// The audit source, present while this socket wants audit rows.
     audit: Option<Subscription<AuditRow>>,
@@ -64,7 +61,7 @@ impl LiveFeed {
         viewer: UiViewer,
         viewer_key: Option<String>,
     ) -> Self {
-        let mut subscriptions: Vec<Box<dyn Any + Send + Sync>> = Vec::with_capacity(20);
+        let mut subscriptions: Vec<Box<dyn Any + Send + Sync>> = Vec::with_capacity(18);
         let sink = Arc::clone(link);
         subscriptions.push(Box::new(buses.session_bus.subscribe(move |message| {
             sink.deliver_with(|state| route_session(state, message));
@@ -76,19 +73,6 @@ impl LiveFeed {
         let sink = Arc::clone(link);
         subscriptions.push(Box::new(buses.workspace_bus.subscribe(move |delta| {
             sink.deliver_with(|state| route_workspace(state, delta));
-        })));
-        let sink = Arc::clone(link);
-        subscriptions.push(Box::new(buses.task_bus.subscribe(move |message| {
-            sink.deliver_with(|state| state.index.is_install_wide().then(|| task_frame(message)));
-        })));
-        let sink = Arc::clone(link);
-        subscriptions.push(Box::new(buses.mcp_bus.subscribe(move |message| {
-            sink.deliver_with(|state| {
-                if !state.index.is_install_wide() {
-                    return None;
-                }
-                refused_as_none("mcp_bus", mcp_frame(message))
-            });
         })));
         let sink = Arc::clone(link);
         subscriptions.push(Box::new(buses.pair_bus.subscribe(move |delta| {

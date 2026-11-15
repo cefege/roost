@@ -17,7 +17,7 @@ mod payloads;
 
 use roost_proto::{PbCellGridChunk, PbCellGridFrame};
 use roost_protocol::wire::WorkspaceDelta as WireWorkspaceDelta;
-use roost_protocol::wire::{McpStreamMessage, SessionMap, TaskDelta, WorkerPresenceEvent};
+use roost_protocol::wire::{SessionMap, WorkerPresenceEvent};
 
 pub use self::payloads::{
     AuditEntry, CoordinatorRelocation, InputRouteResult, PairRequestChange, PairedBrowser,
@@ -164,16 +164,6 @@ pub enum SyncFrame {
     WorkspaceDelta {
         /// The change.
         delta: WireWorkspaceDelta,
-    },
-    /// One task row change, in the shared wire shape.
-    TaskDelta {
-        /// The change.
-        delta: TaskDelta,
-    },
-    /// One MCP registry change or relay event, in the shared wire shape.
-    McpMessage {
-        /// The change or event.
-        message: McpStreamMessage,
     },
     /// One worker registration, heartbeat or removal, in the shared wire shape.
     /// The event is boxed: a registration carries the whole worker record, and

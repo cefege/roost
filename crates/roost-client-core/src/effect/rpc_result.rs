@@ -7,7 +7,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use roost_protocol::wire::{McpRelay, SessionMap, Task, Worker, Workspace};
+use roost_protocol::wire::{SessionMap, Worker, Workspace};
 
 use crate::client::client_state::ClientStateEntry;
 use crate::client::rpc::CallError;
@@ -71,22 +71,6 @@ pub enum RpcResult {
         call_id: u64,
         /// The workspace rows, keyed by workspace id.
         workspaces: BTreeMap<String, Workspace>,
-    },
-    /// `TasksList` succeeded.
-    TasksList {
-        /// Which call this answers.
-        call_id: u64,
-        /// The task rows, keyed by task id. A row whose JSON columns do not
-        /// parse is dropped, as v2 does.
-        tasks: BTreeMap<String, Task>,
-    },
-    /// `McpList` succeeded.
-    McpList {
-        /// Which call this answers.
-        call_id: u64,
-        /// The relay rows, keyed by relay id. A row whose config does not parse
-        /// is dropped, as v2 does.
-        relays: BTreeMap<String, McpRelay>,
     },
     /// `PairList` succeeded.
     PairList {
@@ -179,8 +163,6 @@ impl RpcResult {
             | Self::SessionsList { call_id, .. }
             | Self::WorkersList { call_id, .. }
             | Self::WorkspacesList { call_id, .. }
-            | Self::TasksList { call_id, .. }
-            | Self::McpList { call_id, .. }
             | Self::PairList { call_id, .. }
             | Self::PairTokenRedeemed { call_id }
             | Self::DirectoryListed { call_id, .. }
@@ -201,8 +183,6 @@ impl RpcResult {
             Self::SessionsList { .. } => "sessions_list",
             Self::WorkersList { .. } => "workers_list",
             Self::WorkspacesList { .. } => "workspaces_list",
-            Self::TasksList { .. } => "tasks_list",
-            Self::McpList { .. } => "mcp_list",
             Self::PairList { .. } => "pair_list",
             Self::PairTokenRedeemed { .. } => "pair_token_redeemed",
             Self::DirectoryListed { .. } => "directory_listed",

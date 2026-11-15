@@ -29,12 +29,10 @@ pub const COORDINATOR_SERVICE_PATH_PREFIX: &str = "/roost.v1.CoordinatorService/
 /// v2 keyed this on the full RPC path (`connect.ts:24-34`); the same nine
 /// methods, keyed on the method name, because the path is this file's rendering
 /// of the name and not an independent input.
-const DEVICE_AUTH_REQUIRED_METHODS: [&str; 11] = [
+const DEVICE_AUTH_REQUIRED_METHODS: [&str; 9] = [
     "WorkersList",
     "SessionsList",
     "WorkspacesList",
-    "TasksList",
-    "McpList",
     "DevicesList",
     "DevicesRevoke",
     "DevicesRotateCurrent",
@@ -50,8 +48,6 @@ pub fn connect_method(call: &RpcCall) -> &'static str {
         RpcCall::SessionsList { .. } => "SessionsList",
         RpcCall::WorkersList { .. } => "WorkersList",
         RpcCall::WorkspacesList { .. } => "WorkspacesList",
-        RpcCall::TasksList { .. } => "TasksList",
-        RpcCall::McpList { .. } => "McpList",
         RpcCall::PairList { .. } => "PairList",
         RpcCall::RedeemPairToken { .. } => "AuthRedeemBrowser",
         RpcCall::FilesListDir { .. } => "FilesListDir",
@@ -71,8 +67,6 @@ pub fn connect_call_id(call: &RpcCall) -> u64 {
         | RpcCall::SessionsList { call_id, .. }
         | RpcCall::WorkersList { call_id }
         | RpcCall::WorkspacesList { call_id }
-        | RpcCall::TasksList { call_id }
-        | RpcCall::McpList { call_id }
         | RpcCall::PairList { call_id }
         | RpcCall::RedeemPairToken { call_id, .. }
         | RpcCall::FilesListDir { call_id, .. }

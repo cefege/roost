@@ -11,17 +11,14 @@ use std::collections::BTreeMap;
 
 use roost_proto::{
     AuthCoordIdentityResponse, AuthRedeemBrowserResponse, FilesListDirResponse, FilesMkdirResponse,
-    McpListResponse, PairListResponse, SessionsCancelGlobalSearchResponse, SessionsListResponse,
-    SessionsSearchGlobalResponse, TasksListResponse, WorkersListResponse, WorkspacesListResponse,
+    PairListResponse, SessionsCancelGlobalSearchResponse, SessionsListResponse,
+    SessionsSearchGlobalResponse, WorkersListResponse, WorkspacesListResponse,
 };
 use roost_protocol::ProtocolResult;
 use roost_protocol::wire::{SessionMap, session_from_proto};
 
 use super::search_page::search_page_from_proto;
-use super::wire_rows::{
-    mcp_relay_from_proto, pair_request_from_proto, task_from_proto, worker_from_proto,
-    workspace_from_proto,
-};
+use super::wire_rows::{pair_request_from_proto, worker_from_proto, workspace_from_proto};
 use super::{RpcCodecError, decode_message as decode};
 use crate::client::client_state::ClientStateEntry;
 use crate::client::rpc::calls::sessions::KillSession;
@@ -79,25 +76,6 @@ pub fn decode_rpc_response(call: &RpcCall, body: &[u8]) -> Result<RpcResult, Rpc
                     &response.workspaces,
                     |row| &row.id,
                     workspace_from_proto,
-                ),
-            }
-        }
-        RpcCall::TasksList { call_id } => {
-            let response: TasksListResponse = decode(method, body)?;
-            RpcResult::TasksList {
-                call_id: *call_id,
-                tasks: keyed_rows(method, &response.tasks, |row| &row.id, task_from_proto),
-            }
-        }
-        RpcCall::McpList { call_id } => {
-            let response: McpListResponse = decode(method, body)?;
-            RpcResult::McpList {
-                call_id: *call_id,
-                relays: keyed_rows(
-                    method,
-                    &response.relays,
-                    |row| &row.id,
-                    mcp_relay_from_proto,
                 ),
             }
         }

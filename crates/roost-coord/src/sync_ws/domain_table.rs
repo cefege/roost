@@ -14,7 +14,7 @@ use super::retained_frame::RetainedFrame;
 
 /// How many Sync domains exist, one per non-`UNSPECIFIED` value.
 /// The table is fixed-size so a domain's state is an index on the send path.
-pub const DOMAIN_SLOTS: usize = 7;
+pub const DOMAIN_SLOTS: usize = 5;
 
 /// The slot `UNSPECIFIED` maps to, which is past the table and therefore never
 /// indexed. A total mapping is what lets the terminal half of the session name
@@ -28,10 +28,8 @@ pub const fn domain_slot(domain: SyncDomain) -> usize {
         SyncDomain::Terminal => 0,
         SyncDomain::Workers => 1,
         SyncDomain::Workspaces => 2,
-        SyncDomain::Tasks => 3,
-        SyncDomain::Mcp => 4,
-        SyncDomain::Pair => 5,
-        SyncDomain::Audit => 6,
+        SyncDomain::Pair => 3,
+        SyncDomain::Audit => 4,
         SyncDomain::Unspecified => UNSPECIFIED_SLOT,
     }
 }
@@ -156,10 +154,8 @@ pub(in crate::sync_ws) const fn domain_at_slot(slot: usize) -> SyncDomain {
         0 => SyncDomain::Terminal,
         1 => SyncDomain::Workers,
         2 => SyncDomain::Workspaces,
-        3 => SyncDomain::Tasks,
-        4 => SyncDomain::Mcp,
-        5 => SyncDomain::Pair,
-        6 => SyncDomain::Audit,
+        3 => SyncDomain::Pair,
+        4 => SyncDomain::Audit,
         _ => SyncDomain::Unspecified,
     }
 }

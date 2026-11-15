@@ -21,10 +21,7 @@ use crate::terminal::token::TerminalTransport;
 use super::fold_controls::{
     fold_audit_row, fold_coordinator_relocation, fold_pair_request, fold_ui_command,
 };
-use super::fold_registry::{
-    fold_mcp_message, fold_task_delta, fold_worker_presence, fold_worker_routable,
-    fold_workspace_delta,
-};
+use super::fold_registry::{fold_worker_presence, fold_worker_routable, fold_workspace_delta};
 use super::fold_session_meta::{
     fold_last_activity, fold_session_presence, fold_session_viewers, fold_terminal_title,
 };
@@ -234,8 +231,6 @@ pub(super) fn apply_frame(
         }
         SyncFrame::AuditRow { row } => fold_audit_row(store, row),
         SyncFrame::WorkspaceDelta { delta } => fold_workspace_delta(store, delta),
-        SyncFrame::TaskDelta { delta } => fold_task_delta(store, delta),
-        SyncFrame::McpMessage { message } => fold_mcp_message(store, message),
         SyncFrame::TerminalClipboard { session_id, text } => {
             store.terminal_clipboard_requests.push(
                 crate::store::clipboard_requests::TerminalClipboardRequest {

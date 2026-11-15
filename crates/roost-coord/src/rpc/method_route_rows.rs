@@ -95,15 +95,6 @@ pub const ROWS_SESSIONS: &[MethodRoute] = &[
     route("WorkspacesUpdate", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("WorkspacesDelete", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("WorkspacesSetSessions", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("TasksList", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("TasksEnqueue", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("TasksNextPending", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("TasksSetState", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("TasksCancel", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("McpList", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("McpCreate", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("McpDelete", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("McpPublish", "sessions", AuthRequirement::Device, PortStatus::Implemented),
 ];
 
 /// global session search across every worker.

@@ -1,12 +1,11 @@
-//! What pressing a catalog row does, decided before anything is performed.
-//! Ports the action half of `CommandPaletteBody.tsx`'s `selectItem`; the list
-//! itself stays in `palette::body`.
+//! What pressing a catalog row does, decided before anything is performed. The
+//! list itself stays in `palette::body`.
 //!
 //! The decision is split from the doing because the rule a reader gets hurt by
-//! is not "which shell intent opens the editor" — it is that a row carrying BOTH
-//! a route and a command must do exactly one of them. A navigation that also
-//! opened an editor leaves the editor mounted over the route it just went to,
-//! and the two surfaces then answer to the same Escape.
+//! is not "which command runs" — it is that a row carrying BOTH a route and a
+//! command must do exactly one of them. A navigation that also ran a command
+//! leaves that command's surface mounted over the route it just went to, and
+//! the two surfaces then answer to the same Escape.
 //!
 //! Each outcome names one surface, and the host is the only thing that can
 //! perform one (`roost_client_core::store::palette::PaletteAction`).
@@ -28,13 +27,6 @@ const STALE_CREDENTIAL_MESSAGE: &str =
 pub enum PaletteOutcome {
     /// The route the reader is taken to.
     Navigate(String),
-    /// The task editor, opened on a folder.
-    QueueFolderTask {
-        /// The machine the task runs on.
-        worker_fp: String,
-        /// The folder it runs in.
-        cwd: String,
-    },
     /// A terminal spawned beside this one.
     SpawnSibling {
         /// The machine to spawn on.
@@ -69,16 +61,13 @@ impl PaletteOutcome {
 /// The surface `item` goes to: a route wins over a command.
 ///
 /// A row that somehow carries both navigates and does NOT also run its command;
-/// the editor or the spawn is the half that would strand the reader over the
+/// the spawn or the copy is the half that would strand the reader over the
 /// route they just asked for.
 pub fn palette_outcome(item: &PaletteItem) -> PaletteOutcome {
     if let Some(href) = item.href.clone() {
         return PaletteOutcome::Navigate(href);
     }
     match item.action.clone() {
-        Some(PaletteAction::QueueFolderTask { worker_fp, cwd }) => {
-            PaletteOutcome::QueueFolderTask { worker_fp, cwd }
-        }
         Some(PaletteAction::SpawnSibling { worker_fp, cwd }) => {
             PaletteOutcome::SpawnSibling { worker_fp, cwd }
         }
@@ -108,13 +97,6 @@ pub fn perform(
     }
     match outcome {
         PaletteOutcome::Navigate(href) => navigate.call(href),
-        PaletteOutcome::QueueFolderTask { worker_fp, cwd } => {
-            pump.dispatch(ClientEvent::Shell(ShellIntent::OpenQueueTaskDialog {
-                cwd: Some(cwd),
-                body: None,
-                worker_fp: Some(worker_fp),
-            }));
-        }
         PaletteOutcome::SpawnSibling { worker_fp, cwd } => {
             spawn_sibling(pump, navigate, worker_fp, cwd);
         }

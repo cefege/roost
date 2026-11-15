@@ -38,8 +38,8 @@ use roost_proto::{
     FirehoseFrame, PbCellGridFrame, SyncClientFrame, SyncDomain, SyncDomainReadyCommand,
 };
 use roost_protocol::wire::{
-    ChannelId, HostMetrics, McpRelay, McpRelayId, McpRelayKind, SessionEvent, SessionId,
-    SessionKind, WorkerFp, WorkerOs, WorkerPresenceEvent, Workspace, WorkspaceDelta, WorkspaceId,
+    ChannelId, HostMetrics, SessionEvent, SessionId, SessionKind, WorkerFp, WorkerOs,
+    WorkerPresenceEvent, Workspace, WorkspaceDelta, WorkspaceId,
 };
 
 /// A session id in the shape `SessionId` validates.
@@ -48,8 +48,6 @@ pub const SESSION_A: &str = "11111111-1111-4111-8111-111111111111";
 pub const SNAPSHOT_A: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 /// A workspace id in the shape `WorkspaceId` validates.
 pub const WORKSPACE_A: &str = "22222222-2222-4222-8222-222222222222";
-/// An MCP relay id in the shape `McpRelayId` validates.
-pub const RELAY_A: &str = "33333333-3333-4333-8333-333333333333";
 /// A worker fingerprint in the shape `WorkerFp` validates.
 pub const WORKER_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 /// A second worker fingerprint, for the set the routable frame must narrow.
@@ -197,20 +195,6 @@ pub fn workspace_delta() -> WorkspaceDelta {
             updated_at_ms: 1_700_000_500_000,
             session_ids: vec![session(SESSION_A)],
         },
-    }
-}
-
-/// An MCP relay whose free-form config is a JSON object rather than a scalar,
-/// so the `config_json` serialisation is actually exercised.
-pub fn relay() -> McpRelay {
-    McpRelay {
-        id: McpRelayId::try_from(RELAY_A).expect("the constant is a uuid"),
-        label: "files".to_owned(),
-        kind: McpRelayKind::Stdio,
-        config: [("command".to_owned(), serde_json::json!("npx"))]
-            .into_iter()
-            .collect(),
-        created_at_ms: 1_700_000_000_000,
     }
 }
 

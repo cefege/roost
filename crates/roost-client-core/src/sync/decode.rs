@@ -220,8 +220,6 @@ fn map_arm(frame: Frame, domain_generation: u64) -> Result<SyncFrame, String> {
         Frame::LastActivity(value) => Ok(terminal::last_activity(*value)),
         Frame::AuditRow(value) => Ok(registry::audit_row(*value)),
         Frame::WorkspaceDelta(value) => registry::workspace_delta(*value),
-        Frame::TaskDelta(value) => registry::task_delta(*value),
-        Frame::McpMsg(value) => registry::mcp_message(*value),
         Frame::WorkerPresence(value) => registry::worker_presence(*value),
         Frame::WorkerRoutable(value) => registry::worker_routable(*value),
         Frame::PairRequestDelta(value) => registry::pair_request_delta(*value),

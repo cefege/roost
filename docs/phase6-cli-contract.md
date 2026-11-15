@@ -954,13 +954,13 @@ invented here would be a second answer beside the table in `api::verbs`.
 
 | Verb | Takes |
 | --- | --- |
-| `sessions`, `workers`, `cells`, `tasks`, `workspaces` | listing and terminal-read arguments from `api::verbs` |
+| `sessions`, `workers`, `cells`, `workspaces` | listing and terminal-read arguments from `api::verbs` |
 | `input` | `<text>` or `--stdin`, plus `--enter` |
 | `spawn`, `attach`, `assign`, `kill` | the session arguments each needs |
 | `rename` | `<id> <title…>` |
 | `ws-create`, `ws-update`, `ws-delete`, `ws-set-sessions` | the workspace id and its own flags |
 | `ui` | a sub-command, plus `--tab`, `--first`, `--off` |
-| `ui-state`, `tasks`, `task-enqueue`, `task-cancel`, `device-revoke-local` | see `api::verbs` |
+| `ui-state`, `device-revoke-local` | see `api::verbs` |
 
 **`events` is removed**, and `cat` and `watch` are **tombstones**: they remain
 answerable, and answer with a refusal naming the replacement — `cells` for
@@ -969,9 +969,7 @@ script that still types them gets told what to use; a usage error about a name
 that used to work would only tell it the name is wrong.
 **stdout** is whatever the verb produces; JSON readouts such as
 `sessions --json` contain no decoration. **stderr**
-carries diagnostics. The task queue's payload column collapses every run of
-whitespace to one space **without trimming**, so a pretty-printed document
-still occupies one row and a stored payload compares as it was written.
+carries diagnostics.
 
 **Exit codes.** 0 when the coordinator answered. 1 for a transport or
 coordinator failure. 2 for a usage error: no verb, an unknown verb, or a

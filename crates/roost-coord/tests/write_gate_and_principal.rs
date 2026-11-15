@@ -155,17 +155,10 @@ fn the_lease_list_holds_the_declared_methods() {
         "SessionsRename",
         "SessionsCursorPos",
         "SessionsAssignWorkspace",
-        "TasksEnqueue",
-        "TasksNextPending",
-        "TasksSetState",
-        "TasksCancel",
         "WorkspacesCreate",
         "WorkspacesUpdate",
         "WorkspacesDelete",
         "WorkspacesSetSessions",
-        "McpCreate",
-        "McpDelete",
-        "McpPublish",
         "AuthMintBootstrap",
         "AuthRedeemWorker",
         "AuthRedeemBrowser",
@@ -187,7 +180,7 @@ fn the_lease_list_holds_the_declared_methods() {
     ];
     assert_eq!(
         leased.len(),
-        40,
+        33,
         "this test's own list drifted from the source"
     );
     for method in leased {

@@ -1,5 +1,5 @@
 //! The session domain: the lifecycle RPCs, the pending-spawn table, the list
-//! projection, and the workspaces, tasks and MCP relays that hang off a session.
+//! projection, and the workspaces that hang off a session.
 //!
 //! One field on `CoordServices`, reached as `core.services.sessions`. The list
 //! projection, the spawn reservation and the input lane all read the same
@@ -18,13 +18,10 @@ use crate::sessions::pending_spawns::PendingSpawns;
 pub mod assign_workspace;
 pub mod cursor_pos;
 pub mod list_projection;
-pub mod mcp;
-pub mod mcp_store;
 pub mod pending_spawns;
 pub mod rpc_sessions;
 pub mod rpc_workspaces;
 pub mod spawn;
-pub mod tasks;
 pub mod workspace_delete;
 pub mod workspaces;
 

@@ -327,8 +327,6 @@ fn every_call() -> Vec<RpcCall> {
         sessions_call(),
         RpcCall::WorkersList { call_id: 1 },
         RpcCall::WorkspacesList { call_id: 1 },
-        RpcCall::TasksList { call_id: 1 },
-        RpcCall::McpList { call_id: 1 },
         RpcCall::PairList { call_id: 1 },
         RpcCall::RedeemPairToken {
             call_id: 1,

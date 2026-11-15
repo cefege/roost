@@ -20,7 +20,6 @@ pub mod device_login;
 pub mod output;
 pub mod scrollback;
 pub mod sessions;
-pub mod tasks;
 pub mod ui;
 pub mod verbs;
 pub mod workers;
@@ -110,9 +109,6 @@ async fn dispatch(
         "ws-update" => workspaces::update(&link()?, &parsed, output).await,
         "ws-delete" => workspaces::delete(&link()?, &parsed, output).await,
         "ws-set-sessions" => workspaces::set_sessions(&link()?, &parsed, output).await,
-        "tasks" => tasks::list(&link()?, &parsed, output).await,
-        "task-enqueue" => tasks::enqueue(&link()?, &parsed, output).await,
-        "task-cancel" => tasks::cancel(&link()?, &parsed, output).await,
         "ui" => ui::command(&link()?, &parsed, output).await,
         "ui-state" => ui::state(&link()?, &parsed, output).await,
         "login" => device_login::login(&ProcessEnv::new(), &parsed, output).await,

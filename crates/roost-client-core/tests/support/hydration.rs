@@ -29,14 +29,6 @@ pub fn empty_hydration_answer(call: &RpcCall) -> Option<RpcResult> {
             call_id: *call_id,
             workspaces: Default::default(),
         },
-        RpcCall::TasksList { call_id } => RpcResult::TasksList {
-            call_id: *call_id,
-            tasks: Default::default(),
-        },
-        RpcCall::McpList { call_id } => RpcResult::McpList {
-            call_id: *call_id,
-            relays: Default::default(),
-        },
         RpcCall::PairList { call_id } => RpcResult::PairList {
             call_id: *call_id,
             requests: Default::default(),

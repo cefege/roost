@@ -24,20 +24,18 @@ use std::collections::BTreeSet;
 
 use roost_coord::events::bus_messages::WorkerRoutableSet;
 use roost_coord::sync_ws::egress::FlushStep;
-use roost_coord::sync_ws::feed::frames::{mcp_frame, session_message_frame};
+use roost_coord::sync_ws::feed::frames::session_message_frame;
 use roost_coord::sync_ws::feed::worker_frames::{worker_presence_frame, worker_routable_frame};
 use roost_coord::sync_ws::frame_meta::{FeedLane, SyncFrameMeta, frame_meta_for};
 use roost_coord::sync_ws::terminal::snapshot::NoTerminalSnapshotHub;
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
-use roost_proto::__buffa::oneof::mcp_stream_message_proto::Kind as McpKind;
 use roost_proto::__buffa::oneof::worker_presence_proto::Kind as PresenceKind;
-use roost_proto::{McpStreamMessageProto, WorkerPresenceProto};
-use roost_protocol::wire::{McpRelayEvent, McpRelayId, McpStreamMessage, WorkerPresenceEvent};
-use serde_json::json;
+use roost_proto::WorkerPresenceProto;
+use roost_protocol::wire::WorkerPresenceEvent;
 
 use sync_feed_support::{
-    RELAY_A, SESSION_A, WORKER_A, WORKER_B, acknowledge, cell_frame, closed_message,
-    hydrated_terminal, oneof_of, opened_message, worker, worker_registration,
+    SESSION_A, WORKER_A, WORKER_B, acknowledge, cell_frame, closed_message, hydrated_terminal,
+    oneof_of, opened_message, worker, worker_registration,
 };
 
 #[test]
@@ -130,33 +128,6 @@ fn a_cell_for_a_session_that_was_closed_never_goes_out() {
          output from a session the client has just been told is gone, and must \
          never be sent"
     );
-}
-
-#[test]
-fn an_mcp_relay_event_carries_its_payload_as_json_text() {
-    let payload = json!({"jsonrpc":"2.0","method":"notifications/initialized"});
-    let frame = mcp_frame(&McpStreamMessage::Event(McpRelayEvent {
-        relay_id: McpRelayId::try_from(RELAY_A).expect("the constant is a uuid"),
-        payload: payload.clone(),
-        ts: 1_700_000_000_000,
-    }))
-    .expect("a JSON payload always serialises");
-    match oneof_of(&frame) {
-        // The oneof holds a `Box` for every message arm, so the payload is
-        // destructured through the box rather than through Deref sugar that
-        // would hide where the allocation is.
-        Frame::McpMsg(message) => match *message {
-            McpStreamMessageProto {
-                kind: Some(McpKind::Event(event)),
-                ..
-            } => {
-                assert_eq!(event.relay_id, RELAY_A);
-                assert_eq!(event.payload_json, payload.to_string());
-            }
-            other => panic!("a relay event must produce an event arm, got {other:?}"),
-        },
-        other => panic!("a relay event must produce an mcp arm, got {other:?}"),
-    }
 }
 
 #[test]

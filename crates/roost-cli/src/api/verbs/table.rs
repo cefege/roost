@@ -165,24 +165,6 @@ pub const VERBS: &[VerbSpec] = &[
         options: NO_OPTIONS,
     },
     VerbSpec {
-        verb: "tasks",
-        usage: "roost api tasks [--state <state>]",
-        positionals: (0, 0),
-        options: &[valued("--state")],
-    },
-    VerbSpec {
-        verb: "task-enqueue",
-        usage: "roost api task-enqueue <payload-json>",
-        positionals: (1, 1),
-        options: NO_OPTIONS,
-    },
-    VerbSpec {
-        verb: "task-cancel",
-        usage: "roost api task-cancel <id>",
-        positionals: (1, 1),
-        options: NO_OPTIONS,
-    },
-    VerbSpec {
         verb: "ui",
         usage: "roost api ui <command> [<arg>...] [--tab <tab-id>]",
         positionals: (1, usize::MAX),

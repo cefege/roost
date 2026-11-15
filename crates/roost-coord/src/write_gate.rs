@@ -201,20 +201,11 @@ pub fn method_holds_lease(method: &str) -> bool {
             | "SessionsRename"
             | "SessionsCursorPos"
             | "SessionsAssignWorkspace"
-        // Tasks.
-            | "TasksEnqueue"
-            | "TasksNextPending"
-            | "TasksSetState"
-            | "TasksCancel"
         // Workspaces.
             | "WorkspacesCreate"
             | "WorkspacesUpdate"
             | "WorkspacesDelete"
             | "WorkspacesSetSessions"
-        // MCP relays: a relay outlives the RPC that created it.
-            | "McpCreate"
-            | "McpDelete"
-            | "McpPublish"
         // Auth, pairing and device lifecycle: a revocation must not race a
         // mutation that the revocation is supposed to fence.
             | "AuthMintBootstrap"

@@ -220,7 +220,6 @@ fn a_budget_is_chosen_per_rpc_and_never_inherited_by_a_sibling() {
 
     for read in [
         "WorkspacesList",
-        "TasksNextPending",
         "TranscriptionGetConfig",
         "UiReportState",
         "UiListStates",

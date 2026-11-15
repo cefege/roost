@@ -7,8 +7,8 @@
 
 use roost_proto::{
     AuthCoordIdentityRequest, AuthRedeemBrowserRequest, FilesListDirRequest, FilesMkdirRequest,
-    McpListRequest, PairListRequest, SessionsCancelGlobalSearchRequest, SessionsListRequest,
-    SessionsSearchGlobalRequest, TasksListRequest, WorkersListRequest, WorkspacesListRequest,
+    PairListRequest, SessionsCancelGlobalSearchRequest, SessionsListRequest,
+    SessionsSearchGlobalRequest, WorkersListRequest, WorkspacesListRequest,
 };
 
 use super::{RpcCodecError, encode_message as encode};
@@ -32,9 +32,6 @@ pub fn encode_rpc_request(call: &RpcCall) -> Result<Vec<u8>, RpcCodecError> {
         ),
         RpcCall::WorkersList { .. } => encode(method, &WorkersListRequest::default()),
         RpcCall::WorkspacesList { .. } => encode(method, &WorkspacesListRequest::default()),
-        // No state filter: the tasks domain snapshot is every task.
-        RpcCall::TasksList { .. } => encode(method, &TasksListRequest::default()),
-        RpcCall::McpList { .. } => encode(method, &McpListRequest::default()),
         RpcCall::PairList { .. } => encode(method, &PairListRequest::default()),
         RpcCall::RedeemPairToken {
             token,

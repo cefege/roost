@@ -1,29 +1,18 @@
 //! The one place a coordinator identifier is minted, and the one entropy
-//! source behind the ones that are random.
+//! source behind it.
 //!
 //! Owned by `coord_core`, because every domain that needs an id needs it and a
-//! per-domain copy is how the same value gets written twice. Three things live
-//! here and nothing else does: where randomness comes from, how sixteen bytes
-//! become a v4-shaped id, and the one deterministic id a row key needs.
+//! per-domain copy is how the same value gets written twice. Two things live
+//! here and nothing else does: where randomness comes from, and how sixteen
+//! bytes become a v4-shaped id.
 //!
-//! WHY THESE ARE ONE CONCEPT AND NOT THREE UTILITIES. `sessions::mcp` opened
-//! `/dev/urandom` and forced the version nibbles itself, and
-//! `push::vapid` opened the same device for its scalar. Two copies of the
-//! entropy source are a fork the moment one of them needs a different one, and
-//! the nibble-forcing is the part a reader has to verify
-//! by hand: get it wrong and the id is a valid-looking uuid that nothing
-//! generated, which no test notices because it still parses.
-//!
-//! THE DETERMINISTIC ONE IS NOT A VARIANT OF THE OTHER. A task id is a ROW KEY:
-//! any device may claim the next pending task without naming one, so uniqueness
-//! has to come from the process epoch, the boot time and a counter, and no RNG
-//! belongs in it. An MCP relay id is a minted capability name and randomness is
-//! the whole point. Two sources, one module, and the comment on each says which
-//! rule it is obeying.
+//! WHY THESE ARE ONE CONCEPT AND NOT TWO UTILITIES. Two copies of the entropy
+//! source are a fork the moment one of them needs a different one, and the
+//! nibble-forcing is the part a reader has to verify by hand: get it wrong and
+//! the id is a valid-looking uuid that nothing generated, which no test notices
+//! because it still parses.
 
 use std::io::Error as IoError;
-
-use sha2::{Digest, Sha256};
 
 /// Draw `N` bytes from the operating system's CSPRNG.
 ///
@@ -56,27 +45,4 @@ pub fn render_v4(bytes: [u8; 16]) -> String {
         .map(|ends| &hex[ends[0]..ends[1]])
         .collect::<Vec<_>>()
         .join("-")
-}
-
-/// A fresh task row key.
-///
-/// **No RNG, deliberately.** A task id is a ROW KEY and not a capability — any
-/// device may claim the next pending task without naming one — so uniqueness
-/// comes from the process epoch, the boot time and a counter, and every restart
-/// starts a distinguishable range. Randomness here would be a second source
-/// where a derived one is provably unique within a boot.
-///
-/// The counter is the only mutable state in the crate, it is an
-/// `AtomicU64` behind a function, and it exists because a derived id must not
-/// repeat inside the process that derived it.
-pub fn new_task_id(process_epoch: &str, boot_ms: i64) -> String {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static SEQUENCE: AtomicU64 = AtomicU64::new(1);
-    let mut digest = Sha256::new();
-    digest.update(process_epoch.as_bytes());
-    digest.update(boot_ms.to_be_bytes());
-    digest.update(SEQUENCE.fetch_add(1, Ordering::Relaxed).to_be_bytes());
-    let mut bytes = [0_u8; 16];
-    bytes.copy_from_slice(&digest.finalize()[..16]);
-    render_v4(bytes)
 }

@@ -47,16 +47,9 @@ use crate::diagnostics::rpc_transcription::{
     handle_transcription_set_config, handle_transcription_test,
 };
 use crate::push::rpc::{handle_push_get_config, handle_push_subscribe, handle_push_unsubscribe};
-use crate::sessions::mcp::{
-    handle_mcp_create, handle_mcp_delete, handle_mcp_list, handle_mcp_publish,
-};
 use crate::sessions::rpc_workspaces::{
     handle_workspaces_create, handle_workspaces_delete, handle_workspaces_list,
     handle_workspaces_set_sessions, handle_workspaces_update,
-};
-use crate::sessions::tasks::{
-    handle_tasks_cancel, handle_tasks_enqueue, handle_tasks_list, handle_tasks_next_pending,
-    handle_tasks_set_state,
 };
 use crate::terminal_screen::image_rpc::handle_sessions_get_terminal_image;
 use crate::terminal_screen::rpc::{
@@ -540,114 +533,6 @@ impl CoordinatorService for CoordinatorServiceImpl {
         }
     }
 
-    fn tasks_list<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, TasksListRequest>,
-    ) -> impl Future<Output = ServiceResult<impl Encodable<TasksListResponse> + Send + use<'a>>> + Send
-    {
-        async move {
-            let caller = caller_of(&ctx, "TasksList")?;
-            handle_tasks_list(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn tasks_enqueue<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, TasksEnqueueRequest>,
-    ) -> impl Future<Output = ServiceResult<impl Encodable<TasksEnqueueResponse> + Send + use<'a>>> + Send
-    {
-        async move {
-            let caller = caller_of(&ctx, "TasksEnqueue")?;
-            handle_tasks_enqueue(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn tasks_next_pending<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, TasksNextPendingRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<TasksNextPendingResponse> + Send + use<'a>>,
-    > + Send {
-        async move {
-            let caller = caller_of(&ctx, "TasksNextPending")?;
-            handle_tasks_next_pending(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn tasks_set_state<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, TasksSetStateRequest>,
-    ) -> impl Future<Output = ServiceResult<impl Encodable<TasksSetStateResponse> + Send + use<'a>>> + Send
-    {
-        async move {
-            let caller = caller_of(&ctx, "TasksSetState")?;
-            handle_tasks_set_state(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn tasks_cancel<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, TasksCancelRequest>,
-    ) -> impl Future<Output = ServiceResult<impl Encodable<TasksCancelResponse> + Send + use<'a>>> + Send
-    {
-        async move {
-            let caller = caller_of(&ctx, "TasksCancel")?;
-            handle_tasks_cancel(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn mcp_list<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, McpListRequest>,
-    ) -> impl Future<Output = ServiceResult<impl Encodable<McpListResponse> + Send + use<'a>>> + Send
-    {
-        async move {
-            let caller = caller_of(&ctx, "McpList")?;
-            handle_mcp_list(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn mcp_create<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, McpCreateRequest>,
-    ) -> impl Future<Output = ServiceResult<impl Encodable<McpCreateResponse> + Send + use<'a>>> + Send
-    {
-        async move {
-            let caller = caller_of(&ctx, "McpCreate")?;
-            handle_mcp_create(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn mcp_delete<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, McpDeleteRequest>,
-    ) -> impl Future<Output = ServiceResult<impl Encodable<McpDeleteResponse> + Send + use<'a>>> + Send
-    {
-        async move {
-            let caller = caller_of(&ctx, "McpDelete")?;
-            handle_mcp_delete(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn mcp_publish<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, McpPublishRequest>,
-    ) -> impl Future<Output = ServiceResult<impl Encodable<McpPublishResponse> + Send + use<'a>>> + Send
-    {
-        async move {
-            let caller = caller_of(&ctx, "McpPublish")?;
-            handle_mcp_publish(&self.core, caller, r.to_owned_message()).await
-        }
-    }
     fn clipboard_list<'a>(
         &'a self,
         ctx: RequestContext,

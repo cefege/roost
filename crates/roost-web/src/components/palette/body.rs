@@ -17,7 +17,6 @@ use roost_client_core::store::navigation::worker_online;
 use roost_client_core::store::palette::{
     CommandPaletteContext, PaletteItem, PaletteTarget, build_default_items, matches_query,
 };
-use roost_client_core::store::paths::folder_key_of;
 use roost_client_core::store::sidebar::documents::store_navigation_documents;
 use roost_client_core::store::{SessionStatus, Store};
 
@@ -163,9 +162,8 @@ fn select_handler(
 
 /// The catalog's context, compiled from the route the reader is on.
 ///
-/// A route that resolves to a CLOSED session has no target: the folder it names
-/// is a row in the store, not a place a task can be queued, and offering the
-/// command is how it ends up failing on press.
+/// A route that resolves to a CLOSED session has no target: a command against
+/// it fails on press, so none is offered.
 fn palette_context(store: &Store, path: &str, now_ms: i64) -> CommandPaletteContext {
     let open_session = active_session_for_path(store, &BrowserWorkerPaths, path)
         .filter(|session| session.status == SessionStatus::Open);
@@ -180,16 +178,6 @@ fn palette_context(store: &Store, path: &str, now_ms: i64) -> CommandPaletteCont
         auth_generation: store.auth_generation,
         active_session: Some(PaletteTarget {
             id: session.id.as_str().to_owned(),
-            worker_fp: worker_fp.to_owned(),
-            cwd: session.cwd.clone(),
-        }),
-        active_folder: Some(PaletteTarget {
-            id: folder_key_of(
-                &BrowserWorkerPaths,
-                crate::terminal_href::worker_os(store, worker_fp),
-                worker_fp,
-                &session.cwd,
-            ),
             worker_fp: worker_fp.to_owned(),
             cwd: session.cwd.clone(),
         }),

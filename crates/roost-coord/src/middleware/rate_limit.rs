@@ -64,14 +64,6 @@ pub const RATE_LIMITED_METHODS: &[&str] = &[
     "WorkspacesUpdate",
     "WorkspacesDelete",
     "WorkspacesSetSessions",
-    // Task mutations. `TasksNextPending` is absent because workers poll it on a
-    // backoff schedule; the three here are the user surfaces.
-    "TasksEnqueue",
-    "TasksSetState",
-    "TasksCancel",
-    "McpCreate",
-    "McpDelete",
-    "McpPublish",
     // Worker control-plane mutations. Register and Heartbeat are absent: the
     // workers send them on a fixed cadence, and throttling a worker throttles
     // the terminal it is carrying.

@@ -59,9 +59,9 @@ impl SyncResourceIndex {
             .collect()
     }
 
-    /// Whether this socket sees install-wide resources -- tasks, MCP relays,
-    /// pair requests and audit rows -- which have no worker owner and so no
-    /// worker socket is one of their viewers.
+    /// Whether this socket sees install-wide resources -- pair requests and
+    /// audit rows -- which have no worker owner and so no worker socket is one
+    /// of their viewers.
     #[must_use]
     pub fn is_install_wide(&self) -> bool {
         self.owner_worker_fp.is_none()

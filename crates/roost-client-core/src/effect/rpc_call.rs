@@ -43,16 +43,6 @@ pub enum RpcCall {
         /// Correlates the answer with this call.
         call_id: u64,
     },
-    /// `TasksList` — the tasks domain's snapshot, every state.
-    TasksList {
-        /// Correlates the answer with this call.
-        call_id: u64,
-    },
-    /// `McpList` — the MCP relay registry's snapshot.
-    McpList {
-        /// Correlates the answer with this call.
-        call_id: u64,
-    },
     /// `PairList` — the pending tap-to-pair requests' snapshot.
     PairList {
         /// Correlates the answer with this call.
@@ -158,8 +148,6 @@ pub fn hydration_call(domain: SyncDomain, call_id: u64, sync_socket_id: &str) ->
         }),
         SyncDomain::Workers => Some(RpcCall::WorkersList { call_id }),
         SyncDomain::Workspaces => Some(RpcCall::WorkspacesList { call_id }),
-        SyncDomain::Tasks => Some(RpcCall::TasksList { call_id }),
-        SyncDomain::Mcp => Some(RpcCall::McpList { call_id }),
         SyncDomain::Pair => Some(RpcCall::PairList { call_id }),
         SyncDomain::Audit => None,
     }

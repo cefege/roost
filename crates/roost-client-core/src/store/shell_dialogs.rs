@@ -1,10 +1,8 @@
-//! The two authenticated dialogs the shell hosts: "Rename…" (one active request,
-//! opened from a session or folder row's menu) and "Queue a task" (open flag and
-//! its prefill). Ports `apps/web/src/store/renameDialog.ts` and
-//! `apps/web/src/store/queueTaskDialog.ts`; mutated through
-//! `shell_intent::ShellIntent`, read by roost-web's `RenameDialogHost` and the
-//! queue-task dialog, and emptied at every credential boundary because both can
-//! hold a path, a name or an action from the retired account.
+//! The authenticated dialog the shell hosts: "Rename…" (one active request,
+//! opened from a session or folder row's menu). Mutated through
+//! `shell_intent::ShellIntent`, read by roost-web's `RenameDialogHost`, and
+//! emptied at every credential boundary because it can hold a name from the
+//! retired account.
 
 /// What a rename commits to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,26 +36,11 @@ pub struct RenameDialogRequest {
     pub target: RenameTarget,
 }
 
-/// The "Queue a task" dialog's state.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct QueueTaskDialog {
-    /// Whether it is open.
-    pub open: bool,
-    /// The folder to prefill.
-    pub prefill_cwd: Option<String>,
-    /// The task body to prefill.
-    pub prefill_body: Option<String>,
-    /// The machine to pin.
-    pub prefill_worker_fp: Option<String>,
-}
-
-/// Both dialogs.
+/// The shell's dialogs.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ShellDialogs {
     /// The active rename request.
     pub rename: Option<RenameDialogRequest>,
-    /// The queue-task dialog.
-    pub queue_task: QueueTaskDialog,
 }
 
 impl ShellDialogs {
@@ -73,31 +56,7 @@ impl ShellDialogs {
         self.rename.take().is_some()
     }
 
-    /// Open the queue-task dialog with its prefill (each absent field cleared).
-    pub fn open_queue_task(
-        &mut self,
-        cwd: Option<String>,
-        body: Option<String>,
-        worker_fp: Option<String>,
-    ) -> bool {
-        let next = QueueTaskDialog {
-            open: true,
-            prefill_cwd: cwd,
-            prefill_body: body,
-            prefill_worker_fp: worker_fp,
-        };
-        let changed = self.queue_task != next;
-        self.queue_task = next;
-        changed
-    }
-
-    /// Close the queue-task dialog; the prefill stays for the TaskEditor's
-    /// unmount, as v2 left it.
-    pub fn close_queue_task(&mut self) -> bool {
-        std::mem::replace(&mut self.queue_task.open, false)
-    }
-
-    /// The credential boundary: close both and forget every captured value.
+    /// The credential boundary: close it and forget every captured value.
     pub fn clear_all(&mut self) -> bool {
         let had_any = *self != Self::default();
         *self = Self::default();

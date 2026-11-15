@@ -289,8 +289,6 @@ pub fn frame_kind(frame: &FirehoseFrame) -> &'static str {
         Some(Frame::AuditRow(_)) => "audit_row",
         Some(Frame::SessionEvent(_)) => "session_event",
         Some(Frame::WorkspaceDelta(_)) => "workspace_delta",
-        Some(Frame::TaskDelta(_)) => "task_delta",
-        Some(Frame::McpMsg(_)) => "mcp_msg",
         Some(Frame::WorkerPresence(_)) => "worker_presence",
         Some(Frame::WorkerRoutable(_)) => "worker_routable",
         Some(Frame::CellGrid(_)) => "cell_grid",

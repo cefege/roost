@@ -290,6 +290,15 @@ code reads it); the native-only `AgentChatInspect`, `AgentChatAnswer`,
 cargo feature with the 51 Rust-native chat and settings modules it kept
 compiled.
 
+Also dropped: the MCP relay registry (the `McpList`, `McpCreate`, `McpDelete`
+and `McpPublish` RPCs, `SYNC_DOMAIN_MCP` and the `mcp_msg` Sync frame), which
+nothing relayed through, and the task queue (the `TasksList`, `TasksEnqueue`,
+`TasksNextPending`, `TasksSetState` and `TasksCancel` RPCs, `SYNC_DOMAIN_TASKS`
+and the `task_delta` Sync frame, the `roost api tasks`, `task-enqueue` and
+`task-cancel` verbs, and the palette's "Queue task for this folder" row with
+`ShellIntent::OpenQueueTaskDialog`), which no worker ever executed. The `tasks`
+and `mcp_relays` tables stay in place as inert history.
+
 The dedicated OMP integration is retired too: managed ACP processes, HTML chat,
 agent RPCs and Sync frames, status detection/reporting, fenced prompts, agent
 configuration and autolaunch, the `roost skill` command, bundled executables,

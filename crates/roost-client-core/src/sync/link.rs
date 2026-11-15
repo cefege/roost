@@ -71,10 +71,6 @@ pub enum SyncDomain {
     Workers,
     /// Workspace metadata.
     Workspaces,
-    /// Task metadata.
-    Tasks,
-    /// MCP relay traffic.
-    Mcp,
     /// Pairing ceremony.
     Pair,
     /// Audit rows.
@@ -83,12 +79,10 @@ pub enum SyncDomain {
 
 impl SyncDomain {
     /// Every domain, in the coordinator's own order.
-    pub const ALL: [SyncDomain; 7] = [
+    pub const ALL: [SyncDomain; 5] = [
         SyncDomain::Terminal,
         SyncDomain::Workers,
         SyncDomain::Workspaces,
-        SyncDomain::Tasks,
-        SyncDomain::Mcp,
         SyncDomain::Pair,
         SyncDomain::Audit,
     ];
@@ -100,8 +94,6 @@ impl SyncDomain {
             Self::Terminal => 1,
             Self::Workers => 2,
             Self::Workspaces => 3,
-            Self::Tasks => 4,
-            Self::Mcp => 6,
             Self::Pair => 7,
             Self::Audit => 9,
         }
@@ -113,8 +105,6 @@ impl SyncDomain {
             Self::Terminal => "SYNC_DOMAIN_TERMINAL",
             Self::Workers => "SYNC_DOMAIN_WORKERS",
             Self::Workspaces => "SYNC_DOMAIN_WORKSPACES",
-            Self::Tasks => "SYNC_DOMAIN_TASKS",
-            Self::Mcp => "SYNC_DOMAIN_MCP",
             Self::Pair => "SYNC_DOMAIN_PAIR",
             Self::Audit => "SYNC_DOMAIN_AUDIT",
         }

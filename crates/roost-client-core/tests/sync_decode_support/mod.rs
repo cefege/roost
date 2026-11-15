@@ -35,8 +35,6 @@ pub fn wire_domain(domain: SyncDomain) -> roost_proto::SyncDomain {
         SyncDomain::Terminal => roost_proto::SyncDomain::Terminal,
         SyncDomain::Workers => roost_proto::SyncDomain::Workers,
         SyncDomain::Workspaces => roost_proto::SyncDomain::Workspaces,
-        SyncDomain::Tasks => roost_proto::SyncDomain::Tasks,
-        SyncDomain::Mcp => roost_proto::SyncDomain::Mcp,
         SyncDomain::Pair => roost_proto::SyncDomain::Pair,
         SyncDomain::Audit => roost_proto::SyncDomain::Audit,
     }

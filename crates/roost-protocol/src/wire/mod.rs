@@ -17,22 +17,18 @@ pub mod event;
 pub mod event_proto;
 pub mod headers;
 pub mod live_metrics;
-pub mod mcp;
 pub mod pairing;
 pub mod session;
 pub mod session_proto;
 pub mod sync_ws;
-pub mod task;
 pub mod worker;
 pub mod workspace;
 
-pub use brand::{ChannelId, McpRelayId, SessionId, TaskId, TraceId, WorkerFp, WorkspaceId};
+pub use brand::{ChannelId, SessionId, TraceId, WorkerFp, WorkspaceId};
 pub use event::{SessionEvent, SessionMap, fold_all, fold_event};
 pub use event_proto::{DecodedEvent, event_to_proto, proto_to_event};
-pub use mcp::{McpRelay, McpRelayDelta, McpRelayEvent, McpRelayKind, McpStreamMessage};
 pub use session::{PullRequestChecks, PullRequestState, Session, SessionKind, SessionStatus};
 pub use session_proto::{session_from_proto, session_to_proto};
-pub use task::{Task, TaskDelta, TaskState};
 pub use worker::{
     HOST_IDENTITY_VALUE_MAX_UTF8_BYTES, HostIdentity, HostMetrics, TerminalCoreCapacityReport,
     Worker, WorkerOs, WorkerPresenceEvent, normalize_host_identity, normalize_host_identity_text,

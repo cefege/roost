@@ -240,32 +240,6 @@ message Workspace {
   repeated string session_ids = 10;
 }
 
-// ─── Task ──────────────────────────────────────────────────────────────────
-
-message Task {
-  string id = 1;
-  string state = 2;  // pending|claimed|running|done|failed|cancelled
-  string payload_json = 3;  // raw JSON; coord stores as text
-  uint64 enqueued_at_ms = 4;
-  optional uint64 claimed_at_ms = 5;
-  optional string claimed_by = 6;
-  optional uint64 finished_at_ms = 7;
-  optional string result_json = 8;  // raw JSON or absent
-  optional string completion_check = 9;
-  optional uint64 completion_check_last_attempt_ms = 10;
-  uint64 claim_ttl_ms = 11;
-}
-
-// ─── McpRelay ─────────────────────────────────────────────────────────────
-
-message McpRelay {
-  string id = 1;
-  string label = 2;
-  string kind = 3;  // stdio|sse
-  string config_json = 4;  // raw JSON for free-form config
-  uint64 created_at_ms = 5;
-}
-
 // ─── PairRequest ──────────────────────────────────────────────────────────
 
 message PairRequest {

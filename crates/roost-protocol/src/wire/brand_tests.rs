@@ -23,8 +23,6 @@ fn a_uuid_id_accepts_either_case_and_rejects_a_fingerprint() {
     // id, even though both passed *a* shape check.
     assert!(SessionId::try_from(FINGERPRINT).is_err());
     assert!(WorkspaceId::try_from(FINGERPRINT).is_err());
-    assert!(TaskId::try_from(FINGERPRINT).is_err());
-    assert!(McpRelayId::try_from(FINGERPRINT).is_err());
 }
 
 #[test]

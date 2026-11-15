@@ -1,5 +1,5 @@
 //! The registry arms, decoded from the frames `roost-coord`'s feed builds and
-//! applied through `ClientCore::handle`: workspaces, tasks, MCP relays and
+//! applied through `ClientCore::handle`: workspaces and
 //! worker presence. The routable set and audit rows are `sync_decode_routable`.
 //!
 //! Ported from v2 `apps/web/src/store/sync-handlers.ts`.
@@ -9,22 +9,17 @@ mod sync_decode_support;
 
 use roost_client_core::SyncDomain;
 use roost_client_core::event::ClientEvent;
-use roost_client_core::sync::decode::DecodeRefusal;
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
-use roost_proto::__buffa::oneof::mcp_stream_message_proto::Kind as McpKind;
-use roost_proto::__buffa::oneof::task_delta_proto::Kind as TaskKind;
 use roost_proto::__buffa::oneof::worker_presence_proto::Kind as PresenceKind;
 use roost_proto::__buffa::oneof::workspace_delta_proto::Kind as WorkspaceKind;
 use roost_proto::{
-    McpRelay, McpStreamMessageProto, Task, TaskDeltaProto, Worker, WorkerHeartbeat,
-    WorkerPresenceProto, Workspace, WorkspaceDeltaProto, WorkspaceSessionsSet,
+    Worker, WorkerHeartbeat, WorkerPresenceProto, Workspace, WorkspaceDeltaProto,
+    WorkspaceSessionsSet,
 };
 
-use sync_decode_support::{SESSION, WORKER_FP, acked, application, deliver, ready_core, refused};
+use sync_decode_support::{SESSION, WORKER_FP, acked, application, deliver, ready_core};
 
 const WORKSPACE: &str = "00000000-0000-4000-8000-0000000000a1";
-const TASK: &str = "00000000-0000-4000-8000-0000000000b1";
-const RELAY: &str = "00000000-0000-4000-8000-0000000000c1";
 
 fn workspace_arm(kind: WorkspaceKind) -> Frame {
     Frame::WorkspaceDelta(Box::new(WorkspaceDeltaProto {
@@ -104,110 +99,6 @@ fn a_registry_frame_waits_for_its_own_domain_not_any_ready_domain() {
     );
     assert!(acked(&effects).is_empty());
     assert!(core.store().workspaces.is_empty());
-}
-
-#[test]
-fn a_task_row_replaces_the_held_one_and_a_bad_payload_closes_the_link() {
-    let (mut core, generation) = ready_core();
-    let task = |state: &str, payload_json: &str| Task {
-        id: TASK.to_owned(),
-        state: state.to_owned(),
-        payload_json: payload_json.to_owned(),
-        enqueued_at_ms: 100,
-        claim_ttl_ms: 60_000,
-        ..Task::default()
-    };
-    let arm = |kind| {
-        Frame::TaskDelta(Box::new(TaskDeltaProto {
-            kind: Some(kind),
-            ..TaskDeltaProto::default()
-        }))
-    };
-    let created = arm(TaskKind::Created(Box::new(task(
-        "pending",
-        r#"{"kind":"deploy"}"#,
-    ))));
-    deliver(
-        &mut core,
-        generation,
-        &application(SyncDomain::Tasks, 1, created),
-    );
-    let moved = arm(TaskKind::State(Box::new(task(
-        "running",
-        r#"{"kind":"deploy"}"#,
-    ))));
-    deliver(
-        &mut core,
-        generation,
-        &application(SyncDomain::Tasks, 2, moved),
-    );
-    assert_eq!(core.store().tasks[TASK].state.as_str(), "running");
-
-    // v2's adapter returns null for a malformed payload; `_foldDelta` then
-    // reports the frame unconsumed and the link is closed.
-    let broken = arm(TaskKind::State(Box::new(task("done", "{oops"))));
-    assert!(matches!(
-        refused(&application(SyncDomain::Tasks, 3, broken)),
-        DecodeRefusal::MalformedArm {
-            arm: "task_delta",
-            ..
-        }
-    ));
-}
-
-#[test]
-fn a_relay_is_upserted_and_deleted_and_a_relay_event_changes_no_registry_row() {
-    let (mut core, generation) = ready_core();
-    let arm = |kind| {
-        Frame::McpMsg(Box::new(McpStreamMessageProto {
-            kind: Some(kind),
-            ..McpStreamMessageProto::default()
-        }))
-    };
-    let relay = McpRelay {
-        id: RELAY.to_owned(),
-        label: "docs".to_owned(),
-        kind: "stdio".to_owned(),
-        config_json: r#"{"command":"docs-mcp"}"#.to_owned(),
-        created_at_ms: 5,
-        ..McpRelay::default()
-    };
-    deliver(
-        &mut core,
-        generation,
-        &application(SyncDomain::Mcp, 1, arm(McpKind::Created(Box::new(relay)))),
-    );
-    assert_eq!(core.store().mcp_relays[RELAY].label, "docs");
-
-    let revision = core.store().revision();
-    let event = McpKind::Event(Box::new(roost_proto::McpRelayEvent {
-        relay_id: RELAY.to_owned(),
-        payload_json: r#"{"line":"ready"}"#.to_owned(),
-        ts: 6,
-        ..roost_proto::McpRelayEvent::default()
-    }));
-    let effects = deliver(
-        &mut core,
-        generation,
-        &application(SyncDomain::Mcp, 2, arm(event)),
-    );
-    assert_eq!(acked(&effects), vec![2]);
-    assert_eq!(
-        core.store().revision(),
-        revision,
-        "a relay event is not registry state"
-    );
-
-    deliver(
-        &mut core,
-        generation,
-        &application(
-            SyncDomain::Mcp,
-            3,
-            arm(McpKind::DeletedId(RELAY.to_owned())),
-        ),
-    );
-    assert!(core.store().mcp_relays.is_empty());
 }
 
 fn presence_arm(kind: PresenceKind) -> Frame {

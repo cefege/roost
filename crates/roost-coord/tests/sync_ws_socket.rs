@@ -16,17 +16,17 @@ use roost_proto::__buffa::oneof::firehose_frame::Frame;
 use roost_proto::SyncDomain;
 
 use sync_ws_socket_support::{
-    EXPECT, QUIET, SyncFixture, domain_ready, generation_of, next_firehose, read_subscribed,
-    send_client_frame, task_id_of,
+    EXPECT, QUIET, SyncFixture, domain_ready, generation_of, next_firehose, pair_request_id_of,
+    read_subscribed, send_client_frame,
 };
 use ws_client_support::{Dialed, close_code};
 
-/// A task payload that fits the 4 MiB window three times and not four.
+/// A pair-request label that fits the 4 MiB window three times and not four.
 const LARGE_PAYLOAD: usize = 1_200_000;
 
 // v2 sync-ws-keepalive-upgrade.test.ts: an admitted upgrade answers 101 and
 // echoes `roost-auth`, never the credential; the v2 socket opens with the
-// `subscribed` barrier naming this process's epoch and all seven domains.
+// `subscribed` barrier naming this process's epoch and all five domains.
 #[tokio::test]
 async fn an_admitted_sync_upgrade_switches_protocols_and_echoes_only_the_marker() {
     let fixture = SyncFixture::start("upgrade").await;
@@ -45,7 +45,7 @@ async fn an_admitted_sync_upgrade_switches_protocols_and_echoes_only_the_marker(
         subscribed.process_epoch,
         fixture.services.feed.process_epoch()
     );
-    assert_eq!(subscribed.generations.len(), 7);
+    assert_eq!(subscribed.generations.len(), 5);
     let audit = subscribed
         .generations
         .iter()
@@ -66,7 +66,7 @@ async fn an_unverifiable_credential_is_refused_before_the_upgrade() {
 }
 
 // v2 sync-audit-subscription.test.ts "holds live rows through the snapshot
-// barrier", for the tasks domain: frames published before `domain_ready` are
+// barrier", for the pair domain: frames published before `domain_ready` are
 // held, and after it they flow in publication order under sequences 1, 2, 3
 // stamped with the domain's announced generation.
 #[tokio::test]
@@ -75,10 +75,10 @@ async fn a_domain_is_held_until_ready_and_then_flows_in_order() {
     let (_fp, token) = fixture.enroll_browser(8).await;
     let mut socket = fixture.dial_sync("flow=1&sync_v=2", &token).await.socket();
     let subscribed = read_subscribed(&mut socket).await;
-    let generation = generation_of(&subscribed, SyncDomain::Tasks);
+    let generation = generation_of(&subscribed, SyncDomain::Pair);
 
-    fixture.publish_task("task-1", 8);
-    fixture.publish_task("task-2", 8);
+    fixture.publish_pair_request("pair-1", 8);
+    fixture.publish_pair_request("pair-2", 8);
     assert!(
         next_firehose(&mut socket, QUIET).await.is_none(),
         "a domain that is not ready delivers nothing"
@@ -88,18 +88,18 @@ async fn a_domain_is_held_until_ready_and_then_flows_in_order() {
         &mut socket,
         &subscribed.socket_id,
         None,
-        Some(domain_ready(SyncDomain::Tasks, generation)),
+        Some(domain_ready(SyncDomain::Pair, generation)),
     )
     .await;
-    fixture.publish_task("task-3", 8);
-    for (expected_seq, expected_id) in [(1, "task-1"), (2, "task-2"), (3, "task-3")] {
+    fixture.publish_pair_request("pair-3", 8);
+    for (expected_seq, expected_id) in [(1, "pair-1"), (2, "pair-2"), (3, "pair-3")] {
         let frame = next_firehose(&mut socket, EXPECT)
             .await
-            .expect("a task frame");
+            .expect("a pair request frame");
         assert_eq!(frame.delivery_seq, expected_seq);
-        assert_eq!(frame.domain.as_known(), Some(SyncDomain::Tasks));
+        assert_eq!(frame.domain.as_known(), Some(SyncDomain::Pair));
         assert_eq!(frame.domain_generation, generation);
-        assert_eq!(task_id_of(&frame), expected_id);
+        assert_eq!(pair_request_id_of(&frame), expected_id);
     }
 }
 
@@ -113,23 +113,26 @@ async fn an_ack_releases_the_frame_a_full_window_held() {
     let (_fp, token) = fixture.enroll_browser(9).await;
     let mut socket = fixture.dial_sync("flow=1&sync_v=2", &token).await.socket();
     let subscribed = read_subscribed(&mut socket).await;
-    let generation = generation_of(&subscribed, SyncDomain::Tasks);
+    let generation = generation_of(&subscribed, SyncDomain::Pair);
     send_client_frame(
         &mut socket,
         &subscribed.socket_id,
         None,
-        Some(domain_ready(SyncDomain::Tasks, generation)),
+        Some(domain_ready(SyncDomain::Pair, generation)),
     )
     .await;
 
     for (seq, id) in [(1, "big-1"), (2, "big-2"), (3, "big-3")] {
-        fixture.publish_task(id, LARGE_PAYLOAD);
+        fixture.publish_pair_request(id, LARGE_PAYLOAD);
         let frame = next_firehose(&mut socket, EXPECT)
             .await
             .expect("a large frame");
-        assert_eq!((frame.delivery_seq, task_id_of(&frame).as_str()), (seq, id));
+        assert_eq!(
+            (frame.delivery_seq, pair_request_id_of(&frame).as_str()),
+            (seq, id)
+        );
     }
-    fixture.publish_task("big-4", LARGE_PAYLOAD);
+    fixture.publish_pair_request("big-4", LARGE_PAYLOAD);
     assert!(
         next_firehose(&mut socket, QUIET).await.is_none(),
         "the fourth frame would pass 4 MiB unacknowledged"
@@ -140,7 +143,7 @@ async fn an_ack_releases_the_frame_a_full_window_held() {
         .await
         .expect("the held frame");
     assert_eq!(
-        (held.delivery_seq, task_id_of(&held).as_str()),
+        (held.delivery_seq, pair_request_id_of(&held).as_str()),
         (4, "big-4")
     );
 
@@ -149,12 +152,12 @@ async fn an_ack_releases_the_frame_a_full_window_held() {
     // socket open, so the next frame still flows.
     send_client_frame(&mut socket, &subscribed.socket_id, Some(3), None).await;
     send_client_frame(&mut socket, &subscribed.socket_id, Some(2), None).await;
-    fixture.publish_task("small-5", 8);
+    fixture.publish_pair_request("small-5", 8);
     let next = next_firehose(&mut socket, EXPECT)
         .await
         .expect("the socket is still open");
     assert_eq!(
-        (next.delivery_seq, task_id_of(&next).as_str()),
+        (next.delivery_seq, pair_request_id_of(&next).as_str()),
         (5, "small-5")
     );
 }
@@ -195,18 +198,18 @@ async fn a_v1_socket_is_live_and_sequenced_only_with_flow() {
     }
     send_client_frame(&mut sequenced, "", Some(1), None).await;
     tokio::time::sleep(QUIET).await;
-    fixture.publish_task("live-1", 8);
+    fixture.publish_pair_request("live-1", 8);
 
     let frame = next_firehose(&mut sequenced, EXPECT)
         .await
         .expect("a live frame");
-    assert!(matches!(frame.frame, Some(Frame::TaskDelta(_))));
+    assert!(matches!(frame.frame, Some(Frame::PairRequestDelta(_))));
     assert_eq!(frame.delivery_seq, 2);
     let frame = next_firehose(&mut legacy, EXPECT)
         .await
         .expect("a live frame");
     assert_eq!(
-        (frame.delivery_seq, task_id_of(&frame).as_str()),
+        (frame.delivery_seq, pair_request_id_of(&frame).as_str()),
         (0, "live-1")
     );
 

@@ -236,23 +236,23 @@ mod tests {
     #[test]
     fn a_failed_call_retries_with_growing_delay_and_success_resets_it() {
         let mut hydrations = Hydrations::default();
-        let failed = ticket(SyncDomain::Tasks, 3);
+        let failed = ticket(SyncDomain::Workspaces, 3);
         hydrations.begin(1, failed);
         assert_eq!(hydrations.schedule_retry(&failed, 0), 500);
         assert!(hydrations.take_due_retries(499).is_empty());
         assert_eq!(
             hydrations.take_due_retries(500),
-            [(SyncDomain::Tasks, 1, 3)]
+            [(SyncDomain::Workspaces, 1, 3)]
         );
         assert_eq!(hydrations.schedule_retry(&failed, 500), 1_000);
-        hydrations.succeeded(SyncDomain::Tasks);
+        hydrations.succeeded(SyncDomain::Workspaces);
         assert_eq!(hydrations.schedule_retry(&failed, 0), 500);
     }
 
     #[test]
     fn a_call_past_its_deadline_expires_once() {
         let mut hydrations = Hydrations::default();
-        hydrations.begin(7, ticket(SyncDomain::Mcp, 1));
+        hydrations.begin(7, ticket(SyncDomain::Pair, 1));
         assert!(hydrations.take_expired(14_999).is_empty());
         assert_eq!(hydrations.take_expired(15_000).len(), 1);
         assert!(hydrations.take_expired(99_999).is_empty());

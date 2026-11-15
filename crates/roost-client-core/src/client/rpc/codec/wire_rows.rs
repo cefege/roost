@@ -11,20 +11,17 @@
 //! non-empty, timestamps positive), because v2's converters do not either.
 
 use roost_proto::{
-    HostMetrics as PbHostMetrics, McpRelay as PbMcpRelay, PairRequest as PbPairRequest,
-    Task as PbTask, Worker as PbWorker, Workspace as PbWorkspace,
+    HostMetrics as PbHostMetrics, PairRequest as PbPairRequest, Worker as PbWorker,
+    Workspace as PbWorkspace,
 };
 use roost_protocol::proto_adapters::{
     host_identity_from_proto, keeper_runtime_observation_from_proto,
     terminal_core_capacity_report_from_proto,
 };
-use roost_protocol::wire::{
-    HostMetrics, McpRelay, McpRelayId, SessionId, Task, TaskId, Worker, WorkerFp, Workspace,
-    WorkspaceId,
-};
+use roost_protocol::wire::{HostMetrics, SessionId, Worker, WorkerFp, Workspace, WorkspaceId};
 use roost_protocol::{ProtocolError, ProtocolResult};
 use serde::de::DeserializeOwned;
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use crate::store::mutations::PairRequest;
 
@@ -102,49 +99,6 @@ pub fn workspace_from_proto(proto: &PbWorkspace) -> ProtocolResult<Workspace> {
     })
 }
 
-/// One task row. A `payload_json` or `result_json` that is not a JSON object is
-/// an error, which the list drops (v2 `taskProtoToWire` returns null). An
-/// absent or empty `result_json` is no result.
-pub fn task_from_proto(proto: &PbTask) -> ProtocolResult<Task> {
-    Ok(Task {
-        id: TaskId::try_from(proto.id.as_str())?,
-        state: wire_enum("task.state", &proto.state)?,
-        payload: json_object("task.payload_json", &proto.payload_json)?,
-        enqueued_at_ms: signed("task.enqueued_at_ms", proto.enqueued_at_ms)?,
-        claimed_at_ms: optional_signed("task.claimed_at_ms", proto.claimed_at_ms)?,
-        claimed_by: proto
-            .claimed_by
-            .as_deref()
-            .map(WorkerFp::try_from)
-            .transpose()?,
-        finished_at_ms: optional_signed("task.finished_at_ms", proto.finished_at_ms)?,
-        result: proto
-            .result_json
-            .as_deref()
-            .filter(|raw| !raw.is_empty())
-            .map(|raw| json_object("task.result_json", raw))
-            .transpose()?,
-        completion_check: proto.completion_check.clone(),
-        completion_check_last_attempt_ms: optional_signed(
-            "task.completion_check_last_attempt_ms",
-            proto.completion_check_last_attempt_ms,
-        )?,
-        claim_ttl_ms: signed("task.claim_ttl_ms", proto.claim_ttl_ms)?,
-    })
-}
-
-/// One MCP relay row. A `config_json` that is not a JSON object is an error,
-/// which the list drops (v2 `mcpRelayProtoToWire` returns null).
-pub fn mcp_relay_from_proto(proto: &PbMcpRelay) -> ProtocolResult<McpRelay> {
-    Ok(McpRelay {
-        id: McpRelayId::try_from(proto.id.as_str())?,
-        label: proto.label.clone(),
-        kind: wire_enum("mcp_relay.kind", &proto.kind)?,
-        config: json_object("mcp_relay.config_json", &proto.config_json)?,
-        created_at_ms: signed("mcp_relay.created_at_ms", proto.created_at_ms)?,
-    })
-}
-
 /// One pending tap-to-pair request (`sync-bootstrap-hydration.ts:180-196`).
 pub fn pair_request_from_proto(proto: &PbPairRequest) -> ProtocolResult<PairRequest> {
     Ok(PairRequest {
@@ -174,17 +128,9 @@ fn signed(field: &str, value: u64) -> ProtocolResult<i64> {
     })
 }
 
-fn optional_signed(field: &str, value: Option<u64>) -> ProtocolResult<Option<i64>> {
-    value.map(|value| signed(field, value)).transpose()
-}
-
 /// A string-typed enum column, parsed by the wire type's own serde names so the
 /// accepted spellings live once, on the type.
 fn wire_enum<T: DeserializeOwned>(field: &str, raw: &str) -> ProtocolResult<T> {
     serde_json::from_value(Value::String(raw.to_string()))
         .map_err(|_| ProtocolError::new(field, format!("unknown value {raw:?}")))
-}
-
-fn json_object(field: &str, raw: &str) -> ProtocolResult<Map<String, Value>> {
-    serde_json::from_str(raw).map_err(|error| ProtocolError::new(field, error.to_string()))
 }

@@ -20,13 +20,11 @@ use std::collections::BTreeSet;
 use roost_coord::events::bus_messages::{
     AuditRow, ClipboardHistoryChange, ClipboardHistoryChangeKind, LastActivityUpdate,
     PairRequestDelta, SessionBell, SessionClipboardWrite, SessionCommandFinished,
-    SessionPresenceUpdate, SessionTerminalSignals, SessionTitleUpdate, TaskBusMsg, TaskBusMsgKind,
-    UiBusMsg, WorkerRoutableSet,
+    SessionPresenceUpdate, SessionTerminalSignals, SessionTitleUpdate, UiBusMsg, WorkerRoutableSet,
 };
 use roost_coord::sync_ws::feed::frames::{
-    audit_frame, clipboard_history_frame, mcp_frame, pair_frame, session_bell_frame,
-    session_clipboard_frame, session_command_finished_frame, session_message_frame,
-    session_title_frame, task_frame, workspace_frame,
+    audit_frame, clipboard_history_frame, pair_frame, session_bell_frame, session_clipboard_frame,
+    session_command_finished_frame, session_message_frame, session_title_frame, workspace_frame,
 };
 use roost_coord::sync_ws::feed::last_activity::last_activity_frame;
 use roost_coord::sync_ws::feed::presence::session_presence_frame;
@@ -37,13 +35,11 @@ use roost_coord::sync_ws::feed::{BUS_FRAME_ADAPTERS, FeedFrame};
 use roost_coord::sync_ws::frame_meta::{FeedLane, WEIGHTED_LANES};
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
 use roost_proto::SyncDomain;
-use roost_proto::Task;
 use roost_proto::buffa::Enumeration;
-use roost_protocol::wire::{McpRelayDelta, McpStreamMessage};
 use serde_json::json;
 
 use sync_feed_support::{
-    SESSION_A, WORKER_A, WORKER_B, oneof_of, opened_message, relay, worker, worker_registration,
+    SESSION_A, WORKER_A, WORKER_B, oneof_of, opened_message, worker, worker_registration,
     workspace_delta,
 };
 
@@ -51,8 +47,8 @@ use sync_feed_support::{
 fn every_bus_in_the_coordinator_has_a_producer() {
     assert_eq!(
         BUS_FRAME_ADAPTERS.len(),
-        17,
-        "the coordinator's bus table has seventeen domains; a bus added without \
+        15,
+        "the coordinator's bus table has fifteen domains; a bus added without \
          an adapter is a message published into the void"
     );
 
@@ -71,24 +67,6 @@ fn every_bus_in_the_coordinator_has_a_producer() {
         session_message_frame(&opened_message()).expect("an opened event is public"),
     );
     record("workspace_bus", workspace_frame(&workspace_delta()));
-    record(
-        "task_bus",
-        task_frame(&TaskBusMsg {
-            kind: TaskBusMsgKind::State,
-            task: Task {
-                id: "task-1".to_owned(),
-                state: "running".to_owned(),
-                ..Task::default()
-            },
-        }),
-    );
-    record(
-        "mcp_bus",
-        mcp_frame(&McpStreamMessage::Delta(McpRelayDelta::Updated {
-            relay: relay(),
-        }))
-        .expect("a relay's free-form config always serialises"),
-    );
     record(
         "pair_bus",
         pair_frame(&PairRequestDelta::Removed {
@@ -234,7 +212,7 @@ fn every_bus_in_the_coordinator_has_a_producer() {
         );
     }
 
-    // The browser hydrates seven domains.
+    // The browser hydrates five domains.
     //
     // The set is keyed on `proto_name` rather than on the domain value itself.
     // `SyncDomain` is generated and derives `Clone, Copy, PartialEq, Eq, Hash,
@@ -252,11 +230,9 @@ fn every_bus_in_the_coordinator_has_a_producer() {
             SyncDomain::Terminal.proto_name(),
             SyncDomain::Workers.proto_name(),
             SyncDomain::Workspaces.proto_name(),
-            SyncDomain::Tasks.proto_name(),
-            SyncDomain::Mcp.proto_name(),
             SyncDomain::Pair.proto_name(),
             SyncDomain::Audit.proto_name(),
         ]),
-        "each of the seven hydrated domains is reachable from at least one bus"
+        "each of the five hydrated domains is reachable from at least one bus"
     );
 }
