@@ -8,7 +8,9 @@ use dioxus::prelude::*;
 use roost_client_core::store::prefs::notify::NotifyPref;
 use roost_client_core::store::selectors::session_by_id;
 use roost_client_core::store::terminal_signals::TerminalNotificationRequest;
-use roost_client_core::store::toasts::{ToastId, ToastKind, ToastOptions, ToastSource, add_toast};
+use roost_client_core::store::toasts::{
+    ToastId, ToastKind, ToastOptions, ToastSource, ToastStack, add_toast,
+};
 
 use super::page_attention;
 use super::store_write::write_store;
@@ -18,6 +20,21 @@ use crate::pump::{Pump, use_store};
 use crate::route_session::active_session_for_path;
 use crate::router_state::use_location;
 use crate::session_naming::session_title;
+
+/// The identity source of every program-notification toast.
+pub const TERMINAL_NOTIFICATION_SOURCE: ToastSource = ToastSource::Host {
+    name: "terminal-notification",
+};
+
+/// Whether a program notification for `session_id` is on screen, so a
+/// command-finished success card for the same session would only repeat it.
+#[must_use]
+pub fn has_live_terminal_notification(toasts: &ToastStack, session_id: &str) -> bool {
+    toasts.toasts().any(|toast| {
+        toast.id.source == TERMINAL_NOTIFICATION_SOURCE
+            && toast.target_session_id.as_deref() == Some(session_id)
+    })
+}
 
 /// The toast's text: the program's title (or the session's, which is what
 /// OSC 9 leaves to the terminal) and the body.
@@ -83,9 +100,7 @@ fn deliver(pump: &Pump, path: &str, attended: bool, request: &TerminalNotificati
         return;
     };
     let id = ToastId::new(
-        ToastSource::Host {
-            name: "terminal-notification",
-        },
+        TERMINAL_NOTIFICATION_SOURCE,
         format!("{}:{}", request.session_id, request.delivery_seq),
     );
     let options = ToastOptions::with_ttl(Some(8_000)).with_action("View", &request.session_id);
@@ -102,12 +117,47 @@ fn deliver(pump: &Pump, path: &str, attended: bool, request: &TerminalNotificati
 
 #[cfg(test)]
 mod tests {
-    use super::notification_text;
+    use roost_client_core::store::toasts::{
+        ToastId, ToastKind, ToastOptions, ToastSource, ToastStack, raise_toast,
+    };
+
+    use super::{TERMINAL_NOTIFICATION_SOURCE, has_live_terminal_notification, notification_text};
 
     #[test]
     fn an_untitled_notification_is_headed_by_the_session() {
         assert_eq!(notification_text("", "roost", "Done"), "roost: Done");
         assert_eq!(notification_text("Build", "roost", "ok"), "Build: ok");
         assert_eq!(notification_text("Build", "roost", ""), "Build");
+    }
+
+    #[test]
+    fn a_live_program_notification_supersedes_only_its_own_session() {
+        let mut toasts = ToastStack::new();
+        raise_toast(
+            &mut toasts,
+            ToastId::new(TERMINAL_NOTIFICATION_SOURCE, "s1:4"),
+            "build: done",
+            ToastKind::Ok,
+            ToastOptions::with_ttl(Some(8_000)).with_action("View", "s1"),
+            0,
+        );
+        raise_toast(
+            &mut toasts,
+            ToastId::new(
+                ToastSource::Host {
+                    name: "command-finished",
+                },
+                "s2",
+            ),
+            "roost finished · 12s",
+            ToastKind::Ok,
+            ToastOptions::with_ttl(Some(5_000)).with_action("View", "s2"),
+            0,
+        );
+        assert!(has_live_terminal_notification(&toasts, "s1"));
+        assert!(
+            !has_live_terminal_notification(&toasts, "s2"),
+            "a command-finished card is not a program notification"
+        );
     }
 }

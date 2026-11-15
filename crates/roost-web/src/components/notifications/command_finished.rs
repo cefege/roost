@@ -19,6 +19,7 @@ use super::command_finished_scheduler::{
 use super::notification_tone::{DONE_CUE, TonePlayer};
 use super::page_attention;
 use super::store_write::write_store;
+use super::terminal_notification::has_live_terminal_notification;
 use crate::components::terminal::dom::{now_ms, sleep_ms};
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::{Pump, use_store};
@@ -107,16 +108,24 @@ fn deliver(
                     session_title(store, session),
                     store.prefs.notify.get(NotifyPref::InApp),
                     store.prefs.notify.get(NotifyPref::DoneSound),
+                    has_live_terminal_notification(&store.toasts, &request.session_id),
                 )
             })
         }
     };
-    let Some((title, show_toast, sound)) = alert else {
+    let Some((title, show_toast, sound, superseded)) = alert else {
         return;
     };
     if show_toast {
         match request.exit_code {
-            Some(0) | None => raise_success(pump, request, &title),
+            // The program already told the reader this session is done, so a
+            // second success card would only repeat it. A failure stays: the
+            // exit code is information OSC 9 does not carry.
+            Some(0) | None => {
+                if !superseded {
+                    raise_success(pump, request, &title);
+                }
+            }
             Some(code) => raise_failure(pump, request, &title, code),
         }
     }
@@ -128,6 +137,7 @@ fn deliver(
         session_id = %request.session_id,
         delivery_seq = request.delivery_seq,
         ticket = armed.ticket,
+        superseded,
         "command completion notification delivered"
     );
 }
