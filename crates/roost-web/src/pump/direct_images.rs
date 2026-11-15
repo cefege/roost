@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 
 use roost_client_core::TerminalToken;
+#[cfg(target_arch = "wasm32")]
 use roost_client_core::client::carriers::DirectTerminalImage;
 use roost_client_core::effect::DirectCommand;
 
@@ -94,7 +95,7 @@ pub(super) fn lose_reads_off_route(pump: &Pump, reason: &str) {
 }
 
 /// A carrier's answer to a read this document sent.
-#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+#[cfg(target_arch = "wasm32")]
 pub(super) fn answered(pump: &Pump, answer: DirectTerminalImage) {
     let result = if answer.error.is_empty() && !answer.png.is_empty() {
         Ok(answer.png)

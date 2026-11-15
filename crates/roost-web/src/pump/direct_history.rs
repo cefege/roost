@@ -9,6 +9,7 @@
 
 use std::collections::BTreeMap;
 
+#[cfg(target_arch = "wasm32")]
 use roost_client_core::client::carriers::DirectScrollback;
 use roost_client_core::client::rpc::calls::terminal_pane::{ScrollbackCells, ScrollbackCellsPage};
 use roost_client_core::effect::DirectCommand;
@@ -21,7 +22,7 @@ pub const DIRECT_HISTORY_TIMEOUT_MS: u64 = 15_000;
 
 /// The worker's refusal of a page its carrier cannot hold. The coordinator,
 /// whose RPC has no such bound, serves the page instead.
-#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+#[cfg(target_arch = "wasm32")]
 const DIRECT_HISTORY_OVERLIMIT: &str = "scrollback response exceeds direct transport limit";
 
 /// What became of one direct history read.
@@ -144,7 +145,7 @@ pub(super) fn lose_reads_off_route(pump: &Pump, reason: &str) {
 }
 
 /// A carrier's answer to a read this document sent.
-#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+#[cfg(target_arch = "wasm32")]
 pub(super) fn answered(pump: &Pump, answer: DirectScrollback) {
     let outcome = match answer.page {
         Ok(page) => DirectHistoryAnswer::Page(page),

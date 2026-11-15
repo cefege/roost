@@ -50,7 +50,6 @@ impl EngineHosts {
         }
     }
 
-    #[allow(unused_variables)]
     pub fn start(
         &mut self,
         engine: Engine,
@@ -141,8 +140,8 @@ impl EngineHosts {
 /// Read the coordinator's stored configuration once per mount.
 pub fn read_config(
     pump: Pump,
-    #[allow(unused_mut)] mut configured: Signal<bool>,
-    #[allow(unused_mut)] mut language: Signal<String>,
+    #[cfg_attr(not(target_arch = "wasm32"), allow(unused_mut))] mut configured: Signal<bool>,
+    #[cfg_attr(not(target_arch = "wasm32"), allow(unused_mut))] mut language: Signal<String>,
 ) {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_futures::spawn_local(async move {
@@ -162,7 +161,6 @@ pub fn read_config(
 }
 
 /// Whether the page may ask for a microphone at all.
-#[allow(unused_variables)]
 pub fn is_secure_context() -> bool {
     cfg!(target_arch = "wasm32") && web_sys_window_secure()
 }
