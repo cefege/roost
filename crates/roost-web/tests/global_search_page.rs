@@ -2,10 +2,6 @@
 //! is a pure function over the route or over the coordinator's answer: what the
 //! address bar says, which rows the page keeps, and what it tells the reader
 //! when the fleet could not be searched completely.
-//!
-//! The surface this page replaced was `not_served::NotServed`, which named the
-//! path instead of searching it — so the tests below are the page existing at
-//! all, not refinements of it.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_client_core::client::global_search::GlobalSearchResults;

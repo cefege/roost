@@ -1,41 +1,13 @@
-//! The two panels a route resolves to when there is no surface to draw: one for
-//! a path the grammar knows whose surface this build does not carry, and one for
-//! a path the grammar does not know at all.
-//!
-//! They are SEPARATE panels on purpose. "This URL is a surface this build does
-//! not carry" and "this URL is not a route" are different facts about the
-//! reader's address bar, and collapsing them into one "not found" would make a
-//! missing feature read as a typo — or, worse, make a typo read as a missing
-//! feature and send someone looking for a release that does not exist.
-//!
-//! Neither panel navigates anywhere on its own. A panel that offered a guessed
-//! destination would be the redirect v2's `*` route performs, which is the
-//! behaviour this crate's `Route::Unknown` doc was written to prevent.
+//! The panel a route resolves to when the grammar does not know the path. It
+//! names the path verbatim and offers only an explicit link home: a panel that
+//! guessed a destination would be the redirect `Route::Unknown` exists to prevent.
+//! Mounted by `app::RouteContent`; draws through `access_gate::GateCard`.
 
 use dioxus::prelude::*;
 
 use crate::components::access_gate::{CHECKING_CLASS, GateCard};
 use crate::components::ui::{Icon, IconType};
 use crate::routes::Route;
-
-/// A path the grammar recognises whose surface this build does not carry.
-///
-/// The path is shown verbatim. A reader who followed a bookmark needs to see
-/// what they followed, not a canonicalised version of it.
-#[component]
-pub fn NotServed(path: String) -> Element {
-    rsx! {
-        section { class: CHECKING_CLASS, "data-testid": "route-not-served",
-            GateCard { role: "status",
-                Icon { icon: IconType::Construction, class: "size-4" }
-                div {
-                    span { "This build does not carry the surface for " }
-                    code { {path} }
-                }
-            }
-        }
-    }
-}
 
 /// A path the grammar does not recognise.
 #[component]

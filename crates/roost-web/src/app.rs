@@ -20,18 +20,13 @@ use crate::input_nav::NavModality;
 use crate::router_state;
 use crate::routes::Route;
 
-/// Which surface a route names. Surfaces this build does not serve are NAMED
-/// (`NotServed`) rather than redirected, so a link to a missing surface cannot
-/// look like it worked.
+/// Which surface a route names. A path the grammar does not know is NAMED
+/// (`NotFound`) rather than redirected, so a mistyped link cannot look like it
+/// worked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Surface {
     /// A surface this build serves.
     Served(ServedSurface),
-    /// A path the grammar recognises whose surface is not in this build.
-    NotServed {
-        /// The path as the grammar read it.
-        path: String,
-    },
     /// A path the grammar does not recognise at all.
     NotFound {
         /// The path as it was typed.
@@ -355,9 +350,8 @@ fn RouteContent(surface: Surface, route: Route) -> Element {
         }
         Surface::Served(ServedSurface::Help) => rsx! { crate::components::help::HelpSurface {} },
         Surface::Served(ServedSurface::Fleet) => rsx! { crate::components::fleet::FleetPage {} },
-        Surface::NotServed { path } => rsx! { crate::components::not_served::NotServed { path } },
         Surface::NotFound { path } => {
-            rsx! { crate::components::not_served::NotFound { path, on_navigate: navigate } }
+            rsx! { crate::components::not_found::NotFound { path, on_navigate: navigate } }
         }
     }
 }

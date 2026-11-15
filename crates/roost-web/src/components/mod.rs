@@ -37,7 +37,7 @@ pub mod mobile_voice_input;
 pub mod mobile_voice_send;
 pub mod mobile_voice_shell;
 pub mod mobile_voice_watchdog;
-pub mod not_served;
+pub mod not_found;
 pub mod notifications;
 pub mod pairing;
 pub mod palette;

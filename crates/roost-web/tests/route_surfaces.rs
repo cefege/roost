@@ -14,18 +14,7 @@ fn served(path: &str) -> bool {
     matches!(surface_for(&Route::parse(path)), Surface::Served(_))
 }
 
-fn not_served_path(path: &str) -> Option<String> {
-    match surface_for(&Route::parse(path)) {
-        Surface::NotServed { path: named } => Some(named),
-        _ => None,
-    }
-}
-
-/// Replace the deleted not-served case: the panel is still mounted above the
-/// deck for a route whose overlay this build has not drawn, so the helper stays,
-/// and the property worth pinning is now that a grammar route never reaches it.
-/// A reader who follows a bookmark must get the surface or the not-found page,
-/// never a panel admitting the product is half-finished.
+/// The path a route resolves to when it reaches the not-found panel, or `None`.
 fn not_found_path(path: &str) -> Option<String> {
     match surface_for(&Route::parse(path)) {
         Surface::NotFound { path: named } => Some(named),
@@ -35,11 +24,9 @@ fn not_found_path(path: &str) -> Option<String> {
 
 #[test]
 fn every_grammar_route_the_specs_navigate_to_is_served() {
-    // v2 `App.tsx` mounts `MainPane` for every terminal, file and search route,
-    // and gives settings, pairing, help and browse a surface each. A route the
-    // grammar knows and this build does not serve is a bookmark that dead-ends,
-    // which is the failure `Surface::NotServed` exists to name — so the set of
-    // served paths and the set of grammar paths are the same set.
+    // Every terminal, file and search route mounts MainPane; settings, pairing, help
+    // and browse have a surface each. A grammar route without a surface would be a
+    // bookmark that dead-ends.
     for path in [
         "/",
         "/design",
@@ -94,8 +81,7 @@ fn pairing_and_the_gallery_are_the_only_surfaces_outside_the_shell() {
 
 #[test]
 fn every_grammar_route_the_specs_navigate_to_is_recognised() {
-    // A path the grammar does not know resolves to NotFound, which is a
-    // different answer from NotServed and a different bug.
+    // A path the grammar does not know resolves to NotFound; every spec path is known.
     for path in [
         "/s/8f2b1c40-0000-4000-8000-000000000000",
         "/t/a1b2c3d4e5f60718/src",
@@ -115,35 +101,6 @@ fn every_grammar_route_the_specs_navigate_to_is_recognised() {
         assert!(
             not_found_path(path).is_none(),
             "{path} is a grammar route and must not resolve to NotFound"
-        );
-    }
-}
-
-#[test]
-fn no_grammar_route_reaches_the_not_served_panel() {
-    // The panel names the URL a reader followed, so it is only ever shown to
-    // someone who followed a bookmark. Every grammar route has a surface now,
-    // which means the panel is reachable only from an overlay this build has
-    // not drawn — and a bookmark must never land there.
-    for path in [
-        "/",
-        "/design",
-        "/s/8f2b1c40-0000-4000-8000-000000000000",
-        "/t/a1b2c3d4e5f60718/src",
-        "/w/ws-1",
-        "/w/ws-1/t/ch-1",
-        "/file/a1b2c3d4e5f60718/etc/hosts",
-        "/search",
-        "/settings",
-        "/settings/machines",
-        "/pair",
-        "/help",
-        "/browse",
-        "/browse/a1b2c3d4e5f60718",
-    ] {
-        assert!(
-            not_served_path(path).is_none(),
-            "{path} has a surface, so it must not resolve to the not-served panel"
         );
     }
 }
@@ -193,7 +150,7 @@ fn a_grammar_route_never_also_reads_as_a_not_found() {
     // the match was not total, and a reader would get whichever arm ran last.
     for path in ["/", "/s/abc", "/settings", "/browse/fp", "/search"] {
         assert!(not_found_path(path).is_none(), "{path}");
-        assert!(not_served_path(path).is_some() || served(path), "{path}");
+        assert!(served(path), "{path}");
     }
 }
 
