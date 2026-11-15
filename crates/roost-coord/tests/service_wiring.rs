@@ -49,7 +49,7 @@ async fn a_wired_arm_answers_with_its_handler_s_refusal() {
 /// The caller reaches the handler rather than being decided by the arm: only the
 /// workers domain knows that a worker may not read the fleet view, and its gate
 /// answers `Unauthenticated` where a wired arm's own refusal says
-/// `Unimplemented` -- so an arm that invented a caller answers with neither.
+/// `Internal` -- so an arm that invented a caller answers with neither.
 #[tokio::test]
 async fn a_wired_arm_passes_the_caller_to_its_handler() {
     let fixture = ServiceFixture::new("principal").await;
@@ -66,8 +66,8 @@ async fn a_wired_arm_passes_the_caller_to_its_handler() {
     assert_eq!(error.code, ErrorCode::Unauthenticated);
 }
 
-/// The success path is the handlers', not the funnel's: an account device reads
-/// an empty fleet, where the funnel answered `Unimplemented`.
+/// The success path is the handlers', not the arm's: an account device reads
+/// an empty fleet, where a caller-less arm answered `Internal`.
 #[tokio::test]
 async fn a_wired_arm_answers_an_authenticated_operator() {
     let fixture = ServiceFixture::new("reachable-ok").await;

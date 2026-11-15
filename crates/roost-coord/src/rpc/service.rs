@@ -1,15 +1,11 @@
 //! The shared half of the single `CoordinatorService` implementation: the type,
 //! caller resolution and auth checks, `MiscHealth`/`MiscDbExportUrl` replies, and
-//! the named `Unimplemented` errors. Called by the one impl in `service_impl.rs`
-//! (one block, E0119). 108 of 124 methods are implemented; the 16 marked
-//! `UnwiredInV2` in `method_route_rows.rs` answer `Unimplemented`, guarded by
-//! `tests/method_route_coverage.rs`. Depends on `coord_core` and `auth`.
+//! the response envelope. Called by the one impl in `service_impl.rs` (one block,
+//! E0119). Depends on `coord_core` and `auth`.
 
-use connectrpc::{
-    ConnectError, Encodable, ErrorCode, RequestContext, Response, ServiceResult, Spec,
-};
+use connectrpc::{ConnectError, Encodable, ErrorCode, RequestContext, Response, ServiceResult};
 
-use super::method_route::{AuthRequirement, all_method_routes};
+use super::method_route::AuthRequirement;
 use crate::auth::principal::{AUTH_LAYER_DEVICE, AUTH_LAYER_HEADER, Principal};
 use crate::coord_core::{Caller, CoordCore};
 
@@ -69,74 +65,12 @@ impl CoordinatorServiceImpl {
     }
 }
 
-/// The answer for a method whose domain is not in this slice.
+/// The caller the auth interceptor stored.
 ///
-/// Names the domain so the failure says who owns the work, and never claims the
-/// method is retired -- sixteen of the 124 are, and those say so separately.
-#[must_use]
-pub fn unimplemented_for_domain(method: &str) -> ConnectError {
-    let domain = super::method_route::owning_domain(method).unwrap_or("unassigned");
-    ConnectError::new(
-        ErrorCode::Unimplemented,
-        format!("{method}: the {domain} domain is not ported in this slice"),
-    )
-}
-
-/// The answer for a method v2 never answered either.
-#[must_use]
-pub fn unimplemented_in_v2(method: &str) -> ConnectError {
-    ConnectError::new(
-        ErrorCode::Unimplemented,
-        format!("{method}: declared in the proto, unwired in the v2 coordinator too"),
-    )
-}
-
-/// A ready error, typed to the method's response body.
-///
-/// The `Ready` captures neither `&self` nor the request lifetime, which is what
-/// satisfies the generated `use<'a, Self>` return clause: a handler that
-/// borrowed the request into its error would not compile.
-pub async fn reply_error<Out: Encodable<Out> + Send + 'static>(
-    error: ConnectError,
-) -> ServiceResult<Out> {
-    Err(error)
-}
-
-/// The reply a method that is not answered here produces.
-///
-/// A single funnel so the status of a method and the wording of its refusal
-/// cannot drift: the status comes from the route table, which is the one place
-/// it is written down.
-pub async fn delegated_reply<Out: Encodable<Out> + Send + 'static>(
-    method: &str,
-) -> ServiceResult<Out> {
-    reply_error::<Out>(delegated_error(method)).await
-}
-
-/// The refusal [`delegated_reply`] returns, in sync form.
-///
-/// Split out because a method that IS wired still has to refuse by name when it
-/// cannot resolve its caller, and it reaches the same table to do it.
-#[must_use]
-pub fn delegated_error(method: &str) -> ConnectError {
-    let status = all_method_routes()
-        .iter()
-        .find(|route| route.method == method)
-        .map(|route| route.status);
-    match status {
-        Some(super::method_route::PortStatus::UnwiredInV2) => unimplemented_in_v2(method),
-        _ => unimplemented_for_domain(method),
-    }
-}
-
-/// The caller the auth interceptor stored, or the method's own refusal.
-///
-/// A wired method must not fall through as an anonymous caller: `Err` here
-/// means the interceptor is not mounted, which is a wiring fault, and answering
-/// a request with no identity would turn that deployment mistake into an
-/// authorization bypass. So the refusal is the same named `Unimplemented` the
-/// method answers with when its domain is absent -- the client cannot tell the
-/// two apart, and the log line below is where the real cause is named.
+/// The interceptor always stores one for a gated method, so `Err` here means it
+/// is not mounted: a wiring fault. Answering a request with no identity would
+/// turn that deployment mistake into an authorization bypass, so the refusal is
+/// a named `Internal` rather than a domain error a client could act on.
 pub fn caller_of<'a>(
     context: &'a RequestContext,
     method: &str,
@@ -146,7 +80,10 @@ pub fn caller_of<'a>(
             method,
             "refusing a wired method: the auth interceptor stored no caller"
         );
-        delegated_error(method)
+        ConnectError::new(
+            ErrorCode::Internal,
+            format!("{method}: no authenticated caller reached this handler"),
+        )
     })
 }
 
@@ -162,10 +99,6 @@ pub fn permission_denied_for(requirement: AuthRequirement) -> ConnectError {
             "device principal required, or a worker restricted to its own recovery"
         }
         AuthRequirement::DevicePlusFence => "device principal and a matching fence required",
-        // Reached only if a caller reaches a method with no handler, which the
-        // delegation funnel turns into `Unimplemented` before this point. The arm
-        // exists so adding the variant is a compile error rather than a panic.
-        AuthRequirement::Unwired => "no handler is registered for this method",
     };
     let mut error = ConnectError::new(ErrorCode::PermissionDenied, reason);
     // The marker is only meaningful for a device-layer refusal; on a worker
@@ -209,8 +142,6 @@ pub fn principal_satisfies(principal: Option<&Principal>, requirement: AuthRequi
                 || principal.is_some_and(Principal::is_worker)
         }
         AuthRequirement::DevicePlusFence => principal.is_some_and(Principal::is_browser),
-        // Nothing enforces a requirement nothing checks, so nothing passes it.
-        AuthRequirement::Unwired => false,
     }
 }
 
@@ -246,50 +177,9 @@ pub fn db_export_url(service: &CoordinatorServiceImpl) -> String {
     }
 }
 
-/// A method's `Spec` rendered for a log line, as `Service/Method`.
-#[must_use]
-pub fn spec_label(spec: &Spec) -> String {
-    format!("{}/{}", spec.service(), spec.method())
-}
-
 /// Wrap a body in the response envelope the generated handlers return.
 pub fn ok_response<Out: Encodable<Out> + Send + 'static>(body: Out) -> ServiceResult<Out> {
     Response::ok(body)
-}
-
-/// A ready error shaped as a server-streaming reply, for the two streaming
-/// methods this crate does not answer.
-///
-/// `ServiceStream` is built from an empty stream, so a refusal here still opens
-/// and immediately closes a stream rather than throwing before one exists. That
-/// matters for `Sync` specifically: v2's reason for refusing at the FETCH layer
-/// rather than in the handler was that a throwing stub still lets Connect open a
-/// response stream, keeping the runtime's abort-listener crash path reachable
-/// (`apps/coord/src/bun-coordinator-listeners.ts:338-340`). An empty stream
-/// reaches neither failure.
-pub async fn delegated_stream<Out: Encodable<Out> + Send + 'static>(
-    method: &str,
-) -> ServiceResult<connectrpc::ServiceStream<Out>> {
-    let status = all_method_routes()
-        .iter()
-        .find(|route| route.method == method)
-        .map(|route| route.status);
-    let error = match status {
-        Some(super::method_route::PortStatus::UnwiredInV2) => unimplemented_in_v2(method),
-        _ => unimplemented_for_domain(method),
-    };
-    Err(error)
-}
-
-/// The `Sync` refusal, which names where the method moved rather than which
-/// domain owns it: the live path is the WebSocket at `/ws/coord-sync`
-/// (`protocol/spec/sync.md:9`).
-pub async fn sync_moved_stream<Out: Encodable<Out> + Send + 'static>()
--> ServiceResult<connectrpc::ServiceStream<Out>> {
-    Err(ConnectError::new(
-        ErrorCode::Unimplemented,
-        "sync moved to /ws/coord-sync",
-    ))
 }
 
 /// The process clock, in epoch milliseconds.

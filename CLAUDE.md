@@ -246,7 +246,10 @@ all-v3 fleet are dropped, plus features the operator retired. The list so
 far: the v2 Windows update broker (Windows workers use the Scheduled Task
 service path and the v3 coordinator-following updater; initial installation uses
 `install.ps1` or `cargo xtask fleet install`), the legacy unimplemented `Sync`
-server-streaming RPC, the legacy `/w/:workspaceId[/t/:channelId]` routes,
+server-streaming RPC, the sixteen proto-declared RPCs no v3 handler answered
+(dashboard access, owner activation, password and federated login, reset and
+link, credentials, coordinator move and relocation mint/redeem, `MiscFlags`),
+the legacy `/w/:workspaceId[/t/:channelId]` routes,
 `client-seq.txt`, the keeper "Bun ABI" identity field, the Bun-specific zlib
 workaround, capability fallbacks for peers lacking a capability every v3 peer
 advertises, the whole v2 TypeScript product tree (`apps/`, `packages/`, the

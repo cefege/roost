@@ -12,7 +12,6 @@ Sync is the authenticated browser metadata, control, terminal-fallback, and auth
 
 | Message | File | Meaning |
 | --- | --- | --- |
-| `SyncRequest` | `protocol/proto/roost/v1/sync.proto:15-21` | Legacy Connect request; WebSocket recovery uses query `since`. |
 | `FirehoseFrame` | `protocol/proto/roost/v1/sync.proto:252-299` | Server application frame. `delivery_seq` is zero for unsequenced/control frames. |
 | `SyncClientFrame` | `protocol/proto/roost/v1/sync.proto:304-322` | Cumulative `ack_delivery_seq`, v2 socket identity, domain subscription, terminal view/input, and probe commands. |
 | `SyncSubscribedFrame`, `SyncDomainGeneration` | `protocol/proto/roost/v1/sync.proto:115-125` | v2 socket/process/domain generation announcement. |
@@ -55,7 +54,7 @@ Sync is the authenticated browser metadata, control, terminal-fallback, and auth
 - Backpressure closes with `1013`; reason is one of `high_water`, `timeout`, `frame_limit`, `byte_limit`, `age_limit` (`apps/coord/src/sync/sync-ws-v1-delivery.ts:27-32`).
 - An ACK above the last sent sequence closes with `1008` invalid-ACK policy (`apps/coord/src/sync/sync-ws-v1-delivery.ts:95-115`).
 - v2 `domain_ready` without a current terminal snapshot token resets that domain with `snapshot_token_invalid` (`apps/coord/src/sync/sync-ws-v2-commands.ts:115-147`).
-- Recovery reset reasons emitted by current code include `cursor_ahead_of_log`, `recovery_failed`, and backfill truncation diagnostics. `CoordinatorService.Sync` returns Connect `Unimplemented` with `sync moved to /ws/coord-sync`.
+- Recovery reset reasons emitted by current code include `cursor_ahead_of_log`, `recovery_failed`, and backfill truncation diagnostics. `POST /roost.v1.CoordinatorService/Sync` answers HTTP 410 `sync moved to /ws/coord-sync`.
 
 ## Reference implementation
 

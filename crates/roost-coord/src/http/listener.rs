@@ -50,12 +50,10 @@
 //! contract, and a contract split across two files is mounted in the wrong
 //! sequence by the next person who edits either half.
 //!
-//! WHY THE SYNC GUARD SITS BEFORE CONNECT RATHER THAN INSIDE A HANDLER. The
-//! handler stub alone is not enough: a throwing stub still lets Connect open a
-//! response stream, which keeps the runtime's abort-listener crash path reachable.
-//! A plain unary `Response` is never abort-tracked, so every caller gets `410`
-//! and the crash path is unreachable even for an old-bundle straggler
-//! (`bun-coordinator-listeners.ts:338-340`).
+//! WHY THE RETIRED SYNC PATH IS AN AXUM ROUTE. The service declares no `Sync`
+//! method, so this route is the only thing that gives an old bundle the
+//! documented `410` `sync moved to /ws/coord-sync`; without it the generated
+//! dispatcher answers a generic unimplemented.
 //!
 //! TLS IS NEVER TERMINATED HERE. "The coordinator serves plaintext on its
 //! loopback bind; the operator's front door owns TLS"

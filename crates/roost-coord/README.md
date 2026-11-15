@@ -8,7 +8,7 @@ module's `//!` header names the v2 file(s) it ports.
 Entry point: `serve::serve` (called by `roost coord`). Composition root:
 `services::CoordServices` (one runtime per domain) and `serve.rs` (boot order,
 listeners, background owners). RPC routing: `rpc/method_route_rows.rs` (one row per
-`CoordinatorService` method, with its auth requirement and port status) paired with
+`CoordinatorService` method, with its owning domain and auth requirement) paired with
 `rpc/service_impl.rs` (one arm per method).
 
 ## Not ported, by decision

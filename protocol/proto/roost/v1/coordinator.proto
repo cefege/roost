@@ -502,9 +502,8 @@ message AuthCoordIdentityResponse {
   optional string relocated_to_url = 4;
   optional string handoff_id = 5;
   bool public_listener = 6;
-  // Public deployment-mode discovery. A managed browser uses native password
-  // login before it has a device credential; self-hosted pairing remains the
-  // default when this is false.
+  // Whether this coordinator is the managed deployment. Self-hosted pairing is
+  // the only enrolment path either way.
   bool saas_mode = 7;
   string instance_id = 8;
   // The direct terminal carrier's static settings, advertised before any
@@ -516,91 +515,8 @@ message AuthCoordIdentityResponse {
   reserved "builtin_agent_enabled";
 }
 
-// The selected dashboard is resolved from the authenticated device and
-// X_ROOST_DASHBOARD_ID; clients cannot nominate arbitrary scopes here.
-message OrganizationAccess {
-  string id = 1;
-  string slug = 2;
-  string name = 3;
-  string role = 4;  // owner|admin|member
-}
-
-message DashboardAccess {
-  string id = 1;
-  string organization_id = 2;
-  string slug = 3;
-  string name = 4;
-  string organization_role = 5;  // owner|admin|member
-  string dashboard_role = 6;  // admin|member
-}
-
-message AuthDashboardAccessRequest {}
-message AuthDashboardAccessResponse {
-  string account_id = 1;
-  repeated OrganizationAccess organizations = 2;
-  repeated DashboardAccess dashboards = 3;
-  string selected_dashboard_id = 4;
-  repeated string capabilities = 5;
-}
-
 message AuthLogoutRequest {}
 message AuthLogoutResponse { bool ok = 1; }
-
-// Owner activation consumes an operator-issued one-time token and binds the
-// coordinator's first and only account to a browser's non-extractable key.
-message AuthOwnerActivateRequest {
-  string token = 1;
-  string new_password = 2;
-  string ssh_pubkey_b64 = 3;
-  string label = 4;
-}
-message AuthOwnerActivateResponse { string dashboard_id = 1; }
-
-// This public acknowledgement deliberately does not disclose whether an
-// address has an active, verified account.
-message AuthPasswordResetStartRequest { string email = 1; }
-message AuthPasswordResetStartResponse {}
-message AuthPasswordResetRedeemRequest {
-  string token = 1;
-  string new_password = 2;
-}
-message AuthPasswordResetRedeemResponse { bool ok = 1; }
-
-// Managed-mode native login authorizes the browser's non-extractable Ed25519
-// key. The browser then signs the existing device JWT locally; no bearer
-// session or private key is returned by this RPC.
-message AuthPasswordLoginRequest {
-  string email = 1;
-  string password = 2;
-  string ssh_pubkey_b64 = 3;
-  string label = 4;
-}
-message AuthPasswordLoginResponse { string dashboard_id = 1; }
-
-// A centrally verified federated assertion authorizes exactly the submitted
-// browser key. Provider tokens never cross the coordinator wire boundary.
-message AuthFederatedContinueRequest {
-  string assertion = 1;
-  string ssh_pubkey_b64 = 2;
-  string label = 3;
-}
-message AuthFederatedContinueResponse { string dashboard_id = 1; }
-
-message AuthCredentialsGetRequest {}
-message AuthCredentialsGetResponse {
-  string email = 1;
-  bool has_password = 2;
-  bool google_linked = 3;
-}
-
-message AuthPasswordAddRequest { string new_password = 1; }
-message AuthPasswordAddResponse { bool ok = 1; }
-
-message AuthFederatedLinkBeginRequest {}
-message AuthFederatedLinkBeginResponse { string link_ticket = 1; }
-
-message AuthFederatedLinkRequest { string assertion = 1; }
-message AuthFederatedLinkResponse { bool ok = 1; }
 
 message AuthMintBootstrapRequest { string kind = 1; string label = 2; }  // kind: worker|browser
 message AuthMintBootstrapResponse { string token = 1; uint64 expires_at_ms = 2; }
@@ -623,78 +539,6 @@ message AuthRedeemBrowserRequest { string token = 1; string ssh_pubkey_b64 = 2; 
 message AuthRedeemBrowserResponse {
   reserved 1, 2;
   reserved "fingerprint", "label";
-}
-
-// ─── coordinator move ────────────────────────────────────────────────────
-
-enum CoordinatorMovePhase {
-  COORDINATOR_MOVE_PHASE_UNSPECIFIED = 0;
-  PREPARING_TARGET = 1;
-  STAGING_WORKERS = 2;
-  DRAINING_SOURCE = 3;
-  COPYING_STATE = 4;
-  WAITING_FOR_WORKERS = 5;
-  COMMITTING = 6;
-  COMMITTED = 7;
-  ROLLING_BACK = 8;
-  ROLLED_BACK = 9;
-  FAILED = 10;
-}
-
-message CoordinatorMoveBlocker {
-  string code = 1;
-  string message = 2;
-  optional string worker_fp = 3;
-}
-
-message CoordinatorMovePreflightRequest {
-  string target_worker_fp = 1;
-}
-
-message CoordinatorMovePreflightResponse {
-  bool eligible = 1;
-  string source_url = 2;
-  string target_url = 3;
-  repeated CoordinatorMoveBlocker blockers = 4;
-}
-
-message CoordinatorMoveStartRequest {
-  string target_worker_fp = 1;
-}
-
-message CoordinatorMoveStartResponse {
-  string handoff_id = 1;
-}
-
-message CoordinatorMoveStatusRequest {
-  string handoff_id = 1;
-}
-
-message CoordinatorMoveStatusResponse {
-  CoordinatorMovePhase phase = 1;
-  string source_url = 2;
-  string target_url = 3;
-  optional string error = 4;
-}
-
-message AuthMintCoordinatorRelocationRequest {
-  string handoff_id = 1;
-}
-
-message AuthMintCoordinatorRelocationResponse {
-  string token = 1;
-  string target_url = 2;
-}
-
-message AuthRedeemCoordinatorRelocationRequest {
-  string token = 1;
-  string ssh_pubkey_b64 = 2;
-  string label = 3;
-}
-
-message AuthRedeemCoordinatorRelocationResponse {
-  string fingerprint = 1;
-  string label = 2;
 }
 
 // ─── pair ─────────────────────────────────────────────────────────────────
@@ -749,9 +593,6 @@ message PairApprovalStatusRequest {
 message PairApprovalStatusResponse { string status = 1; }
 
 // ─── misc ─────────────────────────────────────────────────────────────────
-
-message MiscFlagsRequest {}
-message MiscFlagsResponse { map<string, bool> flags = 1; }
 
 message MiscHealthRequest {}
 message MiscHealthResponse {
@@ -955,30 +796,13 @@ service CoordinatorService {
 
   // auth
   rpc AuthCoordIdentity(AuthCoordIdentityRequest) returns (AuthCoordIdentityResponse);
-  rpc AuthDashboardAccess(AuthDashboardAccessRequest) returns (AuthDashboardAccessResponse);
   rpc AuthLogout(AuthLogoutRequest) returns (AuthLogoutResponse);
-  rpc AuthOwnerActivate(AuthOwnerActivateRequest) returns (AuthOwnerActivateResponse);
-  rpc AuthPasswordResetRequest(AuthPasswordResetStartRequest) returns (AuthPasswordResetStartResponse);
-  rpc AuthPasswordResetRedeem(AuthPasswordResetRedeemRequest) returns (AuthPasswordResetRedeemResponse);
-  rpc AuthPasswordLogin(AuthPasswordLoginRequest) returns (AuthPasswordLoginResponse);
-  rpc AuthFederatedContinue(AuthFederatedContinueRequest) returns (AuthFederatedContinueResponse);
-  rpc AuthCredentialsGet(AuthCredentialsGetRequest) returns (AuthCredentialsGetResponse);
-  rpc AuthPasswordAdd(AuthPasswordAddRequest) returns (AuthPasswordAddResponse);
-  rpc AuthFederatedLinkBegin(AuthFederatedLinkBeginRequest) returns (AuthFederatedLinkBeginResponse);
-  rpc AuthFederatedLink(AuthFederatedLinkRequest) returns (AuthFederatedLinkResponse);
   rpc AuthMintBootstrap(AuthMintBootstrapRequest) returns (AuthMintBootstrapResponse);
   rpc AuthRedeemWorker(AuthRedeemWorkerRequest) returns (AuthRedeemWorkerResponse);
   rpc AuthRedeemBrowser(AuthRedeemBrowserRequest) returns (AuthRedeemBrowserResponse);
-  rpc AuthMintCoordinatorRelocation(AuthMintCoordinatorRelocationRequest) returns (AuthMintCoordinatorRelocationResponse);
-  rpc AuthRedeemCoordinatorRelocation(AuthRedeemCoordinatorRelocationRequest) returns (AuthRedeemCoordinatorRelocationResponse);
   rpc DevicesList(DevicesListRequest) returns (DevicesListResponse);
   rpc DevicesRevoke(DevicesRevokeRequest) returns (DevicesRevokeResponse);
   rpc DevicesRotateCurrent(DevicesRotateCurrentRequest) returns (DevicesRotateCurrentResponse);
-
-  // coordinator move
-  rpc CoordinatorMovePreflight(CoordinatorMovePreflightRequest) returns (CoordinatorMovePreflightResponse);
-  rpc CoordinatorMoveStart(CoordinatorMoveStartRequest) returns (CoordinatorMoveStartResponse);
-  rpc CoordinatorMoveStatus(CoordinatorMoveStatusRequest) returns (CoordinatorMoveStatusResponse);
 
   // pair
   rpc PairCreate(PairCreateRequest) returns (PairCreateResponse);
@@ -990,7 +814,6 @@ service CoordinatorService {
   rpc PairApprovalStatus(PairApprovalStatusRequest) returns (PairApprovalStatusResponse);
 
   // misc
-  rpc MiscFlags(MiscFlagsRequest) returns (MiscFlagsResponse);
   rpc MiscHealth(MiscHealthRequest) returns (MiscHealthResponse);
   rpc MiscDbExportUrl(MiscDbExportUrlRequest) returns (MiscDbExportUrlResponse);
   rpc MiscMetrics(MiscMetricsRequest) returns (MiscMetricsResponse);
@@ -1024,11 +847,6 @@ service CoordinatorService {
   rpc PushGetConfig(PushGetConfigRequest) returns (PushGetConfigResponse);
   rpc PushSubscribe(PushSubscribeRequest) returns (PushSubscribeResponse);
   rpc PushUnsubscribe(PushUnsubscribeRequest) returns (PushUnsubscribeResponse);
-
-
-
-  // sync (crpc3) — server-streaming multiplexed firehose
-  rpc Sync(SyncRequest) returns (stream FirehoseFrame);
 
   // Direct attachment control authenticates a short-lived exact-descriptor
   // grant and resolves durable status; byte relay remains AttachFileChunk.

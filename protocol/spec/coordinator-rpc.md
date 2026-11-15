@@ -6,7 +6,7 @@
 
 ## Purpose
 
-`CoordinatorService` is the browser-to-coordinator unary/control surface at `POST /roost.v1.CoordinatorService/<Method>`. Binary Connect is authoritative. Sync, direct terminal, attachment direct carriers, and the coordinator-worker link are separate transports specified elsewhere; the proto's legacy streaming `Sync` method is not the live Sync implementation.
+`CoordinatorService` is the browser-to-coordinator unary/control surface at `POST /roost.v1.CoordinatorService/<Method>`. Binary Connect is authoritative. Sync, direct terminal, attachment direct carriers, and the coordinator-worker link are separate transports specified elsewhere; `POST /roost.v1.CoordinatorService/Sync` answers HTTP 410 `sync moved to /ws/coord-sync`, and the service declares no `Sync` method.
 
 ## Messages
 
@@ -20,7 +20,7 @@
 | Files/attachments | `Files*`, `Attachments*`, `AttachFileChunk`, `AttachmentProbe`, `ListAttachments`, `DeleteAttachment`; `coordinator.proto:1037-1041,1073-1091` | AttachFileChunk is coordinator relay fallback, not the direct-carrier ACK contract. |
 | Settings/UI/push | `Transcription*`, `Ui*`, `Push*`; `coordinator.proto` | Device-authorized dashboard state; UI apply targets one current Sync-v2 socket generation. |
 | Diagnostics | `DiagDebugLogBatch`, `DiagSnapshot`; `coordinator.proto:1100-1101` | Device-authorized bounded diagnostics. |
-| Sync compatibility | `SyncRequest`, `FirehoseFrame`; `coordinator.proto:1068-1069` | Current path is `/ws/coord-sync`; Connect path is HTTP 410/handler `Unimplemented`. |
+| Sync compatibility | `FirehoseFrame` (`sync.proto`) | Current path is `/ws/coord-sync`; the retired Connect path answers HTTP 410. |
 
 
 ## State machine
@@ -58,7 +58,7 @@ Standard Connect `Code` values are used:
 | `AlreadyExists`, `Aborted` | `409` | Identity collision or concurrent transition. |
 | `FailedPrecondition` | `412` | Invalid lifecycle/version/ordering state. |
 | `ResourceExhausted` | `429` | Bounded owner/capacity rejection. |
-| `Unimplemented` | `501` | Retired/moved surface such as Connect `Sync`. |
+| `Unimplemented` | `501` | Method not declared by this build. |
 | `Unavailable` | `503` | Required worker/socket is offline or not routable. |
 | `DeadlineExceeded` | `504` | Bounded downstream wait expired. |
 
@@ -84,9 +84,6 @@ The method list is the `service CoordinatorService` block in `protocol/proto/roo
 | Attachment peer | `apps/coord/src/attachments/handlers-attachments-peer.ts` | Device plus exact tab/grant/worker fence. |
 | UI | `apps/coord/src/ui-state/handlers-ui.ts` | Device plus persisted session/current socket generation. |
 | Push | `apps/coord/src/push/handlers-push.ts` | Device. |
-| Streaming compatibility | `apps/coord/src/rpc/handlers-streaming.ts` | Device then `Unimplemented`; live fetch path rejects Connect Sync with HTTP 410. |
-
-The proto also declares managed-account, dashboard, coordinator-move/relocation, and other methods not present in the current assembled `makeAuthHandlers` implementation. Proto presence alone is not current router implementation.
 
 ### Assembly and policy
 

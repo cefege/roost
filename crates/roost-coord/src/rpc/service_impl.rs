@@ -1,9 +1,8 @@
 //! The ONE `CoordinatorService` implementation: every method in one `impl`,
 //! one file because two impl blocks of one trait are E0119.
-//! Signatures follow `protocol/proto/roost/v1/coordinator.proto`; each
-//! implemented arm resolves its caller through `service::caller_of` and
-//! delegates to its domain handler. The route-arm test pins each method to its
-//! declared status; the 16 unwired methods answer a named `Unimplemented`.
+//! Signatures follow `protocol/proto/roost/v1/coordinator.proto`; every
+//! declared method has an arm, which resolves its caller through
+//! `service::caller_of` and delegates to its domain handler.
 
 use std::future::Future;
 
@@ -13,10 +12,7 @@ use connectrpc::{
 use roost_proto::roost::v1::CoordinatorService;
 use roost_proto::*;
 
-use super::service::{
-    CoordinatorServiceImpl, caller_of, db_export_url, delegated_reply, misc_health_reply, now_ms,
-    sync_moved_stream,
-};
+use super::service::{CoordinatorServiceImpl, caller_of, db_export_url, misc_health_reply, now_ms};
 
 use crate::attachments::rpc_files::{
     handle_attach_file_chunk, handle_attachment_probe, handle_delete_attachment,
@@ -1141,183 +1137,5 @@ impl CoordinatorService for CoordinatorServiceImpl {
             let caller = caller_of(&ctx, "PushUnsubscribe")?;
             handle_push_unsubscribe(&self.core, caller, r.to_owned_message()).await
         }
-    }
-    // ── rpc ─────────────────────────────────────────────────────────────
-
-    fn sync(
-        &self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SyncRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<ServiceStream<impl Encodable<FirehoseFrame> + Send + use<>>>,
-    > + Send {
-        sync_moved_stream::<FirehoseFrame>()
-    }
-    // ── auth ────────────────────────────────────────────────────────────
-
-    fn auth_dashboard_access<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AuthDashboardAccessRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AuthDashboardAccessResponse> + Send + use<'a>>,
-    > + Send {
-        delegated_reply::<AuthDashboardAccessResponse>("AuthDashboardAccess")
-    }
-
-    fn auth_owner_activate<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AuthOwnerActivateRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AuthOwnerActivateResponse> + Send + use<'a>>,
-    > + Send {
-        delegated_reply::<AuthOwnerActivateResponse>("AuthOwnerActivate")
-    }
-
-    fn auth_password_reset_request<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AuthPasswordResetStartRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AuthPasswordResetStartResponse> + Send + use<'a>>,
-    > + Send {
-        delegated_reply::<AuthPasswordResetStartResponse>("AuthPasswordResetRequest")
-    }
-
-    fn auth_password_reset_redeem<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AuthPasswordResetRedeemRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AuthPasswordResetRedeemResponse> + Send + use<'a>>,
-    > + Send {
-        delegated_reply::<AuthPasswordResetRedeemResponse>("AuthPasswordResetRedeem")
-    }
-
-    fn auth_password_login<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AuthPasswordLoginRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AuthPasswordLoginResponse> + Send + use<'a>>,
-    > + Send {
-        delegated_reply::<AuthPasswordLoginResponse>("AuthPasswordLogin")
-    }
-
-    fn auth_federated_continue<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AuthFederatedContinueRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AuthFederatedContinueResponse> + Send + use<'a>>,
-    > + Send {
-        delegated_reply::<AuthFederatedContinueResponse>("AuthFederatedContinue")
-    }
-
-    fn auth_credentials_get<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AuthCredentialsGetRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AuthCredentialsGetResponse> + Send + use<'a>>,
-    > + Send {
-        delegated_reply::<AuthCredentialsGetResponse>("AuthCredentialsGet")
-    }
-
-    fn auth_password_add<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AuthPasswordAddRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AuthPasswordAddResponse> + Send + use<'a>>,
-    > + Send {
-        delegated_reply::<AuthPasswordAddResponse>("AuthPasswordAdd")
-    }
-
-    fn auth_federated_link_begin<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AuthFederatedLinkBeginRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AuthFederatedLinkBeginResponse> + Send + use<'a>>,
-    > + Send {
-        delegated_reply::<AuthFederatedLinkBeginResponse>("AuthFederatedLinkBegin")
-    }
-
-    fn auth_federated_link<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AuthFederatedLinkRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AuthFederatedLinkResponse> + Send + use<'a>>,
-    > + Send {
-        delegated_reply::<AuthFederatedLinkResponse>("AuthFederatedLink")
-    }
-
-    fn auth_mint_coordinator_relocation<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AuthMintCoordinatorRelocationRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<
-            impl Encodable<AuthMintCoordinatorRelocationResponse> + Send + use<'a>,
-        >,
-    > + Send {
-        delegated_reply::<AuthMintCoordinatorRelocationResponse>("AuthMintCoordinatorRelocation")
-    }
-
-    fn auth_redeem_coordinator_relocation<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AuthRedeemCoordinatorRelocationRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<
-            impl Encodable<AuthRedeemCoordinatorRelocationResponse> + Send + use<'a>,
-        >,
-    > + Send {
-        delegated_reply::<AuthRedeemCoordinatorRelocationResponse>(
-            "AuthRedeemCoordinatorRelocation",
-        )
-    }
-
-    fn coordinator_move_preflight<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, CoordinatorMovePreflightRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<CoordinatorMovePreflightResponse> + Send + use<'a>>,
-    > + Send {
-        delegated_reply::<CoordinatorMovePreflightResponse>("CoordinatorMovePreflight")
-    }
-
-    fn coordinator_move_start<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, CoordinatorMoveStartRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<CoordinatorMoveStartResponse> + Send + use<'a>>,
-    > + Send {
-        delegated_reply::<CoordinatorMoveStartResponse>("CoordinatorMoveStart")
-    }
-
-    fn coordinator_move_status<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, CoordinatorMoveStatusRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<CoordinatorMoveStatusResponse> + Send + use<'a>>,
-    > + Send {
-        delegated_reply::<CoordinatorMoveStatusResponse>("CoordinatorMoveStatus")
-    }
-    // ── rpc ─────────────────────────────────────────────────────────────
-
-    fn misc_flags<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, MiscFlagsRequest>,
-    ) -> impl Future<Output = ServiceResult<impl Encodable<MiscFlagsResponse> + Send + use<'a>>> + Send
-    {
-        delegated_reply::<MiscFlagsResponse>("MiscFlags")
     }
 }

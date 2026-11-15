@@ -12,7 +12,7 @@
 //!
 //! The fixture refuses an anonymous caller the way the coordinator's route table
 //! does (`SessionsList` is `DeviceOrOwnWorkerRecovery`,
-//! `crates/roost-coord/src/rpc/method_route_rows.rs:79`), so removing the header
+//! `crates/roost-coord/src/rpc/method_route_rows.rs` `ROWS_SESSIONS`), so removing the header
 //! turns this test red instead of leaving it green over a refused call.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]

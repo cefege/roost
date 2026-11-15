@@ -3,7 +3,7 @@
 //! Called by roost-web's pairing surface: the requester half through
 //! `CoordRpc::call_public` (a browser with no device key must still be able to
 //! ask), the approver half through `CoordRpc::call`. The split is the
-//! coordinator's own table, not a UI decision — `method_route_rows.rs:199-205`
+//! coordinator's own table, not a UI decision — `method_route_rows.rs` `ROWS_AUTH`
 //! gives `PairCreate`, `PairPoll` and `PairConfirm` `AuthRequirement::Public`
 //! and the other four `DeviceOrOwnWorkerRecovery`, and `pair_create`,
 //! `pair_poll` and `pair_confirm` are the only three pair handlers in

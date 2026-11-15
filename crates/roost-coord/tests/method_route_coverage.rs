@@ -7,14 +7,11 @@
 use std::collections::BTreeSet;
 
 use roost_coord::auth::principal::Principal;
-use roost_coord::rpc::method_route::{
-    AuthRequirement, PortStatus, all_method_routes, auth_requirement,
-};
+use roost_coord::rpc::method_route::{AuthRequirement, all_method_routes, auth_requirement};
 use roost_coord::rpc::service::principal_satisfies;
 
 const PROTO: &str = include_str!("../../../protocol/proto/roost/v1/coordinator.proto");
 
-/// Every method name the proto's `service CoordinatorService` block declares.
 /// Every method name the proto's `service CoordinatorService` block declares.
 ///
 /// Derived from [`declared_in_order`] rather than parsed a second time: two
@@ -85,43 +82,6 @@ fn no_route_row_names_a_method_the_proto_does_not_declare() {
 }
 
 #[test]
-fn exactly_sixteen_methods_are_unwired_in_v2_and_those_are_the_ones_named() {
-    // v2 routes these to Connect's own unimplemented stub. The count comes from
-    // the assembled service: 115 of 131 methods are wired, so 16 are not. Getting
-    // this number wrong in EITHER direction is the bug -- too many and a real
-    // method silently 501s, too few and this crate claims to have retired a
-    // method v2 still answers.
-    let unwired: Vec<&str> = all_method_routes()
-        .iter()
-        .filter(|route| route.status == PortStatus::UnwiredInV2)
-        .map(|route| route.method)
-        .collect();
-    assert_eq!(unwired.len(), 16, "unwired: {unwired:?}");
-
-    let expected: BTreeSet<&str> = [
-        "AuthDashboardAccess",
-        "AuthOwnerActivate",
-        "AuthPasswordResetRequest",
-        "AuthPasswordResetRedeem",
-        "AuthPasswordLogin",
-        "AuthFederatedContinue",
-        "AuthCredentialsGet",
-        "AuthPasswordAdd",
-        "AuthFederatedLinkBegin",
-        "AuthFederatedLink",
-        "AuthMintCoordinatorRelocation",
-        "AuthRedeemCoordinatorRelocation",
-        "CoordinatorMovePreflight",
-        "CoordinatorMoveStart",
-        "CoordinatorMoveStatus",
-        "MiscFlags",
-    ]
-    .into_iter()
-    .collect();
-    assert_eq!(unwired.iter().copied().collect::<BTreeSet<_>>(), expected);
-}
-
-#[test]
 fn seven_methods_are_public_and_six_of_those_are_gated_by_a_body_secret() {
     // `docs/phase3-coord-contract.md` §4.5. A public method is not a weaker
     // device method: `MiscHealth` being public is what lets a load balancer probe
@@ -185,7 +145,7 @@ fn the_on_host_requirement_matches_v2_and_the_gate_does_not_yet_enforce_it() {
     //     FALLBACK, so an operator who has lost their only device can still
     //     recover it. Four sites: pairing ×3 and `handlers-devices.ts:72`.
     //
-    // `principal_satisfies` (`service.rs:216`) answers `is_browser` for
+    // `service::principal_satisfies` answers `is_browser` for
     // `Device` and `DeviceOnHost` alike, so it expresses NEITHER shape. The
     // first needs an extra restriction on a caller it has already admitted; the
     // second admits a caller with no credential at all, and `AuthGate::admit`
@@ -236,28 +196,4 @@ fn the_on_host_requirement_matches_v2_and_the_gate_does_not_yet_enforce_it() {
         principal_satisfies(Some(&browser), AuthRequirement::Device),
         "THE GATE DOES NOT DISTINGUISH DeviceOnHost FROM Device. If this assertion fails, the gate grew a locality check and the row above is now enforced rather than merely recorded."
     );
-}
-
-#[test]
-fn the_sixteen_unwired_methods_claim_no_auth_requirement() {
-    // A method with no handler enforces nothing, so recording a requirement
-    // would assert a guarantee nothing provides. `Unwired` is the truthful
-    // value, and it is distinct from `Public`, which is a deliberate absence.
-    for route in all_method_routes() {
-        if route.status == PortStatus::UnwiredInV2 {
-            assert_eq!(
-                route.auth,
-                AuthRequirement::Unwired,
-                "{} has no handler, so it claims no requirement",
-                route.method
-            );
-        } else {
-            assert_ne!(
-                route.auth,
-                AuthRequirement::Unwired,
-                "{} has a handler, so `Unwired` would be a lie",
-                route.method
-            );
-        }
-    }
 }

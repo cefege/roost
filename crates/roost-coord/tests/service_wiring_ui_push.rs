@@ -104,7 +104,7 @@ async fn the_three_push_arms_refuse_when_no_caller_is_on_the_request() {
 ///
 /// Both halves matter. An arm that invented a device caller would answer the
 /// worker with a served list, and an arm that dropped the caller would refuse
-/// both with the same named `Unimplemented` it gives an absent domain.
+/// both with the same named `Internal`.
 #[tokio::test]
 async fn a_ui_arm_hands_the_caller_it_resolved_to_the_handler_that_decides() {
     let fixture = ServiceFixture::new("ui-delegation").await;

@@ -102,8 +102,6 @@ mod maintenance_audit_window;
 mod maintenance_backup;
 #[path = "maintenance_startup_janitor.rs"]
 mod maintenance_startup_janitor;
-#[path = "method_route_arm_pairing.rs"]
-mod method_route_arm_pairing;
 #[path = "method_route_coverage.rs"]
 mod method_route_coverage;
 #[path = "middleware_admission_stack.rs"]

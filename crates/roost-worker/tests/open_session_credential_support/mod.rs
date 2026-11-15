@@ -4,7 +4,7 @@
 //! `roost-coord` is not a dependency of `roost-worker` and never will be, so the
 //! rule this fixture stands in for is stated rather than imported: the route
 //! table makes `SessionsList` `DeviceOrOwnWorkerRecovery`
-//! (`crates/roost-coord/src/rpc/method_route_rows.rs:79`), which means a caller
+//! (`crates/roost-coord/src/rpc/method_route_rows.rs` `ROWS_SESSIONS`), which means a caller
 //! with no credential is refused rather than answered anonymously.
 //!
 //! `Router::route` rather than a `CoordinatorService` impl, for the reason

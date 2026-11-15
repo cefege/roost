@@ -1,6 +1,7 @@
-// Sync — single Connect server-streaming RPC replacing sync.firehose
-// tRPC subscription. Multiplexes coordinator state buses plus authoritative
-// terminal cell grids and compact terminal-link metadata over one stream.
+// Sync — `FirehoseFrame`, the frame of the `/ws/coord-sync` WebSocket.
+// Multiplexes coordinator state buses plus authoritative terminal cell grids
+// and compact terminal-link metadata over one socket; a reconnect asks for
+// backfill with the `since` query parameter.
 //
 // Wire shape: FirehoseFrame oneof. Event-typed variants carry a JSON
 // payload (the per-domain event shapes of roost-protocol's `wire`).
@@ -11,14 +12,6 @@ package roost.v1;
 import "roost/v1/events.proto";
 import "roost/v1/wire.proto";
 import "roost/v1/cell.proto";
-
-message SyncRequest {
-  // T1.4 — reconnect backfill. SPA persists the last event id it saw
-  // (server-stamped on each SessionEvent) and passes it on reopen.
-  // Coord replays event rows with id > since_event_id before subscribing
-  // to live publishes. 0 = no backfill (first connect).
-  uint64 since_event_id = 1;
-}
 
 // Generic event variants — payload_json carries the existing per-domain
 // event shape verbatim. SPA decodes JSON and dispatches into existing

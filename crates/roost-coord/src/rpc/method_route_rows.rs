@@ -5,7 +5,7 @@
 //! `tests/method_route_coverage.rs` asserts -- so the split costs navigability
 //! nothing and the ordering guarantee survives it.
 //!
-//! Kept as plain data rather than generated: 122 rows of cited policy is exactly
+//! Kept as plain data rather than generated: 78 rows of cited policy is exactly
 //! what a build-time macro would hide.
 //!
 //! `#[rustfmt::skip]` on every table, deliberately. This is DATA, and rustfmt
@@ -15,32 +15,26 @@
 //! -- is the one thing this file most needs, and `#[rustfmt::skip]` is how a
 //! data table keeps it.
 
-use super::method_route::{AuthRequirement, MethodRoute, PortStatus};
+use super::method_route::{AuthRequirement, MethodRoute};
 
-const fn route(
-    method: &'static str,
-    domain: &'static str,
-    auth: AuthRequirement,
-    status: PortStatus,
-) -> MethodRoute {
+const fn route(method: &'static str, domain: &'static str, auth: AuthRequirement) -> MethodRoute {
     MethodRoute {
         method,
         domain,
         auth,
-        status,
     }
 }
 
 /// the worker registry: registration, heartbeat, rename, delete, deploy.
 #[rustfmt::skip]
 pub const ROWS_WORKERS: &[MethodRoute] = &[
-    route("WorkersList", "workers", AuthRequirement::Device, PortStatus::Implemented),
-    route("WorkersRegister", "workers", AuthRequirement::Worker, PortStatus::Implemented),
-    route("WorkersHeartbeat", "workers", AuthRequirement::Worker, PortStatus::Implemented),
-    route("WorkersRename", "workers", AuthRequirement::Device, PortStatus::Implemented),
-    route("WorkersDelete", "workers", AuthRequirement::Device, PortStatus::Implemented),
-    route("WorkersDeployStart", "workers", AuthRequirement::Device, PortStatus::Implemented),
-    route("WorkersDeployOutput", "workers", AuthRequirement::Device, PortStatus::Implemented),
+    route("WorkersList", "workers", AuthRequirement::Device),
+    route("WorkersRegister", "workers", AuthRequirement::Worker),
+    route("WorkersHeartbeat", "workers", AuthRequirement::Worker),
+    route("WorkersRename", "workers", AuthRequirement::Device),
+    route("WorkersDelete", "workers", AuthRequirement::Device),
+    route("WorkersDeployStart", "workers", AuthRequirement::Device),
+    route("WorkersDeployOutput", "workers", AuthRequirement::Device),
 ];
 
 /// keeper-update preparation, the host-local change that replaces the binary every live PTY depends on.
@@ -70,54 +64,69 @@ pub const ROWS_DEPLOY: &[MethodRoute] = &[route(
     "WorkersPrepareKeeperUpdate",
     "deploy",
     AuthRequirement::Device,
-    PortStatus::Implemented,
 )];
 
 /// the session lifecycle, scrollback, and direct-terminal grants.
 #[rustfmt::skip]
 pub const ROWS_SESSIONS: &[MethodRoute] = &[
-    route("SessionsList", "sessions", AuthRequirement::DeviceOrOwnWorkerRecovery, PortStatus::Implemented),
-    route("SessionsSpawn", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("SessionsAttach", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("SessionsKill", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("SessionsRename", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("SessionsInput", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("SessionsCursorPos", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("SessionsAssignWorkspace", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("SessionsGetScrollbackCells", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("SessionsGetTerminalImage", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("SessionsSearchScrollback", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("SessionsCancelScrollbackSearch", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("SessionsGrantLocalTerminal", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("SessionsNegotiateLocalTerminalPeer", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("WorkspacesList", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("WorkspacesCreate", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("WorkspacesUpdate", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("WorkspacesDelete", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("WorkspacesSetSessions", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("SessionsList", "sessions", AuthRequirement::DeviceOrOwnWorkerRecovery),
+    route("SessionsSpawn", "sessions", AuthRequirement::Device),
+    route("SessionsAttach", "sessions", AuthRequirement::Device),
+    route("SessionsKill", "sessions", AuthRequirement::Device),
+    route("SessionsRename", "sessions", AuthRequirement::Device),
+    route("SessionsInput", "sessions", AuthRequirement::Device),
+    route("SessionsCursorPos", "sessions", AuthRequirement::Device),
+    route("SessionsAssignWorkspace", "sessions", AuthRequirement::Device),
+    route("SessionsGetScrollbackCells", "sessions", AuthRequirement::Device),
+    route("SessionsGetTerminalImage", "sessions", AuthRequirement::Device),
+    route("SessionsSearchScrollback", "sessions", AuthRequirement::Device),
+    route("SessionsCancelScrollbackSearch", "sessions", AuthRequirement::Device),
+    route("SessionsGrantLocalTerminal", "sessions", AuthRequirement::Device),
+    route("SessionsNegotiateLocalTerminalPeer", "sessions", AuthRequirement::Device),
+    route("WorkspacesList", "sessions", AuthRequirement::Device),
+    route("WorkspacesCreate", "sessions", AuthRequirement::Device),
+    route("WorkspacesUpdate", "sessions", AuthRequirement::Device),
+    route("WorkspacesDelete", "sessions", AuthRequirement::Device),
+    route("WorkspacesSetSessions", "sessions", AuthRequirement::Device),
 ];
 
 /// global session search across every worker.
 #[rustfmt::skip]
 pub const ROWS_SEARCH: &[MethodRoute] = &[
-    route("SessionsSearchGlobal", "search", AuthRequirement::Device, PortStatus::Implemented),
-    route("SessionsCancelGlobalSearch", "search", AuthRequirement::Device, PortStatus::Implemented),
+    route("SessionsSearchGlobal", "search", AuthRequirement::Device),
+    route("SessionsCancelGlobalSearch", "search", AuthRequirement::Device),
 ];
 
 /// files, the attachment chunk relay, direct grants, and peer negotiation.
 #[rustfmt::skip]
 pub const ROWS_ATTACHMENTS: &[MethodRoute] = &[
-    route("SessionsNegotiateAttachmentPeer", "attachments", AuthRequirement::DevicePlusFence, PortStatus::Implemented),
-    route("FilesRead", "attachments", AuthRequirement::Device, PortStatus::Implemented),
-    route("FilesReadChunk", "attachments", AuthRequirement::Device, PortStatus::Implemented),
-    route("FilesListDir", "attachments", AuthRequirement::Device, PortStatus::Implemented),
-    route("FilesMkdir", "attachments", AuthRequirement::Device, PortStatus::Implemented),
-    route("AttachmentsGrantDirect", "attachments", AuthRequirement::DevicePlusFence, PortStatus::Implemented),
-    route("AttachmentsDirectStatus", "attachments", AuthRequirement::DevicePlusFence, PortStatus::Implemented),
-    route("AttachFileChunk", "attachments", AuthRequirement::Device, PortStatus::Implemented),
-    route("AttachmentProbe", "attachments", AuthRequirement::Device, PortStatus::Implemented),
-    route("ListAttachments", "attachments", AuthRequirement::Device, PortStatus::Implemented),
-    route("DeleteAttachment", "attachments", AuthRequirement::Device, PortStatus::Implemented),
+    route("SessionsNegotiateAttachmentPeer", "attachments", AuthRequirement::DevicePlusFence),
+    route("FilesRead", "attachments", AuthRequirement::Device),
+    route("FilesReadChunk", "attachments", AuthRequirement::Device),
+    route("FilesListDir", "attachments", AuthRequirement::Device),
+    route("FilesMkdir", "attachments", AuthRequirement::Device),
+    route("AttachmentsGrantDirect", "attachments", AuthRequirement::DevicePlusFence),
+    route("AttachmentsDirectStatus", "attachments", AuthRequirement::DevicePlusFence),
+    route("AttachFileChunk", "attachments", AuthRequirement::Device),
+    route("AttachmentProbe", "attachments", AuthRequirement::Device),
+    route("ListAttachments", "attachments", AuthRequirement::Device),
+    route("DeleteAttachment", "attachments", AuthRequirement::Device),
+];
+
+/// Coordinator-backed clipboard history for paired browsers.
+#[rustfmt::skip]
+pub const ROWS_CLIPBOARD: &[MethodRoute] = &[
+    route("ClipboardList", "clipboard", AuthRequirement::Device),
+    route("ClipboardAdd", "clipboard", AuthRequirement::Device),
+    route("ClipboardDelete", "clipboard", AuthRequirement::Device),
+    route("ClipboardClear", "clipboard", AuthRequirement::Device),
+];
+
+/// Account-scoped browser state that follows the operator across devices.
+#[rustfmt::skip]
+pub const ROWS_CLIENT_STATE: &[MethodRoute] = &[
+    route("ClientStateList", "client_state", AuthRequirement::Device),
+    route("ClientStateSet", "client_state", AuthRequirement::Device),
 ];
 
 /// auth, pairing and device lifecycle.
@@ -144,60 +153,28 @@ pub const ROWS_ATTACHMENTS: &[MethodRoute] = &[
 ///   direction and a recovery path in the other. Neither exists: the gate
 ///   admits a browser and nothing else, today.
 #[rustfmt::skip]
-///   Coordinator-backed clipboard history for paired browsers.
-pub const ROWS_CLIPBOARD: &[MethodRoute] = &[
-    route("ClipboardList", "clipboard", AuthRequirement::Device, PortStatus::Implemented),
-    route("ClipboardAdd", "clipboard", AuthRequirement::Device, PortStatus::Implemented),
-    route("ClipboardDelete", "clipboard", AuthRequirement::Device, PortStatus::Implemented),
-    route("ClipboardClear", "clipboard", AuthRequirement::Device, PortStatus::Implemented),
-];
-
-/// Account-scoped browser state that follows the operator across devices.
-#[rustfmt::skip]
-pub const ROWS_CLIENT_STATE: &[MethodRoute] = &[
-    route("ClientStateList", "client_state", AuthRequirement::Device, PortStatus::Implemented),
-    route("ClientStateSet", "client_state", AuthRequirement::Device, PortStatus::Implemented),
-];
-
-#[rustfmt::skip]
 pub const ROWS_AUTH: &[MethodRoute] = &[
-    route("AuthCoordIdentity", "auth", AuthRequirement::Public, PortStatus::Implemented),
-    route("AuthDashboardAccess", "auth", AuthRequirement::Unwired, PortStatus::UnwiredInV2),
-    route("AuthLogout", "auth", AuthRequirement::Device, PortStatus::Implemented),
-    route("AuthOwnerActivate", "auth", AuthRequirement::Unwired, PortStatus::UnwiredInV2),
-    route("AuthPasswordResetRequest", "auth", AuthRequirement::Unwired, PortStatus::UnwiredInV2),
-    route("AuthPasswordResetRedeem", "auth", AuthRequirement::Unwired, PortStatus::UnwiredInV2),
-    route("AuthPasswordLogin", "auth", AuthRequirement::Unwired, PortStatus::UnwiredInV2),
-    route("AuthFederatedContinue", "auth", AuthRequirement::Unwired, PortStatus::UnwiredInV2),
-    route("AuthCredentialsGet", "auth", AuthRequirement::Unwired, PortStatus::UnwiredInV2),
-    route("AuthPasswordAdd", "auth", AuthRequirement::Unwired, PortStatus::UnwiredInV2),
-    route("AuthFederatedLinkBegin", "auth", AuthRequirement::Unwired, PortStatus::UnwiredInV2),
-    route("AuthFederatedLink", "auth", AuthRequirement::Unwired, PortStatus::UnwiredInV2),
-    route("AuthMintBootstrap", "auth", AuthRequirement::Device, PortStatus::Implemented),
-    route("AuthRedeemWorker", "auth", AuthRequirement::Public, PortStatus::Implemented),
-    route("AuthRedeemBrowser", "auth", AuthRequirement::Public, PortStatus::Implemented),
-    route("AuthMintCoordinatorRelocation", "auth", AuthRequirement::Unwired, PortStatus::UnwiredInV2),
-    route("AuthRedeemCoordinatorRelocation", "auth", AuthRequirement::Unwired, PortStatus::UnwiredInV2),
-    route("DevicesList", "auth", AuthRequirement::Device, PortStatus::Implemented),
-    route("DevicesRevoke", "auth", AuthRequirement::Device, PortStatus::Implemented),
-    route("DevicesRotateCurrent", "auth", AuthRequirement::Device, PortStatus::Implemented),
-    route("CoordinatorMovePreflight", "auth", AuthRequirement::Unwired, PortStatus::UnwiredInV2),
-    route("CoordinatorMoveStart", "auth", AuthRequirement::Unwired, PortStatus::UnwiredInV2),
-    route("CoordinatorMoveStatus", "auth", AuthRequirement::Unwired, PortStatus::UnwiredInV2),
-    route("PairCreate", "auth", AuthRequirement::Public, PortStatus::Implemented),
-    route("PairPoll", "auth", AuthRequirement::Public, PortStatus::Implemented),
-    route("PairList", "auth", AuthRequirement::DeviceOrOwnWorkerRecovery, PortStatus::Implemented),
-    route("PairApprove", "auth", AuthRequirement::DeviceOrOwnWorkerRecovery, PortStatus::Implemented),
-    route("PairConfirm", "auth", AuthRequirement::Public, PortStatus::Implemented),
-    route("PairDeny", "auth", AuthRequirement::DeviceOrOwnWorkerRecovery, PortStatus::Implemented),
-    route("PairApprovalStatus", "auth", AuthRequirement::DeviceOrOwnWorkerRecovery, PortStatus::Implemented),
+    route("AuthCoordIdentity", "auth", AuthRequirement::Public),
+    route("AuthLogout", "auth", AuthRequirement::Device),
+    route("AuthMintBootstrap", "auth", AuthRequirement::Device),
+    route("AuthRedeemWorker", "auth", AuthRequirement::Public),
+    route("AuthRedeemBrowser", "auth", AuthRequirement::Public),
+    route("DevicesList", "auth", AuthRequirement::Device),
+    route("DevicesRevoke", "auth", AuthRequirement::Device),
+    route("DevicesRotateCurrent", "auth", AuthRequirement::Device),
+    route("PairCreate", "auth", AuthRequirement::Public),
+    route("PairPoll", "auth", AuthRequirement::Public),
+    route("PairList", "auth", AuthRequirement::DeviceOrOwnWorkerRecovery),
+    route("PairApprove", "auth", AuthRequirement::DeviceOrOwnWorkerRecovery),
+    route("PairConfirm", "auth", AuthRequirement::Public),
+    route("PairDeny", "auth", AuthRequirement::DeviceOrOwnWorkerRecovery),
+    route("PairApprovalStatus", "auth", AuthRequirement::DeviceOrOwnWorkerRecovery),
 ];
 
-/// health, DB export, metrics, audit, diagnostics, transcription, and the retired Connect Sync.
+/// health, DB export, metrics, audit, diagnostics, and transcription.
 #[rustfmt::skip]
 pub const ROWS_RPC: &[MethodRoute] = &[
-    route("MiscFlags", "rpc", AuthRequirement::Unwired, PortStatus::UnwiredInV2),
-    route("MiscHealth", "rpc", AuthRequirement::Public, PortStatus::Implemented),
+    route("MiscHealth", "rpc", AuthRequirement::Public),
     // `DeviceOnHost`, AND THE LOCALITY IS ENFORCED ONE LAYER BELOW THE GATE.
     // Re-read against the code rather than the plan, because the export route
     // stopped being a stub and this row is the only place that says what it
@@ -206,7 +183,7 @@ pub const ROWS_RPC: &[MethodRoute] = &[
     // - v2 asserts locality in the HANDLER, unguarded
     //   (`handlers-system.ts:114-115`): `requireAccountDevice` AND
     //   `assertOnHost`, so a remote browser is refused the URL itself.
-    // - `principal_satisfies` (`service.rs:213`) answers `is_browser` for this
+    // - `service::principal_satisfies` answers `is_browser` for this
     //   variant and for `Device` alike, so the auth GATE still does not
     //   enforce locality, and a remote browser is still handed the path.
     // - the route behind that path enforces it in full: the on-host profile is
@@ -222,16 +199,15 @@ pub const ROWS_RPC: &[MethodRoute] = &[
     // over-claiming one, and the fix is a gate change, not a table change.
     // `no_row_claims_a_locality_the_auth_gate_does_not_enforce` is the test
     // that holds both halves of this sentence.
-    route("MiscDbExportUrl", "rpc", AuthRequirement::DeviceOnHost, PortStatus::Implemented),
-    route("MiscMetrics", "rpc", AuthRequirement::Device, PortStatus::Implemented),
-    route("AuditList", "rpc", AuthRequirement::Device, PortStatus::Implemented),
-    route("TranscriptionGetConfig", "rpc", AuthRequirement::Device, PortStatus::Implemented),
-    route("TranscriptionSetConfig", "rpc", AuthRequirement::Device, PortStatus::Implemented),
-    route("TranscriptionGrantToken", "rpc", AuthRequirement::Device, PortStatus::Implemented),
-    route("TranscriptionTest", "rpc", AuthRequirement::Device, PortStatus::Implemented),
-    route("Sync", "rpc", AuthRequirement::Device, PortStatus::Implemented),
-    route("DiagDebugLogBatch", "rpc", AuthRequirement::Device, PortStatus::Implemented),
-    route("DiagSnapshot", "rpc", AuthRequirement::Device, PortStatus::Implemented),
+    route("MiscDbExportUrl", "rpc", AuthRequirement::DeviceOnHost),
+    route("MiscMetrics", "rpc", AuthRequirement::Device),
+    route("AuditList", "rpc", AuthRequirement::Device),
+    route("TranscriptionGetConfig", "rpc", AuthRequirement::Device),
+    route("TranscriptionSetConfig", "rpc", AuthRequirement::Device),
+    route("TranscriptionGrantToken", "rpc", AuthRequirement::Device),
+    route("TranscriptionTest", "rpc", AuthRequirement::Device),
+    route("DiagDebugLogBatch", "rpc", AuthRequirement::Device),
+    route("DiagSnapshot", "rpc", AuthRequirement::Device),
 ];
 
 /// ui-cc typed state and layout application.
@@ -244,18 +220,18 @@ pub const ROWS_RPC: &[MethodRoute] = &[
 /// not a requirement on the caller.
 #[rustfmt::skip]
 pub const ROWS_UI_STATE: &[MethodRoute] = &[
-    route("UiReportState", "ui_state", AuthRequirement::Device, PortStatus::Implemented),
-    route("UiListStates", "ui_state", AuthRequirement::Device, PortStatus::Implemented),
-    route("UiDispatch", "ui_state", AuthRequirement::Device, PortStatus::Implemented),
-    route("UiApplyLayout", "ui_state", AuthRequirement::Device, PortStatus::Implemented),
+    route("UiReportState", "ui_state", AuthRequirement::Device),
+    route("UiListStates", "ui_state", AuthRequirement::Device),
+    route("UiDispatch", "ui_state", AuthRequirement::Device),
+    route("UiApplyLayout", "ui_state", AuthRequirement::Device),
 ];
 
 /// web push subscriptions, per authenticated browser fingerprint.
 #[rustfmt::skip]
 pub const ROWS_PUSH: &[MethodRoute] = &[
-    route("PushGetConfig", "push", AuthRequirement::Device, PortStatus::Implemented),
-    route("PushSubscribe", "push", AuthRequirement::Device, PortStatus::Implemented),
-    route("PushUnsubscribe", "push", AuthRequirement::Device, PortStatus::Implemented),
+    route("PushGetConfig", "push", AuthRequirement::Device),
+    route("PushSubscribe", "push", AuthRequirement::Device),
+    route("PushUnsubscribe", "push", AuthRequirement::Device),
 ];
 
 /// Every per-domain table, in the order `method_route` concatenates them.

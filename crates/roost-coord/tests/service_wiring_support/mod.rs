@@ -129,16 +129,14 @@ macro_rules! service_request {
 }
 pub(crate) use service_request;
 
-/// The refusal a wired method gives for a request with no caller on it: the
-/// named `Unimplemented` it would give for an absent domain.
+/// The refusal a wired method gives for a request with no caller on it: a named
+/// `Internal`.
 ///
-/// Naming the method is the point -- a refusal that does not say which method it
-/// is cannot be told apart from the sixteen methods v2 never answered -- and
-/// `Unimplemented` is what proves no handler ran: every handler here answers a
-/// missing caller with `PermissionDenied` or a domain error, and none of them
-/// answers with a refusal that names the method.
+/// Naming the method is the point, and `Internal` is what proves no handler ran:
+/// every handler here answers a missing caller with `PermissionDenied` or a
+/// domain error, and none of them answers with a refusal that names the method.
 pub fn assert_named_refusal(error: ConnectError, method: &str) {
-    assert_eq!(error.code, ErrorCode::Unimplemented, "{method}");
+    assert_eq!(error.code, ErrorCode::Internal, "{method}");
     let message = error.message.clone().unwrap_or_default();
     assert!(
         message.starts_with(&format!("{method}:")),
