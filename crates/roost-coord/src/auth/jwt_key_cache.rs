@@ -44,6 +44,11 @@ use super::jwt_crypto::PublicKey;
 /// Connect call does not read a row per request.
 pub const CACHE_TTL: Duration = Duration::from_secs(60);
 
+/// How many keys' generations are tracked before the map is pruned. Invalidation
+/// is driven by revoke, rotate and logout, so an unbounded map would grow with
+/// every key an account ever retired.
+pub const MAX_TRACKED_GENERATIONS: usize = 1024;
+
 /// A cached authorized key.
 ///
 /// It deliberately does NOT store the generation it was loaded under. A caller
@@ -79,11 +84,18 @@ pub struct JwtKeyCache {
 #[derive(Debug, Default)]
 struct CacheInner {
     keys: HashMap<String, CachedKey>,
+    /// Generations of the keys invalidated since the last prune; a key absent
+    /// here is at `generation_floor`.
     generations: HashMap<String, u64>,
+    /// The newest generation handed out to any key.
+    last_generation: u64,
+    /// The generation of every key with no entry; raised when `generations` is
+    /// pruned.
+    generation_floor: u64,
 }
 
 impl JwtKeyCache {
-    /// An empty cache. Every generation starts at zero.
+    /// An empty cache. Every generation starts at the floor, which is zero.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -101,14 +113,20 @@ impl JwtKeyCache {
         body(&mut guard)
     }
 
-    /// The current generation for a `kid`, or zero if it has never been seen.
+    /// The current generation for a `kid`, or the floor if it has no entry.
     ///
-    /// Zero is the answer for an unknown key, which is why a generation check is
-    /// not authorization on its own: an unknown key has a perfectly valid
-    /// generation and still must not authenticate.
+    /// The floor is the answer for an unknown key, which is why a generation
+    /// check is not authorization on its own: an unknown key has a perfectly
+    /// valid generation and still must not authenticate.
     #[must_use]
     pub fn generation(&self, kid: &str) -> u64 {
-        self.with_inner(|inner| inner.generations.get(kid).copied().unwrap_or(0))
+        self.with_inner(|inner| {
+            inner
+                .generations
+                .get(kid)
+                .copied()
+                .unwrap_or(inner.generation_floor)
+        })
     }
 
     /// The cached key, and whether it is still inside its TTL.
@@ -160,14 +178,19 @@ impl JwtKeyCache {
     /// verification that already read the row fail its next generation check.
     pub fn invalidate_jwt_key(&self, kid: &str) {
         self.with_inner(|inner| {
-            let next = inner
+            inner.last_generation = inner.last_generation.saturating_add(1);
+            inner
                 .generations
-                .get(kid)
-                .copied()
-                .unwrap_or(0)
-                .saturating_add(1);
-            inner.generations.insert(kid.to_string(), next);
+                .insert(kid.to_string(), inner.last_generation);
             inner.keys.remove(kid);
+            if inner.generations.len() > MAX_TRACKED_GENERATIONS {
+                // Generations only ever increase, so raising the floor to the
+                // newest one makes every pre-prune observation fail closed: a
+                // verification in flight across a prune is refused once and the
+                // client retries.
+                inner.generations.clear();
+                inner.generation_floor = inner.last_generation;
+            }
         });
     }
 
@@ -185,5 +208,37 @@ impl JwtKeyCache {
     #[must_use]
     pub fn generation_is_current(&self, kid: &str, observed: u64) -> bool {
         self.generation(kid) == observed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fill_past_the_bound(cache: &JwtKeyCache) {
+        for index in 0..=MAX_TRACKED_GENERATIONS {
+            cache.invalidate_jwt_key(&format!("filler-{index}"));
+        }
+    }
+
+    #[test]
+    fn a_pruned_cache_refuses_a_generation_observed_before_the_prune() {
+        let cache = JwtKeyCache::new();
+        let observed = cache.generation("a");
+        fill_past_the_bound(&cache);
+        assert!(!cache.generation_is_current("a", observed));
+        assert!(cache.with_inner(|inner| inner.generations.len()) <= MAX_TRACKED_GENERATIONS);
+    }
+
+    #[test]
+    fn invalidation_after_a_prune_still_advances_the_generation() {
+        let cache = JwtKeyCache::new();
+        fill_past_the_bound(&cache);
+        let before = cache.generation("a");
+        cache.invalidate_jwt_key("a");
+        let after = cache.generation("a");
+        assert!(after > before);
+        assert!(!cache.generation_is_current("a", before));
+        assert!(cache.generation_is_current("a", after));
     }
 }
