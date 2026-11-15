@@ -1,32 +1,41 @@
-//! The "a newer build is on disk, reload to get it" nudge, in the lower-left
-//! corner under the connection banner. The running build's own stamp is read
-//! from the document the browser already parsed and the served one from a
-//! `no-store` re-fetch of `/index.html`; the banner fires only when they
-//! differ, so Reload — a fresh `index.html`, and therefore a newly stamped
-//! bundle — always clears it.
-//! Ports `apps/web/src/components/notifications/VersionBanner.tsx`. v2 compared
-//! against a compile-time `VITE_BUILD_SHA`; this build has no such constant,
-//! and the document's own meta tag is the same fact read one hop later.
+//! The newer-build notice in the dock stack. `use_stale_build` compares this
+//! document's `roost-build-sha` meta stamp with a `no-store` re-fetch of
+//! `/index.html` each minute while visible; Reload loads the freshly stamped
+//! bundle, which clears it. Later hides it for that build only.
 
 use dioxus::prelude::*;
 
 use crate::components::terminal::dom::{page_visible, sleep_ms};
-use crate::components::ui::{Alert, Button, ButtonSize, ButtonVariant, Icon, IconType};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, ToastPresentation, ToastType};
 
 /// The meta name both the running document and the served one carry.
 const BUILD_SHA_META: &str = "roost-build-sha";
 
 /// How often a visible tab re-reads the served stamp. A deploy that lands while
-/// the operator is on another tab is picked up on the next tick, which is the
-/// answer v2's window-focus listener gave without installing a second window
-/// listener beside the app root's input owners.
+/// the operator is on another tab is picked up on the next tick, without a
+/// second window listener beside the app root's input owners.
 const RECHECK_COOLDOWN_MS: u64 = 60_000;
 
-/// The nudge, or nothing while this build is current.
-#[component]
-pub fn VersionBanner() -> Element {
+/// A served build this tab is not running and has not dismissed.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StaleBuild {
+    served_sha: String,
+    dismissed: Signal<Option<String>>,
+}
+
+impl StaleBuild {
+    /// Hide the notice for this served build only; a newer deploy re-raises it.
+    pub fn dismiss(&self) {
+        let mut dismissed = self.dismissed;
+        dismissed.set(Some(self.served_sha.clone()));
+    }
+}
+
+/// Re-reads the served stamp every minute while the tab is visible, and yields
+/// the stale build while one is pending.
+pub fn use_stale_build() -> Option<StaleBuild> {
     let mut served = use_signal(|| None::<String>);
-    let mut dismissed_sha = use_signal(|| None::<String>);
+    let dismissed = use_signal(|| None::<String>);
 
     use_future(move || async move {
         loop {
@@ -45,43 +54,41 @@ pub fn VersionBanner() -> Element {
     if !is_stale(
         running.as_deref(),
         served_sha.as_deref(),
-        dismissed_sha().as_deref(),
+        dismissed().as_deref(),
     ) {
-        return rsx! {};
+        return None;
     }
+    served_sha.map(|served_sha| StaleBuild {
+        served_sha,
+        dismissed,
+    })
+}
+
+/// The newer-build card: Reload loads the freshly stamped bundle, Later hides it.
+#[component]
+pub fn VersionToast(stale: StaleBuild) -> Element {
     rsx! {
-        div {
-            "data-testid": "version-banner",
-            class: "fixed bottom-4 left-4 z-[49]",
-            Alert {
+        div { "data-testid": "version-banner",
+            ToastPresentation {
+                variant: ToastType::Info,
+                title: "Roost just updated",
+                description: "A newer version is ready. Your sessions are safe — reload when convenient.",
                 role: "status",
-                class: "max-w-[min(42ch,calc(100vw_-_2.5rem))]",
-                Icon { icon: IconType::ArrowUp, class: "size-4 shrink-0 text-primary" }
-                div {
-                    class: "flex flex-col gap-2",
-                    span { class: "font-medium", "Roost just updated" }
-                    span {
-                        class: "text-muted-foreground",
-                        "A newer version is ready. Your sessions are safe — reload when convenient."
+                aria_live: "polite",
+                close_label: "Later",
+                on_close: move |_event: MouseEvent| stale.dismiss(),
+                actions: rsx! {
+                    Button {
+                        variant: ButtonVariant::Default,
+                        size: ButtonSize::Sm,
+                        "data-testid": "version-banner-reload",
+                        onclick: move |event: MouseEvent| {
+                            event.stop_propagation();
+                            reload();
+                        },
+                        "Reload now"
                     }
-                    div {
-                        class: "mt-1 flex gap-2",
-                        Button {
-                            variant: ButtonVariant::Default,
-                            size: ButtonSize::Sm,
-                            "data-testid": "version-banner-reload",
-                            onclick: move |_| reload(),
-                            "Reload now"
-                        }
-                        Button {
-                            variant: ButtonVariant::Ghost,
-                            size: ButtonSize::Sm,
-                            "data-testid": "version-banner-later",
-                            onclick: move |_| dismissed_sha.set(served_sha.clone()),
-                            "Later"
-                        }
-                    }
-                }
+                },
             }
         }
     }

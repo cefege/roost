@@ -1,6 +1,6 @@
 //! How a transfer card settled, and the rule that an ambiguous write is never
-//! retried. The classification is a pure function of the card, so the panel, the
-//! row and any diagnostic agree on one reading.
+//! retried. The classification is a pure function of the card, so the transfer
+//! card and any diagnostic agree on one reading.
 //!
 //! The three settled outcomes are DISTINCT on purpose. A card that reported
 //! "the worker refused this" and a card that reported "we never learned whether
@@ -10,6 +10,8 @@
 //! is being asked to decide, and nothing here re-sends.
 
 use roost_client_core::store::transfers::{Transfer, TransferState};
+
+use crate::components::ui::ToastType;
 
 /// How a card settled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,15 +38,15 @@ impl TransferOutcome {
         }
     }
 
-    /// The `StatusDot` spelling a settled card's dot reads as.
+    /// The toast variant a settled card reads as.
     ///
     /// Ambiguous is a warning, not an error: nothing is known to be wrong, and a
     /// red card here would read as a refusal the user may safely retry.
-    pub const fn dot_status(self) -> &'static str {
+    pub const fn toast_variant(self) -> ToastType {
         match self {
-            Self::Accepted | Self::Deduplicated => "ok",
-            Self::Rejected => "error",
-            Self::Ambiguous => "warn",
+            Self::Accepted | Self::Deduplicated => ToastType::Success,
+            Self::Rejected => ToastType::Error,
+            Self::Ambiguous => ToastType::Warning,
         }
     }
 

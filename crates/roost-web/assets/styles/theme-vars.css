@@ -77,9 +77,9 @@
   /* Notification dock lift: the bottom chrome the dock clears, published
      inline per render. */
   --roost-notify-dock-lift: 0px;
-  /* The notification dock's card width on a pointer layout: the fixed-measure
-     convention of corner toast stacks. */
-  --roost-toast-inline-size: 46ch;
+  /* The notification dock's card width on a pointer layout: rust-ui's toast
+     measure (`max-w-96`). */
+  --roost-toast-inline-size: 24rem;
 
   /* InputPrompt's measured field and footer baseline; DOM measurement replaces
      this reserve after the terminal composer mounts. */

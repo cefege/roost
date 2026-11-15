@@ -1,14 +1,14 @@
-//! The bottom notification column and the two banners that own the corners
-//! around it: toasts, undo snackbars, the transfer popup, the controller
-//! legend, plus the connection and version notices. Mounted once by
-//! `app::AuthorizedOverlays`; every child reads the client's toast, transfer and
-//! pending-close state and performs the acknowledgement its own card rule names.
-//! Ports `apps/web/src/components/notifications/`.
+//! The bottom notification dock: one stack of toasts, undo cards, transfer
+//! cards and the new-build notice, beside the controller legend and the
+//! connection banner. Mounted once by `app::AuthorizedOverlays`; every child
+//! reads the client's toast, transfer and pending-close state and performs the
+//! acknowledgement its own card rule names.
 
 pub mod command_finished;
 pub mod command_finished_scheduler;
 pub mod connection_banner;
 pub mod desktop_push_bridge;
+pub mod dock_entries;
 pub mod inline_transfer;
 pub mod notification_tone;
 pub mod notify_target;
@@ -21,15 +21,14 @@ pub mod terminal_notification;
 pub mod toast_card;
 pub mod toast_stack;
 pub mod transfer_outcome;
-pub mod transfer_row;
-pub mod transfers_panel;
+pub mod transfer_toast;
 pub mod undo_banner;
 pub mod version_banner;
 
 use dioxus::prelude::*;
 
 /// The one overlay column that owns where every transient notification sits, so
-/// no two can claim the same corner, and the two banners that flank it.
+/// no two can claim the same corner, beside the connection banner.
 ///
 /// The pairing request notifier v2 also mounts here belongs to the pairing
 /// surface, which owns its own card; the column is the placement, not the
@@ -56,11 +55,8 @@ pub fn NotificationDock() -> Element {
             "data-compact": if compact { "true" } else { "false" },
             style: "--roost-notify-dock-lift: {lift};",
             toast_stack::ToastStack {}
-            undo_banner::UndoCloseBanner {}
-            transfers_panel::TransfersPanel {}
             pad_hint_bar::PadHintBar {}
         }
-        version_banner::VersionBanner {}
         terminal_clipboard::TerminalClipboard {}
         command_finished::CommandFinished {}
         terminal_bell::TerminalBellPresenter {}

@@ -1,38 +1,19 @@
-//! Stock toast presentation for each terminal's pending close.
+//! The undo card for each terminal's pending close, as a toast.
 //! The client-core queue owns deadlines; Undo dispatches through the deck
 //! so both the session row and its original pane arrangement are restored.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
 use roost_client_core::deck::DeckIntent;
-use roost_client_core::store::pending_close::UNDO_WINDOW_MS;
+use roost_client_core::store::pending_close::{PendingClose, UNDO_WINDOW_MS};
 
 use crate::components::ui::{Button, ButtonSize, ButtonVariant, ToastPresentation};
 use crate::pump::use_store;
 
-/// One card per close that is still inside its window.
+/// One close's card, with the way back. The dock stack mounts one per close
+/// that is still inside its window.
 #[component]
-pub fn UndoCloseBanner() -> Element {
-    let pump = use_store();
-    let entries = {
-        let core = pump.core();
-        let core = core.borrow();
-        core.store()
-            .pending_closes
-            .entries()
-            .cloned()
-            .collect::<Vec<_>>()
-    };
-    rsx! {
-        for entry in entries {
-            UndoSnackbar { entry: entry }
-        }
-    }
-}
-
-/// One close's card, with the way back.
-#[component]
-fn UndoSnackbar(entry: roost_client_core::store::pending_close::PendingClose) -> Element {
+pub fn UndoCloseToast(entry: PendingClose) -> Element {
     let pump = use_store();
     let session_id = entry.session_id.clone();
     let sub = [entry.labels.folder.as_str(), entry.labels.server.as_str()]
