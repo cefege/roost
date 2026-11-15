@@ -66,19 +66,25 @@ pub(super) async fn open_session(
     pool: &AnyPool,
     session_id: &str,
 ) -> Option<(String, Option<String>)> {
-    sqlx::query("SELECT cwd, custom_title FROM sessions WHERE id = $1 AND status = 'open'")
-        .bind(session_id)
-        .fetch_optional(pool)
-        .await
-        .ok()?
-        .map(|row| {
-            (
-                row.try_get::<String, _>("cwd").unwrap_or_default(),
-                row.try_get::<Option<String>, _>("custom_title")
-                    .ok()
-                    .flatten(),
-            )
-        })
+    let row = match sqlx::query(
+        "SELECT cwd, custom_title FROM sessions WHERE id = $1 AND status = 'open'",
+    )
+    .bind(session_id)
+    .fetch_optional(pool)
+    .await
+    {
+        Ok(row) => row?,
+        Err(error) => {
+            tracing::warn!(%session_id, %error, "push.open_session_lookup_failed");
+            return None;
+        }
+    };
+    Some((
+        row.try_get::<String, _>("cwd").unwrap_or_default(),
+        row.try_get::<Option<String>, _>("custom_title")
+            .ok()
+            .flatten(),
+    ))
 }
 
 /// The notification title: the operator's title, else the directory's leaf.
