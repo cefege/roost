@@ -1,7 +1,7 @@
 //! DOM measurement for fixed floating panels anchored to a trigger found by element id.
 //! Placement arithmetic lives in `components::menu_placement`; this file only reads the
-//! trigger, its containing block and the viewport, and moves focus by element id.
-//! Called by `ui::popover` and `ui::hover_card`; native builds return `None` and do nothing.
+//! trigger, its containing block and the viewport.
+//! Called by `ui::menu_overlay` and `ui::select_listbox`; native builds return `None`.
 
 #[cfg(target_arch = "wasm32")]
 use crate::components::deck::deck_dom::ClientBox;
@@ -106,22 +106,6 @@ fn position_longhands(placement: &MenuPlacement) -> String {
     };
     format!("top: {top}; bottom: {bottom}; left: {left}; right: {right};")
 }
-
-/// Moves keyboard focus to the element with id `element_id` when it is HTML.
-#[cfg(target_arch = "wasm32")]
-pub fn focus_element_by_id(element_id: &str) {
-    use wasm_bindgen::JsCast;
-    let element = web_sys::window()
-        .and_then(|window| window.document())
-        .and_then(|document| document.get_element_by_id(element_id))
-        .and_then(|element| element.dyn_into::<web_sys::HtmlElement>().ok());
-    if let Some(element) = element {
-        element.focus().ok();
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn focus_element_by_id(_element_id: &str) {}
 
 #[cfg(target_arch = "wasm32")]
 fn viewport_box(window: &web_sys::Window) -> ClientBox {

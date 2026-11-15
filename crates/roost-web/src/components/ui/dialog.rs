@@ -68,7 +68,6 @@ impl DialogContext {
 pub(crate) enum ModalKind {
     Dialog,
     Sheet,
-    Drawer,
 }
 
 /// A controlled modal. The caller owns `open`; the root reports requests to
@@ -244,8 +243,7 @@ pub(crate) fn ModalPanel(
     let key_context = context.clone();
     let close_context = context.clone();
     let panel_backdrop = (kind == ModalKind::Dialog).then_some(backdrop_behavior);
-    let backdrop_attribute =
-        matches!(kind, ModalKind::Sheet | ModalKind::Drawer).then_some(backdrop_behavior);
+    let backdrop_attribute = (kind == ModalKind::Sheet).then_some(backdrop_behavior);
     let panel_target = (kind == ModalKind::Dialog).then_some("target__dialog");
     let (backdrop_name, backdrop_class, panel_name, close_label, close_text) = match kind {
         ModalKind::Dialog => (
@@ -261,13 +259,6 @@ pub(crate) fn ModalPanel(
             "SheetContent",
             "Close sheet",
             "Close Sheet",
-        ),
-        ModalKind::Drawer => (
-            "DrawerBackdrop",
-            "fixed inset-0 z-60 bg-black/50 pointer-events-none opacity-0 transition-opacity duration-300 data-[state=open]:opacity-100",
-            "DrawerContent",
-            "Close drawer",
-            "Close Drawer",
         ),
     };
     let close_class = tw_merge!(CLOSE_BUTTON_CLASS, if shows_close { "" } else { "hidden" });
@@ -379,17 +370,6 @@ fn CloseButton(
                 r#type: "button",
                 class: "{class}",
                 "data-sheet-close": "{content_id}",
-                "aria-label": "{label}",
-                onclick: move |_| context.request_open(false),
-                span { class: "hidden", "{text}" }
-                Icon { icon: IconType::X }
-            }
-        },
-        ModalKind::Drawer => rsx! {
-            button {
-                r#type: "button",
-                class: "{class}",
-                "data-drawer-close": "{content_id}",
                 "aria-label": "{label}",
                 onclick: move |_| context.request_open(false),
                 span { class: "hidden", "{text}" }

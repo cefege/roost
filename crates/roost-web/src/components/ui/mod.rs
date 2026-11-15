@@ -4,20 +4,16 @@
 //! this crate's rules; styling is Tailwind utilities over the theme bridge in
 //! `crates/roost-web/tailwind.css`.
 
-pub mod accordion;
 pub mod alert;
 pub mod alert_dialog;
 pub mod anchored_panel;
 pub mod attachment;
 pub mod attachment_upload;
-pub mod avatar;
 pub mod badge;
 pub mod breadcrumb;
-pub mod bubble;
 pub mod button;
 pub mod button_group;
 pub mod card;
-pub mod card_window;
 pub mod checkbox;
 pub mod chip;
 pub mod collapsible;
@@ -30,7 +26,6 @@ pub mod context_menu;
 pub mod dialog;
 pub mod dialog_parts;
 pub mod dom;
-pub mod drawer;
 pub mod dropdown_menu;
 pub mod dropdown_menu_sub;
 #[cfg(any(target_arch = "wasm32", test))]
@@ -43,21 +38,13 @@ pub mod icon;
 pub mod input;
 pub mod input_group;
 pub mod input_prompt;
-pub mod input_prompt_sheet;
 pub mod item;
 pub mod kbd;
-pub mod label;
 pub mod list;
-pub mod markdown;
-pub mod marker;
 pub mod menu_items;
 pub mod menu_overlay;
-pub mod message;
 pub mod metric_tile;
-pub mod popover;
 pub mod progress;
-pub mod radio_button;
-pub mod radio_button_group;
 pub mod scroll_area;
 pub mod section_title;
 pub mod select;
@@ -67,13 +54,11 @@ pub mod select_placement;
 pub mod separator;
 pub mod sheet;
 pub mod sheet_phone;
-pub mod shimmer;
 pub mod sidenav;
 pub mod sidenav_layout;
 pub mod sidenav_links;
 pub mod sidenav_types;
 pub mod skeleton;
-pub mod slider;
 pub mod spinner;
 pub mod status;
 pub mod switch;
@@ -86,10 +71,6 @@ pub mod toggle_group;
 pub mod toolbar;
 pub mod tooltip;
 pub mod usage_ring;
-pub use accordion::{
-    Accordion, AccordionContent, AccordionDescription, AccordionHeader, AccordionItem,
-    AccordionLink, AccordionTitle, AccordionTrigger,
-};
 pub use alert::{Alert, AlertDescription, AlertTitle, AlertVariant};
 pub use alert_dialog::{
     AlertDialog, AlertDialogAction, AlertDialogBody, AlertDialogCancel, AlertDialogContent,
@@ -101,17 +82,10 @@ pub use attachment::{
     AttachmentGroup, AttachmentMedia, AttachmentMediaVariant, AttachmentOrientation,
     AttachmentSize, AttachmentState, AttachmentTitle, AttachmentTrigger,
 };
-pub use avatar::{
-    Avatar, AvatarBadge, AvatarFallback, AvatarGroup, AvatarGroupCount, AvatarImage, AvatarSize,
-};
 pub use badge::{Badge, BadgeSize, BadgeVariant, badge_class};
 pub use breadcrumb::{
     Breadcrumb, BreadcrumbEllipsis, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage,
     BreadcrumbSeparator,
-};
-pub use bubble::{
-    Bubble, BubbleAlign, BubbleContent, BubbleGroup, BubbleReactions, BubbleReactionsSide,
-    BubbleVariant,
 };
 pub use button::{Button, ButtonSize, ButtonVariant, IconButton, button_class};
 pub use button_group::{
@@ -121,7 +95,6 @@ pub use card::{
     Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardItem, CardList,
     CardSize, CardTitle,
 };
-pub use card_window::CardWindow;
 pub use checkbox::Checkbox;
 pub use chip::{BindingChip, Chip};
 pub use collapsible::{Collapsible, CollapsibleContent, CollapsibleTrigger};
@@ -140,10 +113,6 @@ pub use dialog::{
     Dialog, DialogAction, DialogBody, DialogClose, DialogContent, DialogDescription, DialogFooter,
     DialogHeader, DialogTitle, DialogTrigger,
 };
-pub use drawer::{
-    Drawer, DrawerBody, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHandle,
-    DrawerHeader, DrawerPosition, DrawerTitle, DrawerTrigger, DrawerVariant,
-};
 pub use dropdown_menu::{
     DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel,
     DropdownMenuSeparator, DropdownMenuTrigger,
@@ -158,37 +127,24 @@ pub use empty::{
 };
 pub use field::{Field, FieldDescription, FieldError, FieldLabel};
 pub use focus_scope::AutoFocusRequest;
-pub use hover_card::{
-    HoverCard, HoverCardContent, HoverCardPresentation, HoverCardSide, HoverCardTrigger,
-};
+pub use hover_card::HoverCardPresentation;
 pub use icon::Icon;
 pub use icons::common::IconType;
 pub use input::{Input, InputType};
 pub use input_prompt::{
     InputPrompt, InputPromptFooter, InputPromptSubmit, InputPromptTextarea, InputPromptTools,
 };
-pub use input_prompt_sheet::InputPromptSheet;
 pub use item::{
     Item, ItemContent, ItemDescription, ItemMedia, ItemMediaVariant, ItemSize, ItemTitle,
     ItemVariant,
 };
 pub use kbd::{Kbd, KbdGroup};
-pub use label::Label;
 pub use list::{List, ListLayout, ListRow};
-pub use markdown::{Markdown, MarkdownSize};
-pub use marker::{Marker, MarkerContent, MarkerIcon, MarkerVariant};
-pub use message::{
-    Message, MessageAlign, MessageAvatar, MessageContent, MessageFooter, MessageGroup,
-    MessageHeader,
-};
 pub use metric_tile::MetricTile;
-pub use popover::{Popover, PopoverContent, PopoverDescription, PopoverTitle, PopoverTrigger};
 pub use progress::{Progress, ProgressTone};
-pub use radio_button::{RadioGroup, RadioGroupItem};
-pub use radio_button_group::{RadioButton, RadioButtonGroup, RadioButtonText};
 pub use scroll_area::{
     ScrollArea, ScrollAreaCorner, ScrollAreaThumb, ScrollAreaViewport, ScrollBar,
-    ScrollBarOrientation, SnapAreaVariant, SnapItem, SnapScrollArea, SnapVariant,
+    ScrollBarOrientation,
 };
 pub use section_title::SectionTitle;
 pub use select::{Select, SelectOption};
@@ -198,7 +154,6 @@ pub use sheet::{
     SheetSide, SheetTitle, SheetTrigger,
 };
 pub use sheet_phone::PhoneSheetContent;
-pub use shimmer::Shimmer;
 pub use sidenav::{Sidenav, SidenavTrigger, SidenavWrapper};
 pub use sidenav_layout::{
     SidenavContent, SidenavFooter, SidenavGroup, SidenavGroupContent, SidenavGroupLabel,
@@ -214,7 +169,6 @@ pub use sidenav_types::{
     SidenavSide, SidenavState, SidenavVariant,
 };
 pub use skeleton::Skeleton;
-pub use slider::{Slider, SliderVariant};
 pub use spinner::{Spinner, SpinnerCircle};
 pub use status::{Status, StatusDot, StatusVariant};
 pub use switch::{Switch, SwitchRow};

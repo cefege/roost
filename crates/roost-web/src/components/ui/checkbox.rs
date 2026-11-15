@@ -1,7 +1,7 @@
 //! `Checkbox`: a two-state toggle drawn as a `role="checkbox"` button. The
 //! checked state is entirely the caller's: the button has no state of its own,
 //! so a click only reports the requested state and the caller re-renders.
-//! Settings forms compose it with a `Label` or a `SwitchRow`-style row.
+//! Settings forms compose it with a `FieldLabel` or a `SwitchRow`-style row.
 
 use dioxus::prelude::*;
 use tw_merge::tw_merge;

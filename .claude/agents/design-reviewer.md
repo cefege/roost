@@ -14,9 +14,9 @@ Check each new/changed component against:
 1. **Primitive bypass** — a hand-rolled `div` that paints a panel, a raw `button {}`, a clickable `div`/`span`, an ad-hoc menu, badge, input or overlay, where a `components/ui` component exists:
    - a panel/card → `Card` family; a status dot → `StatusDot` (NEVER a hand-rolled coloured `<span>`)
    - a button → `Button`/`IconButton`; a chip/label → `Badge`/`Chip`; a glyph → `Icon { icon: IconType::… }` (Lucide)
-   - a modal → `Dialog`/`AlertDialog`; a side or bottom panel → `Sheet`/`Drawer`; anchored content → `Popover`/`Tooltip`/`HoverCard`; menus → `DropdownMenu`/`ContextMenu`; a searchable list → `Command`
-   - a list → `Item` family or `List`+`ListRow`; form controls → `Field`/`TextField`/`Input`/`Textarea`/`Select`/`Switch`/`Checkbox`/`RadioGroup`/`Slider`; tabs → `Tabs`
-   - chat → `Message`/`Bubble`/`Markdown`/`InputPrompt`/`Marker`/`Shimmer`; an empty view → `Empty`/`EmptyState`
+   - a modal → `Dialog`/`AlertDialog`; a side or bottom panel → `Sheet`; anchored content → `Tooltip`/`HoverCardPresentation`; menus → `DropdownMenu`/`ContextMenu`; a searchable list → `Command`
+   - a list → `Item` family or `List`+`ListRow`; form controls → `Field`/`TextField`/`Input`/`Textarea`/`Select`/`Switch`/`Checkbox`; tabs → `Tabs`
+   - a composer → `InputPrompt`; an empty view → `Empty`/`EmptyState`
    Flag the hand-roll, name the component to use. A new stylesheet rule that Tailwind utilities could express is a hand-roll too.
 
 2. **Role misuse** — Tailwind colour roles only (`bg-background`, `bg-card`, `bg-popover`, `bg-primary`, `bg-secondary`, `bg-muted`, `bg-accent`, `text-muted-foreground`, `border-border`, `border-input`, `ring-ring`, `bg-destructive`/`success`/`warning`/`info`, `bg-sidenav*`, `bg-terminal`). Selected/hover state = `accent`; status = `success`/`warning`/`destructive`/`info` via `StatusDot`/`Badge`. Flag Tailwind palette colours (`bg-zinc-800`, `text-red-500`), arbitrary values (`text-[13px]`, `bg-[var(--x)]` where a role exists), class names assembled with `format!` (Tailwind never emits them), and a caller `class` that re-skins a component's background, colour, border, radius or shadow.
