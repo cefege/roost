@@ -165,9 +165,8 @@
    animation and no filter either. */
 .cell-grid .cell-sb-gap,
 .cell-grid .cell-sb-spacer:not([data-history-floor]) {
-  /* Faint ink over the terminal surface: 8% is the first step of the system's
-     state-overlay ramp (8/10/12/16, theme-vars.css --md-state-*), taken on
-     --term-fg because the --md-* roles track chrome ink, not terminal ink. */
+  /* Faint ink over the terminal surface, taken on --term-fg so it tracks
+     terminal ink rather than chrome ink. */
   --cell-sb-pending-ink: color-mix(in srgb, var(--term-fg) 8%, transparent);
   /* 1.2em period = the .cell-row pitch above, so the bars sit on real row
      boundaries and read as lines of text instead of a slab. They stop short of
