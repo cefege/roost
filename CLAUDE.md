@@ -327,9 +327,14 @@ for Dioxus 0.7 + Tailwind v4. Roost adapts those components under the web crate'
    Token files (`theme-vars.css`, `tailwind.css`,
    `src/theme/palettes/`, vendored rust-ui CSS under
    `crates/roost-web/vendor/`) DECLARE values and are exempt. Components copy
-   rust-ui's class recipes byte for byte, except `ui/toast.rs`, whose cards use
-   the popover surface and show severity in the icon colour only (operator
-   decision: rust-ui's tinted, heavy-bordered cards clashed with the theme),
+   rust-ui's class recipes byte for byte, except `ui/toast.rs`, whose
+   `ToastPresentation` is a compact card — `px-3 py-2.5` on the popover surface
+   with `border-border`, `shadow-md` and `rounded-lg`, severity in the icon
+   colour only, actions in the title row between title and close, and a 1px
+   `bg-border` progress track — that `notifications/toast_stack.rs` stacks with
+   rust-ui's collapsed offsets (`-translate-y-5` and `scale-95` per step behind
+   the front card) and fans on hover, focus or tap (operator decision: rust-ui's
+   tinted, heavy-bordered, `p-5` cards clashed with the theme),
    and `ui/input_prompt.rs`, whose frame uses opaque `bg-background` in both
    themes so growing drafts obscure terminal output beneath them. Caller
    classes place components, not recolor, reshape, or reskin them. The few raw values rust-ui itself
