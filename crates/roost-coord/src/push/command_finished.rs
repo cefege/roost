@@ -14,18 +14,17 @@ use sqlx::AnyPool;
 use crate::events::bus::Subscription;
 use crate::events::bus_domains::Buses;
 use crate::events::bus_messages::SessionCommandFinished;
-use crate::push::dispatch::{ActiveTerminalViewers, PushTransition};
+use crate::push::dispatch::{ActiveTerminalViewers, SESSION_PUSH_KIND};
 use crate::push::session_push::{SessionPushTargets, deliver_session_push};
 use crate::push::transport::PushNotificationTransport;
 
-/// What one command-finished notification says. `kind` is `done` because the
-/// service worker (`assets/sw-push.js`) shows `blocked`/`done` payloads and a
-/// finished command is the "finished, look when you like" kind.
+/// What one command-finished notification says: the session, its title and
+/// the outcome; `kind` is the one session kind `assets/sw-push.js` shows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CommandFinishedPayload {
     #[serde(rename = "sessionId")]
     pub session_id: String,
-    pub kind: PushTransition,
+    pub kind: &'static str,
     pub title: String,
     pub body: String,
     #[serde(rename = "deduplicationToken")]
@@ -117,7 +116,7 @@ pub fn command_finished_payload(
     let digest = sha2::Sha256::digest(identity.as_bytes());
     CommandFinishedPayload {
         session_id: finished.session_id.clone(),
-        kind: PushTransition::Done,
+        kind: SESSION_PUSH_KIND,
         title,
         body,
         deduplication_token: roost_host::b64url_encode(&digest)[..32].to_owned(),
@@ -138,6 +137,23 @@ fn format_duration(duration_ms: u64) -> String {
 mod tests {
     use super::command_finished_payload;
     use crate::events::bus_messages::SessionCommandFinished;
+
+    #[test]
+    fn the_payload_is_a_done_session_notice() {
+        let payload = command_finished_payload(
+            &SessionCommandFinished {
+                session_id: "s".to_owned(),
+                exit_code: None,
+                duration_ms: 0,
+            },
+            "t".to_owned(),
+        );
+        let value = serde_json::to_value(payload).unwrap();
+        assert_eq!(
+            (value["kind"].as_str(), value["sessionId"].as_str()),
+            (Some("done"), Some("s"))
+        );
+    }
 
     #[test]
     fn the_payload_names_the_outcome_and_duration_but_no_terminal_text() {

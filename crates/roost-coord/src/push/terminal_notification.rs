@@ -15,17 +15,17 @@ use sqlx::AnyPool;
 use crate::events::bus::Subscription;
 use crate::events::bus_domains::Buses;
 use crate::events::bus_messages::SessionTerminalSignals;
-use crate::push::dispatch::{ActiveTerminalViewers, PushTransition};
+use crate::push::dispatch::{ActiveTerminalViewers, SESSION_PUSH_KIND};
 use crate::push::session_push::{SessionPushTargets, deliver_session_push};
 use crate::push::transport::PushNotificationTransport;
 
-/// What one program notification says. `kind` is `done`: the service worker
-/// shows `blocked`/`done` payloads, and a program's notice is informational.
+/// What one program notification says; `kind` is the one session kind
+/// `assets/sw-push.js` shows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TerminalNotificationPayload {
     #[serde(rename = "sessionId")]
     pub session_id: String,
-    pub kind: PushTransition,
+    pub kind: &'static str,
     pub title: String,
     pub body: String,
     #[serde(rename = "deduplicationToken")]
@@ -118,7 +118,7 @@ pub fn terminal_notification_payload(
     let digest = sha2::Sha256::digest(identity.as_bytes());
     TerminalNotificationPayload {
         session_id: session_id.to_owned(),
-        kind: PushTransition::Done,
+        kind: SESSION_PUSH_KIND,
         title: if title.is_empty() {
             session_title
         } else {
@@ -132,6 +132,17 @@ pub fn terminal_notification_payload(
 #[cfg(test)]
 mod tests {
     use super::terminal_notification_payload;
+
+    #[test]
+    fn the_payload_is_a_done_session_notice() {
+        let value =
+            serde_json::to_value(terminal_notification_payload("s", "", "b", "t".to_owned()))
+                .unwrap();
+        assert_eq!(
+            (value["kind"].as_str(), value["sessionId"].as_str()),
+            (Some("done"), Some("s"))
+        );
+    }
 
     #[test]
     fn an_untitled_notification_takes_the_session_title() {

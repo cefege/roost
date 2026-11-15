@@ -10,13 +10,9 @@ use sqlx::{AnyPool, Row};
 use crate::push::endpoint_policy::endpoint_origin;
 use crate::push::subscription_store::StoredSubscription;
 
-/// The kind carried by a session notification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum PushTransition {
-    /// A terminal command or notification completed.
-    Done,
-}
+/// The `kind` every session notification carries; `sw-push.js` shows a session
+/// payload only when it says `done`.
+pub(super) const SESSION_PUSH_KIND: &str = "done";
 
 /// Which browser devices are watching one session right now.
 ///

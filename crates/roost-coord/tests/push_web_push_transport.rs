@@ -31,7 +31,7 @@ use roost_coord::push::transport::{
 use roost_coord::push::vapid::{P256KeypairGenerator, VapidKeyGenerator};
 use serde_json::Value;
 
-const PLAINTEXT: &str = r#"{"kind":"blocked"}"#;
+const PLAINTEXT: &str = r#"{"kind":"done"}"#;
 const TOPIC: &str = "abcdefghijklmnopqrstuvwxyz012345";
 
 /// How the loopback push service answers every request.

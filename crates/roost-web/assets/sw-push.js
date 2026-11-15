@@ -1,7 +1,7 @@
 // Roost Web Push service worker, registered by crate::web_push at scope "/".
 // Payloads:
-// - session (roost-coord push/dispatch.rs AgentPushPayload and the session pushes):
-//   { sessionId, kind: "blocked" | "done", title, body }
+// - session (roost-coord push/command_finished.rs, push/terminal_notification.rs):
+//   { sessionId, kind: "done", title, body, deduplicationToken }
 // - pairing (roost-coord push/pair_request.rs PairRequestPayload):
 //   { kind: "pair_request", ephemeralId, title, body }
 
@@ -39,17 +39,13 @@ self.addEventListener("push", (event) => {
     return;
   }
 
-  if (
-    typeof payload.sessionId !== "string"
-    || (payload.kind !== "blocked" && payload.kind !== "done")
-  ) return;
+  if (typeof payload.sessionId !== "string" || payload.kind !== "done") return;
 
   const sessionId = payload.sessionId;
   event.waitUntil(self.registration.showNotification(title || "Roost", {
     body,
-    tag: `roost-agent:${sessionId}`,
+    tag: `roost-session:${sessionId}`,
     data: { sessionId },
-    requireInteraction: payload.kind === "blocked",
     icon: "/icon-192.png?v=2",
     badge: "/icon-32.png?v=2",
   }));
