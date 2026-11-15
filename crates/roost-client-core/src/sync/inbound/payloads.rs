@@ -154,14 +154,3 @@ pub struct TransportProbeResult {
     /// The worker process epoch that answered, or empty for a refusal.
     pub worker_epoch: String,
 }
-
-/// A coordinator announcing it is handing this socket to another origin.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CoordinatorRelocation {
-    /// The handoff's identity.
-    pub handoff_id: String,
-    /// The origin being left.
-    pub source_url: String,
-    /// The origin to dial instead.
-    pub target_url: String,
-}

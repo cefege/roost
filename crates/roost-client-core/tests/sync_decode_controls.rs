@@ -16,13 +16,13 @@ use roost_client_core::{ClientEvent, Effect, SyncCommand, SyncDomain};
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
 use roost_proto::__buffa::oneof::pair_request_delta_proto::Kind as PairKind;
 use roost_proto::{
-    CoordinatorRelocationFrame, PairRequestsSnapshot, SyncDomainResetFrame,
-    TerminalInputRouteResult, TerminalTransportProbeResult, UiCommandFrame, UiStateFrame,
+    PairRequestsSnapshot, SyncDomainResetFrame, TerminalInputRouteResult,
+    TerminalTransportProbeResult, UiCommandFrame, UiStateFrame,
 };
 
 use sync_decode_support::pair::{completed, pair_arm, pair_ids, pending, toast_messages};
 use sync_decode_support::{
-    SESSION, SOCKET, WORKER_FP, acked, application, closes, control, deliver, ready_core, refused,
+    SESSION, SOCKET, WORKER_FP, acked, application, control, deliver, ready_core, refused,
     subscribed_arm,
 };
 
@@ -209,20 +209,6 @@ fn ui_commands_queue_for_the_bridge_oldest_dropped_past_the_bound() {
         queued.back().map(|frame| frame.target_tab_id.as_str()),
         Some(newest.as_str())
     );
-}
-
-#[test]
-fn a_relocation_notice_closes_the_link_as_an_unknown_v2_control() {
-    let (mut core, generation) = ready_core();
-    let relocation = Frame::CoordinatorRelocation(Box::new(CoordinatorRelocationFrame {
-        handoff_id: "handoff-1".to_owned(),
-        source_url: "https://old.example".to_owned(),
-        target_url: "https://new.example".to_owned(),
-        ..CoordinatorRelocationFrame::default()
-    }));
-    let effects = deliver(&mut core, generation, &control(relocation));
-    assert!(closes(&effects, generation), "{effects:?}");
-    assert!(!core.store().sync.accepts(generation));
 }
 
 #[test]

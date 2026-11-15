@@ -61,7 +61,6 @@ const PAIR_REQUEST_DELTA: FirehoseArm = application(23, "pair_request_delta", Sy
 const UI_STATE: FirehoseArm = control(24, "ui_state");
 const UI_COMMAND: FirehoseArm = control(25, "ui_command");
 const KEEPALIVE: FirehoseArm = control(26, "keepalive");
-const COORDINATOR_RELOCATION: FirehoseArm = control(27, "coordinator_relocation");
 const CELL_GRID_CHUNK: FirehoseArm = application(34, "cell_grid_chunk", SyncDomain::Terminal);
 const SUBSCRIBED: FirehoseArm = control(40, "subscribed");
 const DOMAIN_RESET: FirehoseArm = control(41, "domain_reset");
@@ -83,7 +82,7 @@ const WORKER_LIVE_METRICS: FirehoseArm = control(58, "worker_live_metrics");
 const CLIENT_STATE_CHANGED: FirehoseArm = control(61, "client_state_changed");
 /// Every arm, in field order. All of them are mapped: `decode::map_arm` has no
 /// wildcard, so an arm with no row here cannot have a mapping either.
-pub const FIREHOSE_ARMS: [FirehoseArm; 31] = [
+pub const FIREHOSE_ARMS: [FirehoseArm; 30] = [
     SESSIONS,
     SESSION_PRESENCE,
     AUDIT_ROW,
@@ -98,7 +97,6 @@ pub const FIREHOSE_ARMS: [FirehoseArm; 31] = [
     UI_STATE,
     UI_COMMAND,
     KEEPALIVE,
-    COORDINATOR_RELOCATION,
     CELL_GRID_CHUNK,
     SUBSCRIBED,
     DOMAIN_RESET,
@@ -134,7 +132,6 @@ pub const fn arm_of(frame: &Frame) -> FirehoseArm {
         Frame::UiState(_) => UI_STATE,
         Frame::UiCommand(_) => UI_COMMAND,
         Frame::Keepalive(_) => KEEPALIVE,
-        Frame::CoordinatorRelocation(_) => COORDINATOR_RELOCATION,
         Frame::CellGridChunk(_) => CELL_GRID_CHUNK,
         Frame::Subscribed(_) => SUBSCRIBED,
         Frame::DomainReset(_) => DOMAIN_RESET,

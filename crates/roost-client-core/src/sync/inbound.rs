@@ -20,8 +20,8 @@ use roost_protocol::wire::WorkspaceDelta as WireWorkspaceDelta;
 use roost_protocol::wire::{SessionMap, WorkerPresenceEvent};
 
 pub use self::payloads::{
-    AuditEntry, CoordinatorRelocation, InputRouteResult, PairRequestChange, PairedBrowser,
-    RoutableChunk, SessionViewer, TransportProbeResult,
+    AuditEntry, InputRouteResult, PairRequestChange, PairedBrowser, RoutableChunk, SessionViewer,
+    TransportProbeResult,
 };
 use crate::sessions::WireEvent;
 use crate::sync::link::SyncDomain;
@@ -244,11 +244,6 @@ pub enum SyncFrame {
     UiCommand {
         /// The command frame.
         command: roost_proto::UiCommandFrame,
-    },
-    /// A coordinator relocation notice.
-    CoordinatorRelocation {
-        /// The handoff.
-        relocation: CoordinatorRelocation,
     },
     /// The answer to an input-route claim this socket sent.
     InputRouteResult {

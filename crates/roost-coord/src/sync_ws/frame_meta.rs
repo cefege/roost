@@ -159,7 +159,6 @@ pub fn frame_meta_for(frame: &Frame) -> SyncFrameMeta {
         | Frame::UiCommand(_)
         | Frame::ClientStateChanged(_)
         | Frame::Keepalive(_)
-        | Frame::CoordinatorRelocation(_)
         | Frame::Subscribed(_)
         | Frame::DomainReset(_)
         | Frame::InputAccepted(_)

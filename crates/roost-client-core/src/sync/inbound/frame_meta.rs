@@ -50,7 +50,6 @@ impl SyncFrame {
             | Self::InputResult { .. }
             | Self::UiState
             | Self::UiCommand { .. }
-            | Self::CoordinatorRelocation { .. }
             | Self::TransportProbeResult { .. }
             | Self::WorkerLiveMetrics { .. }
             | Self::ClientStateChanged
@@ -86,7 +85,6 @@ impl SyncFrame {
             Self::PairRequestDelta { .. } => "pair_request_delta",
             Self::UiState => "ui_state",
             Self::UiCommand { .. } => "ui_command",
-            Self::CoordinatorRelocation { .. } => "coordinator_relocation",
             Self::InputRouteResult { .. } => "input_route_result",
             Self::TransportProbeResult { .. } => "terminal_transport_probe_result",
             Self::Keepalive => "keepalive",

@@ -140,14 +140,6 @@ message WorkerRoutableFrame {
   uint32 chunk_count = 4;
 }
 
-message CoordinatorRelocationFrame {
-  string handoff_id = 1;
-  string source_url = 2;
-  string target_url = 3;
-}
-
-
-
 // Sync v2 divides application traffic into independently hydrated domains.
 // Enum values are stable wire identifiers; controls themselves are never
 // delivery-sequenced and therefore never consume the application ACK window.
@@ -307,11 +299,12 @@ message InputAmbiguous {
 message ClientStateChangedFrame {}
 
 message FirehoseFrame {
-  reserved 7, 13, 14, 15, 16, 28, 29, 30, 42, 43, 47, 56, 57, 59, 60;
+  reserved 7, 13, 14, 15, 16, 27, 28, 29, 30, 42, 43, 47, 56, 57, 59, 60;
   reserved "webhook_token_delta", "permission_delta",
     "viewport_accepted", "viewport_rejected", "viewport_ambiguous",
     "agent_status", "agent_conversation", "agent_chat_events",
-    "omp_host_service", "omp_ui_action_receipt", "task_delta", "mcp_msg";
+    "omp_host_service", "omp_ui_action_receipt", "task_delta", "mcp_msg",
+    "coordinator_relocation";
   // Per-socket application-delivery sequence. Zero means legacy/unenforced or
   // an unsequenced v2 control frame.
   uint64 delivery_seq = 31;
@@ -339,7 +332,6 @@ message FirehoseFrame {
     UiStateFrame ui_state = 24;
     UiCommandFrame ui_command = 25;
     KeepaliveFrame keepalive = 26;
-    CoordinatorRelocationFrame coordinator_relocation = 27;
 
     // v2 controls. These are emitted only to sync_v=2 sockets with
     // delivery_seq=0, so cached flow=1 clients never observe them.

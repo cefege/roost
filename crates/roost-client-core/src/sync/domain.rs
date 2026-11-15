@@ -167,7 +167,6 @@ impl SyncState {
             SyncFrame::ClientStateChanged => self.socket_id().is_some(),
             SyncFrame::UiState
             | SyncFrame::UiCommand { .. }
-            | SyncFrame::CoordinatorRelocation { .. }
             | SyncFrame::InputRouteResult { .. }
             | SyncFrame::TransportProbeResult { .. } => !self.domains.is_empty(),
             SyncFrame::AuditRow { .. }

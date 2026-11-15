@@ -67,7 +67,6 @@ pub fn is_control(frame: &SyncFrame) -> bool {
             | SyncFrame::TransportProbeResult { .. }
             | SyncFrame::UiState
             | SyncFrame::UiCommand { .. }
-            | SyncFrame::CoordinatorRelocation { .. }
             | SyncFrame::WorkerLiveMetrics { .. }
             | SyncFrame::ClientStateChanged
             | SyncFrame::Keepalive

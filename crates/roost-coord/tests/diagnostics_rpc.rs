@@ -342,8 +342,6 @@ fn the_coordinator_answers_its_own_identity_without_a_credential() {
     assert_eq!(answer.public_url, "https://desk.example.com");
     assert!(!answer.public_listener);
     assert!(!answer.saas_mode);
-    assert!(answer.relocated_to_url.is_none());
-    assert!(answer.handoff_id.is_none());
 
     // An install that declared only a front door still answers, and one that
     // declared neither answers with an empty origin rather than an error: the

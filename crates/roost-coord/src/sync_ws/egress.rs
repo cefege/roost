@@ -305,7 +305,6 @@ pub fn frame_kind(frame: &FirehoseFrame) -> &'static str {
         Some(Frame::UiCommand(_)) => "ui_command",
         Some(Frame::ClientStateChanged(_)) => "client_state_changed",
         Some(Frame::Keepalive(_)) => "keepalive",
-        Some(Frame::CoordinatorRelocation(_)) => "coordinator_relocation",
         Some(Frame::Subscribed(_)) => "subscribed",
         Some(Frame::DomainReset(_)) => "domain_reset",
         Some(Frame::InputAccepted(_)) => "input_accepted",

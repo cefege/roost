@@ -1,5 +1,5 @@
 //! The control-lane arms: the `subscribed` barrier, domain resets, input
-//! results, route and probe answers, and the relocation notice.
+//! results, and route and probe answers.
 //!
 //! Called by `decode::map_arm` after the meta rule has passed. The `subscribed`
 //! and `domain_reset` checks are v2's `handleSubscribed` / `handleDomainReset`
@@ -8,14 +8,12 @@
 use std::collections::BTreeSet;
 
 use roost_proto::{
-    CoordinatorRelocationFrame, InputAccepted, InputAmbiguous, InputRejected, SyncDomainResetFrame,
-    SyncSubscribedFrame, TerminalInputRouteResult, TerminalTransportProbeResult,
+    InputAccepted, InputAmbiguous, InputRejected, SyncDomainResetFrame, SyncSubscribedFrame,
+    TerminalInputRouteResult, TerminalTransportProbeResult,
 };
 
 use super::known_domain;
-use crate::sync::inbound::{
-    CoordinatorRelocation, InputRouteResult, SyncFrame, TransportProbeResult,
-};
+use crate::sync::inbound::{InputRouteResult, SyncFrame, TransportProbeResult};
 use crate::sync::link::SyncDomain;
 use crate::terminal::input::InputOutcome;
 
@@ -154,17 +152,5 @@ pub(crate) fn transport_probe_result_of(
         request_id: value.request_id,
         worker_fp: value.worker_fp,
         worker_epoch: value.worker_epoch,
-    }
-}
-
-/// A relocation notice, decoded so the fold can close the link with its
-/// target in the reason.
-pub(super) fn coordinator_relocation(value: CoordinatorRelocationFrame) -> SyncFrame {
-    SyncFrame::CoordinatorRelocation {
-        relocation: CoordinatorRelocation {
-            handoff_id: value.handoff_id,
-            source_url: value.source_url,
-            target_url: value.target_url,
-        },
     }
 }

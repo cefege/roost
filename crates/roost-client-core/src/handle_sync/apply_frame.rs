@@ -18,9 +18,7 @@ use crate::terminal::session::Admission;
 use crate::terminal::smoke_faults::FaultedFrameKind;
 use crate::terminal::token::TerminalTransport;
 
-use super::fold_controls::{
-    fold_audit_row, fold_coordinator_relocation, fold_pair_request, fold_ui_command,
-};
+use super::fold_controls::{fold_audit_row, fold_pair_request, fold_ui_command};
 use super::fold_registry::{fold_worker_presence, fold_worker_routable, fold_workspace_delta};
 use super::fold_session_meta::{
     fold_last_activity, fold_session_presence, fold_session_viewers, fold_terminal_title,
@@ -301,9 +299,6 @@ pub(super) fn apply_frame(
             if store.worker_live.apply(frame.clone()) {
                 store.note_change();
             }
-        }
-        SyncFrame::CoordinatorRelocation { relocation } => {
-            fold_coordinator_relocation(store, generation, relocation, out);
         }
         SyncFrame::InputRouteResult { result } => {
             // Settled against the Sync generation it arrived on: a claim sent

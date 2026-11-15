@@ -495,12 +495,10 @@ message ClientStateSetResponse { repeated ClientStateEntry entries = 1; }
 
 message AuthCoordIdentityRequest {}
 message AuthCoordIdentityResponse {
-  reserved 1;
-  reserved "fingerprint_hex";
+  reserved 1, 4, 5;
+  reserved "fingerprint_hex", "relocated_to_url", "handoff_id";
   string git_sha = 2;
   string public_url = 3;
-  optional string relocated_to_url = 4;
-  optional string handoff_id = 5;
   bool public_listener = 6;
   // Whether this coordinator is the managed deployment. Self-hosted pairing is
   // the only enrolment path either way.

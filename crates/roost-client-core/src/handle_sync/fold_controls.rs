@@ -1,6 +1,6 @@
 //! The pair, audit and control-lane folds: pair requests and the paired-browser
-//! notice, live audit rows, UI commands for the bridge, a relocation notice,
-//! and the answers to transport probes.
+//! notice, live audit rows, UI commands for the bridge, and the answers to
+//! transport probes.
 //!
 //! Called by `apply_frame` only. Ported from `apps/web/src/store/sync-frame.ts`
 //! (`pairRequestDelta` 285-350, `auditRow` 161-176, `uiCommand` 334-340),
@@ -10,7 +10,6 @@
 
 use std::collections::BTreeSet;
 
-use crate::effect::Effect;
 use crate::store::Store;
 use crate::store::mutations::{PairRequest, delete_pair_request};
 use crate::store::sync_feeds::{ANNOUNCED_PAIRINGS_MAX, AUDIT_ROW_RING_MAX, UI_COMMAND_QUEUE_MAX};
@@ -19,9 +18,7 @@ use crate::store::toasts::{
     remove_pair_request_toast,
 };
 use crate::sync::SyncDomain;
-use crate::sync::inbound::{AuditEntry, CoordinatorRelocation, PairRequestChange, PairedBrowser};
-
-use super::close_failed::close_failed_sync_link;
+use crate::sync::inbound::{AuditEntry, PairRequestChange, PairedBrowser};
 
 /// One pair-request change. A snapshot REPLACES the set, so a removal missed
 /// while disconnected cannot linger.
@@ -183,26 +180,5 @@ pub(super) fn fold_ui_command(store: &mut Store, command: &roost_proto::UiComman
         target_tab_id = %command.target_tab_id,
         correlation_id = %command.correlation_id,
         "ui command queued for the bridge"
-    );
-}
-
-/// A relocation notice closes the link. v2 has no handler for this control:
-/// `handleV2Control`'s default returns false and `_consumeSyncFrame` throws
-/// "unknown v2 control" into `_closeFailedSyncLink`
-/// (`sync-inbound.ts:233-235`, `sync-inbound.ts:62-64`).
-pub(super) fn fold_coordinator_relocation(
-    store: &mut Store,
-    generation: u64,
-    relocation: &CoordinatorRelocation,
-    out: &mut Vec<Effect>,
-) {
-    close_failed_sync_link(
-        store,
-        generation,
-        format!(
-            "coordinator_relocation {} has no v2 handler (target {})",
-            relocation.handoff_id, relocation.target_url
-        ),
-        out,
     );
 }

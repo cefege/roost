@@ -249,7 +249,9 @@ service path and the v3 coordinator-following updater; initial installation uses
 server-streaming RPC, the sixteen proto-declared RPCs no v3 handler answered
 (dashboard access, owner activation, password and federated login, reset and
 link, credentials, coordinator move and relocation mint/redeem, `MiscFlags`),
-the legacy `/w/:workspaceId[/t/:channelId]` routes,
+the `coordinator_relocation` Sync frame with the `relocated_to_url` and
+`handoff_id` fields of `AuthCoordIdentityResponse`, the legacy
+`/w/:workspaceId[/t/:channelId]` routes,
 `client-seq.txt`, the keeper "Bun ABI" identity field, the Bun-specific zlib
 workaround, capability fallbacks for peers lacking a capability every v3 peer
 advertises, the whole v2 TypeScript product tree (`apps/`, `packages/`, the

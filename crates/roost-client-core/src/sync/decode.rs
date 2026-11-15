@@ -195,7 +195,6 @@ fn map_arm(frame: Frame, domain_generation: u64) -> Result<SyncFrame, String> {
         Frame::UiCommand(value) => Ok(SyncFrame::UiCommand { command: *value }),
         Frame::Keepalive(_) => Ok(SyncFrame::Keepalive),
         Frame::ClientStateChanged(_) => Ok(SyncFrame::ClientStateChanged),
-        Frame::CoordinatorRelocation(value) => Ok(control::coordinator_relocation(*value)),
         Frame::Sessions(value) => terminal::sessions_json(&value.payload_json),
         Frame::SessionEvent(value) => terminal::session_event(&value),
         Frame::SessionPresence(value) => terminal::session_presence(*value),
