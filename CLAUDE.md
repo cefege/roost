@@ -329,9 +329,10 @@ for Dioxus 0.7 + Tailwind v4. Roost adapts those components under the web crate'
    `crates/roost-web/vendor/`) DECLARE values and are exempt. Components copy
    rust-ui's class recipes byte for byte, except `ui/toast.rs`, whose cards use
    the popover surface and show severity in the icon colour only (operator
-   decision: rust-ui's tinted, heavy-bordered cards clashed with the theme);
-   caller classes place components,
-   not recolor, reshape, or reskin them. The few raw values rust-ui itself
+   decision: rust-ui's tinted, heavy-bordered cards clashed with the theme),
+   and `ui/input_prompt.rs`, whose frame uses opaque `bg-background` in both
+   themes so growing drafts obscure terminal output beneath them. Caller
+   classes place components, not recolor, reshape, or reskin them. The few raw values rust-ui itself
    ships are baselined. Enforced by `cargo xtask lint`'s design ratchet against
    `xtask/design-raw-baseline.json`: a NEW raw value fails the build. After
    migrating a file down, re-snapshot with

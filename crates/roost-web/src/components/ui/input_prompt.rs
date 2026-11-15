@@ -19,14 +19,17 @@ pub fn InputPromptTools(
     rsx! { div { "data-name": "InputPromptTools", class: "{merged}", {children} } }
 }
 
-/// Outer wrapper: an `InputGroup` with overflow clipping.
+/// Opaque composer surface: growing drafts can overlap terminal output.
 #[component]
 pub fn InputPrompt(
     #[props(into, optional)] class: Option<String>,
     #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
-    let merged = tw_merge!("overflow-hidden rounded-xl", class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        "overflow-hidden rounded-xl bg-background dark:bg-background",
+        class.as_deref().unwrap_or("")
+    );
     rsx! { InputGroup { class: merged, attributes, {children} } }
 }
 
