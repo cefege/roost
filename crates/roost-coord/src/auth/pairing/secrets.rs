@@ -24,9 +24,6 @@
 //! holds afterwards is the hex digest, and the only way a digest leaves is
 //! bound to a SQL statement.
 
-use base64::Engine as _;
-use base64::alphabet;
-use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
 use sha2::Digest as _;
 
 use super::{PairingRefusal, PairingResult};
@@ -67,9 +64,6 @@ pub const PAIR_REQUEST_TTL_MS: i64 = 10 * 60_000;
 /// refuses rather than evicting, because evicting somebody's live request to
 /// admit an attacker's is a worse failure than a refused pairing.
 pub const MAX_PENDING_PAIR_REQUESTS: i64 = 32;
-
-/// The `ssh-ed25519` key-type string an SSH public key blob is prefixed with.
-const SSH_ED25519_TYPE: &[u8] = b"ssh-ed25519";
 
 /// Refuse a browser whose ceremony this coordinator does not speak.
 pub fn assert_pairing_ceremony_version(ceremony_version: u32) -> PairingResult<()> {
@@ -131,73 +125,6 @@ pub fn normalize_pair_verification_code(value: &str) -> PairingResult<&str> {
 pub fn pairing_secret_digest(plaintext: &str) -> String {
     let digest: [u8; 32] = sha2::Sha256::digest(plaintext.as_bytes()).into();
     hex::encode(digest)
-}
-
-/// The raw 32-byte ed25519 public key a `PairCreate` request carries.
-///
-/// Accepts both encodings a browser may send: the bare key, and the
-/// `ssh-ed25519` wire blob `authorized_keys` lines use
-/// (`apps/coord/src/auth/authorized-keys.ts:37-57`). The blob form is parsed
-/// field by field rather than by offset arithmetic on a trusted length, so a
-/// blob that declares the wrong key length is refused instead of being read
-/// from a body that happens to be long enough.
-pub fn decode_ed25519_pubkey(encoded: &str) -> PairingResult<[u8; 32]> {
-    let normalized: String = encoded
-        .chars()
-        .filter(|character| *character != '-' && *character != '_')
-        .collect();
-    let decoded = decode_base64_lenient(&normalized)
-        .ok_or_else(|| super::refuse(PairingRefusal::InvalidPublicKey))?;
-    match decoded.len() {
-        32 => to_key(&decoded),
-        _ => ssh_blob_key(&decoded),
-    }
-}
-
-/// The key half of an `ssh-ed25519` blob, after the type and length framing.
-fn ssh_blob_key(decoded: &[u8]) -> PairingResult<[u8; 32]> {
-    let type_len = read_u32(decoded, 0)?;
-    if type_len as usize != SSH_ED25519_TYPE.len()
-        || decoded.get(4..4 + SSH_ED25519_TYPE.len()) != Some(SSH_ED25519_TYPE)
-    {
-        return Err(super::refuse(PairingRefusal::InvalidPublicKey));
-    }
-    let key_len = read_u32(decoded, 4 + SSH_ED25519_TYPE.len())?;
-    let key_at = 8 + SSH_ED25519_TYPE.len();
-    if key_len as usize != 32 || decoded.len() != key_at + 32 {
-        return Err(super::refuse(PairingRefusal::InvalidPublicKey));
-    }
-    to_key(&decoded[key_at..])
-}
-
-/// A big-endian `u32` length prefix, or a malformed blob.
-fn read_u32(decoded: &[u8], at: usize) -> PairingResult<u32> {
-    let bytes = decoded
-        .get(at..at + 4)
-        .ok_or_else(|| super::refuse(PairingRefusal::InvalidPublicKey))?;
-    Ok(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
-}
-
-/// Exactly 32 bytes into a key, or a refusal. Never zero-pads: a padded key
-/// would fingerprint to a different key than the one the browser holds.
-fn to_key(bytes: &[u8]) -> PairingResult<[u8; 32]> {
-    let key: [u8; 32] = bytes
-        .try_into()
-        .map_err(|_| super::refuse(PairingRefusal::InvalidPublicKey))?;
-    Ok(key)
-}
-
-/// Base64 that tolerates absent padding, as `Buffer.from(value, "base64")`
-/// does. Stricter about the alphabet than Node, which is a difference a
-/// browser cannot reach: it mints the encoding, it does not transcribe it.
-/// The engine is built per call rather than held in a static -- it is two
-/// small fields, and a `PairCreate` is not a hot path.
-fn decode_base64_lenient(value: &str) -> Option<Vec<u8>> {
-    let config = GeneralPurposeConfig::new()
-        .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent);
-    GeneralPurpose::new(&alphabet::STANDARD, config)
-        .decode(value)
-        .ok()
 }
 
 /// Lowercase hex, and nothing else.

@@ -16,6 +16,7 @@ pub mod bootstrap_tokens;
 pub mod cf_access;
 pub mod cf_access_keyring;
 pub mod db_statements;
+pub mod ed25519_public_key;
 pub mod jwt_claims;
 pub mod jwt_crypto;
 pub mod jwt_key_cache;

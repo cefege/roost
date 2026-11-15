@@ -28,7 +28,7 @@
 
 use std::path::Path;
 
-use crate::auth::bootstrap_tokens::decode_ssh_wire_ed25519_pubkey;
+use crate::auth::ed25519_public_key::decode_ssh_wire_ed25519_pubkey;
 use crate::auth::jwt_crypto::PublicKey;
 use crate::auth::principal::{Principal, PrincipalFacts, resolve_principal};
 use crate::db::CoordDb;

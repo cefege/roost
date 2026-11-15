@@ -15,12 +15,13 @@ use sqlx::{Any, Transaction};
 use crate::auth::authorized_keys::fingerprint_of_raw_public_key;
 use crate::auth::bootstrap_tokens::{
     self, BootstrapClaim, BootstrapTokenClaim, BootstrapTokenKind, claim_bootstrap_token,
-    decode_ed25519_pubkey, mint_bootstrap_token,
+    mint_bootstrap_token,
 };
 use crate::auth::db_statements::{
     ACCOUNT_DEVICE_ROW, Bind, WORKER_ROW, begin, column1, commit, exists1, fault,
     insert_account_device, insert_authorized_key, invalid_argument, run, stored_public_key,
 };
+use crate::auth::ed25519_public_key::decode_ed25519_pubkey;
 use crate::auth::principal::require_account_device;
 use crate::coord_core::{Caller, CoordCore};
 use crate::db::CoordDb;

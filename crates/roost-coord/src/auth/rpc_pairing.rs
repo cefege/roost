@@ -33,6 +33,7 @@ use connectrpc::RequestContext;
 use connectrpc::{Response, ServiceResult};
 
 use crate::auth::authorized_keys::fingerprint_of_raw_public_key;
+use crate::auth::ed25519_public_key::decode_ed25519_pubkey;
 use crate::auth::pairing::account::{self, CreateOutcome, PairRequestCreate};
 use crate::auth::pairing::confirmation;
 use crate::auth::pairing::rows;
@@ -42,8 +43,8 @@ use crate::auth::pairing::rpc_support::{
     report_confirmation,
 };
 use crate::auth::pairing::secrets::{
-    self, PAIR_REQUEST_TTL_MS, decode_ed25519_pubkey, normalize_pair_request_id,
-    normalize_pair_requester_token, normalize_pair_verification_code, pairing_secret_digest,
+    self, PAIR_REQUEST_TTL_MS, normalize_pair_request_id, normalize_pair_requester_token,
+    normalize_pair_verification_code, pairing_secret_digest,
 };
 use crate::auth::pairing::status::{ApprovalAuthority, ApprovalOutcome, StoredStatus};
 use crate::auth::pairing::{PairingError, PairingRefusal, authority};
@@ -79,8 +80,9 @@ pub async fn handle_pair_create(
         normalize_pair_request_id(&request.ephemeral_id).map_err(PairingError::into_error)?;
     let requester_token = normalize_pair_requester_token(&request.requester_token)
         .map_err(PairingError::into_error)?;
-    let public_key =
-        decode_ed25519_pubkey(&request.ssh_pubkey_b64).map_err(PairingError::into_error)?;
+    let public_key = decode_ed25519_pubkey(&request.ssh_pubkey_b64)
+        .ok_or_else(|| crate::auth::pairing::refuse(PairingRefusal::InvalidPublicKey))
+        .map_err(PairingError::into_error)?;
     let _lease = lease(core)?;
     let now_ms = crate::rpc::service::now_ms();
     let origin = caller_origin_of(context);

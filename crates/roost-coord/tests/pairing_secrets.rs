@@ -1,7 +1,6 @@
 //! The pairing ceremony's secret contract: the shapes a request id, a
-//! requester token and a verification code must have, the two public-key
-//! encodings a browser may send, and the one digest every pairing secret is
-//! stored under.
+//! requester token and a verification code must have, and the one digest every
+//! pairing secret is stored under.
 //!
 //! Every refusal below is asserted as the TYPED [`PairingRefusal`], never as a
 //! message. A test that matches a message passes when two different refusals
@@ -19,8 +18,8 @@
 use roost_coord::auth::pairing::secrets::{
     PAIR_REQUEST_ID_HEX_LEN, PAIR_REQUESTER_TOKEN_HEX_LEN, PAIR_VERIFICATION_ATTEMPT_LIMIT,
     PAIR_VERIFICATION_CODE_LENGTH, PAIRING_CEREMONY_VERSION, assert_pairing_ceremony_version,
-    decode_ed25519_pubkey, normalize_pair_request_id, normalize_pair_requester_token,
-    normalize_pair_verification_code, pairing_secret_digest,
+    normalize_pair_request_id, normalize_pair_requester_token, normalize_pair_verification_code,
+    pairing_secret_digest,
 };
 use roost_coord::auth::pairing::{PairingError, PairingRefusal};
 
@@ -149,55 +148,6 @@ fn a_foreign_ceremony_version_asks_the_client_to_reload() {
         PairingRefusal::CeremonyVersion.code(),
         connectrpc::ErrorCode::FailedPrecondition
     );
-}
-
-/// Both public-key encodings a browser may send decode to the same 32 bytes: a
-/// bare key, and the `ssh-ed25519` blob `authorized_keys` lines use.
-#[test]
-fn a_public_key_decodes_from_both_encodings_a_browser_may_send() {
-    let raw = [0x42u8; 32];
-    let bare = roost_host::b64url_encode(&raw);
-    assert_eq!(decode_ed25519_pubkey(&bare).unwrap(), raw);
-
-    let mut blob = Vec::new();
-    blob.extend_from_slice(&(b"ssh-ed25519".len() as u32).to_be_bytes());
-    blob.extend_from_slice(b"ssh-ed25519");
-    blob.extend_from_slice(&32u32.to_be_bytes());
-    blob.extend_from_slice(&raw);
-    let encoded = roost_host::b64url_encode(&blob);
-    assert_eq!(decode_ed25519_pubkey(&encoded).unwrap(), raw);
-}
-
-/// A blob that declares the wrong key length is refused rather than read from a
-/// body that happens to be long enough, and a key of the wrong width is never
-/// zero-padded -- a padded key fingerprints to a DIFFERENT key than the one the
-/// browser holds, which is a silent security failure that passes every
-/// round-trip test.
-#[test]
-fn a_malformed_public_key_is_refused_and_never_padded() {
-    let mut wrong_length = Vec::new();
-    wrong_length.extend_from_slice(&(b"ssh-ed25519".len() as u32).to_be_bytes());
-    wrong_length.extend_from_slice(b"ssh-ed25519");
-    wrong_length.extend_from_slice(&16u32.to_be_bytes());
-    wrong_length.extend_from_slice(&[0x11; 16]);
-    assert_eq!(
-        refusal_of(decode_ed25519_pubkey(&roost_host::b64url_encode(&wrong_length)).unwrap_err()),
-        Some(PairingRefusal::InvalidPublicKey)
-    );
-
-    let short = roost_host::b64url_encode(&[0x22u8; 16]);
-    assert_eq!(
-        refusal_of(decode_ed25519_pubkey(&short).unwrap_err()),
-        Some(PairingRefusal::InvalidPublicKey),
-        "a 16-byte key must not be padded into a 32-byte one"
-    );
-    for refused in ["not base64 !!!", "", "AAAA"] {
-        assert_eq!(
-            refusal_of(decode_ed25519_pubkey(refused).unwrap_err()),
-            Some(PairingRefusal::InvalidPublicKey),
-            "{refused:?} must not be a public key"
-        );
-    }
 }
 
 /// The attempt bound is five, and it is the same bound the confirmation path

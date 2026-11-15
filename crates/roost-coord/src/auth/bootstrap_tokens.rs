@@ -19,12 +19,11 @@
 //! read-then-write would depend on the caller's transaction being serializable,
 //! and SQLite's is not: both readers would see `used_at_ms IS NULL`.
 
-use base64::Engine as _;
-use base64::engine::general_purpose;
 use roost_protocol::{ProtocolError, ProtocolResult};
 use sha2::Digest as _;
 use sqlx::{Any, Transaction};
 
+use crate::auth::ed25519_public_key::ED25519_PUBLIC_KEY_BYTES;
 use crate::db::CoordDb;
 
 /// The prefix that makes a token recognisable in a log a human reads.
@@ -36,12 +35,6 @@ pub const BOOTSTRAP_TOKEN_TTL_MS: i64 = 24 * 60 * 60 * 1_000;
 /// The randomness in a token: 24 bytes, rendered as 48 hex characters
 /// (`bootstrap-tokens.ts:46`).
 pub const BOOTSTRAP_TOKEN_RANDOM_BYTES: usize = 24;
-
-/// The width of a raw Ed25519 public key.
-const PUBLIC_KEY_BYTES: usize = 32;
-
-/// The OpenSSH key-type name a wire-format public key is wrapped in.
-const SSH_ED25519_TYPE: &[u8] = b"ssh-ed25519";
 
 /// Which kind of principal a grant may create.
 ///
@@ -105,71 +98,6 @@ pub struct BootstrapTokenClaim {
 pub fn bootstrap_token_digest(plaintext: &str) -> String {
     let digest: [u8; 32] = sha2::Sha256::digest(plaintext.as_bytes()).into();
     roost_protocol::fingerprint::fingerprint_hex(&digest)
-}
-
-/// Decode the public key a redeeming device or worker presented.
-///
-/// Accepts a raw 32-byte key in standard or URL-safe base64 (what a browser and
-/// a worker both send) or the OpenSSH wire form
-/// `<u32 len><"ssh-ed25519"><u32 32><32 bytes>` a file import carries. The wire
-/// form is checked field by field rather than sliced at a fixed offset, because
-/// a slice accepts any document long enough (`device-revocation.test.ts`,
-/// "rotation rejects malformed SSH wire keys instead of slicing arbitrary
-/// bytes").
-#[must_use]
-pub fn decode_ed25519_pubkey(encoded: &str) -> Option<[u8; PUBLIC_KEY_BYTES]> {
-    let raw = decode_lenient_base64(encoded)?;
-    if raw.len() == PUBLIC_KEY_BYTES {
-        return <[u8; PUBLIC_KEY_BYTES]>::try_from(raw).ok();
-    }
-    ssh_wire_key(&raw)
-}
-
-/// Decode only the OpenSSH wire form, the blob an `authorized_keys` line
-/// carries in its second field.
-///
-/// A bare 32-byte key is refused here: v2's line parser required the whole
-/// `<u32><"ssh-ed25519"><u32><key>` document (`authorized-keys.ts:26-27`), so a
-/// line holding anything shorter was never a key.
-#[must_use]
-pub fn decode_ssh_wire_ed25519_pubkey(encoded: &str) -> Option<[u8; PUBLIC_KEY_BYTES]> {
-    ssh_wire_key(&decode_lenient_base64(encoded)?)
-}
-
-/// Standard or URL-safe base64, padded or not, trailing bits allowed.
-fn decode_lenient_base64(encoded: &str) -> Option<Vec<u8>> {
-    // One decoder, deliberately lenient about alphabet and padding: a browser
-    // sends URL-safe, a file import sends standard, and refusing either fails an
-    // enrollment that has a perfectly good key.
-    // `GeneralPurpose::new` takes the raw `Alphabet`, not a `GeneralPurpose`:
-    // the shipped `STANDARD` engine is a `GeneralPurpose`, so passing it back
-    // into the constructor is a type error rather than a reuse. The shipped
-    // `STANDARD_*` engines also all refuse trailing bits, which `Buffer.from(x,
-    // "base64")` accepts, so the engine has to be built here to stay lenient in
-    // both directions.
-    const DECODER: general_purpose::GeneralPurpose = general_purpose::GeneralPurpose::new(
-        &base64::alphabet::STANDARD,
-        general_purpose::GeneralPurposeConfig::new()
-            .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent)
-            .with_decode_allow_trailing_bits(true),
-    );
-    DECODER
-        .decode(encoded.replace('-', "+").replace('_', "/"))
-        .ok()
-}
-
-/// The key bytes out of an OpenSSH wire document, or `None` if it is not one.
-fn ssh_wire_key(raw: &[u8]) -> Option<[u8; PUBLIC_KEY_BYTES]> {
-    let type_end = 4usize.checked_add(SSH_ED25519_TYPE.len())?;
-    if raw.len() < type_end + 4 + PUBLIC_KEY_BYTES
-        || u32::from_be_bytes(raw[..4].try_into().ok()?) as usize != SSH_ED25519_TYPE.len()
-        || &raw[4..type_end] != SSH_ED25519_TYPE
-        || u32::from_be_bytes(raw[type_end..type_end + 4].try_into().ok()?) as usize
-            != PUBLIC_KEY_BYTES
-    {
-        return None;
-    }
-    <[u8; PUBLIC_KEY_BYTES]>::try_from(&raw[type_end + 4..type_end + 4 + PUBLIC_KEY_BYTES]).ok()
 }
 
 /// A fresh bearer, from the operating system's CSPRNG through the one entropy
@@ -267,7 +195,7 @@ pub struct BootstrapClaim<'a> {
     /// The fingerprint the presented public key resolves to.
     pub fingerprint: &'a str,
     /// The raw public key, checked byte-for-byte on a retry.
-    pub public_key: &'a [u8; PUBLIC_KEY_BYTES],
+    pub public_key: &'a [u8; ED25519_PUBLIC_KEY_BYTES],
     /// The instant the claim is evaluated at.
     pub now_ms: i64,
 }

@@ -22,6 +22,8 @@ mod attachments_grant_owner;
 mod attachments_peer_negotiations;
 #[path = "attachments_worker_link.rs"]
 mod attachments_worker_link;
+#[path = "auth_ed25519_public_key.rs"]
+mod auth_ed25519_public_key;
 #[path = "boot_authorized_keys.rs"]
 mod boot_authorized_keys;
 #[path = "boot_database.rs"]

@@ -267,7 +267,7 @@ pub fn public_key_for(label: &str) -> [u8; 32] {
 ///
 /// `STANDARD_NO_PAD` is an ENCODER here, and decode leniency does not arise:
 /// encoding has no trailing bits to lose. The lenient DECODER is the other half
-/// of the same value and it lives in `bootstrap_tokens::decode_ed25519_pubkey`.
+/// of the same value and it lives in `ed25519_public_key::decode_ed25519_pubkey`.
 /// One owner per direction.
 pub fn pubkey_b64(label: &str) -> String {
     general_purpose::STANDARD_NO_PAD.encode(public_key_for(label))
