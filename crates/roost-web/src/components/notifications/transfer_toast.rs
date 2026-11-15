@@ -53,6 +53,7 @@ pub fn TransferToast(transfer: Transfer) -> Element {
             "data-state": transfer.state.as_str(),
             ToastPresentation {
                 variant: transfer_variant(&transfer),
+                class: "[word-break:break-word]",
                 title: name.clone(),
                 description: meta,
                 role,

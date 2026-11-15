@@ -36,6 +36,7 @@ pub fn UndoCloseToast(entry: PendingClose) -> Element {
             "data-testid": "undo-close-banner",
             "data-session-id": entry.session_id.clone(),
             ToastPresentation {
+                class: "[word-break:break-word]",
                 title: format!("{} closed", entry.labels.terminal_name),
                 description: (!sub.is_empty()).then_some(sub),
                 role: "status",
