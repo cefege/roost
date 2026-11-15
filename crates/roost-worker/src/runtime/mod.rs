@@ -20,6 +20,7 @@
 //! Ports v2 `apps/worker/src/main.ts`.
 
 mod auto_update;
+mod auto_update_attempt;
 mod auto_update_spawn;
 pub mod boot;
 pub mod boot_admission;

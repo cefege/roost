@@ -10,15 +10,16 @@
 //! [`decide`] is a pure function so the policy is testable without a
 //! coordinator, a service manager, or a clock.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use roost_host::{EnvSource, ProcessEnv, build_identity, supported_host_platform};
 use roost_platform::HostPlatform;
 use roost_protocol::fleet_update::is_release_tag;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tokio::task::JoinHandle;
 
+use super::auto_update_attempt::{Attempt, StartOutcome, read_attempt, start_after_recording};
 use super::auto_update_spawn::{forwarded_environment, spawn_updater};
 use super::boot::WorkerBoot;
 
@@ -29,19 +30,7 @@ pub(crate) const RETRY_AFTER_MS: u64 = 60 * 60 * 1000;
 const FIRST_POLL: Duration = Duration::from_secs(60);
 const POLL_EVERY: Duration = Duration::from_secs(15 * 60);
 const POLL_TIMEOUT: Duration = Duration::from_secs(20);
-const ATTEMPT_FILE: &str = "self-update-attempt.json";
 const OPT_OUT_VARIABLE: &str = "ROOST_AUTO_UPDATE";
-
-/// The last updater this worker started, persisted so a restart of the worker
-/// does not start a second one inside the retry window.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Attempt {
-    pub tag: String,
-    pub at_ms: u64,
-    /// The transient systemd unit that ran it (Linux); empty for detached
-    /// updater processes on macOS and Windows.
-    pub unit: String,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decision {
@@ -68,8 +57,7 @@ pub fn decide(facts: &Facts<'_>) -> Decision {
         return Decision::UpToDate;
     }
     if let Some(last) = facts.last_attempt
-        && last.at_ms <= facts.now_ms
-        && facts.now_ms - last.at_ms < RETRY_AFTER_MS
+        && facts.now_ms.saturating_sub(last.at_ms) < RETRY_AFTER_MS
     {
         return Decision::Skip("an update was started within the last hour");
     }
@@ -206,43 +194,32 @@ async fn start_update(site: &Site, tag: &str, now_ms: u64) {
         }
     };
     let started = tokio::task::spawn_blocking({
-        let (platform, tag, log_dir) = (site.platform, tag.to_owned(), site.log_dir.clone());
+        let (platform, tag, log_dir, data_dir) = (
+            site.platform,
+            tag.to_owned(),
+            site.log_dir.clone(),
+            site.data_dir.clone(),
+        );
         let forwarded = forwarded_environment();
-        move || spawn_updater(platform, &exe, &tag, &log_dir, now_ms, &forwarded)
+        move || {
+            start_after_recording(&data_dir, &Attempt { at_ms: now_ms }, || {
+                spawn_updater(platform, &exe, &tag, &log_dir, now_ms, &forwarded)
+            })
+        }
     })
     .await;
-    let unit = match started {
-        Ok(Ok(unit)) => unit,
-        Ok(Err(error)) => {
-            tracing::warn!(%error, tag, "could not start the worker's self-update; will try again");
-            return;
+    match started {
+        Ok(StartOutcome::Started) => tracing::info!(tag, "started the worker's self-update"),
+        Ok(StartOutcome::NotRecorded(error)) => {
+            tracing::warn!(%error, tag, "could not record the worker's update attempt; not starting the self-update");
+        }
+        Ok(StartOutcome::SpawnFailed(error)) => {
+            tracing::warn!(%error, tag, "could not start the worker's self-update; the next attempt waits an hour");
         }
         Err(error) => {
-            tracing::warn!(%error, tag, "could not start the worker's self-update; will try again");
-            return;
+            tracing::warn!(%error, tag, "could not start the worker's self-update; the next attempt waits an hour");
         }
-    };
-    let attempt = Attempt {
-        tag: tag.to_owned(),
-        at_ms: now_ms,
-        unit,
-    };
-    if let Err(error) = write_attempt(&site.data_dir, &attempt) {
-        tracing::warn!(%error, "could not record the worker's update attempt");
     }
-    tracing::info!(tag, "started the worker's self-update");
-}
-
-fn read_attempt(data_dir: &Path) -> Option<Attempt> {
-    let text = std::fs::read_to_string(data_dir.join(ATTEMPT_FILE)).ok()?;
-    serde_json::from_str(&text).ok()
-}
-
-fn write_attempt(data_dir: &Path, attempt: &Attempt) -> std::io::Result<()> {
-    let text = serde_json::to_string(attempt).unwrap_or_default();
-    let temporary = data_dir.join(format!("{ATTEMPT_FILE}.tmp"));
-    std::fs::write(&temporary, text)?;
-    std::fs::rename(temporary, data_dir.join(ATTEMPT_FILE))
 }
 
 #[cfg(test)]
@@ -262,11 +239,7 @@ mod tests {
     }
 
     fn attempt(at_ms: u64) -> Attempt {
-        Attempt {
-            tag: DESIRED.to_owned(),
-            at_ms,
-            unit: "unit".to_owned(),
-        }
+        Attempt { at_ms }
     }
 
     #[test]
@@ -345,10 +318,14 @@ mod tests {
     }
 
     #[test]
-    fn an_attempt_recorded_in_the_future_does_not_block_forever() {
+    fn an_attempt_recorded_in_the_future_blocks_until_the_window_passes() {
         let last = attempt(9_000_000);
         assert!(matches!(
             decide(&facts(DESIRED, Some(&last), 1_000)),
+            Decision::Skip(_)
+        ));
+        assert!(matches!(
+            decide(&facts(DESIRED, Some(&last), 9_000_000 + RETRY_AFTER_MS)),
             Decision::Update { .. }
         ));
     }

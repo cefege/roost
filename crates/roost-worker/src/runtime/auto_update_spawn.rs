@@ -177,8 +177,8 @@ fn windows_updater_creation_flags(breakaway: bool) -> u32 {
         }
 }
 
-/// Start the updater for `tag`. Returns the transient systemd unit name on Linux
-/// and an empty string for detached processes on macOS and Windows.
+/// Start the updater for `tag`: a transient systemd unit on Linux, a detached
+/// process on macOS and Windows. `Err` carries why it did not start.
 pub(super) fn spawn_updater(
     platform: HostPlatform,
     exe: &Path,
@@ -186,14 +186,14 @@ pub(super) fn spawn_updater(
     log_dir: &Path,
     now_ms: u64,
     forwarded: &[(String, String)],
-) -> Result<String, String> {
+) -> Result<(), String> {
     let log = log_path(log_dir, tag);
     match platform {
         HostPlatform::Linux => {
             let unit = unit_name(tag, now_ms);
             let mut command = systemd_run_command(&unit, exe, tag, &log, forwarded);
             match command.output() {
-                Ok(output) if output.status.success() => Ok(unit),
+                Ok(output) if output.status.success() => Ok(()),
                 Ok(output) => Err(format!(
                     "systemd-run exited {}: {}",
                     output.status,
@@ -213,7 +213,7 @@ pub(super) fn spawn_updater(
             let child = spawn_detached(&mut command)
                 .map_err(|error| format!("could not start the updater: {error}"))?;
             reap_when_done(child);
-            Ok(String::new())
+            Ok(())
         }
     }
 }
