@@ -13,7 +13,7 @@ use crate::components::terminal::stream_indicator::StreamIndicator;
 use crate::components::ui::{
     BindingChip, Button, ButtonVariant, Card, CardAction, CardContent, CardDescription, CardFooter,
     CardHeader, CardSize, CardTitle, Chip, EmptyState, Icon, IconButton, IconType, List,
-    ListLayout, ListRow, MetricTile, Progress, SectionTitle, Skeleton, StatusDot, UsageRing,
+    ListLayout, ListRow, MetricTile, Progress, SectionTitle, Skeleton, StatusDot,
 };
 
 /// Body copy in the small body ramp.
@@ -127,12 +127,6 @@ pub fn ContentPrimitives() -> Element {
         div { class: "mb-5 flex flex-col gap-3",
             Progress { value: Some(0.62), label: "Determinate specimen" }
             Progress { value: None, label: "Indeterminate specimen" }
-            div { class: "flex items-center gap-3",
-                UsageRing { fraction: Some(0.3), title: Some("Calm, under three quarters".to_owned()) }
-                UsageRing { fraction: Some(0.8), title: Some("Closing in on the limit".to_owned()) }
-                UsageRing { fraction: Some(0.95), title: Some("All but full".to_owned()) }
-                UsageRing { fraction: None, title: Some("No known limit".to_owned()) }
-            }
             div { class: "flex gap-2",
                 Chip { label: "Local", small: true }
                 Chip { label: "Direct", small: true }

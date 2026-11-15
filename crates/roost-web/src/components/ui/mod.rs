@@ -70,7 +70,6 @@ pub mod toast;
 pub mod toggle_group;
 pub mod toolbar;
 pub mod tooltip;
-pub mod usage_ring;
 pub use alert::{Alert, AlertDescription, AlertTitle, AlertVariant};
 pub use alert_dialog::{
     AlertDialog, AlertDialogAction, AlertDialogBody, AlertDialogCancel, AlertDialogContent,
@@ -188,4 +187,3 @@ pub use toolbar::{
     ToolbarSeparator, ToolbarToggleGroup, ToolbarToggleItem,
 };
 pub use tooltip::{Tooltip, TooltipContent, TooltipPosition};
-pub use usage_ring::UsageRing;

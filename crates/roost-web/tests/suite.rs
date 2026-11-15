@@ -154,8 +154,6 @@ mod ui_status;
 mod ui_tabs;
 #[path = "ui_text_field.rs"]
 mod ui_text_field;
-#[path = "ui_usage_ring.rs"]
-mod ui_usage_ring;
 #[path = "undo_close_card.rs"]
 mod undo_close_card;
 #[path = "voice_draft_settle.rs"]
