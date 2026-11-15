@@ -82,7 +82,6 @@ pub mod tabs;
 pub mod text_field;
 pub mod textarea;
 pub mod toast;
-mod toast_queue;
 pub mod toggle_group;
 pub mod toolbar;
 pub mod tooltip;
@@ -226,11 +225,7 @@ pub use table::{
 pub use tabs::{Tabs, TabsContent, TabsList, TabsTrigger, TabsVariant};
 pub use text_field::TextField;
 pub use textarea::Textarea;
-pub use toast::{
-    ToastContainer, ToastDirection, ToastList, ToastPosition, ToastPresentation, ToastToaster,
-    ToastTrigger, ToastType, Toaster,
-};
-pub use toast_queue::{ToastHandle, use_toast};
+pub use toast::{ToastPresentation, ToastType};
 pub use toggle_group::{
     ToggleGroup, ToggleGroupAction, ToggleGroupItem, ToggleGroupSpacing, ToggleGroupVariant,
 };

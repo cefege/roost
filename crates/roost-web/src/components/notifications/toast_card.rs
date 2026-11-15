@@ -1,5 +1,5 @@
 //! One toast surface inside the notification dock: the kind presentation, the
-//! compact two-row action layout, the copy affordance for error and detail
+//! title-row action layout, the copy affordance for error and detail
 //! text, and the hover/focus hold that freezes auto-dismiss and rings the toast's
 //! target session. Rendered by `toast_stack`; identity, window and dismissal
 //! are `roost_client_core::store::toasts`, read here rather than reimplemented.
@@ -239,20 +239,19 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
                 aria_atomic: Some("true".to_owned()),
                 close_label: Some("Dismiss".to_owned()),
                 on_close: dismiss,
-                class: "relative w-full max-w-full min-w-0 cursor-default touch-auto overflow-hidden whitespace-pre-wrap [word-break:break-word]",
+                class: "whitespace-pre-wrap [word-break:break-word]",
                 progress: window_ms.map(|_| 1.0),
                 progress_class: Some("animate-roost-countdown-drain motion-reduce:animate-none".to_owned()),
                 progress_style: window_ms.map(|window| format!(
                     "animation-duration: {window}ms; animation-play-state: {play_state};"
                 )),
+                actions: (toast.action.is_some() || toast.kind == ToastKind::Err || details.is_some())
+                    .then_some(action),
                 if let Some(detail) = details.as_ref() {
                     pre {
                         class: "m-0 mt-2 max-h-36 overflow-auto select-text rounded-md bg-muted p-2 text-xs text-muted-foreground whitespace-pre-wrap [word-break:break-word] [font-family:var(--term-font-family)]",
                         "{detail}"
                     }
-                }
-                if toast.action.is_some() || toast.kind == ToastKind::Err || details.is_some() {
-                    div { class: "mt-2 flex flex-wrap items-center justify-end gap-2", {action} }
                 }
             }
         }

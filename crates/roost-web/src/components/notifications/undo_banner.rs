@@ -5,6 +5,7 @@
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
 use roost_client_core::deck::DeckIntent;
+use roost_client_core::store::pending_close::UNDO_WINDOW_MS;
 
 use crate::components::ui::{Button, ButtonSize, ButtonVariant, ToastPresentation};
 use crate::pump::use_store;
@@ -54,23 +55,25 @@ fn UndoSnackbar(entry: roost_client_core::store::pending_close::PendingClose) ->
             "data-testid": "undo-close-banner",
             "data-session-id": entry.session_id.clone(),
             ToastPresentation {
-                class: "relative w-full max-w-full min-w-0 cursor-default touch-auto overflow-hidden",
                 title: format!("{} closed", entry.labels.terminal_name),
                 description: (!sub.is_empty()).then_some(sub),
                 role: "status",
                 aria_live: "polite",
                 progress: Some(1.0),
                 progress_class: "animate-roost-countdown-drain motion-reduce:animate-none",
-                progress_style: "animation-duration: var(--roost-undo-window-ms, 5000ms);",
-                div { class: "mt-3 flex items-center gap-2",
+                progress_style: format!("animation-duration: {UNDO_WINDOW_MS}ms;"),
+                actions: rsx! {
                     Button {
                         variant: ButtonVariant::Ghost,
                         size: ButtonSize::Sm,
                         "data-testid": "undo-snackbar-action",
-                        onclick: undo,
+                        onclick: move |event: MouseEvent| {
+                            event.stop_propagation();
+                            undo(event);
+                        },
                         "Undo"
                     }
-                }
+                },
             }
         }
     }
