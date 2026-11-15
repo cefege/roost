@@ -2,9 +2,7 @@
 //!
 //! Called only by `Pump::dispatch`. Depends on `pump::socket` for the Sync
 //! socket, `platform::connect` for Connect calls, and the core's storage for
-//! the two persisted ledgers. The v2 counterparts are the call sites the store
-//! actions made directly (`sync-domain-state.ts:83-101` for a command,
-//! `sync-frame.ts:55-69` for the watermark, `agentSeenLedger.ts` for the merge).
+//! the persisted Sync watermark (`Effect::PersistWatermark`).
 
 use roost_client_core::sync::SYNC_WATERMARK_KEY;
 use roost_client_core::{ClientEvent, Effect, RpcCall, RpcResult};

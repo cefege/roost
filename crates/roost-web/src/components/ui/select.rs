@@ -1,5 +1,5 @@
 //! `Select`: the single-value select, a labelled trigger button and a floating
-//! listbox. Composed by the settings panes (TV mode, agent, theme) and editor
+//! listbox. Composed by the settings panes (TV mode, theme, terminal, voice) and editor
 //! forms; `select_listbox.rs` renders the open listbox and the rules live in
 //! `select_navigation.rs` and `select_placement.rs`.
 //!

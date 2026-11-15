@@ -176,7 +176,7 @@ pub fn workbench_title(
 
 /// How much of a session title the title region shows.
 ///
-/// A long agent-set title would push the brand out of the title bar, and the
+/// A long program-set title would push the brand out of the title bar, and the
 /// brand is the one control that always means "go home".
 pub const TITLE_MAX_CHARS: usize = 60;
 
@@ -218,7 +218,7 @@ pub enum CoordinatorState {
 
 impl CoordinatorState {
     /// The dot this state shows. The vocabulary is the design system's, so the
-    /// status bar and the agent chips cannot invent a second set of colours.
+    /// status bar and every other `StatusDot` cannot invent a second set of colours.
     pub const fn status(self) -> &'static str {
         match self {
             Self::Offline | Self::Unreachable => "offline",

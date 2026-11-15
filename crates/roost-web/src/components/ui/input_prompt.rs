@@ -1,7 +1,7 @@
 //! `InputPrompt` family: the message composer, an `InputGroup` holding an
 //! auto-growing textarea, a footer row of tools, and an icon send button.
-//! Ported from rust-ui's `input_prompt.rs`; terminal and agent composers supply
-//! their own draft, tools and submission policy. Enter without Shift routes to
+//! Ported from rust-ui's `input_prompt.rs`; the terminal composer supplies its
+//! own draft, tools and submission policy. Enter without Shift routes to
 //! `on_submit`; mode-specific keyboard handling stays in `on_keydown`.
 
 use dioxus::prelude::*;

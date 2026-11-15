@@ -1,7 +1,6 @@
 //! The desktop activity rail: the fixed destinations and which one the
-//! current path selects. Terminal text controls appear only on terminal
-//! routes; agent work has no terminal chrome. Mounted by `AppShell` on a
-//! desktop layout.
+//! current path selects, plus the terminal text controls on terminal routes.
+//! Mounted by `AppShell` on a desktop layout.
 //!
 //! Every destination, its icon, label, href and active test live in
 //! `shell_metrics::Destination`; this component draws the list.

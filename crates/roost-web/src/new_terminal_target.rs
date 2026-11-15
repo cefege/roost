@@ -1,4 +1,4 @@
-//! Which machine a new terminal or agent suggests: the online machines in
+//! Which machine a new terminal suggests: the online machines in
 //! menu order, and the default among them. The sidebar's launch menus read it,
 //! so the online filter and the route preference stay one answer.
 

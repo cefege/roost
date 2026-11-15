@@ -1,6 +1,6 @@
 //! `Card` and its parts (`CardHeader`, `CardTitle`, `CardDescription`,
 //! `CardAction`, `CardContent`, `CardFooter`, `CardList`, `CardItem`): the rust-ui
-//! card compound. Settings panes and machine and agent cards compose it; the
+//! card compound. Settings panes and machine cards compose it; the
 //! header renders only when a caller puts something in it.
 
 use dioxus::prelude::*;
