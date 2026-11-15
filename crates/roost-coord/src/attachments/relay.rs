@@ -9,6 +9,8 @@
 
 use std::time::Duration;
 
+use base64::Engine as _;
+use base64::engine::general_purpose;
 use serde_json::Value;
 
 use crate::db::CoordDb;
@@ -114,8 +116,8 @@ pub(super) fn base64_to_bytes(reply: &Value) -> Result<Vec<u8>, ConnectError> {
     if encoded.is_empty() {
         return Ok(Vec::new());
     }
-    decode_base64(encoded).map_err(|message| {
-        tracing::error!(%message, "files: the worker's content was not base64");
+    general_purpose::STANDARD.decode(encoded).map_err(|error| {
+        tracing::error!(%error, "files: the worker's content was not base64");
         ConnectError::new(
             ErrorCode::Internal,
             "the worker's file content was undecodable",
@@ -196,33 +198,4 @@ pub(crate) async fn settle_within(
             ))
         }
     }
-}
-
-/// A minimal base64 decoder, so this file does not add a dependency for one
-/// call. Returns the failure message rather than panicking.
-fn decode_base64(encoded: &str) -> Result<Vec<u8>, String> {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut table = [255u8; 256];
-    for (index, byte) in ALPHABET.iter().enumerate() {
-        table[*byte as usize] = index as u8;
-    }
-    let mut out = Vec::with_capacity(encoded.len() / 4 * 3);
-    let mut accumulator: u32 = 0;
-    let mut bits = 0u32;
-    for byte in encoded.bytes() {
-        if byte == b'=' || byte == b'\n' || byte == b'\r' {
-            continue;
-        }
-        let value = table[byte as usize];
-        if value == 255 {
-            return Err("a character outside the base64 alphabet".to_owned());
-        }
-        accumulator = (accumulator << 6) | u32::from(value);
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((accumulator >> bits) as u8);
-        }
-    }
-    Ok(out)
 }
