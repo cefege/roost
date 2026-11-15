@@ -14,6 +14,7 @@ pub mod loader_specimen;
 pub mod overlay_states;
 pub mod palette_family;
 pub mod settings_navigation_specimen;
+mod toast_specimen;
 pub mod token_sections;
 pub mod workbench_shell_specimen;
 

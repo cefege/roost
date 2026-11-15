@@ -16,6 +16,7 @@ use super::loader_specimen::LoaderSpecimen;
 use super::overlay_states::DesignOverlayStates;
 use super::palette_family::PaletteFamily;
 use super::settings_navigation_specimen::SettingsNavigationSpecimen;
+use super::toast_specimen::ToastSpecimen;
 use super::token_sections::{ColorRoles, ElevationScale, ShapeScale, SpacingScale, TypeRamp};
 use super::workbench_shell_specimen::WorkbenchShellSpecimen;
 use crate::components::ui::{Card, CardContent, CardHeader, CardTitle};
@@ -79,6 +80,7 @@ pub fn DesignGallery(on_navigate: EventHandler<String>) -> Element {
             GallerySection { title: "Control states", DesignControlStates {} }
             GallerySection { title: "Message composer", ComposerSpecimen {} }
             GallerySection { title: "Loader", LoaderSpecimen {} }
+            GallerySection { title: "Toast", ToastSpecimen {} }
             GallerySection { title: "Content primitives", ContentPrimitives {} }
             GallerySection { title: "Overlay states", DesignOverlayStates {} }
         }
