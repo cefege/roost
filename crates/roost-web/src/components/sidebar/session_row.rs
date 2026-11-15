@@ -28,21 +28,11 @@ use crate::router_state::{use_location, use_navigate};
 use crate::session_actions::close_labels_for;
 use crate::session_naming::{program_subtitle, rel_time_since, session_title};
 
-/// Whether `path` shows this session: `/s/<id>` exactly or beneath it, or the
-/// legacy `/…/t/<channel>` form with this channel. Exact, never a substring:
-/// channel 1 must not light up on `/t/10`.
-pub fn session_row_is_active(path: &str, session_id: &str, channel: u32) -> bool {
+/// Whether `path` shows this session: `/s/<id>` exactly or beneath it.
+/// Exact, never a substring: session `ab` must not light up on `/s/abc`.
+pub fn session_row_is_active(path: &str, session_id: &str) -> bool {
     let session_path = format!("/s/{session_id}");
-    if path == session_path || path.starts_with(&format!("{session_path}/")) {
-        return true;
-    }
-    path.split_once("/t/")
-        .map(|(_, rest)| {
-            rest.chars()
-                .take_while(char::is_ascii_digit)
-                .collect::<String>()
-        })
-        .is_some_and(|digits| !digits.is_empty() && digits == channel.to_string())
+    path == session_path || path.starts_with(&format!("{session_path}/"))
 }
 
 /// A session row.
@@ -97,7 +87,7 @@ pub fn SessionRow(
             worker_fp: session.worker_fp.to_string(),
             workspace_id: session.workspace_id.as_ref().map(ToString::to_string),
             status: session.status.as_str(),
-            active: session_row_is_active(&path.read(), &session_id, session.channel.as_u32()),
+            active: session_row_is_active(&path.read(), &session_id),
             available: server_online,
             activity: rel_time_since(now_ms, since),
         }

@@ -32,8 +32,6 @@ fn every_grammar_route_the_specs_navigate_to_is_served() {
         "/design",
         "/s/8f2b1c40-0000-4000-8000-000000000000",
         "/t/a1b2c3d4e5f60718/src",
-        "/w/ws-1",
-        "/w/ws-1/t/ch-1",
         "/file/a1b2c3d4e5f60718/etc/hosts",
         "/search",
         "/settings",
@@ -85,8 +83,6 @@ fn every_grammar_route_the_specs_navigate_to_is_recognised() {
     for path in [
         "/s/8f2b1c40-0000-4000-8000-000000000000",
         "/t/a1b2c3d4e5f60718/src",
-        "/w/ws-1",
-        "/w/ws-1/t/ch-1",
         "/settings",
         "/settings/machines",
         "/pair",
@@ -106,12 +102,12 @@ fn every_grammar_route_the_specs_navigate_to_is_recognised() {
 }
 
 #[test]
-fn a_legacy_workspace_bookmark_keeps_its_channel() {
-    // The legacy `/w/:id/t/:channelId` form is one route with an optional
-    // channel. A panel that shortened it to `/w/ws-1` would show a reader a
-    // path they did not follow.
-    let route = Route::parse("/w/ws-1/t/ch-1");
-    assert_eq!(route.to_path(), "/w/ws-1/t/ch-1");
+fn a_retired_workspace_bookmark_lands_on_the_not_found_page() {
+    // `/w/:id[/t/:channel]` is no longer grammar: an old bookmark gets the
+    // not-found page naming the URL it followed, never a terminal or home.
+    for path in ["/w/ws-1", "/w/ws-1/t/ch-1"] {
+        assert_eq!(not_found_path(path).as_deref(), Some(path), "{path}");
+    }
 }
 
 #[test]

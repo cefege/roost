@@ -43,9 +43,7 @@ pub fn ActivityBar(on_toggle_sidebar: EventHandler<()>) -> Element {
     let active = active_destination(&path());
     let terminal_route = matches!(
         crate::routes::Route::parse(&path()),
-        crate::routes::Route::Session { .. }
-            | crate::routes::Route::Terminal { .. }
-            | crate::routes::Route::Workspace { .. }
+        crate::routes::Route::Session { .. } | crate::routes::Route::Terminal { .. }
     );
     let top = [
         Destination::Folders,

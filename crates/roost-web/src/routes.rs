@@ -30,17 +30,6 @@ pub enum Route {
         /// `terminal_href::decode_folder_path`, which knows the worker's platform.
         folder_path: String,
     },
-    /// `/w/:workspaceId` and `/w/:workspaceId/t/:channelId` — the legacy
-    /// workspace form, kept so an old bookmark resolves instead of landing on
-    /// the not-found page. It is a NAME for a session, not a second session
-    /// route: `/w/...` is always resolved to the session it addresses before
-    /// anything renders.
-    Workspace {
-        /// The legacy workspace id.
-        workspace_id: String,
-        /// The legacy channel id, when the URL named one.
-        channel_id: Option<String>,
-    },
     /// `/settings/:pane?` — the settings shell, optionally on one pane.
     Settings {
         /// The pane to open, when the URL named one.
@@ -95,10 +84,6 @@ impl Route {
             worker_fp: String::new(),
             folder_path: String::new(),
         },
-        Route::Workspace {
-            workspace_id: String::new(),
-            channel_id: None,
-        },
         Route::Settings { pane: None },
         Route::Pair,
         Route::Help,
@@ -142,14 +127,6 @@ impl Route {
                 _ => Route::Unknown {
                     path: path.to_string(),
                 },
-            },
-            Some("w") if decoded.len() == 2 => Route::Workspace {
-                workspace_id: decoded[1].clone(),
-                channel_id: None,
-            },
-            Some("w") if decoded.len() == 4 && decoded[2] == "t" => Route::Workspace {
-                workspace_id: decoded[1].clone(),
-                channel_id: Some(decoded[3].clone()),
             },
             Some("settings") if decoded.len() <= 2 => Route::Settings {
                 pane: decoded.get(1).cloned(),
@@ -196,13 +173,6 @@ impl Route {
                 worker_fp,
                 folder_path,
             } => format!("/t/{worker_fp}/{folder_path}"),
-            Self::Workspace {
-                workspace_id,
-                channel_id,
-            } => match channel_id {
-                Some(channel_id) => format!("/w/{workspace_id}/t/{channel_id}"),
-                None => format!("/w/{workspace_id}"),
-            },
             Self::Settings { pane } => match pane {
                 Some(pane) => format!("/settings/{pane}"),
                 None => "/settings".to_string(),

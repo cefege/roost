@@ -32,6 +32,7 @@ use crate::platform::browser_platform::{PlatformShortcut, platform_shortcut_labe
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::Pump;
 use crate::route_session::active_session_for_path;
+use crate::terminal_href::folder_terminal_href;
 
 /// The test ids the field and the rows are addressed by.
 const INPUT_TEST_ID: &str = "command-palette-input";
@@ -54,7 +55,9 @@ pub fn PaletteBody(pump: Pump, overlays: ShortcutOverlays) -> Element {
         let context = palette_context(store, &path(), now_ms);
         let documents = store_navigation_documents(store, &BrowserWorkerPaths, now_ms);
         let workspaces: Vec<_> = store.workspaces.values().cloned().collect();
-        build_default_items(&context, &documents, &workspaces)
+        build_default_items(&context, &documents, &workspaces, |workspace| {
+            folder_terminal_href(store, workspace.worker_fp.as_str(), &workspace.folder_path)
+        })
     };
     let terms = navigation_search_terms(&query());
     let filtered: Vec<PaletteItem> = items

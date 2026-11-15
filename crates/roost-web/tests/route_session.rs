@@ -13,10 +13,12 @@ use roost_client_core::store::{
 use roost_web::app::{ServedSurface, Surface, surface_for};
 use roost_web::platform::worker_paths::BrowserWorkerPaths;
 use roost_web::route_session::{
-    active_open_session_for_route, active_session_for_path, sibling_or_home_href,
+    active_open_session_for_route, active_session_for_path, is_terminal_route, sibling_or_home_href,
 };
 use roost_web::routes::{Route, session_href};
-use roost_web::terminal_href::{decode_folder_path, encode_folder_path, terminal_href};
+use roost_web::terminal_href::{
+    decode_folder_path, encode_folder_path, folder_terminal_href, terminal_href,
+};
 
 const ID: &str = "00000000-0000-4000-8000-000000000001";
 const SECOND: &str = "00000000-0000-4000-8000-000000000002";
@@ -115,32 +117,25 @@ fn a_folder_route_resolves_by_machine_and_spawn_folder() {
 }
 
 #[test]
-fn a_workspace_route_resolves_to_its_newest_open_session() {
+fn a_workspace_folder_href_resolves_to_the_folders_newest_open_session() {
     let core = core_with(vec![session(ID, 1, 1000), session(SECOND, 2, 2000)]);
-    assert_eq!(
-        resolved(&core, "/w/00000000-0000-4000-8000-0000000000aa").as_deref(),
-        Some(SECOND)
-    );
+    let href = folder_terminal_href(core.store(), &fp(), FOLDER);
+    assert!(href.starts_with("/t/"), "{href}");
+    assert_eq!(resolved(&core, &href).as_deref(), Some(SECOND));
 }
 
 #[test]
-fn a_legacy_channel_route_resolves_the_channel_it_names() {
-    let core = core_with(vec![session(ID, 1, 2000), session(SECOND, 2, 1000)]);
-    assert_eq!(
-        resolved(&core, "/w/00000000-0000-4000-8000-0000000000aa/t/2").as_deref(),
-        Some(SECOND)
-    );
-    assert_eq!(
-        resolved(&core, "/w/00000000-0000-4000-8000-0000000000aa/t/x"),
-        None
-    );
-}
-
-#[test]
-fn non_terminal_routes_and_an_unknown_workspace_resolve_to_nothing() {
+fn non_terminal_routes_and_a_retired_workspace_url_resolve_to_nothing() {
     let core = core_with(vec![session(ID, 1, 1000)]);
-    for path in ["/settings/machines", "/search", "/", "/w/nope"] {
+    for path in [
+        "/settings/machines",
+        "/search",
+        "/",
+        "/w/00000000-0000-4000-8000-0000000000aa",
+        "/w/00000000-0000-4000-8000-0000000000aa/t/1",
+    ] {
         assert_eq!(resolved(&core, path), None, "{path}");
+        assert!(!is_terminal_route(&Route::parse(path)), "{path}");
     }
 }
 
@@ -156,14 +151,7 @@ fn a_closed_session_resolves_but_is_not_the_open_one_the_deck_renders() {
 
 #[test]
 fn every_terminal_file_and_search_route_is_one_main_pane_surface() {
-    for path in [
-        "/s/abc",
-        "/t/aa/src",
-        "/w/ws1",
-        "/w/ws1/t/3",
-        "/file/aa/etc/hosts",
-        "/search",
-    ] {
+    for path in ["/s/abc", "/t/aa/src", "/file/aa/etc/hosts", "/search"] {
         assert_eq!(
             surface_for(&Route::parse(path)),
             Surface::Served(ServedSurface::MainPane),

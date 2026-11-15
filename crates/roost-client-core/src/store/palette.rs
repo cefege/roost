@@ -160,11 +160,14 @@ pub fn matches_query(text: &str, normalized_query_terms: &[String]) -> bool {
 /// actions this context has a target for.
 ///
 /// `documents` is the navigation index, so a palette row and a search row are the
-/// same row and cannot describe a session differently.
+/// same row and cannot describe a session differently. `workspace_href` is the
+/// host's link for a workspace row; the route table is the host's, so this crate
+/// writes no path for it.
 pub fn build_default_items(
     context: &CommandPaletteContext,
     documents: &[NavigationSearchDocument],
     workspaces: &[roost_protocol::wire::Workspace],
+    workspace_href: impl Fn(&roost_protocol::wire::Workspace) -> String,
 ) -> Vec<PaletteItem> {
     let mut items: Vec<PaletteItem> = documents
         .iter()
@@ -188,7 +191,7 @@ pub fn build_default_items(
         kind: ItemKind::Workspace,
         label: workspace.name.clone(),
         hint: Some(plural_sessions(workspace.session_ids.len())),
-        href: Some(format!("/w/{}", workspace.id)),
+        href: Some(workspace_href(workspace)),
         search: Some(workspace.folder_path.clone()),
         action: None,
         captured_auth_generation: None,

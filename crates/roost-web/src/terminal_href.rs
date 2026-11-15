@@ -100,6 +100,15 @@ pub fn decode_folder_path(worker_os: Option<&str>, splat: &str) -> Option<String
     decode_worker_path_route(worker_os, splat)
 }
 
+/// The stable URL for a folder on one machine: `/t/<fp>/<folder>`.
+pub fn folder_terminal_href(store: &Store, worker_fp: &str, folder: &str) -> String {
+    Route::Terminal {
+        worker_fp: worker_fp.to_owned(),
+        folder_path: encode_folder_path(worker_os(store, worker_fp), folder),
+    }
+    .to_path()
+}
+
 /// The stable URL for a session: `/t/<fp>/<folder>` from its spawn folder, or
 /// `/s/<id>` for an older row with no spawn folder.
 pub fn terminal_href(store: &Store, session: &Session) -> String {
@@ -110,12 +119,7 @@ pub fn terminal_href(store: &Store, session: &Session) -> String {
     else {
         return session_href(session.id.as_str());
     };
-    let worker_os = worker_os(store, session.worker_fp.as_str());
-    Route::Terminal {
-        worker_fp: session.worker_fp.as_str().to_owned(),
-        folder_path: encode_folder_path(worker_os, folder),
-    }
-    .to_path()
+    folder_terminal_href(store, session.worker_fp.as_str(), folder)
 }
 
 /// The worker's advertised OS, when its record has hydrated.

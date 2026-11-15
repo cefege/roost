@@ -11,13 +11,9 @@
 //! a comparison that folded less would show a user two folders that the shell
 //! says are one.
 //!
-//! NOT PORTED: `activeSessionForPath` (`selectors.ts:81-92`). It resolves a
-//! session by matching `/s/:id`, `/t/:workerFp/*folderPath`, `/w/:id` and a legacy
-//! `/w/:id/t/:channel` against a pathname string. That is the ROUTE TABLE, which
-//! `roost-web/src/routes.rs` owns; a second path parser in this crate is a second
-//! route table, which is the fork this port pays for most. The host matches its own
-//! route and calls the resolver that route names — `session_by_id`,
-//! `session_by_folder`, or `session_by_workspace`.
+//! Path → session resolution belongs to the route table (`roost-web/src/routes.rs`):
+//! a second path parser here would be a second route table. The host matches its
+//! own route and calls the resolver it names — `session_by_id` or `session_by_folder`.
 
 use roost_protocol::wire::{Session, SessionStatus};
 
@@ -99,22 +95,6 @@ pub fn session_by_folder<'session>(
                 session.spawn_cwd.as_deref().unwrap_or(session.cwd.as_str()),
                 folder_path,
             )
-    })
-}
-
-/// The newest OPEN session belonging to a workspace.
-///
-/// `None` for an empty workspace, which is a real state the caller must handle
-/// rather than an error.
-pub fn session_by_workspace<'session>(
-    store: &'session Store,
-    workspace_id: &str,
-) -> Option<&'session Session> {
-    newest_open(store, |session| {
-        session
-            .workspace_id
-            .as_ref()
-            .is_some_and(|workspace| workspace.as_str() == workspace_id)
     })
 }
 

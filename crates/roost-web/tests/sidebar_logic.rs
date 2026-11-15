@@ -195,23 +195,17 @@ fn a_worker_reported_windows_laptop_differs_from_a_desktop() {
 
 #[test]
 fn a_row_is_selected_only_by_its_own_route() {
-    assert!(session_row_is_active(&format!("/s/{SESSION}"), SESSION, 1));
+    assert!(session_row_is_active(&format!("/s/{SESSION}"), SESSION));
     assert!(session_row_is_active(
         &format!("/s/{SESSION}/detail"),
-        SESSION,
-        1
+        SESSION
     ));
-    assert!(!session_row_is_active(
-        &format!("/s/{SESSION}0"),
-        SESSION,
-        1
-    ));
-    assert!(session_row_is_active("/w/ws-1/t/1", SESSION, 1));
+    assert!(!session_row_is_active(&format!("/s/{SESSION}0"), SESSION));
     assert!(
-        !session_row_is_active("/w/ws-1/t/10", SESSION, 1),
-        "channel 1 is not channel 10"
+        !session_row_is_active("/t/1aa/src", SESSION),
+        "a folder route never selects a row by channel digits"
     );
-    assert!(!session_row_is_active("/settings", SESSION, 1));
+    assert!(!session_row_is_active("/settings", SESSION));
 }
 
 #[test]

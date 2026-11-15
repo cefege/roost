@@ -134,10 +134,10 @@ pub fn shows_mobile_top_bar(compact: bool, pathname: &str, terminal_route: bool)
         && !terminal_route
 }
 
-/// v2's terminal-route test for the shell: a prefix, so a terminal route that
-/// has not resolved yet still shifts for the keyboard.
+/// The shell's terminal-route test: a prefix, so a terminal route that has not
+/// resolved yet still shifts for the keyboard.
 pub fn is_terminal_path(pathname: &str) -> bool {
-    pathname.starts_with("/s/") || pathname.starts_with("/t/") || pathname.starts_with("/w/")
+    pathname.starts_with("/s/") || pathname.starts_with("/t/")
 }
 
 /// Where the drawer stands when the route or the size class changes.
@@ -172,14 +172,7 @@ mod tests {
 
     #[test]
     fn a_compact_route_that_shows_something_closes_the_drawer() {
-        for pathname in [
-            "/s/abc",
-            "/t/fp/src",
-            "/w/ws1",
-            "/browse",
-            "/settings",
-            "/help",
-        ] {
+        for pathname in ["/s/abc", "/t/fp/src", "/browse", "/settings", "/help"] {
             assert_eq!(
                 drawer_intent_for_route(true, pathname),
                 SidebarIntent::CloseDrawer,

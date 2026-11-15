@@ -21,13 +21,18 @@ fn a_television_reporting_a_phone_sized_viewport_gets_the_desktop_shell() {
 
 #[test]
 fn terminal_routes_highlight_folders() {
-    for pathname in ["/", "/s/abc", "/t/fp123/src", "/w/ws1", "/w/ws1/t/ch1"] {
+    for pathname in ["/", "/s/abc", "/t/fp123/src"] {
         assert_eq!(
             active_destination(pathname),
             Some(Destination::Folders),
             "{pathname} is a folder destination"
         );
     }
+}
+
+#[test]
+fn a_retired_workspace_path_is_not_a_folder_destination() {
+    assert_eq!(active_destination("/w/ws1"), None);
 }
 
 #[test]

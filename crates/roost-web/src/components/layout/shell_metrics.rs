@@ -108,12 +108,7 @@ impl Destination {
     /// Terminal routes share the folders destination.
     pub fn is_active(self, pathname: &str) -> bool {
         match self {
-            Self::Folders => {
-                pathname == "/"
-                    || pathname.starts_with("/s/")
-                    || pathname.starts_with("/t/")
-                    || pathname.starts_with("/w/")
-            }
+            Self::Folders => pathname == "/" || super::shell_style::is_terminal_path(pathname),
             Self::Search => pathname.starts_with("/search"),
             Self::Files => pathname.starts_with("/file/") || pathname.starts_with("/browse"),
             Self::Settings => pathname.starts_with("/settings"),
@@ -160,8 +155,7 @@ pub fn workbench_title(
     // `activeSessionForPath` returns null for both — and the port has to make the
     // same exclusion explicit, because here the session arrives as an argument
     // rather than as something the path looked up.
-    let is_terminal =
-        pathname.starts_with("/s/") || pathname.starts_with("/t/") || pathname.starts_with("/w/");
+    let is_terminal = super::shell_style::is_terminal_path(pathname);
     if is_terminal && (session_title.is_some() || session_folder.is_some()) {
         let title = session_title
             .map(str::trim)
@@ -174,7 +168,7 @@ pub fn workbench_title(
             .filter(|basename| !basename.is_empty())
             .unwrap_or_else(|| "~".to_string());
     }
-    if pathname.starts_with("/s/") || pathname.starts_with("/t/") || pathname.starts_with("/w/") {
+    if is_terminal {
         return "Terminal".to_string();
     }
     "Roost".to_string()

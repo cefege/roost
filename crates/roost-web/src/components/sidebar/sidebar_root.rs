@@ -36,7 +36,7 @@ pub fn SidebarRoot() -> Element {
     let location = crate::router_state::use_location();
     let terminal_route = matches!(
         Route::parse(&location()),
-        Route::Session { .. } | Route::Terminal { .. } | Route::Workspace { .. }
+        Route::Session { .. } | Route::Terminal { .. }
     );
     let mut query = use_signal(String::new);
     let mut debounced = use_signal(String::new);

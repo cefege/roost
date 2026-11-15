@@ -1,6 +1,5 @@
 //! Which session a terminal route addresses: `/s/:id` by id, `/t/:fp/*folder` by
-//! (machine, spawn folder, newest wins), `/w/:workspaceId` by the workspace's
-//! newest open session, and the legacy `/w/:workspaceId/t/:channel` by channel.
+//! (machine, spawn folder, newest wins).
 //! Ports `activeSessionForPath` (`apps/web/src/store/selectors.ts:81-92`) and
 //! `MainPane.tsx`'s `activeSession` memo; read by `MainPane`, the status and
 //! title bars, the sidebar and the deck, so every surface scopes to exactly the
@@ -8,28 +7,20 @@
 
 use roost_client_core::Store;
 use roost_client_core::store::selectors::{
-    newest_open_session_in_folder, session_by_folder, session_by_id, session_by_workspace,
-    session_folder_key,
+    newest_open_session_in_folder, session_by_folder, session_by_id, session_folder_key,
 };
 use roost_client_core::store::{Session, SessionStatus, WorkerPaths};
 
 use crate::routes::{Route, session_href};
 use crate::terminal_href::{decode_folder_path, worker_os};
 
-/// Whether a route is one of the terminal routes (`/s`, `/t`, `/w`), whether
+/// Whether a route is one of the terminal routes (`/s`, `/t`), whether
 /// or not it resolves to a session right now.
 pub fn is_terminal_route(route: &Route) -> bool {
-    matches!(
-        route,
-        Route::Session { .. } | Route::Terminal { .. } | Route::Workspace { .. }
-    )
+    matches!(route, Route::Session { .. } | Route::Terminal { .. })
 }
 
 /// The session a route addresses, open or not; `None` off a terminal route.
-///
-/// A legacy channel that is not a number resolves to nothing, as MainPane's
-/// `parseInt` guard did: an unreadable bookmark must not open a different
-/// session of the same workspace.
 pub fn active_session_for_route<'store>(
     store: &'store Store,
     paths: &dyn WorkerPaths,
@@ -43,21 +34,6 @@ pub fn active_session_for_route<'store>(
         } => {
             let folder = decode_folder_path(worker_os(store, worker_fp), folder_path)?;
             session_by_folder(store, paths, worker_fp, &folder)
-        }
-        Route::Workspace {
-            workspace_id,
-            channel_id: None,
-        } => session_by_workspace(store, workspace_id),
-        Route::Workspace {
-            channel_id: Some(channel),
-            ..
-        } => {
-            let channel: u32 = channel.parse().ok()?;
-            store
-                .sessions
-                .sessions()
-                .values()
-                .find(|session| session.channel.as_u32() == channel)
         }
         _ => None,
     }

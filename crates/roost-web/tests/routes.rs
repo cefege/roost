@@ -1,8 +1,8 @@
 //! The URL grammar's own rules, exercised through the public `Route` surface.
 //!
 //! The grammar is the one authority for what a path means, so every rule it
-//! encodes — the optional segment, the catch-all folder, the legacy workspace
-//! form, and the refusal to fall through to home — is pinned here rather than
+//! encodes — the optional segment, the catch-all folder, and the refusal to
+//! fall through to home — is pinned here rather than
 //! at a call site, where a change to the grammar would show up as a component
 //! test that happened to stop passing.
 //!
@@ -48,33 +48,16 @@ fn a_terminal_path_keeps_the_whole_folder_below_the_worker() {
 }
 
 #[test]
-fn a_legacy_workspace_url_resolves_to_the_channel_it_names() {
-    // v2 kept `/w/:workspaceId/t/:channelId` so a bookmark minted before
-    // the session route still opens the terminal it was pointing at. The
-    // bare `/w/:workspaceId` form has no channel, and must NOT borrow the
-    // next segment as one.
-    assert_eq!(
-        Route::parse("/w/ws1/t/ch9"),
-        Route::Workspace {
-            workspace_id: "ws1".to_string(),
-            channel_id: Some("ch9".to_string())
-        }
-    );
-    assert_eq!(
-        Route::parse("/w/ws1"),
-        Route::Workspace {
-            workspace_id: "ws1".to_string(),
-            channel_id: None
-        }
-    );
-    // `/w/ws1/t` and `/w/ws1/x/ch9` name no channel; treating either as a
-    // workspace link would open whatever session happened to be newest.
-    assert!(matches!(Route::parse("/w/ws1/t"), Route::Unknown { .. }));
-    assert!(matches!(
-        Route::parse("/w/ws1/x/ch9"),
-        Route::Unknown { .. }
-    ));
-    assert!(matches!(Route::parse("/w"), Route::Unknown { .. }));
+fn a_retired_workspace_url_is_unknown() {
+    for path in ["/w/ws1", "/w/ws1/t/ch9", "/w/ws1/t", "/w"] {
+        assert_eq!(
+            Route::parse(path),
+            Route::Unknown {
+                path: path.to_string()
+            },
+            "{path}"
+        );
+    }
 }
 
 #[test]
@@ -146,14 +129,6 @@ fn every_route_with_captures_round_trips_through_its_own_path() {
         Route::Terminal {
             worker_fp: "aa11".to_string(),
             folder_path: "src/deep".to_string(),
-        },
-        Route::Workspace {
-            workspace_id: "ws1".to_string(),
-            channel_id: None,
-        },
-        Route::Workspace {
-            workspace_id: "ws1".to_string(),
-            channel_id: Some("ch9".to_string()),
         },
         Route::Settings { pane: None },
         Route::Settings {

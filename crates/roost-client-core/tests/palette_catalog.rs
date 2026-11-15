@@ -30,7 +30,7 @@ use roost_client_core::store::palette::{
 use roost_client_core::store::paths::ExactWorkerPaths;
 use roost_client_core::store::{
     ChannelId, Session, SessionId, SessionKind, SessionMap, SessionStatus, Worker, WorkerFp,
-    WorkerOs,
+    WorkerOs, WorkspaceId,
 };
 
 /// A machine fingerprint, which is 64 lowercase hex characters.
@@ -201,10 +201,39 @@ fn a_session_row_says_unavailable_when_its_machine_cannot_be_reached() {
     ));
     assert!(!documents[0].available);
     assert!(documents[0].search_text.contains("unavailable offline"));
-    let items = build_default_items(&CommandPaletteContext::default(), &documents, &[]);
+    let items = build_default_items(&CommandPaletteContext::default(), &documents, &[], |_| {
+        String::new()
+    });
     let row = items
         .iter()
         .find(|item| item.kind == ItemKind::Session)
         .expect("a session row");
     assert_eq!(row.hint.as_deref(), Some("workstation · unavailable"));
+}
+
+#[test]
+fn a_workspace_row_links_where_the_host_says() {
+    let workspace = roost_protocol::wire::Workspace {
+        id: WorkspaceId::try_from("00000000-0000-4000-8000-0000000000aa".to_owned()).unwrap(),
+        worker_fp: WorkerFp::try_from(MACHINE.to_owned()).unwrap(),
+        name: "api".to_owned(),
+        folder_path: "/home/dev/api".to_owned(),
+        color: None,
+        position: 0,
+        version: 1,
+        created_at_ms: 0,
+        updated_at_ms: 0,
+        session_ids: Vec::new(),
+    };
+    let items = build_default_items(
+        &CommandPaletteContext::default(),
+        &[],
+        &[workspace],
+        |row| format!("/t/{}/x", row.worker_fp),
+    );
+    let row = items
+        .iter()
+        .find(|item| item.kind == ItemKind::Workspace)
+        .expect("a workspace row");
+    assert_eq!(row.href, Some(format!("/t/{MACHINE}/x")));
 }

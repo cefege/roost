@@ -69,11 +69,9 @@ impl ServedSurface {
 pub fn surface_for(route: &Route) -> Surface {
     match route {
         Route::Home => Surface::Served(ServedSurface::Home),
-        Route::Session { .. }
-        | Route::Terminal { .. }
-        | Route::Workspace { .. }
-        | Route::File { .. }
-        | Route::Search => Surface::Served(ServedSurface::MainPane),
+        Route::Session { .. } | Route::Terminal { .. } | Route::File { .. } | Route::Search => {
+            Surface::Served(ServedSurface::MainPane)
+        }
         Route::Design => Surface::Served(ServedSurface::Design),
         Route::Settings { .. } => Surface::Served(ServedSurface::Settings),
         Route::Pair => Surface::Served(ServedSurface::Pair),

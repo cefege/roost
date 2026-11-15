@@ -23,7 +23,7 @@ use roost_client_core::store::pending_close::{
 };
 use roost_client_core::store::selectors::{
     live_session_ids_for_folder, newest_open_session_in_folder, session_by_folder,
-    session_by_workspace, session_folder_key,
+    session_folder_key,
 };
 use roost_client_core::store::{
     ChannelId, Session, SessionId, SessionKind, SessionMap, SessionStatus, WorkerFp, WorkspaceId,
@@ -104,8 +104,6 @@ fn two_sessions_in_one_folder_share_a_bucket_and_the_newest_wins() {
         Some(newer.id.to_string()),
         "two terminals in one folder is normal, so a collision ties to the newest"
     );
-    assert!(session_by_workspace(store, workspace(1).as_str()).is_some());
-    assert!(session_by_workspace(store, workspace(2).as_str()).is_none());
     assert_eq!(
         newest_open_session_in_folder(store, &ExactWorkerPaths, &bucket, Some(newer.id.as_str()))
             .map(|row| row.id.to_string()),
