@@ -191,6 +191,8 @@ opt-level = 3
 # and flood_plain p50 within 1%.
 [profile.wasm-release]
 inherits = "release"
+# wasm-bindgen consumes custom sections before dx's wasm-opt size pass.
+strip = "debuginfo"
 opt-level = "z"
 lto = true
 codegen-units = 1

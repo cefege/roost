@@ -178,7 +178,7 @@ jobs:
               readobj="$(rustc --print sysroot)/lib/rustlib/x86_64-pc-windows-msvc/bin/llvm-readobj.exe"
               [ -x "$readobj" ] || readobj="$(find "$(rustc --print sysroot)" -name 'llvm-readobj*' | head -1)"
               extra="$("$readobj" --coff-imports "$out/$bin" | sed -n 's/^ *Name: *//p' | tr -d '\r' \
-                | grep -viE '^(kernel32|advapi32|ws2_32|userenv|ntdll|bcrypt|bcryptprimitives|crypt32|ole32|oleaut32|shell32|user32|secur32|ncrypt|iphlpapi|psapi|powrprof|pdh|netapi32|dbghelp|api-ms-win-.*)\.dll$' || true)"
+                | grep -viE '^(kernel32|advapi32|ws2_32|userenv|ntdll|bcrypt|bcryptprimitives|crypt32|ole32|oleaut32|combase|shell32|user32|secur32|ncrypt|iphlpapi|psapi|powrprof|pdh|netapi32|dbghelp|api-ms-win-.*)\.dll$' || true)"
             else
               # /usr/lib and /System ship with macOS. Anything else is the
               # runner's, such as Homebrew's OpenSSL, and a Mac without it

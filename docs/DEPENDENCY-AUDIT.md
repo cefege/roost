@@ -147,6 +147,13 @@ archiving both fit.
 Quickstart consumes the self-link command's exit status, as Rust 1.100 requires,
 and returns a non-success status before printing completion or pairing a browser.
 
+The wasm profile uses `strip = "debuginfo"` rather than inheriting native
+`strip = true`: LLVM 23 strips the custom sections wasm-bindgen must consume
+before dx runs wasm-opt. Native binaries remain fully stripped. The Windows
+import guard includes `combase.dll`, the inbox
+[Windows Runtime component](https://learn.microsoft.com/en-us/windows/win32/api/roapi/nf-roapi-roinitialize)
+available since Windows 8; non-system imports remain rejected.
+
 PostgreSQL remains on the supported 17 major. Moving production to 18 is a
 database upgrade with backup/restore implications, not a library bump.
 
@@ -197,3 +204,5 @@ not inferred from the static review.
   Android device tests.
 - CLI clippy and 19 existing quickstart, self-link and real-coordinator API
   cases passed after adapting to Rust 1.100's must-use exit statuses.
+- Production web bundling passed with the `wasm-release` profile, including
+  wasm-bindgen/wasm-opt processing and generated index/Tailwind checks.
