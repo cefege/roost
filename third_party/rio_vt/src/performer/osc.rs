@@ -5,6 +5,7 @@
 //! typed result for the corresponding OSC command, leaving the dispatcher in
 //! `handler.rs` as a thin glue layer.
 
+use std::borrow::Cow;
 use std::str::FromStr;
 
 use cursor_icon::CursorIcon;
@@ -12,7 +13,9 @@ use cursor_icon::CursorIcon;
 use crate::ansi::CursorShape;
 use crate::config::colors::{ColorRgb, NamedColor};
 use crate::crosswords::square::Hyperlink;
-use crate::event::{ProgressReport, ProgressState};
+use crate::event::{
+    BlockedKind, ProgramState, ProgramStatus, ProgressReport, ProgressState,
+};
 use crate::simd_utf8;
 
 /// Either a concrete color value or a query for the current value.
@@ -44,9 +47,10 @@ pub(super) enum PaletteReset {
 
 /// Parse an OSC 133 semantic prompt sequence into the row mark it
 /// should set, if any. `A` and `P` mark the cursor row as a prompt
-/// (`P;k=c` / `P;k=s` as a continuation); the remaining subcommands
-/// (`B`, `C`, `D`, `I`, `L`, `N`) and all `key=value` options are
-/// accepted and ignored, matching the spec's leniency.
+/// (`P;k=c` / `P;k=s` as a continuation). `C` and `D` set no row mark
+/// and are dispatched separately as command start and end; the
+/// remaining subcommands (`B`, `I`, `L`, `N`) and all `key=value`
+/// options are accepted and ignored, matching the spec's leniency.
 pub(super) fn parse_semantic_prompt(
     params: &[&[u8]],
 ) -> Option<crate::crosswords::grid::row::SemanticPrompt> {
@@ -69,7 +73,27 @@ pub(super) fn parse_semantic_prompt(
     }
 }
 
-/// Parse `OSC 1337 ; SetUserVar=name=<base64 value>`. The value is
+/// The exit status of an OSC 133 `D` (command finished): its first
+/// option, when that is a bare integer (`D;0`, `D;127`, `D;-1`). A
+/// number too large for 32 bits saturates. `None` when the shell sent
+/// no status, as it does for a command line that was abandoned rather
+/// than run, or when the first option is a `key=value` pair.
+pub(super) fn parse_exit_status(option: Option<&[u8]>) -> Option<i32> {
+    let raw = option?;
+    let (negative, digits) = match raw.split_first()? {
+        (b'-', digits) => (true, digits),
+        (b'+', digits) => (false, digits),
+        _ => (false, raw),
+    };
+    let magnitude = parse_digits(digits)?;
+    Some(if negative {
+        i32::try_from(magnitude).map_or(i32::MIN, |m| -m)
+    } else {
+        i32::try_from(magnitude).unwrap_or(i32::MAX)
+    })
+}
+
+/// ROOST PATCH R9: parse `OSC 1337 ; SetUserVar=name=<base64 value>`. The value is
 /// base64 per iTerm2's spec; anything undecodable is dropped.
 pub(super) fn parse_set_user_var(params: &[&[u8]]) -> Option<(String, String)> {
     let payload = params.get(1)?.strip_prefix(b"SetUserVar=")?;
@@ -143,37 +167,57 @@ fn parse_legacy_color(color: &[u8]) -> Option<ColorRgb> {
 }
 
 pub(super) fn parse_number(input: &[u8]) -> Option<u8> {
-    if input.is_empty() {
-        return None;
-    }
-    let mut num: u8 = 0;
-    for c in input {
-        let c = *c as char;
-        if let Some(digit) = c.to_digit(10) {
-            num = num
-                .checked_mul(10)
-                .and_then(|v| v.checked_add(digit as u8))?
-        } else {
-            return None;
-        }
-    }
-    Some(num)
+    u8::try_from(parse_digits(input)?).ok()
 }
 
-/// OSC 0 / OSC 2: window title set as `;`-joined params.
-pub(super) fn parse_title(params: &[&[u8]]) -> Option<String> {
-    if params.len() < 2 {
+/// A non-empty run of ASCII digits as a number, saturating at
+/// `u32::MAX` so an absurdly long one still parses.
+fn parse_digits(digits: &[u8]) -> Option<u32> {
+    if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) {
         return None;
     }
-    Some(
-        params[1..]
-            .iter()
-            .flat_map(|x| simd_utf8::from_utf8_fast(x))
-            .collect::<Vec<&str>>()
-            .join(";")
-            .trim()
-            .to_owned(),
-    )
+    Some(digits.iter().fold(0u32, |acc, digit| {
+        acc.saturating_mul(10)
+            .saturating_add(u32::from(digit - b'0'))
+    }))
+}
+
+/// Decodes a free-text payload, replacing invalid UTF-8.
+pub(super) fn text_lossy(bytes: &[u8]) -> Cow<'_, str> {
+    match simd_utf8::from_utf8_fast(bytes) {
+        Ok(text) => Cow::Borrowed(text),
+        Err(_) => String::from_utf8_lossy(bytes),
+    }
+}
+
+/// Longest title (in bytes) a program can set. Longer titles are
+/// ignored rather than truncated, so a cut never lands mid-word or
+/// mid-character.
+pub(super) const MAX_TITLE_BYTES: usize = 255;
+
+/// OSC 0 / OSC 2: the window title, everything after `0;` or `2;`.
+/// A title with invalid UTF-8 or longer than [`MAX_TITLE_BYTES`] is
+/// rejected whole: a window title is too visible to show a guessed-at
+/// version of what the program meant.
+pub(super) fn parse_title(params: &[&[u8]]) -> Option<String> {
+    let Some(title) = params.get(1).copied() else {
+        tracing::debug!("ignoring OSC title without a payload");
+        return None;
+    };
+    if title.len() > MAX_TITLE_BYTES {
+        tracing::debug!(
+            "ignoring OSC title of {} bytes (limit {MAX_TITLE_BYTES})",
+            title.len()
+        );
+        return None;
+    }
+    match simd_utf8::from_utf8_fast(title) {
+        Ok(title) => Some(title.to_owned()),
+        Err(_) => {
+            tracing::debug!("ignoring OSC title with invalid UTF-8");
+            None
+        }
+    }
 }
 
 /// OSC 4: a list of `(index, color | "?")` pairs in `params[1..]`.
@@ -218,7 +262,24 @@ fn strip_scheme<'a>(s: &'a str, scheme: &str) -> Option<&'a str> {
 /// Anything on the other end of the PTY can send this, including a shell on the
 /// far side of an ssh session, so a directory that belongs to another machine is
 /// refused rather than reported as ours.
-pub(super) fn parse_current_directory(param: &[u8]) -> Option<String> {
+///
+/// `Some(None)` is an empty payload: the program no longer knows its
+/// directory, so the stored one is stale. `None` is a malformed
+/// payload, which changes nothing.
+pub(super) fn parse_current_directory(param: &[u8]) -> Option<Option<String>> {
+    if param.is_empty() {
+        return Some(None);
+    }
+    let dir = parse_directory_url(param);
+    if dir.is_none() {
+        // Debug, not warn: a broken shell integration repeats this at
+        // every prompt. The non-local host case warns on its own.
+        tracing::debug!("ignoring malformed OSC 7 payload {:?}", text_lossy(param));
+    }
+    dir.map(Some)
+}
+
+fn parse_directory_url(param: &[u8]) -> Option<String> {
     let s = simd_utf8::from_utf8_fast(param).ok()?;
 
     let (after_scheme, percent_encoded) = match strip_scheme(s, FILE_SCHEME) {
@@ -345,22 +406,66 @@ fn percent_decode(path: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-/// OSC 8: extract `id=...` from `key=val:key=val` link params.
-pub(super) fn parse_hyperlink_id(link_params: &[u8]) -> Option<&str> {
+/// OSC 8: the raw `id=...` value from `key=val:key=val` link params.
+/// An empty value is the same as no id, and when the key repeats the
+/// last non-empty value wins.
+fn hyperlink_id_bytes(link_params: &[u8]) -> Option<&[u8]> {
     link_params
         .split(|&b| b == b':')
-        .find_map(|kv| kv.strip_prefix(b"id="))
-        .and_then(|kv| simd_utf8::from_utf8_fast(kv).ok())
+        .rev()
+        .filter_map(|kv| kv.strip_prefix(b"id="))
+        .find(|id| !id.is_empty())
 }
 
-/// Construct a [`Hyperlink`] from the link params + URI bytes. Returns
-/// `None` for an empty URI (caller should clear the active hyperlink).
-pub(super) fn parse_hyperlink(link_params: &[u8], uri_param: &[u8]) -> Option<Hyperlink> {
-    let uri = simd_utf8::from_utf8_fast(uri_param).unwrap_or_default();
-    if uri.is_empty() {
+/// OSC 8: the id to store, if the program sent one. The id is an
+/// opaque token, so invalid UTF-8 is replaced rather than making the
+/// id vanish.
+pub(super) fn parse_hyperlink_id(link_params: &[u8]) -> Option<Cow<'_, str>> {
+    hyperlink_id_bytes(link_params).map(text_lossy)
+}
+
+/// Longest OSC 8 payload accepted: everything after `8;`, that is the
+/// link params, the `;` after them and the URI, as one budget shared
+/// by both parts. The figure is a design cap, 2 KiB less a byte, and
+/// is not tied to this parser's fixed OSC buffer, which also holds the
+/// `8;` prefix. A URI is stored for as long as the cells carrying it
+/// live, so the budget also keeps a link's raw size in the grid bounded.
+pub(crate) const MAX_HYPERLINK_BYTES: usize = 2047;
+
+/// OSC 8: `Some(None)` closes the link, `Some(Some(_))` opens one and
+/// `None` ignores the sequence. Two sequences are ignored: an empty URI
+/// with an `id`, and a payload over [`MAX_HYPERLINK_BYTES`], which
+/// neither opens a link nor closes the current one.
+pub(super) fn parse_hyperlink(
+    link_params: &[u8],
+    uri: &[u8],
+) -> Option<Option<Hyperlink>> {
+    let len = link_params.len() + 1 + uri.len();
+    if len > MAX_HYPERLINK_BYTES {
+        tracing::debug!("ignoring OSC 8 of {len} bytes (limit {MAX_HYPERLINK_BYTES})");
         return None;
     }
-    Some(Hyperlink::new(parse_hyperlink_id(link_params), uri))
+    if uri.is_empty() {
+        let id_sent = hyperlink_id_bytes(link_params).is_some();
+        if id_sent {
+            tracing::debug!("ignoring OSC 8 with an id and no URI");
+        }
+        return (!id_sent).then_some(None);
+    }
+    let id = parse_hyperlink_id(link_params);
+    Some(Some(Hyperlink::new(id.as_deref(), &*text_lossy(uri))))
+}
+
+/// OSC 9 notification: the body is everything after `9;`. The parser
+/// keeps the payload verbatim only from the second `;` on (it has to see
+/// the sub-command to tell 9;4 apart), so a body with a `;` of its own
+/// arrives as two params and is joined back here.
+pub(super) fn parse_notification_body(params: &[&[u8]]) -> String {
+    params[1..]
+        .iter()
+        .map(|part| text_lossy(part))
+        .collect::<Vec<_>>()
+        .join(";")
 }
 
 /// OSC 9;4 — ConEmu/Windows-Terminal progress reporting.
@@ -385,41 +490,240 @@ pub(super) fn parse_progress_report(params: &[&[u8]]) -> Option<ProgressReport> 
     Some(ProgressReport { state, progress })
 }
 
-/// Rejoin `params[from..]` with the `;` the OSC parser split on, so a
-/// payload defined as verbatim text survives a `;` inside it.
-pub(super) fn join_params(params: &[&[u8]], from: usize) -> Option<String> {
-    Some(
-        params
-            .get(from..)?
+/// An OSC 7501 sequence, after validation.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum ProgramStatusRequest {
+    /// `OSC 7501 ; ? ST`: feature detection, answered in kind.
+    Query,
+    Report(ProgramStatus),
+}
+
+// OSC 7501 limits (Program Status Protocol, rev 0.4). A report over
+// any of them is discarded whole.
+const PROGRAM_STATUS_MAX_SEQUENCE: usize = 4096;
+const PROGRAM_STATUS_MAX_KEY: usize = 16;
+const PROGRAM_STATUS_MAX_APP: usize = 32;
+const PROGRAM_STATUS_MAX_MSG: (usize, usize) = (2732, 2048);
+const PROGRAM_STATUS_MAX_TITLE: (usize, usize) = (256, 192);
+const PROGRAM_STATUS_MAX_ID: usize = 128;
+const PROGRAM_STATUS_MAX_SEGMENT: usize = 32;
+const PROGRAM_STATUS_MAX_DEPTH: usize = 8;
+
+/// OSC 7501 — program status (`state=working:app=cargo:progress=40`).
+///
+/// The body is `key=value` pairs separated by `:`. Malformed pairs and
+/// unknown keys are skipped and a repeated key keeps its last value. The
+/// report is dropped whole when the final `state` is missing or unknown,
+/// the final `id` fails the grammar, any base64 is undecodable or decodes
+/// to control characters, or any size limit is exceeded.
+///
+/// `terminator_len` is 1 for BEL and 2 for `ESC \`, so the 4096-byte cap
+/// applies to the sequence exactly as it arrived.
+pub(super) fn parse_program_status(
+    params: &[&[u8]],
+    terminator_len: usize,
+) -> Option<ProgramStatusRequest> {
+    // Values never contain `;`, but rejoin so a stray one fails the
+    // alphabet check instead of silently truncating the body. The usual
+    // single-param body is borrowed, not copied.
+    let body: Cow<str> = match params {
+        [_, body] => simd_utf8::from_utf8_fast(body).ok()?.into(),
+        _ => params
+            .get(1..)?
             .iter()
             .map(|param| simd_utf8::from_utf8_fast(param).ok())
             .collect::<Option<Vec<_>>>()?
-            .join(";"),
-    )
+            .join(";")
+            .into(),
+    };
+    // `ESC ] 7501 ;` is 7 bytes.
+    if body.len() + 7 + terminator_len > PROGRAM_STATUS_MAX_SEQUENCE {
+        return None;
+    }
+    if body.trim() == "?" {
+        return Some(ProgramStatusRequest::Query);
+    }
+
+    // `state` and `id` keep their last value, valid or not, and are
+    // judged once the body is read: `state=bogus:state=idle` is idle.
+    let mut state: Option<Option<ProgramState>> = None;
+    let mut id: Option<Option<String>> = None;
+    let mut kind = None;
+    let mut app = None;
+    let mut msg = None;
+    let mut title = None;
+    let mut progress = None;
+
+    for pair in body.split(':') {
+        let Some((key, value)) = pair.split_once('=') else {
+            continue;
+        };
+        let (key, value) = (key.trim(), value.trim());
+        if key.len() > PROGRAM_STATUS_MAX_KEY {
+            return None;
+        }
+        let well_formed =
+            !value.is_empty() && value.bytes().all(is_program_status_value_byte);
+        match key {
+            // A malformed `id` must not fall back to the root record, so
+            // unlike other keys it is recorded as invalid, not skipped.
+            "id" => {
+                if value.len() > PROGRAM_STATUS_MAX_ID {
+                    return None;
+                }
+                id = Some(
+                    (well_formed && is_valid_program_status_id(value))
+                        .then(|| value.to_string()),
+                );
+            }
+            _ if !well_formed => continue,
+            "state" => {
+                state = Some(match value {
+                    "idle" => Some(ProgramState::Idle),
+                    "working" => Some(ProgramState::Working),
+                    "done" => Some(ProgramState::Done),
+                    "blocked" => Some(ProgramState::Blocked),
+                    "error" => Some(ProgramState::Error),
+                    "clear" => Some(ProgramState::Clear),
+                    _ => None,
+                })
+            }
+            // Unrecognized kinds are treated as absent.
+            "kind" => {
+                kind = match value {
+                    "permission" => Some(BlockedKind::Permission),
+                    "question" => Some(BlockedKind::Question),
+                    "auth" => Some(BlockedKind::Auth),
+                    _ => None,
+                }
+            }
+            "app" => {
+                if value.len() > PROGRAM_STATUS_MAX_APP {
+                    return None;
+                }
+                app = Some(value.to_string());
+            }
+            "msg" => {
+                msg = Some(decode_program_status_text(value, PROGRAM_STATUS_MAX_MSG)?)
+            }
+            "title" => {
+                title = Some(decode_program_status_text(value, PROGRAM_STATUS_MAX_TITLE)?)
+            }
+            // Not an integer in 0..=100: a malformed pair, skipped.
+            "progress" => {
+                if let Some(p) = value.parse::<u8>().ok().filter(|p| *p <= 100) {
+                    progress = Some(p);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let state = state??;
+    let id = match id {
+        None => None,
+        Some(valid) => Some(valid?),
+    };
+    Some(ProgramStatusRequest::Report(ProgramStatus {
+        state,
+        kind: kind.filter(|_| state == ProgramState::Blocked),
+        app,
+        msg,
+        title,
+        progress: progress
+            .filter(|_| matches!(state, ProgramState::Working | ProgramState::Blocked)),
+        id,
+    }))
+}
+
+/// The value alphabet: letters, digits and `_ . , + / = -`.
+fn is_program_status_value_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || b"_.,+/=-".contains(&byte)
+}
+
+/// Decode a base64 `msg`/`title`, enforcing its (encoded, decoded) caps
+/// and refusing control characters, which would let a status line carry
+/// its own escape sequences into the embedder's UI.
+fn decode_program_status_text(
+    value: &str,
+    (encoded, decoded): (usize, usize),
+) -> Option<String> {
+    if value.len() > encoded {
+        return None;
+    }
+    let bytes = crate::simd_base64::decode(value.as_bytes())?;
+    if bytes.len() > decoded {
+        return None;
+    }
+    let text = String::from_utf8(bytes).ok()?;
+    if text.chars().any(char::is_control) {
+        return None;
+    }
+    Some(text)
+}
+
+/// `seg(/seg)*`, each segment 1-32 bytes of `[A-Za-z0-9_.+-]`, at most
+/// 8 deep (the 128-byte total is checked by the caller).
+fn is_valid_program_status_id(id: &str) -> bool {
+    id.split('/').count() <= PROGRAM_STATUS_MAX_DEPTH
+        && id.split('/').all(|segment| {
+            (1..=PROGRAM_STATUS_MAX_SEGMENT).contains(&segment.len())
+                && segment
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"_.+-".contains(&b))
+        })
 }
 
 /// OSC 9;9: ConEmu/Windows-Terminal working directory report, the
 /// Windows counterpart of OSC 7. Format: `9;9;<path>`, with the path
 /// optionally wrapped in double quotes and travelling verbatim (no URL
-/// encoding), so everything after `9;9;` is rejoined.
+/// encoding): the parser keeps everything after `9;9;` as one param.
 ///
 /// The sequence carries no host field, so unlike OSC 7 a remote shell
 /// cannot be told apart from a local one (ConEmu and Windows Terminal
 /// accept the same). Requiring an absolute path at least drops
 /// free-text payloads and relative garbage.
-pub(super) fn parse_conemu_working_directory(params: &[&[u8]]) -> Option<String> {
+///
+/// As with OSC 7, an empty path (quoted or not) is `Some(None)`: the
+/// program no longer knows its directory.
+pub(super) fn parse_conemu_working_directory(params: &[&[u8]]) -> Option<Option<String>> {
     if params.len() < 3 || params[1] != b"9" {
         return None;
     }
-    let path = join_params(params, 2)?;
+    let path = simd_utf8::from_utf8_fast(params[2]).ok()?;
     let path = path
         .strip_prefix('"')
         .and_then(|p| p.strip_suffix('"'))
-        .unwrap_or(&path);
+        .unwrap_or(path);
+    if path.is_empty() {
+        return Some(None);
+    }
     if !is_absolute_path(path) {
+        tracing::debug!("ignoring OSC 9;9 with non-absolute path {path:?}");
         return None;
     }
-    Some(path.to_string())
+    Some(Some(path.to_string()))
+}
+
+/// Whether an OSC 9 sub-command (the text before the second `;`) is one
+/// of the ConEmu extensions: 1 sleep, 2 message box, 3 tab title, 4
+/// progress, 5-7 GuiMacro, 8 environment variable, 9 working directory,
+/// 10-12 xterm emulation. Anything else is an iTerm2 notification body.
+pub(super) fn is_conemu_subcommand(sub: &[u8]) -> bool {
+    matches!(
+        sub,
+        b"1" | b"2"
+            | b"3"
+            | b"4"
+            | b"5"
+            | b"6"
+            | b"7"
+            | b"8"
+            | b"9"
+            | b"10"
+            | b"11"
+            | b"12"
+    )
 }
 
 /// Whether `path` is absolute in either flavor a cwd report can carry:
@@ -460,10 +764,9 @@ pub(super) fn parse_dynamic_colors(params: &[&[u8]]) -> Option<Vec<DynamicColorE
         };
         let spec = if *param == b"?" {
             ColorSpec::Query
-        } else if let Some(c) = xparse_color(param) {
-            ColorSpec::Set(c)
         } else {
-            return None;
+            let c = xparse_color(param)?;
+            ColorSpec::Set(c)
         };
         out.push(DynamicColorEntry {
             index,
@@ -522,8 +825,125 @@ pub(super) fn parse_palette_reset(params: &[&[u8]]) -> PaletteReset {
 mod tests {
     use super::*;
 
+    fn status(body: &str) -> Option<ProgramStatusRequest> {
+        let params: Vec<&[u8]> = vec![b"7501", body.as_bytes()];
+        parse_program_status(&params, 2)
+    }
+
+    fn report(body: &str) -> ProgramStatus {
+        match status(body) {
+            Some(ProgramStatusRequest::Report(report)) => report,
+            other => panic!("expected a report for {body:?}, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn program_status_full_report() {
+        // msg = "Apply plan?", title = "tf"
+        let r = report("state=blocked:kind=permission:app=terraform:msg=QXBwbHkgcGxhbj8=:title=dGY=:id=plan/apply:progress=40");
+        assert_eq!(r.state, ProgramState::Blocked);
+        assert_eq!(r.kind, Some(BlockedKind::Permission));
+        assert_eq!(r.app.as_deref(), Some("terraform"));
+        assert_eq!(r.msg.as_deref(), Some("Apply plan?"));
+        assert_eq!(r.title.as_deref(), Some("tf"));
+        assert_eq!(r.id.as_deref(), Some("plan/apply"));
+        assert_eq!(r.progress, Some(40));
+    }
+
+    #[test]
+    fn program_status_minimal_and_query() {
+        let r = report("state=idle");
+        assert_eq!(r.state, ProgramState::Idle);
+        assert_eq!(
+            (r.kind, r.app, r.msg, r.id, r.progress),
+            (None, None, None, None, None)
+        );
+        assert_eq!(status("?"), Some(ProgramStatusRequest::Query));
+        assert_eq!(report("state=clear").state, ProgramState::Clear);
+    }
+
+    #[test]
+    fn program_status_lenient_parts() {
+        // Whitespace stripped, malformed pairs and unknown keys skipped,
+        // last repeat wins, unknown kind is absent.
+        let r = report(" state = working : junk : future=1 : app=a : app=b ");
+        assert_eq!(r.state, ProgramState::Working);
+        assert_eq!(r.app.as_deref(), Some("b"));
+        assert_eq!(report("state=blocked:kind=telepathy").kind, None);
+        // kind only applies to blocked, progress to working/blocked.
+        assert_eq!(report("state=idle:kind=question").kind, None);
+        assert_eq!(report("state=done:progress=50").progress, None);
+        assert_eq!(report("state=working:progress=101").progress, None);
+    }
+
+    #[test]
+    fn program_status_discards_whole_report() {
+        let long_app = format!("state=idle:app={}", "a".repeat(33));
+        let long_body = format!("state=idle:pad={}", "a".repeat(4096));
+        for body in [
+            "",
+            "app=cargo",                         // no state
+            "state=sleeping",                    // unknown state
+            "state=idle:msg=A",                  // undecodable base64
+            "state=idle:msg=G1sybQ==",           // decodes to ESC [ 2 m
+            "state=idle:id=a//b",                // empty segment
+            "state=idle:id=a/b c",               // byte outside the id grammar
+            "state=idle:id=1/2/3/4/5/6/7/8/9",   // nine levels deep
+            "state=idle:averyveryverylongkey=1", // key over 16 bytes
+            &long_app,
+            &long_body,
+        ] {
+            assert_eq!(status(body), None, "{body}");
+        }
+    }
+
+    #[test]
+    fn program_status_last_repeat_wins() {
+        assert_eq!(report("state=bogus:state=idle").state, ProgramState::Idle);
+        // An empty or out-of-alphabet value is a malformed pair: skipped.
+        assert_eq!(report("state=idle:state=").state, ProgramState::Idle);
+        assert_eq!(report("state=idle:state=!").state, ProgramState::Idle);
+        assert_eq!(status("state=idle:state=bogus"), None);
+        assert_eq!(report("state=idle:id=a//b:id=ok").id.as_deref(), Some("ok"));
+        assert_eq!(status("state=idle:id=ok:id=a//b"), None);
+        // A malformed progress is skipped, not a reset to indeterminate.
+        assert_eq!(
+            report("state=working:progress=40:progress=abc").progress,
+            Some(40)
+        );
+        assert_eq!(
+            report("state=working:progress=40:progress=101").progress,
+            Some(40)
+        );
+    }
+
+    #[test]
+    fn program_status_sequence_cap_counts_the_terminator() {
+        // 7 bytes of `ESC ] 7501 ;` + body + terminator = 4096 exactly.
+        let fill = |len: usize| format!("state=idle:p={}", "a".repeat(len - 13));
+        let bel_max = fill(4096 - 7 - 1);
+        let params: Vec<&[u8]> = vec![b"7501", bel_max.as_bytes()];
+        assert!(parse_program_status(&params, 1).is_some());
+        assert!(parse_program_status(&params, 2).is_none());
+    }
+
+    #[test]
+    fn program_status_skips_malformed_pairs() {
+        // A value outside the alphabet makes only that pair malformed.
+        let r = report("state=working:msg=!!!:app=cargo");
+        assert_eq!((r.msg, r.app.as_deref()), (None, Some("cargo")));
+    }
+
     fn cwd(payload: &str) -> Option<String> {
-        parse_current_directory(payload.as_bytes())
+        parse_current_directory(payload.as_bytes()).flatten()
+    }
+
+    #[test]
+    fn current_directory_empty_payload_clears() {
+        // Empty means "unknown": the caller clears the stored directory.
+        assert_eq!(parse_current_directory(b""), Some(None));
+        // Malformed means "ignore".
+        assert_eq!(parse_current_directory(b"not-a-url"), None);
     }
 
     #[cfg(not(windows))]
@@ -588,21 +1008,27 @@ mod tests {
         let parse = parse_conemu_working_directory;
         assert_eq!(
             parse(&[b"9", b"9", b"C:\\Users\\rapha"]),
-            Some("C:\\Users\\rapha".into())
+            Some(Some("C:\\Users\\rapha".into()))
         );
         // Windows Terminal profiles commonly quote the path.
         assert_eq!(
             parse(&[b"9", b"9", b"\"C:\\Program Files\""]),
-            Some("C:\\Program Files".into())
+            Some(Some("C:\\Program Files".into()))
         );
-        // A `;` in the path arrives as extra params and is rejoined.
-        assert_eq!(parse(&[b"9", b"9", b"C:\\a", b"b"]), Some("C:\\a;b".into()));
+        // The parser keeps a `;` in the path inside the last param.
+        assert_eq!(
+            parse(&[b"9", b"9", b"C:\\a;b"]),
+            Some(Some("C:\\a;b".into()))
+        );
 
         // Progress reports and notifications are not directories.
         assert_eq!(parse(&[b"9", b"4", b"1", b"50"]), None);
         assert_eq!(parse(&[b"9", b"hello"]), None);
-        assert_eq!(parse(&[b"9", b"9", b""]), None);
-        assert_eq!(parse(&[b"9", b"9", b"\"\""]), None);
+        assert_eq!(parse(&[b"9", b"9"]), None);
+
+        // An empty path, quoted or not, means the directory is unknown.
+        assert_eq!(parse(&[b"9", b"9", b""]), Some(None));
+        assert_eq!(parse(&[b"9", b"9", b"\"\""]), Some(None));
 
         // Only absolute paths: free text and relative paths are not a
         // cwd, and UNC names another machine like a remote OSC 7 host.
@@ -611,18 +1037,8 @@ mod tests {
         assert_eq!(parse(&[b"9", b"9", b"\\\\server\\share"]), None);
         assert_eq!(
             parse(&[b"9", b"9", b"/home/user"]),
-            Some("/home/user".into())
+            Some(Some("/home/user".into()))
         );
-    }
-
-    #[test]
-    fn join_params_restores_split_semicolons() {
-        assert_eq!(
-            join_params(&[b"7", b"kitty-shell-cwd://h/tmp/a", b"b"], 1),
-            Some("kitty-shell-cwd://h/tmp/a;b".into())
-        );
-        assert_eq!(join_params(&[b"7", b"x"], 1), Some("x".into()));
-        assert_eq!(join_params(&[b"7"], 1), Some(String::new()));
     }
 
     #[cfg(not(windows))]
@@ -645,10 +1061,8 @@ mod tests {
 
     #[cfg(not(windows))]
     #[test]
-    fn kitty_shell_cwd_keeps_semicolons_after_rejoin() {
-        // The handler rejoins split params before calling the parser.
-        let payload = join_params(&[b"7", b"kitty-shell-cwd:///tmp/a", b"b"], 1).unwrap();
-        assert_eq!(cwd(&payload), Some("/tmp/a;b".into()));
+    fn kitty_shell_cwd_keeps_semicolons() {
+        assert_eq!(cwd("kitty-shell-cwd:///tmp/a;b"), Some("/tmp/a;b".into()));
     }
 
     #[cfg(not(windows))]
@@ -767,5 +1181,151 @@ mod tests {
             term.current_directory.as_deref(),
             Some(std::path::Path::new("/home/My Files"))
         );
+
+        // A malformed payload is ignored, not treated as "unknown".
+        processor.advance(&mut term, b"\x1b]7;not-a-url\x1b\\");
+        assert_eq!(
+            term.current_directory.as_deref(),
+            Some(std::path::Path::new("/home/My Files"))
+        );
+
+        // An empty payload means the program no longer knows its
+        // directory, so the stale one is forgotten.
+        processor.advance(&mut term, b"\x1b]7;\x1b\\");
+        assert_eq!(term.current_directory, None);
+
+        // Same for the ConEmu flavor.
+        processor.advance(&mut term, b"\x1b]9;9;/tmp/x\x07");
+        assert_eq!(
+            term.current_directory.as_deref(),
+            Some(std::path::Path::new("/tmp/x"))
+        );
+        processor.advance(&mut term, b"\x1b]9;9;\x07");
+        assert_eq!(term.current_directory, None);
+
+        // A quoted empty path clears too.
+        processor.advance(&mut term, b"\x1b]9;9;/tmp/y\x07");
+        processor.advance(&mut term, b"\x1b]9;9;\"\"\x07");
+        assert_eq!(term.current_directory, None);
+    }
+
+    #[test]
+    fn hyperlink_follows_empty_uri_rules() {
+        let open = parse_hyperlink(b"id=a", b"https://x.dev/a;b")
+            .unwrap()
+            .unwrap();
+        assert_eq!(open.uri(), "https://x.dev/a;b");
+        assert_eq!(parse_hyperlink(b"", b""), Some(None));
+        assert_eq!(parse_hyperlink(b"id=", b""), Some(None));
+        assert_eq!(parse_hyperlink(b"id=a", b""), None);
+
+        // A repeated key: the last non-empty value wins, and an empty
+        // value does not unset an earlier one.
+        let open = parse_hyperlink(b"id=a:id=b", b"https://x.dev")
+            .unwrap()
+            .unwrap();
+        assert_eq!(open.id(), "b");
+        let open = parse_hyperlink(b"id=a:id=", b"https://x.dev")
+            .unwrap()
+            .unwrap();
+        assert_eq!(open.id(), "a");
+        assert_eq!(parse_hyperlink(b"id=:id=a", b""), None);
+        assert_eq!(parse_hyperlink(b"id=:other=x", b""), Some(None));
+
+        // An id with invalid UTF-8 is still an id: it must not turn an
+        // open into a close, and the program's grouping is kept.
+        assert_eq!(parse_hyperlink(b"id=caf\xe9", b""), None);
+        let open = parse_hyperlink(b"id=caf\xe9", b"https://x.dev")
+            .unwrap()
+            .unwrap();
+        assert_eq!(open.id(), "caf\u{FFFD}");
+    }
+
+    #[test]
+    fn hyperlink_payload_is_bounded() {
+        const URI: &str = "https://x.dev";
+        // The budget covers the params, the `;` and the URI together.
+        let room = MAX_HYPERLINK_BYTES - 1;
+        let uri = format!("{URI}/{}", "a".repeat(room - URI.len() - 1));
+        assert_eq!(1 + uri.len(), MAX_HYPERLINK_BYTES);
+        let open = parse_hyperlink(b"", uri.as_bytes()).unwrap().unwrap();
+        assert_eq!(open.uri(), uri);
+        // One byte over, in either part: invalid and ignored, so the
+        // sequence neither opens a link nor closes the current one.
+        assert_eq!(parse_hyperlink(b"", format!("{uri}a").as_bytes()), None);
+        assert_eq!(parse_hyperlink(b"a", uri.as_bytes()), None);
+
+        // Params spend the same budget as the URI, and raw bytes count,
+        // not the lossy decoding (each invalid byte would otherwise
+        // count as three).
+        let id_len = room - URI.len() - "id=".len();
+        let id = format!("id={}", "i".repeat(id_len));
+        assert_eq!(id.len() + 1 + URI.len(), MAX_HYPERLINK_BYTES);
+        let open = parse_hyperlink(id.as_bytes(), URI.as_bytes())
+            .unwrap()
+            .unwrap();
+        assert_eq!(open.id().len(), id_len);
+        assert_eq!(
+            parse_hyperlink(format!("{id}i").as_bytes(), URI.as_bytes()),
+            None
+        );
+        let mut raw = b"id=".to_vec();
+        raw.extend(std::iter::repeat_n(0xFF, id_len));
+        let open = parse_hyperlink(&raw, URI.as_bytes()).unwrap().unwrap();
+        assert_eq!(open.id().chars().count(), id_len);
+        raw.push(0xFF);
+        assert_eq!(parse_hyperlink(&raw, URI.as_bytes()), None);
+
+        // An oversized close is ignored as well, not applied.
+        let params = "a".repeat(MAX_HYPERLINK_BYTES);
+        assert_eq!(parse_hyperlink(params.as_bytes(), b""), None);
+        assert_eq!(parse_hyperlink(&params.as_bytes()[1..], b""), Some(None));
+    }
+
+    #[test]
+    fn conemu_subcommands() {
+        for sub in [b"1" as &[u8], b"4", b"9", b"10", b"12"] {
+            assert!(is_conemu_subcommand(sub), "{sub:?}");
+        }
+        for sub in [b"" as &[u8], b"0", b"13", b"01", b"hello", b"4x"] {
+            assert!(!is_conemu_subcommand(sub), "{sub:?}");
+        }
+    }
+
+    #[test]
+    fn notification_body_is_everything_after_nine() {
+        assert_eq!(
+            parse_notification_body(&[b"9", b"done", b" 3 warnings"]),
+            "done; 3 warnings"
+        );
+        assert_eq!(parse_notification_body(&[b"9", b"caf\xe9"]), "caf\u{FFFD}");
+    }
+
+    #[test]
+    fn title_is_verbatim() {
+        assert_eq!(parse_title(&[b"2", b" a;b "]), Some(" a;b ".into()));
+        assert_eq!(parse_title(&[b"2", b""]), Some(String::new()));
+        assert_eq!(parse_title(&[b"2"]), None);
+    }
+
+    #[test]
+    fn title_rejects_invalid_utf8_and_oversize() {
+        // Invalid UTF-8 drops the whole title instead of replacing bytes.
+        assert_eq!(parse_title(&[b"0", b"caf\xe9"]), None);
+
+        let at_limit = "a".repeat(MAX_TITLE_BYTES);
+        assert_eq!(
+            parse_title(&[b"0", at_limit.as_bytes()]),
+            Some(at_limit.clone())
+        );
+        let over = "a".repeat(MAX_TITLE_BYTES + 1);
+        assert_eq!(parse_title(&[b"0", over.as_bytes()]), None);
+
+        // The limit is in bytes: a multi-byte title near the limit
+        // is accepted or rejected whole, never cut mid-character.
+        let wide = "é".repeat(MAX_TITLE_BYTES / 2); // 254 bytes
+        assert_eq!(parse_title(&[b"0", wide.as_bytes()]), Some(wide));
+        let wide_over = "é".repeat(MAX_TITLE_BYTES / 2 + 1); // 256 bytes
+        assert_eq!(parse_title(&[b"0", wide_over.as_bytes()]), None);
     }
 }

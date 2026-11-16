@@ -185,10 +185,7 @@ fn row_matches(row: &AuditLogRow, view: &AuditView) -> bool {
         return false;
     }
     let path = view.path.trim();
-    if !path.is_empty() && !row.path.contains(path) {
-        return false;
-    }
-    true
+    path.is_empty() || row.path.contains(path)
 }
 
 /// Read the newest page, or the first when `cursor` is `None`.

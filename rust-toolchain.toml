@@ -1,8 +1,7 @@
-# Pinned to the stable release rustup installed when v3 was forked. The web
-# SDK's wasm build is stable-only, so this file is the single toolchain source
-# of truth — do not add a nightly override.
+# Stable toolchain shared by native, wasm and container builds.
+# Keep the Docker build image aligned; the web SDK does not need nightly.
 [toolchain]
-channel = "1.98.1"
+channel = "1.100.0"
 profile = "minimal"
 # llvm-tools: `dx build` strips the bundle with the toolchain's rust-objcopy,
 # which on macOS loads a libLLVM.dylib only this component installs.

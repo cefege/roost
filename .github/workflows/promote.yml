@@ -148,7 +148,7 @@ jobs:
           echo "::error::ghcr.io/${IMAGE_REPOSITORY}:${IMAGE_TAG} was not published within 30 minutes"
           exit 1
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.tag }}
           fetch-depth: 1

@@ -152,8 +152,7 @@ fn a_plain_write_answers_nothing_and_clears_the_queue() {
     );
 }
 
-/// `vte` would otherwise buffer everything after `CSI ? 2026 h` until the
-/// block closes, answering a probe inside it only later — out of stream order.
+/// The worker holds presentation, not input parsing or terminal replies.
 #[test]
 fn a_probe_inside_a_synchronized_update_is_answered_at_once() {
     let reply = answer_fresh(b"\x1b[?2026h\x1b[6n");

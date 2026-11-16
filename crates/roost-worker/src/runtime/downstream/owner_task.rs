@@ -108,7 +108,7 @@ impl InFlightSlot {
     /// A slot, or `None` when `cap` requests are already in flight.
     pub(super) fn try_take(counter: &Arc<AtomicUsize>, cap: usize) -> Option<Self> {
         counter
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |in_flight| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |in_flight| {
                 (in_flight < cap).then_some(in_flight + 1)
             })
             .ok()

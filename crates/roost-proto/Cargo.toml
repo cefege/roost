@@ -14,7 +14,7 @@ workspace = true
 
 [build-dependencies]
 connectrpc-build = { workspace = true }
-protox = "0.9.1"
+protox = "0.10.0"
 # Build-only: the descriptor types the json-name pass walks. Never a
 # runtime dependency — the shipped tree contains buffa alone.
 prost-types = "0.14"

@@ -96,7 +96,9 @@ pub fn process_rss_bytes(platform: HostPlatform) -> u64 {
 
 #[cfg(windows)]
 fn windows_total_memory_bytes() -> u64 {
-    let mut system = sysinfo::System::new();
+    let Ok(mut system) = sysinfo::System::new() else {
+        return 0;
+    };
     system.refresh_memory();
     system.total_memory()
 }
@@ -110,7 +112,9 @@ const fn windows_total_memory_bytes() -> u64 {
 fn windows_process_rss_bytes(pid: u32) -> u64 {
     use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
     let pid = Pid::from_u32(pid);
-    let mut system = System::new();
+    let Ok(mut system) = System::new() else {
+        return 0;
+    };
     system.refresh_processes_specifics(
         ProcessesToUpdate::Some(&[pid]),
         true,

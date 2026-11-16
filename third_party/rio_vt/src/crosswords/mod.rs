@@ -70,6 +70,11 @@ pub const MIN_LINES: usize = 1;
 // Max. number of graphics stored in a single cell.
 // const MAX_GRAPHICS_PER_CELL: usize = 20;
 
+/// Longest a synchronized update (mode 2026) may hold presentation. Every
+/// BSU re-arms it.
+pub const SYNC_UPDATE_TIMEOUT: crate::time::Duration =
+    crate::time::Duration::from_millis(1000);
+
 bitflags! {
      #[derive(Debug, Copy, Clone)]
      pub struct Mode: u32 {
@@ -102,6 +107,9 @@ bitflags! {
         /// across main/alt screens (the mode lives on the terminal,
         /// not the grid), matching contour.
         const GRAPHEME_CLUSTER        = 1 << 24;
+        /// DEC private mode 2026: synchronized output. While set, bytes
+        /// still reach the grid but the renderer holds the last frame.
+        const SYNC_UPDATE             = 1 << 25;
         const MOUSE_MODE = Self::MOUSE_REPORT_CLICK.bits() | Self::MOUSE_MOTION.bits() | Self::MOUSE_DRAG.bits() | Self::MOUSE_REPORT_X10.bits();
         const KITTY_KEYBOARD_PROTOCOL = Self::DISAMBIGUATE_ESC_CODES.bits()
                                       | Self::REPORT_EVENT_TYPES.bits()
@@ -459,12 +467,31 @@ where
     pub route_id: usize,
     title_stack: Vec<String>,
     pub current_directory: Option<std::path::PathBuf>,
-    /// Shell state from `OSC 1337 ; SetUserVar` (iTerm2 style).
+    /// ROOST PATCH R9: shell variables reported by OSC 1337.
     pub user_vars: rustc_hash::FxHashMap<String, String>,
 
     /// Whether a `TerminalDamaged` event is already in flight to the renderer.
     /// Set by PTY thread before sending; cleared by renderer after extracting damage.
     pub damage_event_in_flight: bool,
+
+    /// When the last BSU of the active synchronized update arrived.
+    pub sync_update_started: Option<crate::time::Instant>,
+    /// Whether the embedder handles OSC 7501. Off by default: until an
+    /// embedder opts in, the support query goes unanswered (so programs
+    /// don't believe in a protocol nobody acts on) and reports are
+    /// dropped here instead of waking the embedder for nothing.
+    program_status_enabled: bool,
+    /// ROOST PATCH R8: RIS is reported even before the first status.
+    roost_program_status_reset: bool,
+    /// Whether an OSC 7501 report arrived since the last full reset.
+    /// Until one does, prompts and resets send no program-status events,
+    /// so terminals that never use the protocol never wake the embedder
+    /// for it.
+    program_status_seen: bool,
+
+    /// When the running shell command started its output (OSC 133 `C`),
+    /// so `D` can report how long it ran. `None` between commands.
+    command_started_at: Option<crate::time::Instant>,
 
     /// What DECRQM callers see after a full reset: the
     /// consumer-configured default for grapheme clustering (mode
@@ -533,6 +560,11 @@ impl<U: EventListener> Crosswords<U> {
             current_directory: None,
             user_vars: rustc_hash::FxHashMap::default(),
             damage_event_in_flight: false,
+            sync_update_started: None,
+            program_status_enabled: false,
+            roost_program_status_reset: false,
+            program_status_seen: false,
+            command_started_at: None,
             modify_other_keys: 0,
             keyboard_mode_stack: Default::default(),
             keyboard_mode_idx: 0,
@@ -546,6 +578,18 @@ impl<U: EventListener> Crosswords<U> {
     /// program's DECSET/DECRST still wins at runtime. Defaults to
     /// enabled; consumers whose renderers or downstream protocols
     /// assume legacy wcwidth cell layout can turn it off.
+    /// Opt in to OSC 7501 program status: answer the support query and
+    /// send reports and lifecycle events to the listener.
+    pub fn set_program_status_enabled(&mut self, enabled: bool) {
+        self.program_status_enabled = enabled;
+    }
+
+    /// ROOST PATCH R8: opt in and preserve unconditional RIS notification.
+    pub fn enable_roost_program_status(&mut self) {
+        self.program_status_enabled = true;
+        self.roost_program_status_reset = true;
+    }
+
     pub fn set_grapheme_clustering(&mut self, enabled: bool) {
         self.grapheme_clustering_default = enabled;
         self.mode.set(Mode::GRAPHEME_CLUSTER, enabled);
@@ -643,6 +687,37 @@ impl<U: EventListener> Crosswords<U> {
         // legacy `damage()` path), so every PTY drain fires a redraw
         // event even when nothing changed.
         self.damage.last_cursor = self.grid.cursor.pos;
+    }
+
+    /// Whether a synchronized update (mode 2026) is active, during which
+    /// the renderer should keep presenting the previous frame.
+    #[inline]
+    pub fn synchronized_output(&self) -> bool {
+        self.mode.contains(Mode::SYNC_UPDATE)
+    }
+
+    /// When the active synchronized update expires, if one is active.
+    #[inline]
+    pub fn sync_update_deadline(&self) -> Option<crate::time::Instant> {
+        if !self.synchronized_output() {
+            return None;
+        }
+        self.sync_update_started
+            .map(|started| started + SYNC_UPDATE_TIMEOUT)
+    }
+
+    /// Whether the active synchronized update has outlived its deadline.
+    #[inline]
+    pub fn sync_update_expired(&self, now: crate::time::Instant) -> bool {
+        self.sync_update_deadline()
+            .is_some_and(|deadline| deadline <= now)
+    }
+
+    /// End the active synchronized update, if any.
+    #[inline]
+    pub fn end_sync_update(&mut self) {
+        self.mode.remove(Mode::SYNC_UPDATE);
+        self.sync_update_started = None;
     }
 
     #[inline]
@@ -772,6 +847,7 @@ impl<U: EventListener> Crosswords<U> {
             if self.graphics.cell_width != size.square_width()
                 || self.graphics.cell_height != size.square_height()
             {
+                self.end_sync_update();
                 self.graphics.resize(&size);
                 let cell_w = self.graphics.cell_width.round() as usize;
                 let cell_h = self.graphics.cell_height.round() as usize;
@@ -814,6 +890,7 @@ impl<U: EventListener> Crosswords<U> {
             info!("Crosswords::resize dimensions unchanged");
             return;
         }
+        self.end_sync_update();
         // Move vi mode cursor with the content.
         let history_size = self.history_size();
         let mut delta = num_lines as i32 - old_lines as i32;
@@ -1581,7 +1658,19 @@ impl<U: EventListener> Crosswords<U> {
     /// Append `c` to the cluster of the cell most recently written at
     /// the cursor (legacy zero-width semantics: `saturating_sub`
     /// column math, so a mark at column 0 targets column 0).
-    fn attach_to_prev_cell(&mut self, c: char) {
+    /// `true` when `c` was stored on the cell; `false` when it was
+    /// dropped (no base, the cell is at its mark cap, or the extras
+    /// table is full), so callers can skip width changes that would
+    /// describe a codepoint the cell does not hold.
+    fn attach_to_prev_cell(&mut self, c: char) -> bool {
+        /// Most combining marks one cell keeps; later ones are dropped.
+        /// Every attach clones the cell's extras and re-interns them,
+        /// so an unbounded run (`e` U+0301 `ESC[65535b`) costs
+        /// quadratic time and keeps every intermediate slot alive
+        /// until the next sweep. No script stacks anywhere near this
+        /// many marks on one base.
+        const MAX_ZEROWIDTH_PER_CELL: usize = 64;
+
         let mut column = self.grid.cursor.pos.col;
         if !self.grid.cursor.should_wrap {
             column.0 = column.saturating_sub(1);
@@ -1601,7 +1690,7 @@ impl<U: EventListener> Crosswords<U> {
             self.grid[row][column].content_tag(),
             crate::crosswords::square::ContentTag::Codepoint
         ) {
-            return;
+            return false;
         }
         // Copy-on-write: slots are interned and shared; every
         // cell written under one OSC 8 template references the
@@ -1609,10 +1698,14 @@ impl<U: EventListener> Crosswords<U> {
         // mark to the whole hyperlink span. Clone, extend, and
         // re-intern instead; the marked cell gets its own
         // (marks + hyperlink) slot and its neighbors keep theirs.
-        let existing_id = self.grid[row][column].extras_id();
-        let mut extras = existing_id
-            .and_then(|id| self.grid.extras_table.get(id).cloned())
-            .unwrap_or_default();
+        let existing = self.grid[row][column]
+            .extras_id()
+            .and_then(|id| self.grid.extras_table.get(id));
+        if existing.is_some_and(|extras| extras.zerowidth.len() >= MAX_ZEROWIDTH_PER_CELL)
+        {
+            return false;
+        }
+        let mut extras = existing.cloned().unwrap_or_default();
         extras.zerowidth.push(c);
         let id = self.grid.alloc_extras(extras);
         if id != 0 {
@@ -1625,10 +1718,12 @@ impl<U: EventListener> Crosswords<U> {
             // bookkeeping: record it here or the renderer never
             // repaints the row (stale glyphs until a full redraw).
             self.damage.damage_line(row.0 as usize);
+            return true;
         }
         // id == 0: slot space exhausted. Keep the cell's existing
         // extras (hyperlink, earlier marks) rather than erasing
         // them; only the new mark is lost.
+        false
     }
 
     /// Mode-2027 cluster continuation. `true` means `c` was consumed:
@@ -1691,29 +1786,35 @@ impl<U: EventListener> Crosswords<U> {
         // width-bearing continuation makes the whole cluster wide
         // (the base already contributed one column); zero-width
         // continuations change nothing.
+        // The mark is stored first and the width follows only when it
+        // was: a dropped codepoint (cell at its mark cap) must not
+        // leave the cell widened for a modifier it does not hold, or
+        // the break state rebuilt from the cell would not match what
+        // was drawn.
         match c {
             '\u{FE0F}' => {
                 // A selector modifies the codepoint immediately before
                 // it, so validity is judged against the *last* codepoint
                 // of the cluster, not its base. The width helpers are
                 // no-ops when the cell is already in the target state.
-                if vs_is_valid_base(last_cp, c) {
+                if vs_is_valid_base(last_cp, c) && self.attach_to_prev_cell(c) {
                     self.widen_prev_cell();
-                    self.attach_to_prev_cell(c);
                 }
                 // Invalid selector: ignore. The cell is untouched, so
                 // the reconstructed state next time is identical.
             }
             '\u{FE0E}' => {
-                if vs_is_valid_base(last_cp, c) {
+                if vs_is_valid_base(last_cp, c) && self.attach_to_prev_cell(c) {
                     self.narrow_prev_cell();
-                    self.attach_to_prev_cell(c);
                 }
             }
-            _ if width == 0 => self.attach_to_prev_cell(c),
-            _ => {
-                self.widen_prev_cell();
+            _ if width == 0 => {
                 self.attach_to_prev_cell(c);
+            }
+            _ => {
+                if self.attach_to_prev_cell(c) {
+                    self.widen_prev_cell();
+                }
             }
         }
         true
@@ -1954,8 +2055,11 @@ impl<U: EventListener> Crosswords<U> {
                     .iter()
                     .fold(false, |acc, c| acc | c.needs_wide_cleanup());
                 if !needs_cleanup {
-                    for (pair, &cp) in
-                        cells.chunks_exact_mut(2).zip(&cps[idx..idx + take])
+                    for (pair, &cp) in cells
+                        .as_chunks_mut::<2>()
+                        .0
+                        .iter_mut()
+                        .zip(&cps[idx..idx + take])
                     {
                         let c = char::from_u32(cp).unwrap_or('\u{FFFD}');
                         let mut wide = Square::from_template(template, c);
@@ -2893,7 +2997,10 @@ impl<U: EventListener> Handler for Crosswords<U> {
                     .send_event(RioEvent::CursorBlinkingChange, self.window_id);
             }
             NamedPrivateMode::GraphemeCluster => self.mode.insert(Mode::GRAPHEME_CLUSTER),
-            NamedPrivateMode::SyncUpdate => (),
+            NamedPrivateMode::SyncUpdate => {
+                self.mode.insert(Mode::SYNC_UPDATE);
+                self.sync_update_started = Some(crate::time::Instant::now());
+            }
         }
     }
 
@@ -2962,7 +3069,7 @@ impl<U: EventListener> Handler for Crosswords<U> {
                     .send_event(RioEvent::CursorBlinkingChange, self.window_id);
             }
             NamedPrivateMode::GraphemeCluster => self.mode.remove(Mode::GRAPHEME_CLUSTER),
-            NamedPrivateMode::SyncUpdate => (),
+            NamedPrivateMode::SyncUpdate => self.end_sync_update(),
         }
     }
 
@@ -3018,7 +3125,9 @@ impl<U: EventListener> Handler for Crosswords<U> {
                         ModeState::Reset
                     }
                 }
-                NamedPrivateMode::SyncUpdate => ModeState::Reset,
+                NamedPrivateMode::SyncUpdate => {
+                    self.mode.contains(Mode::SYNC_UPDATE).into()
+                }
                 NamedPrivateMode::ColumnMode => ModeState::NotSupported,
             },
             PrivateMode::Unknown(_) => ModeState::NotSupported,
@@ -3399,24 +3508,23 @@ impl<U: EventListener> Handler for Crosswords<U> {
 
         // Preserve vi mode across resets.
         self.mode &= Mode::VI;
+        self.sync_update_started = None;
         self.mode.insert(Mode::default());
         self.mode
             .set(Mode::GRAPHEME_CLUSTER, self.grapheme_clustering_default);
 
         self.event_proxy
             .send_event(RioEvent::CursorBlinkingChange, self.window_id);
+        // A running command survives the reset: a program that ends
+        // with RIS still gets its `D` from the shell afterwards.
+        // RIS drops every OSC 7501 record (DECSTR does not).
+        if std::mem::take(&mut self.program_status_seen) || self.roost_program_status_reset {
+            self.event_proxy.send_event(
+                RioEvent::ProgramStatus(crate::event::ProgramStatusEvent::Reset),
+                self.window_id,
+            );
+        }
         self.mark_fully_damaged();
-        // A full reset removes every program-status record; a soft reset never
-        // reaches this path, so it keeps them.
-        self.set_program_status(crate::event::ProgramStatusReport {
-            id: None,
-            state: crate::event::ProgramStatusState::Clear,
-            kind: None,
-            app: None,
-            title: None,
-            msg: None,
-            progress: None,
-        });
     }
 
     #[inline]
@@ -3519,22 +3627,81 @@ impl<U: EventListener> Handler for Crosswords<U> {
             .send_event(RioEvent::ProgressReport(report), self.window_id);
     }
 
-    /// ROOST PATCH R8: forwards a report the parser already validated.
-    fn set_program_status(&mut self, report: crate::event::ProgramStatusReport) {
-        self.event_proxy
-            .send_event(RioEvent::ProgramStatus(report), self.window_id);
-    }
-
-    fn set_current_directory(&mut self, path: std::path::PathBuf) {
-        trace!("Setting working directory {:?}", path);
-        if self.current_directory.as_deref() == Some(path.as_path()) {
+    fn set_program_status(&mut self, status: crate::event::ProgramStatus) {
+        if !self.program_status_enabled {
             return;
         }
-        self.current_directory = Some(path);
+        self.program_status_seen = true;
+        self.event_proxy.send_event(
+            RioEvent::ProgramStatus(crate::event::ProgramStatusEvent::Report(status)),
+            self.window_id,
+        );
+    }
+
+    fn report_program_status_support(&mut self, terminator: &str) {
+        if !self.program_status_enabled {
+            return;
+        }
+        // The reply only ever carries this fixed list, never anything a
+        // program reported (the spec forbids echoing report contents).
+        let text = format!(
+            "\x1b]7501;{}{terminator}",
+            crate::event::PROGRAM_STATUS_QUERY_REPLY
+        );
+        self.event_proxy
+            .send_event(RioEvent::PtyWrite(self.route_id, text), self.window_id);
+    }
+
+    fn prompt_start(&mut self) {
+        // A running command stays open across `A`: a program that
+        // draws prompts of its own (a shell on an `ssh` host, a nested
+        // shell) must not make the shell's eventual `D` go unreported.
+        // Its own `C`/`D` pairs restart and close the clock as usual.
+        if !self.program_status_seen {
+            return;
+        }
+        self.event_proxy.send_event(
+            RioEvent::ProgramStatus(crate::event::ProgramStatusEvent::PromptStart),
+            self.window_id,
+        );
+    }
+
+    fn command_start(&mut self) {
+        // A repeated `C` restarts the clock: the latest output mark is
+        // the one whose `D` will follow.
+        self.command_started_at = Some(crate::time::Instant::now());
+    }
+
+    fn command_end(&mut self, exit_status: Option<i32>) {
+        // Without a `C` there is no command to report: the shell is
+        // closing a command line it never ran, or marks only ends.
+        let Some(started) = self.command_started_at.take() else {
+            return;
+        };
+        self.event_proxy.send_event(
+            RioEvent::CommandFinished {
+                route_id: self.route_id,
+                exit_status,
+                duration: started.elapsed(),
+            },
+            self.window_id,
+        );
+    }
+
+    fn set_current_directory(&mut self, path: Option<std::path::PathBuf>) {
+        trace!("Setting working directory {:?}", path);
+        if self.current_directory == path {
+            return;
+        }
+        self.current_directory = path;
         self.event_proxy.send_event(
             RioEvent::CurrentDirectoryChanged(self.route_id),
             self.window_id,
         );
+    }
+
+    fn set_user_var(&mut self, name: String, value: String) {
+        self.user_vars.insert(name, value);
     }
 
     fn set_semantic_prompt(
@@ -3543,10 +3710,6 @@ impl<U: EventListener> Handler for Crosswords<U> {
     ) {
         let row = self.grid.cursor.pos.row;
         self.grid[row].semantic_prompt = mark;
-    }
-
-    fn set_user_var(&mut self, name: String, value: String) {
-        self.user_vars.insert(name, value);
     }
 
     #[inline]
@@ -5397,6 +5560,7 @@ impl<U: EventListener> Handler for Crosswords<U> {
         cp: u32,
         payload: crate::ansi::glyph_protocol::GlyphPayload,
         width: u8,
+        layout: rio_graphics::glyph_layout::GlyphLayout,
     ) -> Result<(), crate::ansi::glyph_protocol::RegisterError> {
         use crate::ansi::glyph_protocol::{is_pua, GlyphPayload, RegisterError};
         use rio_graphics::glyph::glyf_decode;
@@ -5486,7 +5650,7 @@ impl<U: EventListener> Handler for Crosswords<U> {
         let was_uninitialised = self.glyph_registry.is_none();
         let registry = self.glyph_registry.get_or_insert_with(GlyphRegistry::new);
 
-        let result = match registry.register_with_width(cp, stored, upm, width) {
+        let result = match registry.register(cp, stored, upm, width, layout) {
             Ok(_evicted) => Ok(()),
             Err(RegisterRejection::OutOfNamespace) => {
                 // Unreachable given the is_pua check above, but the
@@ -5942,6 +6106,309 @@ mod tests {
         Crosswords::new(size, CursorShape::Block, VoidListener {}, window_id, 0, 10)
     }
 
+    /// A 20x4 terminal on `route_id` that records the events it sends.
+    #[allow(clippy::type_complexity)]
+    fn make_crosswords_with_events(
+        route_id: usize,
+    ) -> (
+        Crosswords<TestListener>,
+        std::rc::Rc<std::cell::RefCell<Vec<RioEvent>>>,
+    ) {
+        let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let cw = Crosswords::new(
+            CrosswordsSize::new(20, 4),
+            CursorShape::Block,
+            TestListener {
+                events: events.clone(),
+            },
+            crate::event::WindowId::from(0),
+            route_id,
+            10,
+        );
+        (cw, events)
+    }
+
+    /// The `(route_id, exit_status)` of every finished command reported.
+    fn finished_commands(
+        events: &std::cell::RefCell<Vec<RioEvent>>,
+    ) -> Vec<(usize, Option<i32>)> {
+        events
+            .borrow()
+            .iter()
+            .filter_map(|e| match e {
+                RioEvent::CommandFinished {
+                    route_id,
+                    exit_status,
+                    ..
+                } => Some((*route_id, *exit_status)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[derive(Clone, Default)]
+    struct ReplyRecorder(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
+
+    impl EventListener for ReplyRecorder {
+        fn send_event(&self, event: RioEvent, _: crate::event::WindowId) {
+            if let RioEvent::PtyWrite(_, text) = event {
+                self.0.lock().unwrap().push(text);
+            }
+        }
+    }
+
+    #[test]
+    fn osc_7501_is_silent_until_the_embedder_opts_in() {
+        let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut cw = Crosswords::new(
+            CrosswordsSize::new(4, 4),
+            CursorShape::Block,
+            TestListener {
+                events: events.clone(),
+            },
+            crate::event::WindowId::from(0),
+            0,
+            10,
+        );
+        let mut parser = crate::performer::handler::Processor::default();
+
+        // No reply to the query, no report, and no lifecycle events.
+        parser.advance(&mut cw, b"\x1b]7501;?\x07");
+        parser.advance(&mut cw, b"\x1b]7501;state=working\x07");
+        parser.advance(&mut cw, b"\x1b]133;A\x07\x1bc");
+
+        assert!(
+            !events.borrow().iter().any(|e| matches!(
+                e,
+                RioEvent::ProgramStatus(_) | RioEvent::PtyWrite(..)
+            )),
+            "{:?}",
+            events.borrow()
+        );
+    }
+
+    /// OSC 133 `C` then `D` reports one finished command with its
+    /// status and how long it ran; a `D` with no `C` before it reports
+    /// nothing, and a full reset in between does not lose the command.
+    #[test]
+    fn osc_133_command_finished_events() {
+        let (mut cw, events) = make_crosswords_with_events(7);
+        let mut parser = crate::performer::handler::Processor::default();
+
+        parser.advance(&mut cw, b"\x1b]133;D;0\x07");
+        assert!(
+            finished_commands(&events).is_empty(),
+            "D without C reports nothing"
+        );
+
+        parser.advance(&mut cw, b"\x1b]133;C\x07out\r\n\x1b]133;D;3\x07");
+        assert_eq!(finished_commands(&events), vec![(7, Some(3))]);
+
+        // Repeating `D` does not report the same command twice.
+        parser.advance(&mut cw, b"\x1b]133;D;3\x07");
+        assert_eq!(finished_commands(&events).len(), 1);
+
+        // No status, and an option in its place, are both "none".
+        parser.advance(&mut cw, b"\x1b]133;C\x07\x1b]133;D\x07");
+        parser.advance(&mut cw, b"\x1b]133;C\x07\x1b]133;D;aid=1\x07");
+        assert_eq!(
+            finished_commands(&events),
+            vec![(7, Some(3)), (7, None), (7, None)]
+        );
+
+        // A program that ends with a full reset is still reported.
+        parser.advance(&mut cw, b"\x1b]133;C\x07\x1bc\x1b]133;D;0\x07");
+        assert_eq!(finished_commands(&events).len(), 4);
+        assert_eq!(finished_commands(&events)[3], (7, Some(0)));
+    }
+
+    /// A command still open at the next prompt: `N` terminates it and
+    /// reports it with no status, and a later lone `D` is not taken
+    /// for it. `A` leaves it open, so a prompt drawn by a program the
+    /// command runs does not lose the command's own `D`.
+    #[test]
+    fn osc_133_new_prompt_closes_an_unfinished_command() {
+        let (mut cw, events) = make_crosswords_with_events(0);
+        let mut parser = crate::performer::handler::Processor::default();
+
+        parser.advance(&mut cw, b"\x1b]133;C\x07\x1b]133;N\x07$ ");
+        assert_eq!(finished_commands(&events), vec![(0, None)]);
+        parser.advance(&mut cw, b"\x1b]133;D;1\x07");
+        assert_eq!(finished_commands(&events).len(), 1);
+
+        parser.advance(&mut cw, b"\x1b]133;C\x07\x1b]133;A\x07$ \x1b]133;D;130\x07");
+        assert_eq!(finished_commands(&events)[1], (0, Some(130)));
+        assert_eq!(finished_commands(&events).len(), 2);
+
+        // `N` with nothing open is just a prompt.
+        parser.advance(&mut cw, b"\x1b]133;N\x07$ ");
+        assert_eq!(finished_commands(&events).len(), 2);
+    }
+
+    #[test]
+    fn osc_7501_program_status_events() {
+        use crate::event::{BlockedKind, ProgramState, ProgramStatusEvent};
+
+        let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut cw = Crosswords::new(
+            CrosswordsSize::new(4, 4),
+            CursorShape::Block,
+            TestListener {
+                events: events.clone(),
+            },
+            crate::event::WindowId::from(0),
+            0,
+            10,
+        );
+        cw.set_program_status_enabled(true);
+        let mut parser = crate::performer::handler::Processor::default();
+
+        // Query (BEL-terminated), a report (ST-terminated), a rejected
+        // report, a new prompt, and a full reset.
+        // Before any report, prompts and resets are silent.
+        parser.advance(&mut cw, b"\x1b]133;A\x07\x1bc");
+        parser.advance(&mut cw, b"\x1b]7501;?\x07");
+        parser.advance(
+            &mut cw,
+            b"\x1b]7501;state=blocked:kind=question:app=claude-code\x1b\\",
+        );
+        // Repeats are delivered: only the embedder knows its records.
+        parser.advance(
+            &mut cw,
+            b"\x1b]7501;state=blocked:kind=question:app=claude-code\x07",
+        );
+        parser.advance(&mut cw, b"\x1b]7501;state=bogus\x07");
+        // `Ax` is not a prompt mark; `A;aid=1` and `N` are.
+        parser.advance(&mut cw, b"\x1b]133;Ax\x07");
+        parser.advance(&mut cw, b"\x1b]133;A;aid=1\x07");
+        parser.advance(&mut cw, b"\x1b]133;N\x07");
+        parser.advance(&mut cw, b"\x1bc");
+        // The reset clears the flag: the next prompt is silent again.
+        parser.advance(&mut cw, b"\x1b]133;A\x07");
+
+        let seen: Vec<RioEvent> = events
+            .borrow_mut()
+            .drain(..)
+            .filter(|e| matches!(e, RioEvent::ProgramStatus(_) | RioEvent::PtyWrite(..)))
+            .collect();
+        assert_eq!(seen.len(), 6, "{seen:?}");
+        assert!(matches!(
+            &seen[0],
+            RioEvent::PtyWrite(_, t) if *t == format!(
+                "\x1b]7501;{}\x07",
+                crate::event::PROGRAM_STATUS_QUERY_REPLY
+            )
+        ));
+        match &seen[1] {
+            RioEvent::ProgramStatus(ProgramStatusEvent::Report(r)) => {
+                assert_eq!(r.state, ProgramState::Blocked);
+                assert_eq!(r.kind, Some(BlockedKind::Question));
+                assert_eq!(r.app.as_deref(), Some("claude-code"));
+            }
+            other => panic!("expected a report, got {other:?}"),
+        }
+        let report = |e: &RioEvent| match e {
+            RioEvent::ProgramStatus(ProgramStatusEvent::Report(r)) => Some(r.clone()),
+            _ => None,
+        };
+        assert_eq!(report(&seen[2]), report(&seen[1]), "the repeat arrives");
+        assert!(matches!(
+            seen[3],
+            RioEvent::ProgramStatus(ProgramStatusEvent::PromptStart)
+        ));
+        assert!(matches!(
+            seen[4],
+            RioEvent::ProgramStatus(ProgramStatusEvent::PromptStart)
+        ));
+        assert!(matches!(
+            seen[5],
+            RioEvent::ProgramStatus(ProgramStatusEvent::Reset)
+        ));
+    }
+
+    #[test]
+    fn decrqm_reports_sync_update_state() {
+        let replies = ReplyRecorder::default();
+        let mut cw = Crosswords::new(
+            CrosswordsSize::new(4, 4),
+            CursorShape::Block,
+            replies.clone(),
+            crate::event::WindowId::from(0),
+            0,
+            10,
+        );
+        let mut parser = crate::performer::handler::Processor::default();
+
+        parser.advance(&mut cw, b"\x1b[?2026$p");
+        parser.advance(&mut cw, b"\x1b[?2026h\x1b[?2026$p");
+        parser.advance(&mut cw, b"\x1b[?2026l\x1b[?2026$p");
+
+        assert_eq!(
+            *replies.0.lock().unwrap(),
+            vec!["\x1b[?2026;2$y", "\x1b[?2026;1$y", "\x1b[?2026;2$y"]
+        );
+    }
+
+    #[test]
+    fn sync_update_deadline_is_armed_by_every_bsu() {
+        let mut cw = make_crosswords();
+        assert!(cw.sync_update_deadline().is_none());
+
+        cw.set_private_mode(NamedPrivateMode::SyncUpdate.into());
+        let deadline = cw.sync_update_deadline().expect("armed by BSU");
+        assert!(deadline > crate::time::Instant::now() + SYNC_UPDATE_TIMEOUT / 2);
+
+        let past = crate::time::Instant::now()
+            .checked_sub(SYNC_UPDATE_TIMEOUT * 2)
+            .unwrap();
+        cw.sync_update_started = Some(past);
+        assert!(cw.sync_update_deadline().unwrap() <= crate::time::Instant::now());
+
+        cw.set_private_mode(NamedPrivateMode::SyncUpdate.into());
+        assert!(
+            cw.sync_update_deadline().unwrap() > crate::time::Instant::now(),
+            "a BSU inside an active update re-arms the deadline"
+        );
+
+        cw.end_sync_update();
+        assert!(cw.sync_update_deadline().is_none());
+        assert!(!cw.synchronized_output());
+    }
+
+    #[test]
+    fn sync_update_mode_tracks_bsu_esu_and_ends_on_resize_and_reset() {
+        let mut cw = make_crosswords();
+        assert!(!cw.synchronized_output());
+
+        cw.set_private_mode(NamedPrivateMode::SyncUpdate.into());
+        assert!(cw.synchronized_output());
+        assert!(cw.sync_update_started.is_some());
+        cw.unset_private_mode(NamedPrivateMode::SyncUpdate.into());
+        assert!(!cw.synchronized_output());
+        assert!(cw.sync_update_started.is_none());
+
+        cw.set_private_mode(NamedPrivateMode::SyncUpdate.into());
+        cw.resize(CrosswordsSize::new(4, 4));
+        assert!(
+            cw.synchronized_output(),
+            "a resize that changes nothing does not end the update"
+        );
+        cw.resize(CrosswordsSize::new_with_dimensions(4, 4, 32, 64, 8, 16));
+        assert!(
+            !cw.synchronized_output(),
+            "a cell size change ends the update"
+        );
+        cw.set_private_mode(NamedPrivateMode::SyncUpdate.into());
+        cw.resize(CrosswordsSize::new(6, 4));
+        assert!(!cw.synchronized_output(), "resize ends the update");
+        assert!(cw.sync_update_started.is_none());
+
+        cw.set_private_mode(NamedPrivateMode::SyncUpdate.into());
+        cw.reset_state();
+        assert!(!cw.synchronized_output(), "RIS ends the update");
+        assert!(cw.sync_update_started.is_none());
+    }
+
     #[test]
     fn swap_alt_reinterns_cursor_style_into_alt_table() {
         use crate::config::colors::{AnsiColor, ColorRgb};
@@ -6350,9 +6817,9 @@ mod tests {
         );
         let mut processor = Processor::default();
 
-        // A prompt mark, a full A/B/C/D cycle with options, and a
-        // user var ("hello" in base64), bell-terminated like shells
-        // emit them.
+        // A prompt mark, a full A/B/C/D cycle with options, and an
+        // iTerm2 SetUserVar (not implemented, must be ignored without
+        // disturbing the marks), bell-terminated like shells emit them.
         let bytes = b"]133;A;aid=1prompt]133;Bcmd
 ]133;Cout
 ]133;D;0]1337;SetUserVar=foo=aGVsbG8=";
@@ -6360,7 +6827,6 @@ mod tests {
 
         assert_eq!(cw.grid[Line(0)].semantic_prompt, SemanticPrompt::Prompt);
         assert_eq!(cw.grid[Line(1)].semantic_prompt, SemanticPrompt::None);
-        assert_eq!(cw.user_vars.get("foo").map(String::as_str), Some("hello"));
     }
 
     #[test]
@@ -6382,15 +6848,6 @@ mod tests {
         assert_eq!(cw.grid.iter_from(stale).count(), 0);
     }
 
-    #[test]
-    fn user_vars_are_stored() {
-        let mut cw = make_crosswords();
-        assert!(cw.user_vars.is_empty());
-        cw.set_user_var("k".to_string(), "v".to_string());
-        cw.set_user_var("k".to_string(), "v2".to_string());
-        assert_eq!(cw.user_vars.get("k").map(String::as_str), Some("v2"));
-    }
-
     #[cfg(feature = "graphics")]
     #[cfg(feature = "graphics")]
     #[test]
@@ -6407,7 +6864,13 @@ mod tests {
 
         let glyf = minimal_glyf_bytes();
         // E0A0 is the Powerline branch codepoint — in basic PUA.
-        let res = Handler::glyph_register(&mut cw, 0xE0A0, glyf_payload(glyf, 1000), 1);
+        let res = Handler::glyph_register(
+            &mut cw,
+            0xE0A0,
+            glyf_payload(glyf, 1000),
+            1,
+            Default::default(),
+        );
         assert!(res.is_ok());
         assert!(cw.glyph_registry.is_some());
         assert!(registry_contains(&cw, 0xE0A0));
@@ -6426,6 +6889,7 @@ mod tests {
             0x61,
             glyf_payload(minimal_glyf_bytes(), 1000),
             1,
+            Default::default(),
         );
         assert_eq!(res, Err(RegisterError::OutOfNamespace));
         assert!(cw.glyph_registry.is_none());
@@ -6448,7 +6912,13 @@ mod tests {
         v.extend_from_slice(&0i16.to_be_bytes());
         v.extend_from_slice(&0i16.to_be_bytes());
 
-        let res = Handler::glyph_register(&mut cw, 0xE0A0, glyf_payload(v, 1000), 1);
+        let res = Handler::glyph_register(
+            &mut cw,
+            0xE0A0,
+            glyf_payload(v, 1000),
+            1,
+            Default::default(),
+        );
         assert_eq!(res, Err(RegisterError::HintingUnsupported));
         // Decode failed before the registry was touched, so it stays
         // uninitialised.
@@ -6483,7 +6953,13 @@ mod tests {
         let mut cw = make_crosswords();
 
         let v = dense_glyf_bytes(MAX_DECODED_POINTS + 1);
-        let res = Handler::glyph_register(&mut cw, 0xE0A0, glyf_payload(v, 1000), 1);
+        let res = Handler::glyph_register(
+            &mut cw,
+            0xE0A0,
+            glyf_payload(v, 1000),
+            1,
+            Default::default(),
+        );
         assert_eq!(res, Err(RegisterError::OutlineTooLarge));
         assert!(cw.glyph_registry.is_none());
     }
@@ -6512,6 +6988,7 @@ mod tests {
                 upm: 1000,
             },
             1,
+            Default::default(),
         );
         assert_eq!(res, Err(RegisterError::OutlineTooLarge));
         assert!(cw.glyph_registry.is_none());
@@ -6534,6 +7011,7 @@ mod tests {
                 upm: 1000,
             },
             1,
+            Default::default(),
         );
         assert!(res.is_ok());
         assert!(registry_contains(&cw, 0xE0A0));
@@ -6559,6 +7037,7 @@ mod tests {
             0xE0A0,
             glyf_payload(minimal_glyf_bytes(), 1000),
             1,
+            Default::default(),
         )
         .unwrap();
         Handler::glyph_register(
@@ -6566,6 +7045,7 @@ mod tests {
             0xE0A1,
             glyf_payload(minimal_glyf_bytes(), 1000),
             1,
+            Default::default(),
         )
         .unwrap();
         assert_eq!(registry_len(&cw), 2);
@@ -6595,6 +7075,7 @@ mod tests {
             0xE0A0,
             glyf_payload(minimal_glyf_bytes(), 1000),
             2,
+            Default::default(),
         )
         .unwrap();
         Handler::input(&mut cw, '\u{E0A0}');
@@ -6620,6 +7101,7 @@ mod tests {
             0xE0A0,
             glyf_payload(minimal_glyf_bytes(), 1000),
             1,
+            Default::default(),
         )
         .unwrap();
         assert!(cw.is_fully_damaged(), "register must repaint (§7.3)");
@@ -6638,6 +7120,7 @@ mod tests {
             0xE0A0,
             glyf_payload(minimal_glyf_bytes(), 1000),
             1,
+            Default::default(),
         )
         .unwrap();
         Handler::glyph_register(
@@ -6645,6 +7128,7 @@ mod tests {
             0xE0A1,
             glyf_payload(minimal_glyf_bytes(), 1000),
             1,
+            Default::default(),
         )
         .unwrap();
 
@@ -6896,6 +7380,109 @@ mod tests {
             cw.cell_hyperlink(Line(0), Column(1)).is_none(),
             "cells after the OSC 8 reset must not inherit the previous link",
         );
+    }
+
+    #[test]
+    fn osc8_hyperlink_uri_keeps_semicolons() {
+        use crate::performer::handler::Processor;
+
+        let size = CrosswordsSize::new(40, 5);
+        let window_id = crate::event::WindowId::from(0);
+        let mut cw = Crosswords::new(
+            size,
+            CursorShape::Block,
+            VoidListener {},
+            window_id,
+            0,
+            10_000,
+        );
+        let mut processor = Processor::default();
+
+        processor.advance(&mut cw, b"\x1b]8;;https://x.dev/a;b;\x07X\x1b]8;;\x07");
+
+        let hl = cw.cell_hyperlink(Line(0), Column(0)).expect("hyperlink");
+        assert_eq!(hl.uri(), "https://x.dev/a;b;");
+    }
+
+    #[test]
+    fn osc8_hyperlink_invalid_utf8_and_empty_uri_with_id() {
+        use crate::performer::handler::Processor;
+
+        let size = CrosswordsSize::new(40, 5);
+        let window_id = crate::event::WindowId::from(0);
+        let mut cw = Crosswords::new(
+            size,
+            CursorShape::Block,
+            VoidListener {},
+            window_id,
+            0,
+            10_000,
+        );
+        let mut processor = Processor::default();
+
+        processor.advance(
+            &mut cw,
+            b"\x1b]8;;https://a.example\x07A\
+              \x1b]8;;file:///caf\xe9\x07B\
+              \x1b]8;id=foo;\x07C\
+              \x1b]8;;\x07D",
+        );
+
+        let a = cw.cell_hyperlink(Line(0), Column(0)).expect("hyperlink");
+        assert_eq!(a.uri(), "https://a.example");
+        let b = cw.cell_hyperlink(Line(0), Column(1)).expect("hyperlink");
+        assert_eq!(b.uri(), "file:///caf\u{FFFD}");
+        // An empty URI with an id is invalid and leaves the link open.
+        let c = cw.cell_hyperlink(Line(0), Column(2)).expect("hyperlink");
+        assert_eq!(c.uri(), "file:///caf\u{FFFD}");
+        assert!(cw.cell_hyperlink(Line(0), Column(3)).is_none());
+    }
+
+    /// An OSC 8 over the payload budget is invalid end to end: it does
+    /// not open a link, and it does not close the one already open, so
+    /// the text that follows stays attributed to the open link. A link
+    /// exactly at the budget still opens through the parser's param
+    /// split and its fixed-buffer spill; the budget arithmetic itself
+    /// is pinned by the unit test in `performer::osc`.
+    #[test]
+    fn osc8_oversized_hyperlink_is_ignored() {
+        use crate::performer::handler::Processor;
+        use crate::performer::MAX_HYPERLINK_BYTES;
+
+        let size = CrosswordsSize::new(40, 5);
+        let window_id = crate::event::WindowId::from(0);
+        let mut cw = Crosswords::new(
+            size,
+            CursorShape::Block,
+            VoidListener {},
+            window_id,
+            0,
+            10_000,
+        );
+        let mut processor = Processor::default();
+
+        let at_limit = format!(
+            "https://x.dev/{}",
+            "a".repeat(MAX_HYPERLINK_BYTES - 1 - "https://x.dev/".len())
+        );
+        let over = format!("{at_limit}a");
+        let mut input = Vec::new();
+        input.extend_from_slice(b"\x1b]8;;https://a.example\x07A");
+        input.extend_from_slice(format!("\x1b]8;;{over}\x07B").as_bytes());
+        input.extend_from_slice(format!("\x1b]8;;{at_limit}\x07C").as_bytes());
+        input.extend_from_slice(b"\x1b]8;;\x07D");
+        processor.advance(&mut cw, &input);
+
+        let a = cw.cell_hyperlink(Line(0), Column(0)).expect("hyperlink");
+        assert_eq!(a.uri(), "https://a.example");
+        // The oversized open is ignored: the first link stays open over
+        // "B".
+        let b = cw.cell_hyperlink(Line(0), Column(1)).expect("hyperlink");
+        assert_eq!(b.uri(), "https://a.example");
+        // Exactly at the budget: opens, with the URI intact.
+        let c = cw.cell_hyperlink(Line(0), Column(2)).expect("hyperlink");
+        assert_eq!(c.uri(), at_limit);
+        assert!(cw.cell_hyperlink(Line(0), Column(3)).is_none());
     }
 
     /// OSC 8 hyperlinks span multiple lines when the parser writes a
@@ -8055,24 +8642,33 @@ mod tests {
             10,
         );
 
-        Handler::set_current_directory(&mut term, "/tmp/a".into());
-        Handler::set_current_directory(&mut term, "/tmp/a".into());
+        let changes = || {
+            events
+                .borrow()
+                .iter()
+                .filter(
+                    |e| matches!(e, RioEvent::CurrentDirectoryChanged(route) if *route == 7),
+                )
+                .count()
+        };
 
-        let count = events
-            .borrow()
-            .iter()
-            .filter(
-                |e| matches!(e, RioEvent::CurrentDirectoryChanged(route) if *route == 7),
-            )
-            .count();
+        Handler::set_current_directory(&mut term, Some("/tmp/a".into()));
+        Handler::set_current_directory(&mut term, Some("/tmp/a".into()));
         assert_eq!(
-            count, 1,
+            changes(),
+            1,
             "a repeated OSC 7 for the same directory must not re-emit"
         );
         assert_eq!(
             term.current_directory.as_deref(),
             Some(std::path::Path::new("/tmp/a"))
         );
+
+        // Forgetting the directory is a change too, but only once.
+        Handler::set_current_directory(&mut term, None);
+        Handler::set_current_directory(&mut term, None);
+        assert_eq!(changes(), 2, "clearing a known directory emits once");
+        assert_eq!(term.current_directory, None);
     }
 
     #[test]
@@ -9268,6 +9864,44 @@ mod tests {
         cw.input('\u{302}');
         let c = cw.grid[Line(0)][Column(2)].extras_id().unwrap();
         assert_ne!(a, c);
+    }
+
+    /// A run of combining marks on one base stops growing the cell at
+    /// the cap: the extra marks are consumed, not printed as cells, and
+    /// neither time nor the extras table grows with the run length.
+    #[test]
+    fn combining_marks_per_cell_are_capped() {
+        let mut cw = new_term(10, 2);
+        cw.input('e');
+        for _ in 0..4096 {
+            cw.input('\u{301}');
+        }
+        let id = cw.grid[Line(0)][Column(0)].extras_id().unwrap();
+        let marks = cw.grid.extras_table.get(id).unwrap().zerowidth.len();
+        assert_eq!(marks, 64);
+        // Nothing spilled into the next cell and the cursor stayed put.
+        assert_eq!(cw.grid.cursor.pos.col, Column(1));
+        assert_eq!(cw.grid[Line(0)][Column(1)].c(), '\0');
+        // One interned slot per intermediate length at most, so the
+        // final slot's id is bounded by the cap, not by the run.
+        assert!(id <= 64, "slot id {id}");
+    }
+
+    /// A width-bearing continuation that the capped cell drops must not
+    /// widen the cell either (mode 2027).
+    #[test]
+    fn capped_cell_is_not_widened_by_dropped_modifier() {
+        let mut cw = new_term(10, 2);
+        cw.mode.insert(Mode::GRAPHEME_CLUSTER);
+        cw.input('e');
+        for _ in 0..64 {
+            cw.input('\u{301}');
+        }
+        cw.input('\u{1F3FB}');
+        assert_eq!(cw.grid[Line(0)][Column(0)].wide(), Wide::Narrow);
+        assert_eq!(cw.grid.cursor.pos.col, Column(1));
+        let id = cw.grid[Line(0)][Column(0)].extras_id().unwrap();
+        assert_eq!(cw.grid.extras_table.get(id).unwrap().zerowidth.len(), 64);
     }
 
     /// A combining mark typed inside an OSC 8 hyperlink must attach to

@@ -41,7 +41,7 @@ impl IdentityRateLimiter for BudgetedLimiter {
         _now_ms: i64,
     ) -> bool {
         self.remaining
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |held| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |held| {
                 held.checked_sub(1)
             })
             .is_ok()

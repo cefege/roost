@@ -21,7 +21,7 @@ use roost_host::b64url_decode;
 use rsa::pkcs1v15::{Signature, VerifyingKey};
 use rsa::sha2::Sha256;
 use rsa::signature::Verifier;
-use rsa::{BigUint, RsaPublicKey};
+use rsa::{BoxedUint, PublicKey};
 use serde_json::Value;
 
 use crate::auth::cf_access::{CloudflareJwks, JWKS_REFETCH_MIN_INTERVAL_MS, JWKS_TTL_MS};
@@ -107,9 +107,12 @@ impl CloudflareJwks for RsaJwks {
         let (Some(modulus), Some(exponent)) = (member("n"), member("e")) else {
             return false;
         };
-        RsaPublicKey::new(
-            BigUint::from_bytes_be(&modulus),
-            BigUint::from_bytes_be(&exponent),
+        if modulus.is_empty() || modulus.len() > 1024 || exponent.is_empty() || exponent.len() > 8 {
+            return false;
+        }
+        PublicKey::new(
+            BoxedUint::from_be_slice_vartime(&modulus),
+            BoxedUint::from_be_slice_vartime(&exponent),
         )
         .is_ok_and(|public_key| {
             // A signature whose length is not the modulus size is refused by

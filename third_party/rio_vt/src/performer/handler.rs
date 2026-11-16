@@ -6,11 +6,8 @@ use crate::ansi::{sixel, KeyboardModes, KeyboardModesApplyBehavior};
 use crate::config::colors::{AnsiColor, ColorRgb, NamedColor};
 use crate::crosswords::pos::{CharsetIndex, Column, Line, StandardCharset};
 use crate::crosswords::square::Hyperlink;
-use crate::time::Instant;
 use cursor_icon::CursorIcon;
 use rio_graphics::GraphicData;
-use std::mem;
-use std::time::Duration;
 use tracing::debug;
 
 use crate::crosswords::attr::Attr;
@@ -26,34 +23,6 @@ use std::fmt::Write;
 use super::osc;
 use super::program_status;
 use super::parser::{Params, ParamsIter, Parser, Perform};
-
-/// Maximum time before a synchronized update is aborted.
-const SYNC_UPDATE_TIMEOUT: Duration = Duration::from_millis(150);
-
-/// Maximum number of bytes read in one synchronized update (2MiB).
-const SYNC_BUFFER_SIZE: usize = 0x20_0000;
-
-/// Number of bytes in the BSU/ESU CSI sequences.
-const SYNC_ESCAPE_LEN: usize = 8;
-
-/// BSU CSI sequence for beginning or extending synchronized updates.
-const BSU_CSI: [u8; SYNC_ESCAPE_LEN] = *b"\x1b[?2026h";
-
-/// Shortest synchronized-update escape (the DCS form).
-const SYNC_ESCAPE_MIN_LEN: usize = 7;
-
-/// BSU in the legacy iTerm2 DCS form (`DCS = 1 s ST`). Terminfo files in
-/// the wild advertise this via the `Sync` capability, and tmux brackets
-/// every redraw with whatever that capability says, so both forms must
-/// gate presentation or a multiplexer believes its frames are atomic
-/// while the terminal paints mid-redraw states.
-const BSU_DCS: [u8; SYNC_ESCAPE_MIN_LEN] = *b"\x1bP=1s\x1b\\";
-
-/// ESU CSI sequence for terminating synchronized updates.
-const ESU_CSI: [u8; SYNC_ESCAPE_LEN] = *b"\x1b[?2026l";
-
-/// ESU in the legacy iTerm2 DCS form (`DCS = 2 s ST`).
-const ESU_DCS: [u8; SYNC_ESCAPE_MIN_LEN] = *b"\x1bP=2s\x1b\\";
 
 fn parse_sgr_color(params: &mut impl Iterator<Item = u16>) -> Option<AnsiColor> {
     match params.next() {
@@ -106,8 +75,10 @@ pub trait Handler {
     /// OSC to set window title.
     fn set_title(&mut self, _: Option<String>) {}
 
-    /// OSC to set current directory.
-    fn set_current_directory(&mut self, _: std::path::PathBuf) {}
+    /// OSC 7 / 9;9: the program's working directory. `None` means the
+    /// program reported it no longer knows its directory (an empty
+    /// payload), so any stored one is stale.
+    fn set_current_directory(&mut self, _: Option<std::path::PathBuf>) {}
 
     /// OSC 133: mark the cursor row as a semantic prompt row.
     fn set_semantic_prompt(&mut self, _: crate::crosswords::grid::row::SemanticPrompt) {}
@@ -124,7 +95,7 @@ pub trait Handler {
     ) {
     }
 
-    /// OSC 1337 SetUserVar: record a shell-provided variable.
+    /// ROOST PATCH R9: record an OSC 1337 shell-provided variable.
     fn set_user_var(&mut self, _name: String, _value: String) {}
 
     /// Set the cursor style.
@@ -428,8 +399,21 @@ pub trait Handler {
     /// Set progress bar report (OSC 9;4).
     fn set_progress_report(&mut self, _: crate::event::ProgressReport) {}
 
-    /// ROOST PATCH R8: an OSC 7501 Program Status report (`7501;<pairs>`).
-    fn set_program_status(&mut self, _: crate::event::ProgramStatusReport) {}
+    /// OSC 7501 program status report.
+    fn set_program_status(&mut self, _: crate::event::ProgramStatus) {}
+
+    /// Answer an OSC 7501 feature-detection query (`OSC 7501 ; ? ST`).
+    fn report_program_status_support(&mut self, _terminator: &str) {}
+
+    /// OSC 133 `A`: a shell prompt began.
+    fn prompt_start(&mut self) {}
+
+    /// OSC 133 `C`: the command line ended and its output begins.
+    fn command_start(&mut self) {}
+
+    /// OSC 133 `D`: the command finished, with its exit status when
+    /// the shell sent one.
+    fn command_end(&mut self, _exit_status: Option<i32>) {}
 
     /// Report current keyboard mode.
     fn report_keyboard_mode(&mut self) {}
@@ -478,6 +462,7 @@ pub trait Handler {
         _cp: u32,
         _payload: glyph_protocol::GlyphPayload,
         _width: u8,
+        _layout: rio_graphics::glyph_layout::GlyphLayout,
     ) -> Result<(), glyph_protocol::RegisterError> {
         Ok(())
     }
@@ -515,23 +500,11 @@ struct ProcessorState {
     /// Last processed character for repetition.
     preceding_char: Option<char>,
 
-    /// State for synchronized terminal updates.
-    sync_state: SyncState,
-
     /// State for XTGETTCAP requests.
     xtgettcap_state: XtgettcapState,
 
     /// State for APC (Application Program Command) sequences.
     apc_state: ApcState,
-}
-
-#[derive(Debug)]
-struct SyncState {
-    /// Expiration time of the synchronized update.
-    timeout: StdSyncHandler,
-
-    /// Bytes read during the synchronized update.
-    buffer: Vec<u8>,
 }
 
 #[derive(Debug, Default)]
@@ -541,7 +514,22 @@ struct XtgettcapState {
 
     /// Buffer for collecting hex-encoded capability names.
     buffer: Vec<u8>,
+
+    /// The request outgrew [`MAX_XTGETTCAP_BYTES`]: the rest is
+    /// discarded and the request gets no reply.
+    overflowed: bool,
 }
+
+/// Longest XTGETTCAP request accumulated. A request is a `;`-separated
+/// list of hex-encoded capability names, a few hundred bytes for even
+/// the largest real query, while an unterminated `DCS + q` could grow
+/// the buffer without limit.
+const MAX_XTGETTCAP_BYTES: usize = 1024 * 1024;
+
+/// Largest XTGETTCAP buffer kept between requests. Real requests fit a
+/// few hundred bytes, so a buffer grown past this by one large request
+/// is released rather than pinned for the session.
+const XTGETTCAP_RETAIN_BYTES: usize = 4 * 1024;
 
 /// State for accumulating APC (Application Program Command) sequences.
 ///
@@ -553,51 +541,22 @@ struct ApcState {
     /// Buffer for accumulating APC data.
     /// Pre-allocated to a reasonable size for Kitty graphics chunks.
     buffer: Vec<u8>,
+    /// The sequence outgrew [`MAX_APC_BYTES`]: the rest is discarded
+    /// and `apc_end` dispatches nothing.
+    overflowed: bool,
 }
 
-impl Default for SyncState {
-    fn default() -> Self {
-        Self {
-            buffer: Vec::with_capacity(SYNC_BUFFER_SIZE),
-            timeout: Default::default(),
-        }
-    }
-}
+/// Longest APC sequence the terminal accumulates. The kitty protocol
+/// asks for 4 KiB chunks but some clients send a whole base64 image in
+/// one APC, so the cap is sized for that while
+/// an unterminated `ESC _` can no longer grow the buffer until the
+/// process is killed. Glyph protocol payloads are capped separately at
+/// 64 KiB.
+const MAX_APC_BYTES: usize = 64 * 1024 * 1024;
 
-#[derive(Debug, Default)]
-pub struct StdSyncHandler {
-    timeout: Option<Instant>,
-}
-
-impl StdSyncHandler {
-    /// Synchronized update expiration time.
-    #[inline]
-    pub fn sync_timeout(&self) -> Option<Instant> {
-        self.timeout
-    }
-
-    #[inline]
-    fn set_timeout(&mut self, duration: Duration) {
-        self.timeout = Some(Instant::now() + duration);
-    }
-
-    #[inline]
-    fn clear_timeout(&mut self) {
-        self.timeout = None;
-    }
-
-    #[inline]
-    fn pending_timeout(&self) -> bool {
-        self.timeout.is_some()
-    }
-
-    /// Whether an armed synchronized update has outlived its deadline.
-    #[inline]
-    fn expired(&self) -> bool {
-        self.timeout
-            .is_some_and(|deadline| deadline <= Instant::now())
-    }
-}
+/// Heap capacity kept across APC sequences. Kitty chunks are 4 KiB; one
+/// whole-image APC must not pin tens of megabytes for the session.
+const APC_RETAIN_BYTES: usize = 1024 * 1024;
 
 #[derive(Default)]
 pub struct Processor {
@@ -606,156 +565,18 @@ pub struct Processor {
 }
 
 impl Processor {
-    /// Synchronized update timeout.
-    pub fn sync_timeout(&self) -> &StdSyncHandler {
-        &self.state.sync_state.timeout
-    }
-
     /// Process a new byte from the PTY.
+    ///
+    /// Bytes are always applied to the grid. A synchronized update only sets
+    /// `SyncUpdate` on the handler so the renderer holds the last frame
+    /// until it ends.
     #[inline]
     pub fn advance<H>(&mut self, handler: &mut H, bytes: &[u8])
     where
         H: Handler,
     {
-        if self.state.sync_state.timeout.pending_timeout() {
-            // Cap synchronized-update latency for embedders that do not
-            // drive the timeout externally: once the deadline has passed,
-            // flush the buffered update before processing new bytes. Event
-            // loops that poll `sync_timeout()` (like Rio's machine) flush at
-            // the deadline itself and never reach this branch.
-            if self.state.sync_state.timeout.expired() {
-                self.stop_sync(handler);
-                let mut performer = Performer::new(&mut self.state, handler);
-                self.parser.advance(&mut performer, bytes);
-            } else {
-                self.advance_sync(handler, bytes);
-            }
-        } else {
-            let mut performer = Performer::new(&mut self.state, handler);
-            self.parser.advance(&mut performer, bytes);
-        }
-    }
-
-    /// End a synchronized update.
-    pub fn stop_sync<H>(&mut self, handler: &mut H)
-    where
-        H: Handler,
-    {
-        self.stop_sync_internal(handler, None);
-    }
-
-    /// End a synchronized update.
-    ///
-    /// The `bsu_offset` parameter should be passed if the sync buffer contains
-    /// a new BSU escape that is not part of the current synchronized
-    /// update.
-    fn stop_sync_internal<H>(&mut self, handler: &mut H, bsu_offset: Option<usize>)
-    where
-        H: Handler,
-    {
-        // Process all synchronized bytes. BSU sequences are processed
-        // automatically during the synchronized update.
-        let buffer = mem::take(&mut self.state.sync_state.buffer);
-        let offset = bsu_offset.unwrap_or(buffer.len());
         let mut performer = Performer::new(&mut self.state, handler);
-        self.parser.advance(&mut performer, &buffer[..offset]);
-        self.state.sync_state.buffer = buffer;
-
-        match bsu_offset {
-            // Just clear processed bytes if there is a new BSU.
-            //
-            // NOTE: We do not need to re-process for a new ESU since the `advance_sync`
-            // function checks for BSUs in reverse.
-            Some(bsu_offset) => {
-                let new_len = self.state.sync_state.buffer.len() - bsu_offset;
-                self.state.sync_state.buffer.copy_within(bsu_offset.., 0);
-                self.state.sync_state.buffer.truncate(new_len);
-
-                // Replaying the processed bytes may have parsed an inline ESU
-                // that cleared the timeout, but this BSU is still pending.
-                self.state
-                    .sync_state
-                    .timeout
-                    .set_timeout(SYNC_UPDATE_TIMEOUT);
-            }
-            // Report mode and clear state if no new BSU is present.
-            None => {
-                handler.unset_private_mode(NamedPrivateMode::SyncUpdate.into());
-                self.state.sync_state.timeout.clear_timeout();
-                self.state.sync_state.buffer.clear();
-            }
-        }
-    }
-
-    /// Number of bytes in the synchronization buffer.
-    #[inline]
-    pub fn sync_bytes_count(&self) -> usize {
-        self.state.sync_state.buffer.len()
-    }
-
-    /// Process a new byte during a synchronized update.
-    #[cold]
-    fn advance_sync<H>(&mut self, handler: &mut H, bytes: &[u8])
-    where
-        H: Handler,
-    {
-        // Advance sync parser or stop sync if we'd exceed the maximum buffer size.
-        if self.state.sync_state.buffer.len() + bytes.len() >= SYNC_BUFFER_SIZE - 1 {
-            // Terminate the synchronized update.
-            self.stop_sync_internal(handler, None);
-
-            // Just parse the bytes normally.
-            let mut performer = Performer::new(&mut self.state, handler);
-            self.parser.advance(&mut performer, bytes);
-        } else {
-            self.state.sync_state.buffer.extend(bytes);
-            self.advance_sync_csi(handler, bytes.len());
-        }
-    }
-
-    /// Handle BSU/ESU CSI sequences during synchronized update.
-    fn advance_sync_csi<H>(&mut self, handler: &mut H, new_bytes: usize)
-    where
-        H: Handler,
-    {
-        // Get constraints within which a new escape character might be
-        // relevant. The lookback covers the longest escape; the scan end
-        // leaves room for the shortest, with per-candidate bounds checks
-        // below covering the difference.
-        let buffer_len = self.state.sync_state.buffer.len();
-        let start_offset = (buffer_len - new_bytes).saturating_sub(SYNC_ESCAPE_LEN - 1);
-        let end_offset = buffer_len.saturating_sub(SYNC_ESCAPE_MIN_LEN - 1);
-        let search_buffer = &self.state.sync_state.buffer[start_offset..end_offset];
-
-        // Search for termination/extension escapes in the added bytes.
-        //
-        // NOTE: It is technically legal to specify multiple private modes in the same
-        // escape, but we only allow EXACTLY `\e[?2026h`/`\e[?2026l` (or their DCS
-        // `\eP=1s\e\\`/`\eP=2s\e\\` equivalents) to keep the parser more simple.
-        let mut bsu_offset = None;
-        for index in memchr::memchr_iter(0x1B, search_buffer).rev() {
-            let offset = start_offset + index;
-            let buffer = &self.state.sync_state.buffer;
-            let is_bsu = buffer.get(offset..offset + SYNC_ESCAPE_LEN)
-                == Some(BSU_CSI.as_slice())
-                || buffer.get(offset..offset + SYNC_ESCAPE_MIN_LEN)
-                    == Some(BSU_DCS.as_slice());
-            let is_esu = buffer.get(offset..offset + SYNC_ESCAPE_LEN)
-                == Some(ESU_CSI.as_slice())
-                || buffer.get(offset..offset + SYNC_ESCAPE_MIN_LEN)
-                    == Some(ESU_DCS.as_slice());
-
-            if is_bsu {
-                self.state
-                    .sync_state
-                    .timeout
-                    .set_timeout(SYNC_UPDATE_TIMEOUT);
-                bsu_offset = Some(offset);
-            } else if is_esu {
-                self.stop_sync_internal(handler, bsu_offset);
-                break;
-            }
-        }
+        self.parser.advance(&mut performer, bytes);
     }
 }
 
@@ -947,7 +768,8 @@ impl<'a, H: Handler + 'a> Performer<'a, H> {
                 payload,
                 reply,
                 width,
-            }) => match self.handler.glyph_register(cp, payload, width) {
+                layout,
+            }) => match self.handler.glyph_register(cp, payload, width, layout) {
                 Ok(()) => {
                     if reply.emit_success() {
                         let resp = glyph_protocol::format_register_ok(cp);
@@ -1044,26 +866,21 @@ impl<U: Handler> Perform for Performer<'_, U> {
                 self.handler.sixel_graphic_start(params);
             }
             ('q', [b'+']) => {
-                // XTGETTCAP request: DCS + q <hex-encoded-names> ST
+                // XTGETTCAP request: DCS + q <hex-encoded-names> ST.
+                // `unhook` left the buffer empty and the flag clear.
                 self.state.xtgettcap_state.active = true;
-                self.state.xtgettcap_state.buffer.clear();
             }
             // Legacy iTerm2 synchronized updates (`DCS = 1 s ST` begin,
             // `DCS = 2 s ST` end), the form older `Sync` terminfo
-            // capabilities advertise. Mirrors the CSI ?2026 intercepts.
+            // capabilities advertise. Same effect as CSI ?2026 h/l.
             ('s', [b'=']) => {
                 let param = params.iter().next().map(|p| p[0]).unwrap_or(0);
                 match param {
                     1 => {
-                        self.state
-                            .sync_state
-                            .timeout
-                            .set_timeout(SYNC_UPDATE_TIMEOUT);
                         self.handler
                             .set_private_mode(NamedPrivateMode::SyncUpdate.into());
                     }
                     2 => {
-                        self.state.sync_state.timeout.clear_timeout();
                         self.handler
                             .unset_private_mode(NamedPrivateMode::SyncUpdate.into());
                     }
@@ -1085,7 +902,17 @@ impl<U: Handler> Perform for Performer<'_, U> {
             }
         } else if self.state.xtgettcap_state.active {
             // Collect hex-encoded capability names for XTGETTCAP
-            self.state.xtgettcap_state.buffer.push(byte);
+            let request = &mut self.state.xtgettcap_state;
+            if request.overflowed {
+                return;
+            }
+            if request.buffer.len() >= MAX_XTGETTCAP_BYTES {
+                debug!("discarding XTGETTCAP request over {MAX_XTGETTCAP_BYTES} bytes");
+                request.overflowed = true;
+                request.buffer = Vec::new();
+                return;
+            }
+            request.buffer.push(byte);
         } else {
             debug!("[unhandled put] byte={:?}", byte);
         }
@@ -1096,13 +923,21 @@ impl<U: Handler> Perform for Performer<'_, U> {
         if self.handler.is_sixel_graphic_active() {
             self.handler.sixel_graphic_finish();
         } else if self.state.xtgettcap_state.active {
-            // Process XTGETTCAP request
-            let response = process_xtgettcap_request(&self.state.xtgettcap_state.buffer);
-            self.handler.xtgettcap_response(response);
+            // Process XTGETTCAP request. An overflowed one was garbage
+            // from the terminal's point of view and gets no reply, as
+            // in other terminals; the state is simply dropped.
+            if !self.state.xtgettcap_state.overflowed {
+                let response =
+                    process_xtgettcap_request(&self.state.xtgettcap_state.buffer);
+                self.handler.xtgettcap_response(response);
+            }
 
-            // Reset state
-            self.state.xtgettcap_state.active = false;
-            self.state.xtgettcap_state.buffer.clear();
+            // Every DCS exit reaches here, so this is the one place the
+            // request state is reset; `hook` only arms it.
+            let request = &mut self.state.xtgettcap_state;
+            request.active = false;
+            request.overflowed = false;
+            super::clear_or_release(&mut request.buffer, XTGETTCAP_RETAIN_BYTES);
         } else {
             debug!("[unhandled dcs_unhook]");
         }
@@ -1130,11 +965,14 @@ impl<U: Handler> Perform for Performer<'_, U> {
         }
 
         match params[0] {
-            // Set window title.
-            b"0" | b"2" => match osc::parse_title(params) {
-                Some(title) => self.handler.set_title(Some(title)),
-                None => unhandled(params),
-            },
+            // Set window title. `parse_title` logs why it rejects a
+            // title; the payload can be large, so it is not dumped
+            // through `unhandled` as well.
+            b"0" | b"2" => {
+                if let Some(title) = osc::parse_title(params) {
+                    self.handler.set_title(Some(title));
+                }
+            }
 
             // Set color index.
             b"4" => match osc::parse_palette_entries(params) {
@@ -1155,42 +993,57 @@ impl<U: Handler> Perform for Performer<'_, U> {
                 None => unhandled(params),
             },
 
-            // Inform current directory.
+            // Inform current directory. An empty payload means the
+            // program no longer knows its directory, so the stored one
+            // is cleared instead of left stale. The parser logs a
+            // malformed payload itself: a shell on a remote host sends
+            // one at every prompt, so the per-byte `unhandled` dump
+            // would flood the log for the whole session.
+            // One verbatim payload: the parser keeps every `;` after
+            // the `7`, since a `kitty-shell-cwd://` path is not encoded.
             b"7" => {
-                // Rejoined: the kitty-shell-cwd flavor is verbatim, so a
-                // `;` in the directory arrives as extra params.
-                if let Some(payload) = osc::join_params(params, 1) {
-                    if let Some(path) = osc::parse_current_directory(payload.as_bytes()) {
-                        self.handler.set_current_directory(path.into());
-                    }
+                if let Some(dir) =
+                    params.get(1).and_then(|p| osc::parse_current_directory(p))
+                {
+                    self.handler.set_current_directory(dir.map(Into::into));
                 }
             }
 
-            // Hyperlink.
+            // Hyperlink. `parse_hyperlink` logs what it rejects; the
+            // URI can be as large as the OSC cap, so it is not dumped
+            // through `unhandled` as well.
             b"8" if params.len() > 2 => {
-                self.handler
-                    .set_hyperlink(osc::parse_hyperlink(params[1], params[2]));
+                if let Some(link) = osc::parse_hyperlink(params[1], params[2]) {
+                    self.handler.set_hyperlink(link);
+                }
             }
 
-            // OSC 9 dispatches on its sub-command: 9;4 progress and 9;9
-            // working directory are consumed even when their payload is
-            // invalid (a malformed known sub-command must not pop a
-            // bogus notification); anything else is a notification.
+            // OSC 9 dispatches on its ConEmu sub-command, which is only
+            // such when a `;` follows it (`9;4` alone is a notification
+            // reading "4"). 9;4 progress and 9;9 working
+            // directory are consumed even when their payload is invalid,
+            // and the ConEmu sub-commands Rio does not implement are
+            // dropped: a malformed or unsupported known sub-command must
+            // not pop a bogus notification. Anything else is an iTerm2
+            // notification.
             b"9" => match params.get(1).copied() {
-                Some(b"4") => {
+                Some(b"4") if params.len() > 2 => {
                     if let Some(report) = osc::parse_progress_report(params) {
                         self.handler.set_progress_report(report);
                     }
                 }
-                Some(b"9") => {
-                    if let Some(path) = osc::parse_conemu_working_directory(params) {
-                        self.handler.set_current_directory(path.into());
+                Some(b"9") if params.len() > 2 => {
+                    if let Some(dir) = osc::parse_conemu_working_directory(params) {
+                        self.handler.set_current_directory(dir.map(Into::into));
                     }
                 }
-                Some(body) => {
-                    let body = std::str::from_utf8(body).unwrap_or_default().to_string();
-                    self.handler.desktop_notification(String::new(), body);
+                Some(sub) if params.len() > 2 && osc::is_conemu_subcommand(sub) => {
+                    unhandled(params)
                 }
+                Some(_) => self.handler.desktop_notification(
+                    String::new(),
+                    osc::parse_notification_body(params),
+                ),
                 None => unhandled(params),
             },
 
@@ -1199,24 +1052,47 @@ impl<U: Handler> Perform for Performer<'_, U> {
                 if let Some(mark) = osc::parse_semantic_prompt(params) {
                     self.handler.set_semantic_prompt(mark);
                 }
+                // `A` (fresh line, new prompt) and `N` (new command, which
+                // also starts a prompt) begin a prompt; options arrive as
+                // later params, so the mark must be the whole param.
+                match params.get(1).copied() {
+                    Some(b"A") => self.handler.prompt_start(),
+                    // `N` first terminates a command still open, with no
+                    // status to report, then begins the prompt.
+                    Some(b"N") => {
+                        self.handler.command_end(None);
+                        self.handler.prompt_start();
+                    }
+                    Some(b"C") => self.handler.command_start(),
+                    Some(b"D") => {
+                        let status = osc::parse_exit_status(params.get(2).copied());
+                        self.handler.command_end(status);
+                    }
+                    _ => {}
+                }
             }
 
-            // OSC 7501 - Program Status Protocol (ROOST PATCH R8).
+            // ROOST PATCH R8: preserve Roost's report validation while using upstream query support.
             b"7501" => {
-                if let Some(report) = program_status::parse_program_status(params) {
+                if params.get(1).copied() == Some(b"?") {
+                    match osc::parse_program_status(params, terminator.len()) {
+                        Some(osc::ProgramStatusRequest::Query) => {
+                            self.handler.report_program_status_support(terminator);
+                        }
+                        Some(osc::ProgramStatusRequest::Report(report)) => drop(report),
+                        None => {}
+                    }
+                } else if let Some(report) = program_status::parse_program_status(params) {
                     self.handler.set_program_status(report);
                 }
             }
 
             // OSC 777 - rxvt notification.
             b"777" if params.len() >= 4 && params[1] == b"notify" => {
-                let title = std::str::from_utf8(params[2])
-                    .unwrap_or_default()
-                    .to_string();
-                let body = std::str::from_utf8(params[3])
-                    .unwrap_or_default()
-                    .to_string();
-                self.handler.desktop_notification(title, body);
+                self.handler.desktop_notification(
+                    osc::text_lossy(params[2]).into_owned(),
+                    osc::text_lossy(params[3]).into_owned(),
+                );
             }
 
             // Set or query dynamic colors (foreground/background/cursor).
@@ -1279,7 +1155,7 @@ impl<U: Handler> Perform for Performer<'_, U> {
             b"111" => self.handler.reset_color(NamedColor::Background as usize),
             b"112" => self.handler.reset_color(NamedColor::Cursor as usize),
 
-            // OSC 1337 - iTerm2 user vars and inline image protocol.
+            // ROOST PATCH R9: retain iTerm2 shell variables alongside images.
             b"1337" => {
                 if let Some((name, value)) = osc::parse_set_user_var(params) {
                     self.handler.set_user_var(name, value);
@@ -1288,6 +1164,17 @@ impl<U: Handler> Perform for Performer<'_, U> {
                 {
                     self.handler
                         .insert_graphic(graphic, None, Some(cursor_movement));
+                } else {
+                    let payload = params.get(1).copied().unwrap_or(b"");
+                    let head = &payload[..payload.len().min(32)];
+                    let key = &head
+                        [..head.iter().position(|&b| b == b'=').unwrap_or(head.len())];
+                    if key != b"File" {
+                        debug!(
+                            "unimplemented OSC 1337 command: {}",
+                            String::from_utf8_lossy(key)
+                        );
+                    }
                 }
             }
 
@@ -1395,14 +1282,6 @@ impl<U: Handler> Perform for Performer<'_, U> {
             }
             ('h', [b'?']) => {
                 for param in params_iter.map(|param| param[0]) {
-                    // Handle sync updates opaquely.
-                    if param == NamedPrivateMode::SyncUpdate as u16 {
-                        self.state
-                            .sync_state
-                            .timeout
-                            .set_timeout(SYNC_UPDATE_TIMEOUT);
-                    }
-
                     handler.set_private_mode(PrivateMode::new(param))
                 }
             }
@@ -1466,11 +1345,6 @@ impl<U: Handler> Perform for Performer<'_, U> {
             }
             ('l', [b'?']) => {
                 for param in params_iter.map(|param| param[0]) {
-                    // Handle sync updates opaquely.
-                    if param == NamedPrivateMode::SyncUpdate as u16 {
-                        self.state.sync_state.timeout.clear_timeout();
-                    }
-
                     handler.unset_private_mode(PrivateMode::new(param))
                 }
             }
@@ -1648,9 +1522,11 @@ impl<U: Handler> Perform for Performer<'_, U> {
     /// OSC-style parameter parsing.
     fn apc_start(&mut self) {
         debug!("[apc_start] Beginning APC accumulation");
-        self.state.apc_state.buffer.clear();
+        let apc = &mut self.state.apc_state;
+        super::clear_or_release(&mut apc.buffer, APC_RETAIN_BYTES);
+        apc.overflowed = false;
         // Pre-allocate reasonable size for Kitty graphics chunks (typically 4KB)
-        self.state.apc_state.buffer.reserve(4096);
+        apc.buffer.reserve(4096);
     }
 
     /// Called for each byte in the APC sequence.
@@ -1658,15 +1534,38 @@ impl<U: Handler> Perform for Performer<'_, U> {
     /// We accumulate all bytes here to handle large sequences that exceed Copa's
     /// default OSC buffer size (1024 bytes).
     fn apc_put(&mut self, byte: u8) {
-        self.state.apc_state.buffer.push(byte);
+        self.apc_put_slice(std::slice::from_ref(&byte));
     }
 
     fn apc_put_slice(&mut self, bytes: &[u8]) {
-        self.state.apc_state.buffer.extend_from_slice(bytes);
+        let apc = &mut self.state.apc_state;
+        if apc.overflowed {
+            return;
+        }
+        if apc.buffer.len() + bytes.len() > MAX_APC_BYTES {
+            debug!(
+                "discarding APC sequence over {MAX_APC_BYTES} bytes ({} so far)",
+                apc.buffer.len()
+            );
+            apc.overflowed = true;
+            // Give the memory back rather than keep a multi-megabyte
+            // buffer around for the next 4 KiB chunk.
+            apc.buffer = Vec::new();
+            return;
+        }
+        apc.buffer.extend_from_slice(bytes);
     }
 
     /// Called when the APC sequence ends. Processes the accumulated APC data.
     fn apc_end(&mut self) {
+        if self.state.apc_state.overflowed {
+            // The sequence is dropped and nothing else changes, as in
+            // kitty: an in-flight upload stays where it is and completes
+            // from the chunks that did arrive (a PNG then fails to
+            // decode; raw pixel data comes out short or shifted).
+            self.state.apc_state.overflowed = false;
+            return;
+        }
         debug!(
             "[apc_end] APC complete, accumulated {} bytes",
             self.state.apc_state.buffer.len()
@@ -1765,6 +1664,10 @@ fn attrs_from_sgr_parameters(
     }
 }
 
+/// `DCS 0 + r ST`: xterm's reply to an XTGETTCAP request that names
+/// nothing answerable.
+const XTGETTCAP_INVALID_RESPONSE: &str = "\x1bP0+r\x1b\\";
+
 /// Process XTGETTCAP request and return DCS response.
 /// Multiple capability queries can be separated by `;` in a single request.
 /// Each capability gets its own DCS response (like xterm).
@@ -1805,7 +1708,7 @@ fn process_xtgettcap_request(buffer: &[u8]) -> String {
     }
 
     if response.is_empty() {
-        "\x1bP0+r\x1b\\".to_string()
+        XTGETTCAP_INVALID_RESPONSE.to_string()
     } else {
         response
     }
@@ -2282,11 +2185,27 @@ mod tests {
     #[derive(Default)]
     struct SyncHandler {
         printed: String,
+        synced: bool,
+        sync_changes: usize,
     }
 
     impl Handler for SyncHandler {
         fn input(&mut self, c: char) {
             self.printed.push(c);
+        }
+
+        fn set_private_mode(&mut self, mode: PrivateMode) {
+            if mode == NamedPrivateMode::SyncUpdate.into() {
+                self.synced = true;
+                self.sync_changes += 1;
+            }
+        }
+
+        fn unset_private_mode(&mut self, mode: PrivateMode) {
+            if mode == NamedPrivateMode::SyncUpdate.into() {
+                self.synced = false;
+                self.sync_changes += 1;
+            }
         }
     }
 
@@ -2316,6 +2235,116 @@ mod tests {
         ) -> Option<&mut kitty_graphics_protocol::KittyGraphicsState> {
             Some(&mut self.chunking)
         }
+    }
+
+    /// Records what OSC 9 dispatches to, so the ConEmu-versus-iTerm2
+    /// split can be observed.
+    #[derive(Default)]
+    struct Osc9Handler {
+        notifications: Vec<String>,
+        progress: Vec<crate::event::ProgressReport>,
+        cwd: Vec<Option<std::path::PathBuf>>,
+    }
+
+    impl Handler for Osc9Handler {
+        fn desktop_notification(&mut self, _title: String, body: String) {
+            self.notifications.push(body);
+        }
+
+        fn set_progress_report(&mut self, report: crate::event::ProgressReport) {
+            self.progress.push(report);
+        }
+
+        fn set_current_directory(&mut self, path: Option<std::path::PathBuf>) {
+            self.cwd.push(path);
+        }
+    }
+
+    /// A ConEmu sub-command is one only when a `;` follows it; the ones
+    /// Rio does not implement are dropped rather than shown as a toast.
+    #[test]
+    fn osc9_splits_conemu_from_notifications() {
+        let mut handler = Osc9Handler::default();
+        let mut processor = Processor::default();
+
+        // Implemented ConEmu sub-commands.
+        processor.advance(&mut handler, b"\x1b]9;4;1;50\x07");
+        assert_eq!(handler.progress.len(), 1);
+        processor.advance(&mut handler, b"\x1b]9;9;/tmp/x\x07");
+        assert_eq!(handler.cwd, vec![Some("/tmp/x".into())]);
+
+        // Unimplemented ConEmu sub-commands are not notifications.
+        processor.advance(&mut handler, b"\x1b]9;1;500\x07");
+        processor.advance(&mut handler, b"\x1b]9;3;build\x07");
+        processor.advance(&mut handler, b"\x1b]9;10;1\x07");
+        assert!(handler.notifications.is_empty());
+
+        // Without the `;` the digit is just a one-character body.
+        processor.advance(&mut handler, b"\x1b]9;4\x07");
+        processor.advance(&mut handler, b"\x1b]9;9\x07");
+        // A notification body keeps its own `;`.
+        processor.advance(&mut handler, b"\x1b]9;done; 3 warnings\x07");
+        assert_eq!(handler.notifications, ["4", "9", "done; 3 warnings"]);
+        assert_eq!(handler.progress.len(), 1);
+        assert_eq!(handler.cwd.len(), 1);
+    }
+
+    /// An APC that never ends (or is simply enormous) stops being
+    /// accumulated at the cap, dispatches nothing, and leaves the
+    /// processor able to handle the next sequence.
+    #[test]
+    fn oversized_apc_is_discarded_and_parser_recovers() {
+        let mut handler = KittyReplyHandler::default();
+        let mut processor = Processor::default();
+
+        processor.advance(&mut handler, b"\x1b_Ga=T,f=32,s=1,v=1,i=5;");
+        let filler = vec![b'A'; MAX_APC_BYTES + 1];
+        processor.advance(&mut handler, &filler);
+        assert!(processor.state.apc_state.overflowed);
+        assert!(
+            processor.state.apc_state.buffer.capacity() < MAX_APC_BYTES,
+            "buffer must be released, not kept at the cap"
+        );
+        processor.advance(&mut handler, b"\x1b\\");
+        assert!(
+            handler.replies.is_empty(),
+            "nothing dispatched: {:?}",
+            handler.replies
+        );
+        // A large legitimate APC does not pin its capacity either.
+        processor.advance(&mut handler, b"\x1b_Ga=p,i=98;");
+        processor.advance(&mut handler, &vec![b'A'; 8 * 1024 * 1024]);
+        processor.advance(&mut handler, b"\x1b\\\x1b_Ga=p,i=97\x1b\\");
+        assert!(processor.state.apc_state.buffer.capacity() < APC_RETAIN_BYTES);
+        handler.replies.clear();
+
+        // The next APC is handled normally.
+        processor.advance(&mut handler, b"\x1b_Ga=p,i=99\x1b\\");
+        assert_eq!(handler.replies.len(), 1);
+        assert!(handler.replies[0].contains("ENOENT"));
+    }
+
+    /// An oversized chunk is dropped on its own; the upload it belonged
+    /// to stays in flight, as in kitty, and completes from the chunks
+    /// that did arrive (3 + 3 bytes cover a 1x1 RGBA image, so the raw
+    /// path answers OK; the image is whatever those bytes say).
+    #[test]
+    fn oversized_apc_leaves_in_flight_upload_alone() {
+        let mut handler = KittyReplyHandler::default();
+        let mut processor = Processor::default();
+
+        processor.advance(&mut handler, b"\x1b_Ga=T,f=32,s=1,v=1,i=3,m=1;/wAA\x1b\\");
+        assert!(handler.replies.is_empty());
+        processor.advance(&mut handler, b"\x1b_Gm=1,i=3;");
+        processor.advance(&mut handler, &vec![b'A'; MAX_APC_BYTES + 1]);
+        processor.advance(&mut handler, b"\x1b\\");
+        processor.advance(&mut handler, b"\x1b_Gm=0,i=3;/wAA\x1b\\");
+        assert_eq!(handler.replies.len(), 1, "{:?}", handler.replies);
+        assert!(
+            handler.replies[0].contains("OK"),
+            "{:?}",
+            handler.replies[0]
+        );
     }
 
     /// `a=p` referencing an image the terminal does not hold must answer
@@ -2361,32 +2390,31 @@ mod tests {
     }
 
     #[test]
-    fn sync_update_inline_bsu_esu_disarms_timeout() {
+    fn sync_update_inline_bsu_esu() {
         let mut handler = SyncHandler::default();
         let mut processor = Processor::default();
 
         processor.advance(&mut handler, b"a\x1b[?2026hb\x1b[?2026lc");
 
         assert_eq!(handler.printed, "abc");
-        assert!(processor.sync_timeout().sync_timeout().is_none());
-        assert_eq!(processor.sync_bytes_count(), 0);
+        assert!(!handler.synced);
     }
 
+    /// Bytes inside an update reach the handler immediately; only the mode
+    /// tells the renderer to hold. This includes the rest of the read that
+    /// carried the BSU.
     #[test]
-    fn sync_update_buffers_across_chunks_until_esu() {
+    fn sync_update_applies_bytes_and_holds_until_esu() {
         let mut handler = SyncHandler::default();
         let mut processor = Processor::default();
 
-        processor.advance(&mut handler, b"\x1b[?2026h");
-        assert!(processor.sync_timeout().sync_timeout().is_some());
+        processor.advance(&mut handler, b"a\x1b[?2026hhidden");
+        assert_eq!(handler.printed, "ahidden");
+        assert!(handler.synced);
 
-        processor.advance(&mut handler, b"hidden");
-        assert_eq!(handler.printed, "");
-
-        processor.advance(&mut handler, b"\x1b[?2026l");
-        assert_eq!(handler.printed, "hidden");
-        assert!(processor.sync_timeout().sync_timeout().is_none());
-        assert_eq!(processor.sync_bytes_count(), 0);
+        processor.advance(&mut handler, b"more\x1b[?2026lc");
+        assert_eq!(handler.printed, "ahiddenmorec");
+        assert!(!handler.synced);
     }
 
     /// The legacy iTerm2 DCS form (`DCS = 1 s ST` / `DCS = 2 s ST`) must
@@ -2394,32 +2422,28 @@ mod tests {
     /// capabilities in the wild advertise this form, and tmux brackets
     /// its redraws with whatever the capability says.
     #[test]
-    fn sync_update_dcs_form_inline_disarms_timeout() {
+    fn sync_update_dcs_form_holds_until_esu() {
+        let mut handler = SyncHandler::default();
+        let mut processor = Processor::default();
+
+        processor.advance(&mut handler, b"\x1bP=1s\x1b\\hidden");
+        assert_eq!(handler.printed, "hidden");
+        assert!(handler.synced);
+
+        processor.advance(&mut handler, b"\x1bP=2s\x1b\\");
+        assert!(!handler.synced);
+    }
+
+    #[test]
+    fn sync_update_dcs_form_inline_bsu_esu() {
         let mut handler = SyncHandler::default();
         let mut processor = Processor::default();
 
         processor.advance(&mut handler, b"a\x1bP=1s\x1b\\b\x1bP=2s\x1b\\c");
 
         assert_eq!(handler.printed, "abc");
-        assert!(processor.sync_timeout().sync_timeout().is_none());
-        assert_eq!(processor.sync_bytes_count(), 0);
-    }
-
-    #[test]
-    fn sync_update_dcs_form_buffers_across_chunks_until_esu() {
-        let mut handler = SyncHandler::default();
-        let mut processor = Processor::default();
-
-        processor.advance(&mut handler, b"\x1bP=1s\x1b\\");
-        assert!(processor.sync_timeout().sync_timeout().is_some());
-
-        processor.advance(&mut handler, b"hidden");
-        assert_eq!(handler.printed, "");
-
-        processor.advance(&mut handler, b"\x1bP=2s\x1b\\");
-        assert_eq!(handler.printed, "hidden");
-        assert!(processor.sync_timeout().sync_timeout().is_none());
-        assert_eq!(processor.sync_bytes_count(), 0);
+        assert!(!handler.synced);
+        assert_eq!(handler.sync_changes, 2);
     }
 
     /// A DCS end may terminate a CSI-started update and the other way
@@ -2429,88 +2453,50 @@ mod tests {
         let mut handler = SyncHandler::default();
         let mut processor = Processor::default();
 
-        processor.advance(&mut handler, b"\x1b[?2026h");
-        processor.advance(&mut handler, b"one");
-        processor.advance(&mut handler, b"\x1bP=2s\x1b\\");
-        assert_eq!(handler.printed, "one");
+        processor.advance(&mut handler, b"\x1b[?2026hone\x1bP=2s\x1b\\");
+        assert!(!handler.synced);
 
-        processor.advance(&mut handler, b"\x1bP=1s\x1b\\");
-        processor.advance(&mut handler, b"two");
-        assert_eq!(handler.printed, "one");
-        processor.advance(&mut handler, b"\x1b[?2026l");
+        processor.advance(&mut handler, b"\x1bP=1s\x1b\\two\x1b[?2026l");
+        assert!(!handler.synced);
         assert_eq!(handler.printed, "onetwo");
-        assert!(processor.sync_timeout().sync_timeout().is_none());
     }
 
-    /// A DCS sync marker split across reads must still be recognized
-    /// once complete (the scanner re-examines the lookback window).
+    /// A sync marker split across reads is recognized once complete.
     #[test]
-    fn sync_update_dcs_form_split_across_chunks() {
+    fn sync_update_marker_split_across_chunks() {
         let mut handler = SyncHandler::default();
         let mut processor = Processor::default();
 
-        processor.advance(&mut handler, b"\x1bP=1s\x1b\\");
-        processor.advance(&mut handler, b"hidden\x1bP=2");
-        assert_eq!(handler.printed, "");
+        processor.advance(&mut handler, b"\x1b[?20");
+        assert!(!handler.synced);
+        processor.advance(&mut handler, b"26hx\x1bP=2");
+        assert!(handler.synced);
         processor.advance(&mut handler, b"s\x1b\\after");
-        assert_eq!(handler.printed, "hiddenafter");
-        assert!(processor.sync_timeout().sync_timeout().is_none());
+        assert!(!handler.synced);
+        assert_eq!(handler.printed, "xafter");
     }
 
     #[test]
-    fn sync_update_stop_sync_flushes_pending_bytes() {
-        let mut handler = SyncHandler::default();
-        let mut processor = Processor::default();
+    fn exit_status_parsing() {
+        use crate::performer::osc::parse_exit_status as parse;
 
-        processor.advance(&mut handler, b"\x1b[?2026h");
-        processor.advance(&mut handler, b"pending");
-        assert_eq!(handler.printed, "");
-
-        processor.stop_sync(&mut handler);
-        assert_eq!(handler.printed, "pending");
-        assert!(processor.sync_timeout().sync_timeout().is_none());
-        assert_eq!(processor.sync_bytes_count(), 0);
-    }
-
-    /// Embedders without an event loop never poll `sync_timeout()`; an
-    /// expired deadline must flush on the next `advance` call instead of
-    /// buffering until `SYNC_BUFFER_SIZE`.
-    #[test]
-    fn sync_update_expired_deadline_flushes_on_next_advance() {
-        let mut handler = SyncHandler::default();
-        let mut processor = Processor::default();
-
-        processor.advance(&mut handler, b"\x1b[?2026h");
-        processor.advance(&mut handler, b"hidden");
-        assert_eq!(handler.printed, "");
-
-        // Simulate the deadline passing without an ESU arriving.
-        processor.state.sync_state.timeout.timeout = Some(
-            Instant::now()
-                .checked_sub(Duration::from_millis(1))
-                .unwrap_or_else(Instant::now),
-        );
-
-        processor.advance(&mut handler, b" visible");
-        assert_eq!(handler.printed, "hidden visible");
-        assert!(processor.sync_timeout().sync_timeout().is_none());
-        assert_eq!(processor.sync_bytes_count(), 0);
-    }
-
-    #[test]
-    fn sync_update_new_bsu_in_replayed_buffer_stays_armed() {
-        let mut handler = SyncHandler::default();
-        let mut processor = Processor::default();
-
-        processor.advance(&mut handler, b"\x1b[?2026h");
-        processor.advance(&mut handler, b"\x1b[?2026l\x1b[?2026htwo");
-        assert_eq!(handler.printed, "");
-        assert!(processor.sync_timeout().sync_timeout().is_some());
-
-        processor.advance(&mut handler, b"\x1b[?2026l");
-        assert_eq!(handler.printed, "two");
-        assert!(processor.sync_timeout().sync_timeout().is_none());
-        assert_eq!(processor.sync_bytes_count(), 0);
+        assert_eq!(parse(Some(b"0")), Some(0));
+        assert_eq!(parse(Some(b"127")), Some(127));
+        assert_eq!(parse(Some(b"256")), Some(256));
+        assert_eq!(parse(Some(b"-1")), Some(-1));
+        assert_eq!(parse(Some(b"+1")), Some(1));
+        assert_eq!(parse(Some(b"-0")), Some(0));
+        // Too large for the type: saturates rather than vanishing.
+        assert_eq!(parse(Some(b"99999999999999999999999")), Some(i32::MAX));
+        assert_eq!(parse(Some(b"-99999999999999999999999")), Some(i32::MIN));
+        // No status sent, or the first option is not one.
+        assert_eq!(parse(None), None);
+        assert_eq!(parse(Some(b"")), None);
+        assert_eq!(parse(Some(b"aid=1")), None);
+        assert_eq!(parse(Some(b"1_0")), None);
+        assert_eq!(parse(Some(b"+")), None);
+        assert_eq!(parse(Some(b"-")), None);
+        assert_eq!(parse(Some(b"\xff")), None);
     }
 
     #[test]
@@ -2542,22 +2528,6 @@ mod tests {
     }
 
     #[test]
-    fn set_user_var_parsing() {
-        use crate::performer::osc::parse_set_user_var as parse;
-
-        // "hello" in base64.
-        assert_eq!(
-            parse(&[b"1337", b"SetUserVar=foo=aGVsbG8="]),
-            Some(("foo".to_string(), "hello".to_string()))
-        );
-        assert_eq!(parse(&[b"1337", b"SetUserVar=foo"]), None);
-        assert_eq!(parse(&[b"1337", b"SetUserVar==aGVsbG8="]), None);
-        assert_eq!(parse(&[b"1337", b"SetUserVar=foo=!!!"]), None);
-        assert_eq!(parse(&[b"1337", b"File=inline=1"]), None);
-        assert_eq!(parse(&[b"1337"]), None);
-    }
-
-    #[test]
     fn test_hex_encoding() {
         assert_eq!(encode_hex_string("TN"), "544E");
         assert_eq!(encode_hex_string("Co"), "436F");
@@ -2569,6 +2539,50 @@ mod tests {
         assert_eq!(decode_hex_string(b"544E").unwrap(), "TN");
         assert_eq!(decode_hex_string(b"436F").unwrap(), "Co");
         assert_eq!(decode_hex_string(b"524742").unwrap(), "RGB");
+    }
+
+    #[derive(Default)]
+    struct XtgettcapHandler {
+        responses: Vec<String>,
+    }
+
+    impl Handler for XtgettcapHandler {
+        fn xtgettcap_response(&mut self, response: String) {
+            self.responses.push(response);
+        }
+    }
+
+    /// A request over the cap gets no reply, its buffer is released,
+    /// and the next request is served normally.
+    #[test]
+    fn oversized_xtgettcap_request_gets_no_reply() {
+        let mut handler = XtgettcapHandler::default();
+        let mut processor = Processor::default();
+
+        processor.advance(&mut handler, b"\x1bP+q");
+        processor.advance(&mut handler, &vec![b'5'; MAX_XTGETTCAP_BYTES + 1]);
+        assert!(processor.state.xtgettcap_state.overflowed);
+        assert_eq!(processor.state.xtgettcap_state.buffer.capacity(), 0);
+        processor.advance(&mut handler, b"\x1b\\");
+        assert!(handler.responses.is_empty(), "{:?}", handler.responses);
+
+        processor.advance(&mut handler, b"\x1bP+q544E\x1b\\");
+        assert_eq!(handler.responses.len(), 1);
+        assert!(handler.responses[0].starts_with("\x1bP1+r544E="));
+
+        // A request of exactly the cap is still answered.
+        processor.advance(&mut handler, b"\x1bP+q");
+        processor.advance(&mut handler, &vec![b'5'; MAX_XTGETTCAP_BYTES]);
+        assert!(!processor.state.xtgettcap_state.overflowed);
+        processor.advance(&mut handler, b"\x1b\\");
+        assert_eq!(handler.responses.len(), 2);
+        assert!(handler.responses[1].starts_with("\x1bP0+r"));
+        // The buffer it grew is not pinned for the session, while a
+        // small request keeps its allocation for the next one.
+        assert_eq!(processor.state.xtgettcap_state.buffer.capacity(), 0);
+        processor.advance(&mut handler, b"\x1bP+q544E\x1b\\");
+        let small = processor.state.xtgettcap_state.buffer.capacity();
+        assert!(small > 0 && small <= XTGETTCAP_RETAIN_BYTES);
     }
 
     #[test]

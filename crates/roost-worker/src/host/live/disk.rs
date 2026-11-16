@@ -11,23 +11,25 @@ use sysinfo::Disks;
 /// The root volume, read through a persistent disk list.
 #[derive(Debug)]
 pub(super) struct RootDisk {
-    disks: Disks,
+    disks: Option<Disks>,
     root: PathBuf,
 }
 
 impl RootDisk {
     pub(super) fn new() -> Self {
         Self {
-            disks: Disks::new_with_refreshed_list(),
+            disks: Disks::new_with_refreshed_list().ok(),
             root: root_mount(),
         }
     }
 
     /// (used, total) bytes of the root volume, zeros when it is not listed.
     pub(super) fn sample(&mut self) -> (u64, u64) {
-        self.disks.refresh(true);
-        self.disks
-            .list()
+        let Some(disks) = self.disks.as_mut() else {
+            return (0, 0);
+        };
+        disks.refresh(true);
+        disks
             .iter()
             .find(|disk| disk.mount_point() == self.root.as_path())
             .map_or((0, 0), |disk| {

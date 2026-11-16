@@ -17,7 +17,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       # Cold Rust/test/wasm builds need disk, not the preinstalled mobile/.NET SDKs.
       - name: Reclaim Linux runner disk
         if: runner.os == 'Linux'
@@ -91,7 +91,7 @@ jobs:
           --health-retries 30
           --shm-size 1g
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: rust-gates
@@ -116,7 +116,7 @@ jobs:
     steps:
       - name: keep LF line endings (generated suite.rs is byte-compared)
         run: git config --global core.autocrlf false
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: rust-gates

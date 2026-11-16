@@ -48,7 +48,9 @@ pub fn descendant_pids(root: u32, tool_path: &str) -> Vec<u32> {
 pub fn descendant_pids(root: u32, _tool_path: &str) -> Vec<u32> {
     use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
 
-    let mut system = System::new();
+    let Ok(mut system) = System::new() else {
+        return vec![root];
+    };
     system.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
     let edges = system.processes().values().map(|process| {
         (

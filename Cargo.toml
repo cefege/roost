@@ -14,7 +14,7 @@ exclude = ["third_party"]
 [workspace.package]
 version = "3.0.0"
 edition = "2024"
-rust-version = "1.98"
+rust-version = "1.100"
 license = "GPL-3.0-only"
 repository = "https://github.com/cefege/roost"
 
@@ -44,36 +44,34 @@ roost-vcs = { path = "crates/roost-vcs" }
 connectrpc = { version = "0.9.1", default-features = false, features = ["json", "gzip"] }
 
 # Runtime and transport.
-tokio = { version = "1.53.1", default-features = false }
+tokio = { version = "1.54.1", default-features = false }
 axum = { version = "0.8.9", default-features = false }
 connectrpc-build = "0.9.0"
 buffa = "0.9.2"
 sqlx = { version = "0.9.0", default-features = false }
 tokio-tungstenite = { version = "0.30.0", default-features = false }
 reqwest = { version = "0.13.5", default-features = false }
-rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 # The roots a worker trusts when it dials an `https` coordinator, compiled in
-# so a Mac, any Linux and a service manager with no CA bundle all agree.
-webpki-roots = "1.0.9"
-web-push = "0.11.0"
-# web-push reaches OpenSSL through `ece` and through isahc's curl. `vendored`
-# compiles it into the binary: a release linked against the build host's
-# libssl starts only where that soname exists, which excludes Debian 11's
-# OpenSSL 1.1 and any Mac without the Homebrew prefix the macOS runner linked.
-openssl = { version = "0.10.81", features = ["vendored"] }
+# so a platform trust-store change cannot alter the worker's coordinator trust.
+webpki-roots = "1.0.12"
+web-push = { version = "0.11.0", default-features = false }
+# Web Push encryption uses OpenSSL. Vendor it so release binaries do not need
+# the build host's libssl on the fleet machine.
+openssl = { version = "0.10.82", features = ["vendored"] }
 # Streaming gzip for the backup writer. `flate2` is the simpler choice and
 # this is the boring one, but the backup reads a database file that can be
 # gigabytes and the whole point of the streaming shape is that a backup never
 # holds the file in memory. `async-compression` gives an async stream over
 # tokio `File`, so the writer is one pipeline and no `spawn_blocking`.
-async-compression = { version = "0.4.30", features = ["tokio", "gzip"] }
+async-compression = { version = "0.4.52", default-features = false, features = ["gzip", "tokio"] }
 portable-pty = "0.9.0"
-# Patched: see third_party/rio_vt/ROOST-PATCHES.md (R1–R7). `graphics` decodes
+# Patched: see third_party/rio_vt/ROOST-PATCHES.md (R1–R9). `graphics` decodes
 # PNG kitty payloads and iTerm2 images; the default `pty` feature is rio's own
 # PTY driver, which Roost does not use.
-rio-vt = { version = "=0.5.28", default-features = false, features = ["graphics"] }
-rio-graphics = "=0.5.28"
-str0m = "0.23.1"
+rio-vt = { version = "=0.5.32", default-features = false, features = ["graphics"] }
+rio-graphics = "=0.5.32"
+str0m = "0.25.0"
 # PNG encoding for terminal graphics fetched independently from cell frames.
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 # The pairing QR: the CLI draws the matrix itself in half blocks and the web
@@ -81,7 +79,6 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png"]
 qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
 # Test-only decoder that proves a rendered pairing QR reads back as its link.
 rqrr = { version = "0.11.0", default-features = false }
-idb = "0.6.5"
 regex = "1.13.1"
 unicode-segmentation = "1.13.3"
 # WHATWG URL parsing for terminal link targets: the web terminal classifies
@@ -94,7 +91,7 @@ chromiumoxide = { version = "0.9.1", default-features = false }
 # Crypto and encoding.
 ed25519-dalek = "3.0.0"
 base64 = "0.23.1"
-sha2 = "0.11.0"
+sha2 = "0.11.1"
 hex = "0.4.3"
 # The proxy CIDRs a coordinator behind a load balancer believes
 # `X-Forwarded-For` from: parsed once in roost-host, matched in roost-coord.
@@ -103,12 +100,12 @@ ipnet = "2.12.2"
 # is the only place in the workspace that verifies one. `sha2` is the digest the
 # RSA signature is computed over; nothing else is needed, so the rest of the
 # crate's features stay off.
-rsa = { version = "0.9.10", default-features = false, features = ["sha2"] }
+rsa = { version = "0.10.0", default-features = false, features = ["pkcs1v15"] }
 
 # Serialization.
-libc = "0.2.177"
+libc = "0.2.191"
 serde = { version = "1.0.229", features = ["derive", "rc"] }
-serde_json = { version = "1.0.151", features = ["preserve_order"] }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
 
 # Observability.
 tracing = "0.1.44"
@@ -123,10 +120,10 @@ thiserror = "2.0.21"
 anyhow = "1.0.104"
 
 # Browser.
-wasm-bindgen = "=0.2.127"
-wasm-bindgen-futures = "=0.4.77"
-js-sys = "=0.3.104"
-web-sys = "=0.3.104"
+wasm-bindgen = "=0.2.130"
+wasm-bindgen-futures = "=0.4.80"
+js-sys = "=0.3.107"
+web-sys = "=0.3.107"
 dioxus = "=0.8.0-alpha.3"
 # rust-ui (rust-ui.com): `tw_merge` resolves conflicting Tailwind classes in a
 # component's class recipe, `icons` supplies the Lucide path data `ui::Icon` draws.
@@ -136,12 +133,12 @@ icons = { version = "0.19.0", default-features = false }
 # Shared plumbing.
 futures = "0.3.34"
 futures-util = "0.3.34"
-tokio-util = { version = "0.7.19", default-features = false }
-async-trait = "0.1.89"
+tokio-util = { version = "0.7.20", default-features = false }
+async-trait = "0.1.92"
 
 # Windows host: memory, CPU, disk, network and process facts that Linux reads
 # from /proc and macOS from sysctl/ps.
-sysinfo = { version = "0.37", default-features = false, features = ["system", "disk", "network"] }
+sysinfo = { version = "0.40.4", default-features = false, features = ["system", "disk", "network"] }
 # The keeper's AF_UNIX transport on Windows (std's is unix-only), and the Win32
 # FFI the keeper alone may call: console control, Job Objects, named pipes.
 uds_windows = "1.2.1"
@@ -150,8 +147,7 @@ windows-sys = "0.61"
 getrandom = "0.4"
 
 tempfile = "3.27.0"
-reflink-copy = "0.1.30"
-async-stream = "0.3.6"
+reflink-copy = "0.1.33"
 
 # xtask only.
 cargo_metadata = "0.23.1"

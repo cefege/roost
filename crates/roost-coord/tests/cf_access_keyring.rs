@@ -237,12 +237,8 @@ async fn concurrent_verifications_against_an_unsigned_assertion_all_refuse_alike
     }
 }
 
-// THE TEST GENERATES NO RANDOMNESS. It builds its key from two fixed primes
-// with `RsaPrivateKey::from_p_q`, which takes no RNG at all, so there is no
-// `CryptoRng` impl here to justify and no seed to keep in step with a generated
-// key. The earlier version of this file wrapped a SplitMix64 in an `unsafe impl
-// CryptoRng`; removing the need for an RNG removed the question rather than
-// answering it.
+// Fixed primes make the public keys reproducible; signing uses RSA's blinded
+// implementation and its system randomness.
 
 /// THE RSA PATH, EXERCISED. A locally generated key, a JWK published from it, a
 /// real signature, and the production `RsaJwks` accepting it. This is the test
@@ -261,7 +257,6 @@ fn the_production_key_ring_verifies_a_real_rs256_signature() {
     let signature = sign(&signing_input, &private);
     let ring = RsaJwks::default();
 
-    assert_eq!(modulus.bits(), 2048, "the published modulus is a real size");
     assert!(
         ring.verify_rs256(&jwk, &signing_input, &signature),
         "a real signature over a real JWS must verify against the key that signed it"

@@ -11,7 +11,8 @@
 use rsa::pkcs1v15::{Signature, SigningKey};
 use rsa::sha2::Sha256;
 use rsa::signature::{SignatureEncoding, Signer};
-use rsa::{BigUint, RsaPrivateKey};
+use rsa::traits::PublicKeyParts;
+use rsa::{BoxedUint, PrivateKey};
 
 use super::KEY_ID;
 /// Two fixed 1024-bit primes, so the key is byte-identical on every run and the
@@ -38,31 +39,25 @@ pub const PRIME_Q_ALT: &str = "1665782618278674767772811502591140253008864707216
 778812394232891121945075144845356715714440266914865918449073954075459868160241";
 const PUBLIC_EXPONENT: u32 = 65537;
 
-/// A key built from two known primes, plus the modulus and exponent its JWK
-/// publishes. `RsaPublicKey`'s `n` and `e` are PRIVATE with no accessor, so a
-/// JWK cannot be read back out of a key; `RsaPrivateKey::from_p_q` computes
-/// `n = p*q` itself, which is how to KNOW the modulus. `rsa-0.9.10/src/key.rs:287`.
-pub fn test_key(p_decimal: &str, q_decimal: &str) -> (RsaPrivateKey, BigUint, BigUint) {
+/// A key built from two known primes, plus the modulus and exponent its JWK publishes.
+pub fn test_key(p_decimal: &str, q_decimal: &str) -> (PrivateKey, BoxedUint, BoxedUint) {
     let p = big_uint(p_decimal);
     let q = big_uint(q_decimal);
-    let exponent = BigUint::from(PUBLIC_EXPONENT);
-    let private =
-        RsaPrivateKey::from_p_q(p.clone(), q.clone(), exponent.clone()).expect("a valid key pair");
-    (private, p * q, exponent)
+    let exponent = BoxedUint::from(PUBLIC_EXPONENT);
+    let private = PrivateKey::from_p_q(p, q, exponent.clone()).expect("a valid key pair");
+    let modulus = private.n().as_ref().clone();
+    (private, modulus, exponent)
 }
 
 /// The key every RSA test in this file signs with.
-pub fn the_test_key() -> (RsaPrivateKey, BigUint, BigUint) {
+pub fn the_test_key() -> (PrivateKey, BoxedUint, BoxedUint) {
     test_key(PRIME_P, PRIME_Q)
 }
 
-/// A decimal constant as a `BigUint`. `parse_bytes` is the INHERENT constructor;
-/// `from_str_radix` is a `num_traits::Num` method and this crate does not depend
-/// on `num-traits`, so that name resolves to nothing here. A `None` is not a
-/// runtime condition: the input is a constant in this file.
-pub fn big_uint(decimal: &str) -> BigUint {
-    BigUint::parse_bytes(decimal.as_bytes(), 10)
-        .unwrap_or_else(|| panic!("PRIME_P/PRIME_Q must be decimal digits: {decimal}"))
+/// Parse a fixed decimal prime.
+pub fn big_uint(decimal: &str) -> BoxedUint {
+    BoxedUint::from_str_radix_vartime(decimal, 10)
+        .unwrap_or_else(|_| panic!("PRIME_P/PRIME_Q must be decimal digits: {decimal}"))
 }
 
 /// The JWK -- the single key object, NOT the `{"keys":[...]}` document.
@@ -72,14 +67,14 @@ pub fn big_uint(decimal: &str) -> BigUint {
 /// document, `key.get("n")` reads `None` and every verification refuses -- so a
 /// "must not verify" near-miss assertion passes for a reason that has nothing
 /// to do with the near-miss it is about, and only a "must verify" row can tell.
-pub fn jwk_for(modulus: &BigUint, exponent: &BigUint) -> String {
-    let n = roost_host::b64url_encode(&modulus.to_bytes_be());
-    let e = roost_host::b64url_encode(&exponent.to_bytes_be());
+pub fn jwk_for(modulus: &BoxedUint, exponent: &BoxedUint) -> String {
+    let n = roost_host::b64url_encode(&modulus.to_be_bytes_trimmed_vartime());
+    let e = roost_host::b64url_encode(&exponent.to_be_bytes_trimmed_vartime());
     format!(r#"{{"kty":"RSA","alg":"RS256","use":"sig","kid":"{KEY_ID}","n":"{n}","e":"{e}"}}"#)
 }
 
 /// A real RS256 signature over a real `header.payload`.
-pub fn sign(signing_input: &str, private: &RsaPrivateKey) -> Vec<u8> {
+pub fn sign(signing_input: &str, private: &PrivateKey) -> Vec<u8> {
     let signature: Signature =
         SigningKey::<Sha256>::new(private.clone()).sign(signing_input.as_bytes());
     signature.to_vec()

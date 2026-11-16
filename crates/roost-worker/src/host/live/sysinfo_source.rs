@@ -12,26 +12,34 @@ use super::{HostReading, LiveProcessSample};
 /// The sysinfo-backed host reader. Holds the `System` so its CPU history survives between samples.
 #[derive(Debug)]
 pub(super) struct SysinfoSource {
-    system: System,
+    system: Option<System>,
 }
 
 impl SysinfoSource {
     pub(super) fn new() -> Self {
         Self {
-            system: System::new(),
+            system: System::new().ok(),
         }
     }
 
     pub(super) fn sample(&mut self) -> HostReading {
-        self.system.refresh_cpu_usage();
-        self.system.refresh_memory();
-        self.system.refresh_processes_specifics(
+        let Some(system) = self.system.as_mut() else {
+            return HostReading {
+                cpu_pct: 0.0,
+                mem_total_bytes: 0,
+                mem_available_bytes: 0,
+                uptime_secs: System::uptime().unwrap_or(0),
+                processes: Vec::new(),
+            };
+        };
+        system.refresh_cpu_usage();
+        system.refresh_memory();
+        system.refresh_processes_specifics(
             ProcessesToUpdate::All,
             true,
             ProcessRefreshKind::nothing().with_cpu().with_memory(),
         );
-        let processes = self
-            .system
+        let processes = system
             .processes()
             .values()
             .map(|process| {
@@ -45,10 +53,10 @@ impl SysinfoSource {
             })
             .collect();
         HostReading {
-            cpu_pct: finite_pct(self.system.global_cpu_usage()),
-            mem_total_bytes: self.system.total_memory(),
-            mem_available_bytes: self.system.available_memory(),
-            uptime_secs: System::uptime(),
+            cpu_pct: finite_pct(system.global_cpu_usage()),
+            mem_total_bytes: system.total_memory(),
+            mem_available_bytes: system.available_memory(),
+            uptime_secs: System::uptime().unwrap_or(0),
             processes,
         }
     }

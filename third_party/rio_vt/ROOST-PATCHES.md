@@ -1,7 +1,7 @@
-# ROOST-PATCHES — vendored `rio-vt` 0.5.28
+# ROOST-PATCHES — vendored `rio-vt` 0.5.32
 
-crates.io `rio-vt` 0.5.28 (MIT, github.com/raphamorim/rio), the terminal core
-behind `roost-term`. Unmodified except as listed below (R1–R7). Wired in through
+crates.io `rio-vt` 0.5.32 (MIT, github.com/raphamorim/rio), the terminal core
+behind `roost-term`. Unmodified except as listed below (R1–R9). Wired in through
 `[patch.crates-io]` in the workspace `Cargo.toml`; outside the workspace, so
 its suite runs by manifest path:
 
@@ -9,7 +9,7 @@ its suite runs by manifest path:
 cargo test --manifest-path third_party/rio_vt/Cargo.toml --no-default-features --features graphics
 ```
 
-**The upstream suite (554 unit tests) runs unmodified and must stay green.**
+**The upstream suite runs unmodified and must stay green.**
 The `tests/roost_*.rs` targets are the guards on the patches below,
 registered as `[[test]]` entries because the published manifest sets
 `autotests = false`. `rustfmt.toml` is upstream rio's, verbatim; the crates.io
@@ -156,19 +156,29 @@ std's validator reports the maximal subpart, 1) runs only with the feature.
 Guard: `tests/roost_scalar_base64.rs`, and the suite runs both ways, `--no-default-features --features graphics`
 (what Roost builds) and `--features graphics,simdutf`.
 
-## R8 — OSC 7501 Program Status is parsed and handed to the listener
+## R8 — OSC 7501 Program Status compatibility
 
-`src/performer/program_status.rs` (new) parses `ESC ] 7501 ; <pairs>` per the
-Program Status Protocol spec; `src/performer/handler.rs` gains a `b"7501"` arm
-in `osc_dispatch` and a default `set_program_status`; `src/crosswords/mod.rs`
-sends the validated report as `RioEvent::ProgramStatus`; `src/event/mod.rs`
-holds `ProgramStatusReport`, `ProgramStatusState`, `ProgramStatusKind` and the
-event variant. Upstream has no OSC length cap, so the whole-sequence cap is
-enforced in the parser before any field is decoded. Record retention, the
-record cap and lifetime rules live in `roost-protocol`, not here; the parser
-only validates and normalises a single report (kind only with `blocked`,
-progress only with `working` and `blocked`).
+`src/performer/program_status.rs` keeps Roost's validated report parser;
+`src/performer/handler.rs` dispatches reports through it and feature queries
+through upstream's opt-in support. Rio 0.5.32 supplies the typed report and
+lifecycle events, but its report parser differs in terminator length accounting,
+duplicate and invalid fields, and app validation. Roost retains its existing
+whole-sequence limit and validation until those semantics match. Record retention
+and lifetime belong to `roost-protocol`.
 
-Over-cap, bad-base64, or non-UTF-8 `title` or `msg`, and a control character in either, discard the whole report; a malformed pair alone is skipped. `src/crosswords/mod.rs` `reset_state` (RIS, `ESC c`) sends a root `Clear` report at its end; DECSTR (`CSI ! p`) has no handler in this crate and sends nothing.
+`Crosswords::enable_roost_program_status` opts into upstream events and ensures
+RIS always emits `Reset`, even before a report. Roost translates it to a root
+clear; DECSTR does not clear records. The worker's existing query lane retains
+its exact response and reply ordering.
 
-Guard: `tests/roost_program_status.rs`.
+Guard: `tests/roost_program_status.rs`, `roost-term/tests/terminal_signals.rs`
+and the worker's query-reply tests.
+
+## R9 — retain OSC 1337 shell variables
+
+Rio 0.5.32 removed OSC 1337 `SetUserVar` parsing and storage. Roost consumes
+the variables as terminal metadata, so `src/performer/osc.rs` retains the
+parser, `src/performer/handler.rs` dispatches it before inline images, and
+`src/crosswords/mod.rs` retains the variable map and handler.
+
+Guard: `crates/roost-term/tests/terminal_signals.rs`.

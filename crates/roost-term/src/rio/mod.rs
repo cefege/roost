@@ -1,4 +1,4 @@
-//! `rio-vt` (vendored with patches R1–R6, `third_party/rio_vt`) behind the
+//! `rio-vt` (vendored with patches R1–R9, `third_party/rio_vt`) behind the
 //! [`TerminalCore`] trait.
 //!
 //! The adapter owns one `Crosswords` and the `Processor` that drives it: the
@@ -10,10 +10,9 @@
 //! The listener ([`listener::RioListener`]) queues replies, clipboard stores,
 //! bells, dropped CSI and decoded images for the core to drain. A replay
 //! `write` empties the first four. Synchronized updates (`CSI ? 2026 h`) are
-//! parsed through: rio's processor buffers the block, and `parse` ends every
-//! buffered update at once, because the worker withholds FRAMES during one
-//! (`crates/roost-worker/src/session/sync_output.rs`) and a probe inside the
-//! block must be answered in stream order.
+//! applied immediately, so probes inside a block are answered in stream order;
+//! the worker withholds frames until its hold closes or expires
+//! (`crates/roost-worker/src/session/sync_output.rs`).
 
 pub(crate) mod cell;
 mod image_crop;
@@ -91,6 +90,7 @@ impl RioCore {
         // Roost's wire and every client lay cells out by wcwidth; mode 2027
         // clustering would put a multi-codepoint emoji in one narrow cell.
         term.set_grapheme_clustering(false);
+        term.enable_roost_program_status();
         Self {
             term,
             processor: Processor::default(),
@@ -322,12 +322,8 @@ impl RioCore {
         self.snapshot_damage();
     }
 
-    /// Parse `bytes`, ending any synchronized update they opened.
     fn advance(&mut self, bytes: &[u8]) {
         self.processor.advance(&mut self.term, bytes);
-        if self.processor.sync_bytes_count() > 0 {
-            self.processor.stop_sync(&mut self.term);
-        }
     }
 
     /// Read rio's damage once and keep the line numbers.

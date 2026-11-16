@@ -128,7 +128,7 @@ impl WriteGate {
         let _ = self
             .inner
             .shared
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
                 Some(count.saturating_sub(1))
             });
     }

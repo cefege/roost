@@ -7,7 +7,8 @@
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use rio_vt::event::{
-    ProgramStatusKind, ProgramStatusReport, ProgramStatusState, ProgressReport, ProgressState,
+    BlockedKind as RioBlockedKind, ProgramState as RioProgramState,
+    ProgramStatus as RioProgramStatus, ProgressReport, ProgressState,
 };
 
 use crate::signals::{
@@ -77,7 +78,7 @@ impl SignalQueue {
         });
     }
 
-    pub(super) fn record_program_status(&self, report: ProgramStatusReport) {
+    pub(super) fn record_program_status(&self, report: RioProgramStatus) {
         let update = match program_state(report.state) {
             None => ProgramStatusUpdate::Clear { id: report.id },
             Some(state) => ProgramStatusUpdate::Set(ProgramStatusRecord {
@@ -91,6 +92,12 @@ impl SignalQueue {
             }),
         };
         self.lock().program_status.push(update);
+    }
+
+    pub(super) fn record_program_status_reset(&self) {
+        self.lock()
+            .program_status
+            .push(ProgramStatusUpdate::Clear { id: None });
     }
 
     /// OSC 133 `A`, or the program's exit: a live program's working and
@@ -113,22 +120,22 @@ fn is_conemu_subcommand(body: &str) -> bool {
 }
 
 /// The protocol state a report names; `None` for `clear`, which removes records.
-fn program_state(state: ProgramStatusState) -> Option<ProgramState> {
+fn program_state(state: RioProgramState) -> Option<ProgramState> {
     Some(match state {
-        ProgramStatusState::Idle => ProgramState::Idle,
-        ProgramStatusState::Working => ProgramState::Working,
-        ProgramStatusState::Done => ProgramState::Done,
-        ProgramStatusState::Blocked => ProgramState::Blocked,
-        ProgramStatusState::Error => ProgramState::Error,
-        ProgramStatusState::Clear => return None,
+        RioProgramState::Idle => ProgramState::Idle,
+        RioProgramState::Working => ProgramState::Working,
+        RioProgramState::Done => ProgramState::Done,
+        RioProgramState::Blocked => ProgramState::Blocked,
+        RioProgramState::Error => ProgramState::Error,
+        RioProgramState::Clear => return None,
     })
 }
 
-fn program_kind(kind: ProgramStatusKind) -> ProgramKind {
+fn program_kind(kind: RioBlockedKind) -> ProgramKind {
     match kind {
-        ProgramStatusKind::Permission => ProgramKind::Permission,
-        ProgramStatusKind::Question => ProgramKind::Question,
-        ProgramStatusKind::Auth => ProgramKind::Auth,
+        RioBlockedKind::Permission => ProgramKind::Permission,
+        RioBlockedKind::Question => ProgramKind::Question,
+        RioBlockedKind::Auth => ProgramKind::Auth,
     }
 }
 

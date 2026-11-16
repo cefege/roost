@@ -8,23 +8,29 @@ use std::rc::Rc;
 use rio_vt::ansi::CursorShape;
 use rio_vt::crosswords::{Crosswords, CrosswordsSize};
 use rio_vt::event::{
-    EventListener, ProgramStatusKind, ProgramStatusReport, ProgramStatusState, RioEvent,
+    BlockedKind, EventListener, ProgramState, ProgramStatus, ProgramStatusEvent, RioEvent,
     WindowId,
 };
 use rio_vt::performer::handler::Processor;
 
 #[derive(Clone, Default)]
-struct Recorder(Rc<RefCell<Vec<ProgramStatusReport>>>);
+struct Recorder(Rc<RefCell<Vec<ProgramStatus>>>);
 
 impl EventListener for Recorder {
     fn send_event(&self, event: RioEvent, _id: WindowId) {
-        if let RioEvent::ProgramStatus(report) = event {
-            self.0.borrow_mut().push(report);
+        match event {
+            RioEvent::ProgramStatus(ProgramStatusEvent::Report(report)) => {
+                self.0.borrow_mut().push(report);
+            }
+            RioEvent::ProgramStatus(ProgramStatusEvent::Reset) => {
+                self.0.borrow_mut().push(bare(ProgramState::Clear));
+            }
+            _ => {}
         }
     }
 }
 
-fn reports_for(bytes: &[u8]) -> Vec<ProgramStatusReport> {
+fn reports_for(bytes: &[u8]) -> Vec<ProgramStatus> {
     let recorder = Recorder::default();
     let mut term = Crosswords::new(
         CrosswordsSize::new(80, 24),
@@ -34,13 +40,14 @@ fn reports_for(bytes: &[u8]) -> Vec<ProgramStatusReport> {
         0,
         100,
     );
+    term.enable_roost_program_status();
     Processor::default().advance(&mut term, bytes);
     let reports = recorder.0.borrow().clone();
     reports
 }
 
-fn bare(state: ProgramStatusState) -> ProgramStatusReport {
-    ProgramStatusReport {
+fn bare(state: ProgramState) -> ProgramStatus {
+    ProgramStatus {
         id: None,
         state,
         kind: None,
@@ -55,9 +62,9 @@ fn bare(state: ProgramStatusState) -> ProgramStatusReport {
 fn a_state_report_reaches_the_listener_with_its_app() {
     assert_eq!(
         reports_for(b"\x1b]7501;state=done:app=claude\x1b\\"),
-        vec![ProgramStatusReport {
+        vec![ProgramStatus {
             app: Some("claude".into()),
-            ..bare(ProgramStatusState::Done)
+            ..bare(ProgramState::Done)
         }]
     );
 }
@@ -68,7 +75,7 @@ fn progress_and_kind_only_survive_the_states_that_carry_them() {
     assert_eq!(working[0].progress, Some(40));
 
     let blocked = reports_for(b"\x1b]7501;state=blocked:kind=question:progress=5\x07");
-    assert_eq!(blocked[0].kind, Some(ProgramStatusKind::Question));
+    assert_eq!(blocked[0].kind, Some(BlockedKind::Question));
     assert_eq!(blocked[0].progress, Some(5));
 
     let done = reports_for(b"\x1b]7501;state=done:kind=auth:progress=9\x07");
@@ -77,17 +84,17 @@ fn progress_and_kind_only_survive_the_states_that_carry_them() {
 
     let over_range = reports_for(b"\x1b]7501;state=working:progress=101\x07");
     assert_eq!(over_range[0].progress, None, "101 is malformed, the rest stands");
-    assert_eq!(over_range[0].state, ProgramStatusState::Working);
+    assert_eq!(over_range[0].state, ProgramState::Working);
 }
 
 #[test]
 fn title_and_msg_arrive_decoded() {
     assert_eq!(
         reports_for(b"\x1b]7501;state=done:title=QnVpbGQ=:msg=cmVhZHk=\x1b\\"),
-        vec![ProgramStatusReport {
+        vec![ProgramStatus {
             title: Some("Build".into()),
             msg: Some("ready".into()),
-            ..bare(ProgramStatusState::Done)
+            ..bare(ProgramState::Done)
         }]
     );
 }
@@ -107,9 +114,9 @@ fn an_id_addresses_its_record_and_an_invalid_id_drops_the_report() {
 fn clear_names_an_id_or_every_record() {
     assert_eq!(
         reports_for(b"\x1b]7501;state=clear:id=build\x07"),
-        vec![ProgramStatusReport {
+        vec![ProgramStatus {
             id: Some("build".into()),
-            ..bare(ProgramStatusState::Clear)
+            ..bare(ProgramState::Clear)
         }]
     );
 }
@@ -142,9 +149,9 @@ fn the_feature_query_is_not_a_report() {
 fn whitespace_around_keys_and_values_is_removed() {
     assert_eq!(
         reports_for(b"\x1b]7501; state = done : app = claude \x1b\\"),
-        vec![ProgramStatusReport {
+        vec![ProgramStatus {
             app: Some("claude".into()),
-            ..bare(ProgramStatusState::Done)
+            ..bare(ProgramState::Done)
         }]
     );
 }
@@ -175,24 +182,25 @@ fn non_utf8_text_discards_the_whole_report() {
 fn a_malformed_pair_is_skipped_and_the_rest_of_the_report_stands() {
     assert_eq!(
         reports_for(b"\x1b]7501;state=done:app=claude:title=!!\x07"),
-        vec![ProgramStatusReport {
+        vec![ProgramStatus {
             app: Some("claude".into()),
-            ..bare(ProgramStatusState::Done)
+            ..bare(ProgramState::Done)
         }]
     );
 }
 
 #[test]
 fn a_full_reset_clears_every_record_and_a_soft_reset_clears_none() {
+    assert_eq!(reports_for(b"\x1bc"), vec![bare(ProgramState::Clear)]);
     assert_eq!(
         reports_for(b"\x1b]7501;state=done\x07\x1bc"),
         vec![
-            bare(ProgramStatusState::Done),
-            bare(ProgramStatusState::Clear),
+            bare(ProgramState::Done),
+            bare(ProgramState::Clear),
         ]
     );
     assert_eq!(
         reports_for(b"\x1b]7501;state=done\x07\x1b[!p"),
-        vec![bare(ProgramStatusState::Done)]
+        vec![bare(ProgramState::Done)]
     );
 }

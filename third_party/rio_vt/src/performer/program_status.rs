@@ -4,10 +4,10 @@
 //! nothing. Record retention (replace, clear subtree, lifetime, record cap)
 //! belongs to Roost and lives in `roost-protocol`.
 //!
-//! Upstream rio has no OSC length cap, so the spec's whole-sequence cap is
-//! enforced here before any field is decoded.
+//! The protocol's whole-sequence limit is enforced before decoding fields,
+//! independently of rio's larger general OSC accumulation cap.
 
-use crate::event::{ProgramStatusKind, ProgramStatusReport, ProgramStatusState};
+use crate::event::{BlockedKind, ProgramState, ProgramStatus};
 
 /// The whole sequence, from `ESC ]` to its terminator, in bytes.
 const SEQUENCE_MAX_BYTES: usize = 4096;
@@ -28,7 +28,7 @@ const MSG_DECODED_MAX_BYTES: usize = 2048;
 /// to ignore or discard it: over the sequence cap, a missing or unknown state,
 /// a malformed id, or a text field that breaks its limit, does not decode, or
 /// holds a control character. A malformed pair alone is skipped, not the report.
-pub(super) fn parse_program_status(params: &[&[u8]]) -> Option<ProgramStatusReport> {
+pub(super) fn parse_program_status(params: &[&[u8]]) -> Option<ProgramStatus> {
     let body = params.get(1..)?.join(&b';');
     if body.len() + FRAMING_BYTES > SEQUENCE_MAX_BYTES {
         return None;
@@ -77,9 +77,9 @@ pub(super) fn parse_program_status(params: &[&[u8]]) -> Option<ProgramStatusRepo
 
 #[derive(Default)]
 struct Draft {
-    state: Option<ProgramStatusState>,
+    state: Option<ProgramState>,
     id: Option<String>,
-    kind: Option<ProgramStatusKind>,
+    kind: Option<BlockedKind>,
     app: Option<String>,
     title: Option<String>,
     msg: Option<String>,
@@ -89,17 +89,17 @@ struct Draft {
 impl Draft {
     /// Keeps `kind` only with `blocked` and `progress` only with `working` or
     /// `blocked`, as the spec defines which fields each state carries.
-    fn finish(self) -> Option<ProgramStatusReport> {
+    fn finish(self) -> Option<ProgramStatus> {
         let state = self.state?;
         let kind = match state {
-            ProgramStatusState::Blocked => self.kind,
+            ProgramState::Blocked => self.kind,
             _ => None,
         };
         let progress = match state {
-            ProgramStatusState::Working | ProgramStatusState::Blocked => self.progress,
+            ProgramState::Working | ProgramState::Blocked => self.progress,
             _ => None,
         };
-        Some(ProgramStatusReport {
+        Some(ProgramStatus {
             id: self.id,
             state,
             kind,
@@ -111,23 +111,23 @@ impl Draft {
     }
 }
 
-fn parse_state(value: &[u8]) -> Option<ProgramStatusState> {
+fn parse_state(value: &[u8]) -> Option<ProgramState> {
     Some(match value {
-        b"idle" => ProgramStatusState::Idle,
-        b"working" => ProgramStatusState::Working,
-        b"done" => ProgramStatusState::Done,
-        b"blocked" => ProgramStatusState::Blocked,
-        b"error" => ProgramStatusState::Error,
-        b"clear" => ProgramStatusState::Clear,
+        b"idle" => ProgramState::Idle,
+        b"working" => ProgramState::Working,
+        b"done" => ProgramState::Done,
+        b"blocked" => ProgramState::Blocked,
+        b"error" => ProgramState::Error,
+        b"clear" => ProgramState::Clear,
         _ => return None,
     })
 }
 
-fn parse_kind(value: &[u8]) -> Option<ProgramStatusKind> {
+fn parse_kind(value: &[u8]) -> Option<BlockedKind> {
     Some(match value {
-        b"permission" => ProgramStatusKind::Permission,
-        b"question" => ProgramStatusKind::Question,
-        b"auth" => ProgramStatusKind::Auth,
+        b"permission" => BlockedKind::Permission,
+        b"question" => BlockedKind::Question,
+        b"auth" => BlockedKind::Auth,
         _ => return None,
     })
 }

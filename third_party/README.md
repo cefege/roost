@@ -24,17 +24,18 @@ Rules for anything in this directory:
 
 ## Contents
 
-- **`rio_vt/`** — crates.io `rio-vt` 0.5.28 (MIT), Rio's terminal core,
+- **`rio_vt/`** — crates.io `rio-vt` 0.5.32 (MIT), Rio's terminal core,
   which decodes the kitty graphics protocol, sixel and iTerm2 inline images.
   Wired through `[patch.crates-io]`; outside the workspace, so its suite runs
   by manifest path:
   `cargo test --manifest-path third_party/rio_vt/Cargo.toml --no-default-features --features graphics`.
-  [`rio_vt/ROOST-PATCHES.md`](rio_vt/ROOST-PATCHES.md) lists patches R1–R7:
+  [`rio_vt/ROOST-PATCHES.md`](rio_vt/ROOST-PATCHES.md) lists patches R1–R9:
   LF clearing a pending wrap, delete discarding rather than reaching history,
   ED clearing the viewport in place, relative cursor motion bounded by DECSTBM
-  margins, a per-row Roost prompt mark, and a listener hook for dropped CSI
-  sequences with program-input noise logged at debug, and `simdutf` made optional
-  so no C++ is compiled.
+  margins, a per-row Roost prompt mark, a listener hook for dropped CSI
+  sequences with program-input noise logged at debug, optional `simdutf`
+  so no C++ is compiled, validated OSC 7501 program status reports, and
+  retained OSC 1337 shell variables.
 
 - **`dioxus-core/`** — crates.io `dioxus-core` 0.8.0-alpha.3 (MIT OR Apache-2.0).
   Placement edge scans preserve committed vnode/mount pairs across nested

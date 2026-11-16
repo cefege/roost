@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "rio-vt"
-version = "0.5.28"
+version = "0.5.32"
 authors = ["Raphael Amorim <rapha850@gmail.com>"]
 build = false
 autolib = false
@@ -126,8 +126,13 @@ name = "vt_input"
 path = "benches/vt_input.rs"
 harness = false
 
+[[bench]]
+name = "vt_sync"
+path = "benches/vt_sync.rs"
+harness = false
+
 [dependencies.base64]
-version = "0.23.0"
+version = "0.23.1"
 
 [dependencies.bitflags]
 version = "2.9.0"
@@ -167,19 +172,19 @@ features = [
 ]
 
 [dependencies.regex]
-version = "1.12.3"
+version = "1.13.1"
 
 [dependencies.regex-automata]
 version = "0.4.16"
 
 [dependencies.rio-grapheme-width]
-version = "0.5.28"
+version = "0.5.32"
 
 [dependencies.rio-graphics]
-version = "0.5.28"
+version = "0.5.32"
 
 [dependencies.rio-unicode]
-version = "0.5.28"
+version = "0.5.32"
 
 [dependencies.rustc-hash]
 version = "2.1.3"
@@ -205,7 +210,7 @@ optional = true
 default-features = false
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.corcovado]
-version = "0.5.28"
+version = "0.5.32"
 optional = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.raw-window-handle]
@@ -214,7 +219,7 @@ features = ["std"]
 optional = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.rio-window]
-version = "0.5.28"
+version = "0.5.32"
 optional = true
 default-features = false
 
@@ -223,11 +228,11 @@ version = "0.7.0"
 optional = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.sugarloaf]
-version = "0.5.28"
+version = "0.5.32"
 optional = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.teletypewriter]
-version = "0.5.28"
+version = "0.5.32"
 optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.web-time]
@@ -241,4 +246,5 @@ version = "0.61.2"
 features = [
     "Win32_System_Memory",
     "Win32_Foundation",
+    "Win32_Storage_FileSystem",
 ]

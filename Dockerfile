@@ -11,7 +11,7 @@
 #     -e ROOST_COORDINATOR_DATABASE_URL=postgres://… roost-coordinator
 #   docker exec <container> roost add-browser
 
-FROM rust:1.98.1-bookworm AS build
+FROM rust:1.100.0-bookworm AS build
 ARG ROOST_BUILD_VERSION=dev
 ARG ROOST_BUILD_SHA=unknown
 WORKDIR /src
