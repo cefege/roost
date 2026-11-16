@@ -65,3 +65,33 @@ pub fn scroll_entry_into_view(index: i64) {
 /// Scroll the entry at `index` into view, so the keyboard cursor stays visible.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn scroll_entry_into_view(_index: i64) {}
+
+/// Measure the live folder grid so vertical keys follow rows after a resize.
+#[cfg(target_arch = "wasm32")]
+pub fn folder_row_stride() -> i64 {
+    use wasm_bindgen::JsCast as _;
+
+    let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+        return 1;
+    };
+    let Ok(folders) = document.query_selector_all("[data-browse-folder]") else {
+        return 1;
+    };
+    let mut first_top = None;
+    let mut columns = 0;
+    for index in 0..folders.length() {
+        let Some(folder) = folders
+            .item(index)
+            .and_then(|node| node.dyn_into::<web_sys::Element>().ok())
+        else {
+            continue;
+        };
+        let top = folder.get_bounding_client_rect().top();
+        let first_top = *first_top.get_or_insert(top);
+        if (top - first_top).abs() >= 1.0 {
+            break;
+        }
+        columns += 1;
+    }
+    columns.max(1)
+}

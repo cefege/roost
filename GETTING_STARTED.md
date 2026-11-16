@@ -200,12 +200,15 @@ does not bundle, configure or manage an agent; programs and their credentials
 remain under the worker user's control.
 
 The folder picker provides Home, Computer, saved folders and recent locations,
-with a path field for entering a directory directly (Cmd/Ctrl+L).
+with a path field for entering a directory directly (Cmd/Ctrl+L). Compact folder
+tiles flow left-to-right and wrap to the available width; badges show active
+terminals. File previews and downloads remain in a separate list.
 
 - Mouse: click to select a folder; double-click to enter it.
 - Touch: tap a folder to enter it.
-- Keyboard: ↑/↓ selects, typing finds a folder, and Enter enters it. File
-  links, download buttons and other focused controls retain their own keys.
+- Keyboard: ←/→ selects adjacent folders, ↑/↓ moves between grid rows, typing
+  finds a folder, and Enter enters it. File links, download buttons and other
+  focused controls retain their own keys.
 - **Open terminal** opens the selected folder, or the current directory when
   nothing is selected. Hidden folders, file previews, downloads and creating
   a new folder are available from the picker.

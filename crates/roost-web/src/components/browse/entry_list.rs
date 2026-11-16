@@ -1,6 +1,6 @@
 //! Folder-picker entries, loading and error states.
 //! Called by `browse::picker`; listing/filter state and selection stay with it.
-//! Store entry helpers provide timestamps; file rows retain viewing and downloads.
+//! Folders tile across the available width; file rows retain dates and downloads.
 
 use std::collections::BTreeMap;
 
@@ -67,7 +67,6 @@ pub fn BrowseEntryList(
             .get(&child)
             .copied()
             .filter(|count| *count > 0);
-        let support = relative_entry_time(entry.mtime_ms, now_ms);
         rows.push(rsx! {
             div {
                 "data-browse-folder": "",
@@ -85,7 +84,6 @@ pub fn BrowseEntryList(
                     dense: true,
                     leading_icon: Some(IconType::Folder),
                     headline: rsx! { span { title: name.clone(), {name.clone()} } },
-                    support: Some(rsx! { {support} }),
                     trailing: terminals.map(|count| rsx! {
                         Chip {
                             label: count.to_string(),
@@ -110,6 +108,7 @@ pub fn BrowseEntryList(
             }
         });
     }
+    let mut file_rows: Vec<Element> = Vec::new();
     if show_files {
         for entry in files.iter() {
             let name = entry.name.clone();
@@ -122,7 +121,7 @@ pub fn BrowseEntryList(
                 .unwrap_or_else(|| format!("{cwd}/{name}"));
             // The Download button sits beside the row's anchor, not inside it:
             // a button nested in a link is not a separate control.
-            rows.push(rsx! {
+            file_rows.push(rsx! {
                 div { class: "flex min-w-0 items-center gap-1",
                     div { class: "min-w-0 flex-1",
                         ListRow {
@@ -141,14 +140,14 @@ pub fn BrowseEntryList(
     }
     rsx! {
         div {
-            class: "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2 outline-none",
+            class: "flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-y-auto p-2 outline-none",
             id: RESULTS_ID,
             tabindex: "-1",
             match status {
                 BrowseStatus::Loading => rsx! {
                     div { "data-testid": "browse-loading", role: "status", "aria-live": "polite", "aria-busy": "true",
                         div { "aria-hidden": "true",
-                            List { layout: ListLayout::Stack,
+                            List { layout: ListLayout::Grid,
                                 for _ in 0..SKELETON_ROWS {
                                     ListRow { dense: true, headline: rsx! { Skeleton { class: "h-4 w-full" } } }
                                 }
@@ -213,7 +212,12 @@ pub fn BrowseEntryList(
                     }
                 },
                 BrowseStatus::Ready => rsx! {
-                    List { layout: ListLayout::Stack, {rows.into_iter()} }
+                    if !folders.is_empty() {
+                        List { layout: ListLayout::Grid, {rows.into_iter()} }
+                    }
+                    if show_files && !files.is_empty() {
+                        List { layout: ListLayout::Stack, {file_rows.into_iter()} }
+                    }
                 },
             }
         }

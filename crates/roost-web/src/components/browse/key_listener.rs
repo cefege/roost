@@ -140,6 +140,14 @@ pub fn install_picker_keys(
                 if matches!(action, PickerKey::Ignore) {
                     return;
                 }
+                let action = match action {
+                    PickerKey::Move(delta)
+                        if matches!(event.key().as_str(), "ArrowUp" | "ArrowDown") =>
+                    {
+                        PickerKey::Move(delta * dom::folder_row_stride())
+                    }
+                    action => action,
+                };
                 event.prevent_default();
                 on_key.call(action);
             },
