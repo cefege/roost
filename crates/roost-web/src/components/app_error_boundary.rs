@@ -10,7 +10,7 @@ use crate::components::ui::{
     Alert, AlertDescription, AlertTitle, AlertVariant, Button, ButtonVariant, Icon, IconType,
 };
 
-/// The diagnostic a reader copies, as pretty JSON (v2's payload shape).
+/// The diagnostic a reader copies, as pretty JSON.
 pub fn diagnostic_payload(url: &str, user_agent: &str, time_iso: &str, error: &str) -> String {
     let field = |value: &str| {
         let mut quoted = String::from("\"");
