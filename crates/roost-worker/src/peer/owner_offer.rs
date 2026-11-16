@@ -2,9 +2,7 @@
 //! coordinator generation, budget, grant, SDP, capacity) decided synchronously
 //! in receive order, then bootstrap, one connection and its answer, re-checked
 //! against cancellation at every step.
-//! Called by `peer::direct` for each `localTerminalPeerOffer`. Ports
-//! `offer`/`admissionFailure`/`assertCurrent` of v2
-//! `apps/worker/src/terminal/peer/terminal-peer-owner.ts`.
+//! Called by `peer::direct` for each `localTerminalPeerOffer`.
 
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
@@ -36,8 +34,8 @@ struct Admitted {
 }
 
 impl TerminalPeerOwner {
-    /// v2 `offer`. Admission happens now, before the next frame is read; the
-    /// future negotiates.
+    /// Admission happens now, before the next frame is read; the future
+    /// negotiates.
     pub fn offer(
         self: &Arc<Self>,
         request: DLocalTerminalPeerOffer,
@@ -241,8 +239,8 @@ impl TerminalPeerOwner {
         })
     }
 
-    /// v2 `assertCurrent`: still the pending entry this offer made, and still
-    /// admissible. Returns a copy of what the next step needs.
+    /// Still the pending entry this offer made, and still admissible. Returns
+    /// a copy of what the next step needs.
     fn assert_current(
         &self,
         admitted: &Admitted,
@@ -268,8 +266,8 @@ impl TerminalPeerOwner {
         }
     }
 
-    /// v2 `admissionFailure`. Never called under the owner's lock: the grant
-    /// check can retire sockets, which reports back into this owner.
+    /// Never called under the owner's lock: the grant check can retire
+    /// sockets, which reports back into this owner.
     fn admission_failure(
         &self,
         request: &DLocalTerminalPeerOffer,
@@ -313,7 +311,7 @@ struct PendingSnapshot {
 }
 
 /// The offer's DTLS fingerprint and its normalized STUN list, or `None` for
-/// an offer v2 refuses as `invalid_offer`.
+/// an offer that is refused as `invalid_offer`.
 fn inspect_offer(request: &DLocalTerminalPeerOffer) -> Option<(String, Vec<String>)> {
     if request.stun_urls.len() > TERMINAL_PEER_STUN_URL_MAX_COUNT
         || request
@@ -337,8 +335,8 @@ fn native_answer_deadline(budget: &RequestBudget) -> Duration {
     ))
 }
 
-/// v2 `randomUUID()`: a port id no other carrier shares, minted by the one
-/// uuid source the worker has.
+/// A port id no other carrier shares, minted by the one uuid source the
+/// worker has.
 fn fresh_socket_id(peer_id: &str) -> String {
     crate::session::ids::mint_uuid().unwrap_or_else(|error| {
         tracing::warn!(%error, "no entropy for a peer socket id; the peer id names it");

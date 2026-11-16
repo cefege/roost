@@ -1,9 +1,8 @@
 //! The TCP ports a session's process tree is LISTENing on, so the sidebar can
 //! chip a dev server and open it. Only this worker can see the host's sockets.
-//! Ports v2 `apps/worker/src/host/listening-ports.ts`; `host::sampling` calls
-//! it on v2's 90 s ports poll. `ps`, `ss`, `lsof` and Windows' `netstat` run
-//! with the tool `PATH` (v2 `TOOL_PATH`), because a service manager's `PATH`
-//! has none of them.
+//! `host::sampling` calls it on its 90 s ports poll. `ps`, `ss`, `lsof` and
+//! Windows' `netstat` run with the tool `PATH`, because a service manager's
+//! `PATH` has none of them.
 //!
 //! ONLY REACHABLE BINDS. A port is reported only when it is bound on something
 //! other than loopback, because the chip opens `http://<worker's address>:<port>`
@@ -137,7 +136,7 @@ pub fn parse_ss_listen_ports(output: &str, pids: &BTreeSet<u32>) -> Vec<u16> {
         let Some(local) = line.split_whitespace().nth(3) else {
             continue;
         };
-        // v2 `cut <= 0`: a bind with no host before its colon is not a row.
+        // A bind with no host before its colon is not a row.
         let Some(cut) = local.rfind(':').filter(|cut| *cut > 0) else {
             continue;
         };
@@ -160,7 +159,7 @@ pub fn parse_ss_listen_ports(output: &str, pids: &BTreeSet<u32>) -> Vec<u16> {
 /// or when the bind is loopback-only.
 ///
 /// `(LISTEN)` is its own whitespace token in `lsof` output, so the bind is the
-/// token BEFORE it (v2 `listening-ports.ts:101`, `\s(\S+):(\d+)\s*\(LISTEN\)`).
+/// token BEFORE it.
 fn reachable_bind(line: &str) -> Option<u16> {
     let before = line.trim_end().strip_suffix("(LISTEN)")?;
     let name = before.split_whitespace().last()?;
@@ -173,9 +172,8 @@ fn reachable_bind(line: &str) -> Option<u16> {
     Some(port)
 }
 
-/// Every `pid=N` an `ss -p` row names, as v2's `/\bpid=(\d+)/g` reads them:
-/// the owners sit inside one `users:((…))` field, so a per-field prefix match
-/// never sees them.
+/// Every `pid=N` an `ss -p` row names: the owners sit inside one
+/// `users:((…))` field, so a per-field prefix match never sees them.
 fn owning_pids(line: &str) -> impl Iterator<Item = u32> + '_ {
     line.match_indices("pid=").filter_map(|(at, marker)| {
         let preceded_by_word = line[..at]

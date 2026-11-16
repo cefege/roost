@@ -1,7 +1,5 @@
-//! OSC 7 moved a session to a new folder → one `cwd` session event: v2
-//! `apps/worker/src/session/session-scrollback.ts:178-185` (`scanStreamState`
-//! emits `{ kind: "cwd" }` on a new path) through `transport/event-sink.ts`
-//! (metadata, no claim). The ingest path (`session::emit_ingest`, keeper
+//! OSC 7 moved a session to a new folder → one `cwd` session event, published
+//! as metadata with no claim. The ingest path (`session::emit_ingest`, keeper
 //! dispatch thread, record and emitter locked) sends on a [`CwdEventLane`];
 //! the [`CwdEventWriter`] task `runtime::owners` spawns publishes in order.
 
@@ -76,7 +74,7 @@ impl CwdEventWriter {
                     "a session's new working folder could not be published"
                 ),
             }
-            // v2 session-scrollback.ts:186-190: a new folder may be another repo — re-watch it.
+            // A new folder may be another repo — re-watch it.
             if let Some(session_id) = event.session_id()
                 && let Some(channel_id) = manager.sessions.channel_of(session_id)
             {

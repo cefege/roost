@@ -4,8 +4,7 @@
 //! observation — the admission a deploy records when the keeper digest is
 //! unchanged — is proven over the worker's pool connection, answers with the
 //! keeper's own identity, and leaves the keeper's pid, epoch and channels
-//! exactly as a restarted worker then finds them. The worker half of v2's
-//! `bun run test:upgrade` gate (`smoke/upgrade/release-handoff.ts`).
+//! exactly as a restarted worker then finds them.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 #[path = "keeper_pool_support/mod.rs"]

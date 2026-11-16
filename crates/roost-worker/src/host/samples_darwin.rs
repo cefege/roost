@@ -1,9 +1,8 @@
 //! The macOS host sampler: `top`, `vm_stat`, `sysctl`, `df` and `netstat`.
-//! Ports v2 `apps/worker/src/host/host-sample-darwin.ts`; called through
-//! [`super::samples::HostSampler`] when the platform is macOS. Depends on
-//! `super::tool_path` for the bounded runner.
+//! Called through [`super::samples::HostSampler`] when the platform is macOS.
+//! Depends on `super::tool_path` for the bounded runner.
 //!
-//! THE FAILURE GROUPING IS v2's. Memory and disk are read inside one v2 `try`:
+//! THE FAILURE GROUPING IS DELIBERATE. Memory and disk are read as one group:
 //! a `vm_stat` or `hw.memsize` that cannot be run leaves memory AND disk at
 //! zero, and a `df` that cannot be run leaves only the disk at zero. CPU and
 //! the interface counters are read on their own and fail on their own.
@@ -18,10 +17,10 @@ use super::{HostSample, NetCounters};
 /// Intel Mac. It is the fallback for an unreadable `hw.pagesize`, not the value.
 const APPLE_SILICON_PAGE_SIZE: u64 = 16384;
 
-/// v2 bounds `top -l 1` at two seconds; it prints one snapshot then exits.
+/// `top -l 1` is bounded at two seconds; it prints one snapshot then exits.
 const TOP_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// The two readings v2 memoizes on first use (`_pageSize`, `_primaryIface`).
+/// The two readings memoized on first use: the page size and the primary interface.
 #[derive(Debug, Default)]
 pub(super) struct DarwinSampler {
     page_size: Option<u64>,
@@ -36,7 +35,7 @@ impl DarwinSampler {
         }
     }
 
-    /// v2 `host-sample-darwin.ts` `sampleHost`.
+    /// Take one sample.
     pub(super) fn sample(&mut self) -> HostSample {
         let cpu_pct = sample_cpu_pct();
         let mut sample = HostSample {
@@ -132,8 +131,7 @@ fn sample_cpu_pct() -> f64 {
     .map_or(0.0, |idle| (100.0 - idle).clamp(0.0, 100.0))
 }
 
-/// The idle percentage of `top`'s `CPU usage: X% user, Y% sys, Z% idle` line
-/// (v2 `/CPU usage:\s+[\d.]+%\s+user,\s+[\d.]+%\s+sys,\s+([\d.]+)%\s+idle/`).
+/// The idle percentage of `top`'s `CPU usage: X% user, Y% sys, Z% idle` line.
 #[must_use]
 pub fn top_idle_pct(out: &str) -> Option<f64> {
     let (_, rest) = out.split_once("CPU usage:")?;
@@ -158,9 +156,8 @@ fn is_decimal(text: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || byte == b'.')
 }
 
-/// The page count after `label` in a `vm_stat` dump, read as v2's
-/// `/<label>\s+(\d+)/`: the value carries a trailing `.`, so only the leading
-/// digits are the number.
+/// The page count after `label` in a `vm_stat` dump: the value carries a
+/// trailing `.`, so only the leading digits are the number.
 fn vm_stat_pages(dump: &str, label: &str) -> u64 {
     let Some((_, rest)) = dump.split_once(label) else {
         return 0;
@@ -184,7 +181,7 @@ fn route_interface(output: &str) -> Option<String> {
 /// The global form rather than `-I <iface>`: the per-interface form has been
 /// observed to truncate to 32-bit counters on some macOS builds. A `<Link#N>`
 /// row repeats the name with link-level counters and is skipped, and a row
-/// whose byte columns do not parse is skipped too (v2 keeps looking).
+/// whose byte columns do not parse is skipped too.
 #[must_use]
 pub fn sample_darwin_net(interface: &str) -> Option<NetCounters> {
     let out = run_bounded(

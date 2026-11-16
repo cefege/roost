@@ -1,8 +1,7 @@
 //! The production cadence (`runtime::cell_cadence::CellCadence`): bytes a
 //! keeper delivers reach a registered sink with no test calling
-//! `emit_cell_frame`, and ports `apps/worker/tests/transport/coord-link-cell-sink.test.ts`
-//! (a clean boot delivers, a link bounce costs one forced full) plus the
-//! metadata lanes reaching the uplink.
+//! `emit_cell_frame`: a clean boot delivers, a link bounce costs one forced
+//! full, and the metadata lanes reach the uplink.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 #[path = "cell_support/mod.rs"]
@@ -236,9 +235,9 @@ async fn a_hello_acknowledged_link_delivers_titles_to_the_uplink() {
     assert_eq!(titles, vec!["semantic title".to_owned()]);
 }
 
-/// v2 `onWritable` → `resumeCellSink` drains the repair a refused coordinator
-/// sink parked before it returns, which is what lets the link write that
-/// repair ahead of its queued controls (`coord-link-repair-order.test.ts`).
+/// `on_writable` drains the repair a refused coordinator sink parked before it
+/// returns, which is what lets the link write that repair ahead of its queued
+/// controls.
 #[tokio::test]
 async fn the_repair_a_refused_coordinator_sink_is_owed_is_built_inside_on_writable() {
     let mut stack = stack(34);
@@ -274,14 +273,11 @@ async fn the_repair_a_refused_coordinator_sink_is_owed_is_built_inside_on_writab
 }
 
 /// A local door view keeps painting while no coordinator link has ever
-/// attached. v2 registers the `"coord"` sink at boot the same way
-/// (`apps/worker/src/main.ts:210-217`) and its `sendCellGrid` answers
-/// "dropped" while the link is down
-/// (`apps/worker/src/transport/coord-link-outbox.ts:267-278`), so a
-/// boot-state coordinator sink costs a stream-wide repair full per delta —
-/// v2 parity, and `a_clean_boot_delivers_cells_and_a_link_bounce_costs_one_forced_full`
-/// pins the suspended half. What must never happen is the LOCAL sink losing
-/// the frame to it.
+/// attached. The boot-state coordinator sink answers "dropped" while the link is
+/// down, so it costs a stream-wide repair full per delta;
+/// `a_clean_boot_delivers_cells_and_a_link_bounce_costs_one_forced_full` pins the
+/// suspended half. What must never happen is the LOCAL sink losing the frame to
+/// it.
 #[tokio::test]
 async fn a_boot_state_coordinator_sink_never_stalls_a_local_door_sink() {
     let mut stack = stack(35);

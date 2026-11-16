@@ -1,6 +1,6 @@
-//! The heartbeat's collaborators as v2's test drove them: a scripted RPC that
-//! records each request and its deadline, sources whose sampling and keeper
-//! probe are closures, and v2's metric, capacity and observation fixtures.
+//! The heartbeat's collaborators: a scripted RPC that records each request and
+//! its deadline, sources whose sampling and keeper probe are closures, and the
+//! metric, capacity and observation fixtures.
 //! Compiled into `tests/heartbeat.rs` only.
 #![allow(clippy::unwrap_used, clippy::expect_used, dead_code)]
 
@@ -39,7 +39,7 @@ pub const CAPACITY: TerminalCoreCapacityReport = TerminalCoreCapacityReport {
     refusal_count: 4,
 };
 
-/// v2's `OBSERVATION`, stamped with the reconciliation it belongs to.
+/// The observation fixture, stamped with the reconciliation it belongs to.
 pub fn observation(reconciled_at_ms: i64) -> KeeperRuntimeObservationV1 {
     KeeperRuntimeObservationV1::parse(&json!({
         "schema_version": 1,
@@ -78,7 +78,7 @@ impl From<Result<(), String>> for Answer {
     }
 }
 
-/// An RPC answer held until the paired sender fires (v2 `withResolvers`).
+/// An RPC answer held until the paired sender fires.
 pub struct Held(Mutex<Option<oneshot::Receiver<()>>>);
 
 impl Held {
@@ -100,7 +100,7 @@ pub fn held_until() -> (oneshot::Sender<()>, Held) {
 
 type Script = Box<dyn Fn(usize) -> Answer + Send + Sync>;
 
-/// v2 `clientWith(vi.fn(workersHeartbeat))`.
+/// An RPC whose answers are scripted per attempt.
 pub struct ScriptedRpc {
     script: Script,
     seen: Mutex<Vec<(WorkersHeartbeatRequest, Duration)>>,
@@ -159,7 +159,7 @@ type Observe = Box<
         + Sync,
 >;
 
-/// v2 `sources(..)`: git sha `test-sha`, reachable `worker.test`.
+/// Sources with git sha `test-sha` and reachable address `worker.test`.
 pub struct FakeSources {
     sample: Sample,
     samples: Mutex<usize>,

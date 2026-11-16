@@ -1,8 +1,7 @@
 //! Direct-carrier Hello rules. A peer port must repeat its exact offer tuple
 //! before the socket owner marks native framing authenticated, and a peer's
 //! input must name its live route epoch; loopback keeps its compatibility path
-//! only when `peer_id` and `worker_epoch` are absent. Ports
-//! `apps/worker/tests/local-door/local-terminal-peer-socket.test.ts`.
+//! only when `peer_id` and `worker_epoch` are absent.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod local_terminal_support;

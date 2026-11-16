@@ -4,7 +4,6 @@
 //! and a reservation is released exactly once — by being dropped — so a slow
 //! peer cannot build an unbounded chain of waiting work. Called by
 //! `terminal_input::port` and `terminal_input::route_owner`, and the local door.
-//! Ports `apps/worker/src/terminal/terminal-input-work-budget.ts`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -55,7 +54,7 @@ struct BudgetState {
     disposed: bool,
 }
 
-/// v2 `TerminalInputWorkBudget`. Cheap to clone; every clone is one budget.
+/// The shared work budget. Cheap to clone; every clone is one budget.
 #[derive(Debug, Clone, Default)]
 pub struct TerminalInputWorkBudget {
     state: Arc<Mutex<BudgetState>>,

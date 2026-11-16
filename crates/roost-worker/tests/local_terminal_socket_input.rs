@@ -1,9 +1,8 @@
 //! Input over the loopback terminal socket takes the real session write path
-//! and answers v2's three outcomes per session: accepted with the written
-//! count, rejected pre-write (a granted session this worker does not hold, a
-//! session outside the grant, an oversized batch), and ambiguous when the
-//! keeper's answer is lost after the write. Ports the input case of
-//! `apps/worker/tests/local-door/local-terminal-socket.test.ts`.
+//! and answers three outcomes per session: accepted with the written count,
+//! rejected pre-write (a granted session this worker does not hold, a session
+//! outside the grant, an oversized batch), and ambiguous when the keeper's
+//! answer is lost after the write.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod local_terminal_support;
@@ -74,7 +73,7 @@ async fn input_takes_the_real_write_path_and_reports_its_outcome_per_session() {
     );
 }
 
-/// v2 `local-terminal-socket-authority.ts:65`: a grant authorizes only the
+/// A grant authorizes only the
 /// sessions it names. A live session this worker holds but the grant does not
 /// name is refused pre-write, however many other sessions the grant covers.
 #[tokio::test]

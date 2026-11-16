@@ -1,9 +1,7 @@
 //! Whether the keeper is still handing out working PTYs, as the session layer
 //! observes it: output for channels with no record (`emit_no_session`), the
 //! post-close tail window that excuses it, and the degraded hook both it and
-//! the dead-birth burst fire. Ports `apps/worker/src/session/session-emit.ts:88-113`,
-//! `session-lifecycle.ts` `markRecentlyClosed`, and `setOnKeeperDegraded`
-//! (`session-manager-state.ts`). `SessionManager` owns one; `binding_close`
+//! the dead-birth burst fire. `SessionManager` owns one; `binding_close`
 //! and `respawn::note_birth` report into it; `runtime::reconcile_gate` hooks it.
 
 use std::collections::{HashMap, VecDeque};
@@ -14,8 +12,7 @@ use super::respawn::DeadBirths;
 use crate::strays::{DEGRADED_WINDOW, RECENTLY_CLOSED_TTL};
 use roost_observability::{LogFields, SignalKind, signal};
 
-/// Orphan chunks inside [`DEGRADED_WINDOW`] that mark a degraded keeper (v2
-/// `KEEPER_DEGRADED_THRESHOLD`).
+/// Orphan chunks inside [`DEGRADED_WINDOW`] that mark a degraded keeper.
 pub const KEEPER_DEGRADED_THRESHOLD: usize = 5;
 
 /// What the degraded signal calls: the reconcile gate's remediation.
@@ -42,7 +39,7 @@ impl std::fmt::Debug for KeeperHealth {
 }
 
 impl KeeperHealth {
-    /// Register the one degraded hook (v2 `setOnKeeperDegraded`).
+    /// Register the one degraded hook.
     pub fn set_hook(&self, hook: KeeperDegradedHook) {
         *lock(&self.hook) = Some(hook);
     }

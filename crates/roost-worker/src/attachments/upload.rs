@@ -1,9 +1,8 @@
 //! The attachment-upload surface both carriers use: a coordinator relay chunk
-//! settled into v2's `rpc-ok`/`rpc-error` shape, a direct chunk acknowledged
+//! settled into the `rpc-ok`/`rpc-error` shape, a direct chunk acknowledged
 //! only after its flush, an operation's durable status, and releasing a dead
-//! direct carrier. Ports v2 `apps/worker/src/attachments/attachment-upload.ts`,
-//! including its 60 s idle sweep. Built once by `runtime::owners`; called by
-//! `attachments::link` (relay) and the direct sockets.
+//! direct carrier, plus the 60 s idle sweep. Built once by `runtime::owners`;
+//! called by `attachments::link` (relay) and the direct sockets.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -58,9 +57,9 @@ pub enum DirectChunkOutcome {
 pub enum RelayChunkOutcome {
     /// A non-final chunk was written; a relay acknowledges nothing until the end.
     Progress,
-    /// v2 `rpc-ok { abs_path }`.
+    /// The relay's `rpc-ok { abs_path }`.
     Saved { abs_path: String },
-    /// v2 `rpc-error` with [`AttachmentOperationError::message`].
+    /// The relay's `rpc-error` with [`AttachmentOperationError::message`].
     Failed(AttachmentOperationError),
 }
 
@@ -77,7 +76,7 @@ impl AttachmentOperations {
         }
     }
 
-    /// v2 `handleAttachmentChunk`. The chunk is written in THIS call, before
+    /// Accept a relay chunk. The chunk is written in THIS call, before
     /// anything awaits, so the link's arrival order is the file's byte order;
     /// only a final chunk's commit is left to the returned future.
     pub fn accept_relay_chunk(&self, chunk: DAttachmentChunk) -> OwnerFuture<RelayChunkOutcome> {
@@ -125,7 +124,7 @@ impl AttachmentOperations {
         })
     }
 
-    /// v2 `handleDirectAttachmentChunk`: a non-final receipt is sent only after
+    /// Accept a direct chunk: a non-final receipt is sent only after
     /// its bytes and journal reach the disk, and those flushes never block a
     /// runtime thread.
     pub async fn accept_direct_chunk(&self, chunk: DirectChunk) -> DirectChunkOutcome {
@@ -180,7 +179,7 @@ impl AttachmentOperations {
         self.owner.sweep_idle();
     }
 
-    /// v2's `setInterval(sweepIdle, 60_000)`. The handle is the composition's
+    /// Sweep idle operations every 60 s. The handle is the composition's
     /// to abort at shutdown.
     pub fn spawn_idle_sweep(&self) -> JoinHandle<()> {
         let owner = Arc::clone(&self.owner);
@@ -190,7 +189,7 @@ impl AttachmentOperations {
             loop {
                 ticks.tick().await;
                 let owner = Arc::clone(&owner);
-                // The sweep fails journals synchronously, as v2's does.
+                // The sweep fails journals synchronously.
                 if let Err(error) = tokio::task::spawn_blocking(move || owner.sweep_idle()).await {
                     tracing::warn!(%error, "the attachment idle sweep did not finish");
                 }

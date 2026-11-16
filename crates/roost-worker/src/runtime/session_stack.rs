@@ -24,7 +24,6 @@
 //! could make: no socket, no clock and no filesystem of its own. The pool owns
 //! the keeper socket, the clock is `roost_observability`'s, and the resolver
 //! is the only thing here that touches a path.
-//! Ports v2 `apps/worker/src/transport/coord-link-deps.ts`.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -87,7 +86,7 @@ pub struct SessionStack {
     /// commands and the upload owner and reaper read this one base, whose
     /// session folders are this stack's table.
     pub attachments: AttachmentBase,
-    /// The one terminal incident recorder (v2 `diag/terminal-capture.ts`): the
+    /// The one terminal incident recorder: the
     /// emitter feeds its tap, `deps` hands it to the diagnostics command.
     pub capture: Arc<CaptureRecorder>,
     /// The durable sink's change signal and the replay barrier: the link
@@ -183,8 +182,8 @@ pub fn build(
     let keeper: Arc<dyn KeeperChannels> = keeper;
     let cells: Arc<Mutex<dyn CellDelivery>> = Arc::new(Mutex::new(cells));
 
-    // One terminal-core admission per worker, sized from this host (v2
-    // `main.ts:104`); the manager leases every core from it.
+    // One terminal-core admission per worker, sized from this host; the
+    // manager leases every core from it.
     let platform = roost_host::supported_host_platform()
         .map_err(|error| StackError::Platform(error.to_string()))?;
     let core_capacity = crate::terminal_core_capacity::create_worker_terminal_core_capacity(

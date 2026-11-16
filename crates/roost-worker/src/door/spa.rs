@@ -1,8 +1,6 @@
-//! The door's page responder: one complete disk build, chosen once (v2
-//! `packages/host/src/spa.ts` `createSpaResponder`, which the worker's
-//! `boot/boot-local-terminal.ts` handed to its door). Every path decision is
-//! `roost_host::spa_path`'s, shared with the coordinator's front door
-//! (`roost-coord` `http::spa`); this adapter reads the bytes, compresses and
+//! The door's page responder: one complete disk build, chosen once. Every path
+//! decision is `roost_host::spa_path`'s, shared with the coordinator's front
+//! door (`roost-coord` `http::spa`); this adapter reads the bytes, compresses and
 //! memoizes, and sets the headers. Called by `runtime::door_routes`.
 
 use std::path::{Path, PathBuf};
@@ -40,7 +38,7 @@ impl SpaMount {
         self.root.as_deref()
     }
 
-    /// Answer one page request (v2 `spaResponse(url, method, acceptEncoding)`).
+    /// Answer one page request.
     pub async fn respond(&self, path: &str, method: &Method, accept_encoding: &str) -> Response {
         if !matches!(method, &Method::GET | &Method::HEAD) {
             return text(StatusCode::METHOD_NOT_ALLOWED, "method not allowed");
@@ -125,9 +123,9 @@ impl SpaMount {
     }
 }
 
-/// v2's cache rule. The shell reached as a deep link is never cached; the
-/// shell requested by its own name is an ordinary stable-named file there, and
-/// revalidates like one.
+/// The cache rule: the shell reached as a deep link is never cached; the shell
+/// requested by its own name is an ordinary stable-named file, and revalidates
+/// like one.
 fn cache_control(named: &str, is_index: bool) -> &'static str {
     if is_index {
         spa_path::cache_control_for(INDEX_NAME)

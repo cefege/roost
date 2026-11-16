@@ -1,7 +1,5 @@
 //! The door's one WebSocket pump for both loopback routes, and the handler
-//! contract each route's owner implements (v2 `local-door/local-ui-server.ts`
-//! `websocket.open/message/close` and `guarded`, with the handler shapes of
-//! `local-ui-terminal-socket.ts` and `attachments/local-ui-attachment-socket.ts`).
+//! contract each route's owner implements.
 //! `runtime::door_routes` upgrades a socket and hands it here; the terminal and
 //! attachment owners see only [`LoopbackHandlers`] calls, in frame order.
 
@@ -17,19 +15,18 @@ use tokio::time::{Instant, sleep};
 use super::LOCAL_ATTACHMENT_MAX_PAYLOAD_BYTES;
 use super::loopback_socket::LoopbackSocket;
 
-/// Bun's `ServerWebSocket` default `idleTimeout` with its automatic pings,
-/// which v2 relied on to reap a peer that stops answering without a FIN: a
-/// silent socket is pinged once, and closed if it stays silent as long again.
+/// How long a silent socket is left alone: it is then pinged once, and closed
+/// if it stays silent as long again, which reaps a peer that stops answering
+/// without a FIN.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// What a loopback route's owner does with its sockets (v2
-/// `LocalTerminalSocketHandlers` / `LocalAttachmentSocketHandlers`, plus the
-/// port adapter the server wraps each native socket in).
+/// What a loopback route's owner does with its sockets, plus the port adapter
+/// the server wraps each native socket in.
 ///
 /// Every call comes from the socket's own task, in frame order, never from
-/// inside a [`LoopbackSocket`] call. An `Err` is v2's throw out of `guarded`:
-/// it costs that socket (closed 1011), never the worker. `on_close` runs exactly
-/// once for every port built, after the socket has ended for any reason.
+/// inside a [`LoopbackSocket`] call. An `Err` costs that socket (closed 1011),
+/// never the worker. `on_close` runs exactly once for every port built, after
+/// the socket has ended for any reason.
 pub trait LoopbackHandlers: Send + Sync + 'static {
     /// The route's port adapter.
     type Port: Send + Sync + 'static;
@@ -134,8 +131,8 @@ impl LoopbackOwner {
     }
 }
 
-/// The owners the door upgrades sockets into (v2 `LocalUiServerDeps.terminal`
-/// and `.attachment`). An absent attachment owner answers v2's 404.
+/// The owners the door upgrades sockets into. An absent attachment owner
+/// answers 404.
 #[derive(Debug, Clone)]
 pub struct LoopbackRoutes {
     pub terminal: LoopbackOwner,
@@ -220,7 +217,7 @@ async fn pump<H: LoopbackHandlers>(
 }
 
 /// One binary frame to the route's owner, after the attachment route's size
-/// gate (v2 refuses an oversized attachment frame before any decoding).
+/// gate (an oversized attachment frame is refused before any decoding).
 fn deliver<H: LoopbackHandlers>(
     route: LoopbackRoute,
     handlers: &H,
@@ -246,7 +243,7 @@ fn deliver<H: LoopbackHandlers>(
     );
 }
 
-/// v2 `guarded`: a failure out of a handler costs that socket, never the worker.
+/// A failure out of a handler costs that socket, never the worker.
 fn guarded(
     socket: &LoopbackSocket,
     socket_id: &str,

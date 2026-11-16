@@ -2,9 +2,7 @@
 //! request budget and live browser authority, worker-owned input under
 //! neither, and the legacy unacknowledged binary frame. Called by
 //! `terminal_input::InputOwner` (the coordinator link), the query-reply lane,
-//! and the local door. Ports the input half of v2
-//! `apps/worker/src/session/session-terminal-control.ts` and
-//! `SessionManager.input` (`apps/worker/src/session/session-manager.ts`).
+//! and the local door.
 //!
 //! THE TRUTH MAPPING. `Rejected` is returned only from a stage that provably
 //! never wrote: validation, lane refusal, a pre-write recheck, a keeper
@@ -26,7 +24,7 @@ use super::lifecycle::SessionManager;
 use super::table::SessionTable;
 use crate::uplink::OwnerFuture;
 
-/// The outcome of one input batch. v2 `WorkerInputResult`.
+/// The outcome of one input batch.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkerInputResult {
     Accepted { written_bytes: u32 },
@@ -35,18 +33,17 @@ pub enum WorkerInputResult {
 }
 
 /// Live predicates supplied only by browser-originated writers, rechecked after
-/// keeper admission and immediately before the write. v2 `TerminalWriteAuthority`.
+/// keeper admission and immediately before the write.
 pub trait TerminalWriteAuthority: Send + Sync {
     fn is_session_authorized(&self) -> bool;
     fn is_current_input_route(&self) -> bool;
 }
 
-/// The request budget a writer honours before queued keeper work. v2
-/// `TerminalRequestBudget` as the write path reads it.
+/// The request budget a writer honours before queued keeper work.
 pub trait TerminalWriteBudget: Send + Sync {
     /// The connection the request arrived on is still the current one.
     fn is_current_connection(&self) -> bool;
-    /// No time remains (v2 `remainingMs() <= 0`).
+    /// No time remains.
     fn expired(&self) -> bool;
 }
 
@@ -55,7 +52,7 @@ const ROUTE_CHANGED: &str = "terminal input route changed";
 const SESSION_NOT_LIVE: &str = "session is not live";
 
 impl SessionManager {
-    /// Write one coordinator (or direct-port) input batch. v2 `writeTerminalInput`.
+    /// Write one coordinator (or direct-port) input batch.
     pub fn write_terminal_input(
         &self,
         session_id: &SessionId,
@@ -86,8 +83,7 @@ impl SessionManager {
     }
 
     /// Write one worker-originated batch without manufacturing a coordinator
-    /// input sequence; keeper correlation stays private to the pool. v2
-    /// `writeWorkerOwnedTerminalInput`. A caller that needs two batches in
+    /// input sequence; keeper correlation stays private to the pool. A caller that needs two batches in
     /// order awaits the first: the write-ordering slot is taken on first poll.
     pub fn write_worker_owned_input(
         &self,
@@ -100,7 +96,7 @@ impl SessionManager {
         self.write_acknowledged_batch(channel_id, bytes, None, None)
     }
 
-    /// v2 `writeAcknowledgedInputBatch`: lane admission, the pre-write
+    /// Lane admission, the pre-write
     /// rechecks, the keeper's two halves, and the truth mapping between them.
     fn write_acknowledged_batch(
         &self,
@@ -198,7 +194,7 @@ async fn begin_keeper_input(
 }
 
 /// The rechecks that run after the lane is granted and before the keeper write,
-/// each one a stage that provably wrote nothing. v2 `writeAcknowledgedInputBatch`.
+/// each one a stage that provably wrote nothing.
 fn pre_write_refusal(
     sessions: &SessionTable,
     channel_id: u16,
@@ -230,8 +226,8 @@ fn pre_write_refusal(
     None
 }
 
-/// Arm the input-echo window for a channel this worker holds (v2
-/// `markInputSensitive`), stamped on the session clock the ingest path reads.
+/// Arm the input-echo window for a channel this worker holds, stamped on
+/// the session clock the ingest path reads.
 /// The record lock is released before the cells lock is taken, which is the
 /// order `respawn` holds them in. `false` when not held.
 fn mark_input_sensitive(

@@ -73,10 +73,10 @@ fn an_exited_channel_is_omitted_from_the_live_bindings() {
     );
 }
 
-/// v2's socket-close handler (`keeper-pool-lifecycle.ts`): a lost keeper ends
-/// every channel it drove with `onExit(null)` — ONCE, because a channel that ends
-/// twice is a close the caller sees twice — and fires the death hook once, which
-/// is what drives the reconcile that respawns the sessions.
+/// A lost keeper ends every channel it drove with no exit status — ONCE, because
+/// a channel that ends twice is a close the caller sees twice — and fires the
+/// death hook once, which is what drives the reconcile that respawns the
+/// sessions.
 #[test]
 fn a_lost_keeper_ends_every_channel_exactly_once() {
     let keeper = KeeperFixture::start();

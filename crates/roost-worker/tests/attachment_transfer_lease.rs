@@ -1,7 +1,6 @@
 //! One admitted port's finite authority lease: it expires exactly at the idle
 //! boundary, valid activity refreshes idle, and nothing extends the hard
-//! lifetime. Ports v2
-//! `apps/worker/tests/attachments/attachment-transfer-lease.test.ts`.
+//! lifetime.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::time::{Duration, Instant};

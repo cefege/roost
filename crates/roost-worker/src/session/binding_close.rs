@@ -1,8 +1,8 @@
 //! Where a live channel's exit and its record-less output go: the session
-//! close v2 runs as `closedByKeeper` (`session-emit.ts:316-322`) and the
-//! keeper-health counter behind `emit_no_session` (`session-emit.ts:88-113`).
+//! close (`closed_by_keeper`) and the
+//! keeper-health counter behind `emit_no_session`.
 //! `RecordBinding::closing` captures one at construction; the keeper's dispatch
-//! thread reaches it through the binding. Ports those two v2 callbacks only.
+//! thread reaches it through the binding.
 //!
 //! The close is ASYNC and the dispatch thread is not, so it is spawned on the
 //! runtime the binding was built on, never blocked on: one slow durable write
@@ -32,7 +32,7 @@ impl SessionCloser {
         }
     }
 
-    /// v2 `closedByKeeper(channelId, exitCode)`.
+    /// The channel's keeper exited: close its session.
     pub(super) fn close(&self, channel_id: u16, exit_code: Option<i32>) {
         let Some(manager) = self.manager.upgrade() else {
             tracing::warn!(
@@ -58,7 +58,7 @@ impl SessionCloser {
         });
     }
 
-    /// v2 `emit_no_session`: output for a channel with no record.
+    /// Output for a channel with no record.
     pub(super) fn orphan_output(&self, channel_id: u16, len: usize, now_ms: i64) {
         match self.manager.upgrade() {
             Some(manager) => {

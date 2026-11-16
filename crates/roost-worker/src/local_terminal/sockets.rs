@@ -3,7 +3,7 @@
 //! session authorization through asynchronous input and history work, and the
 //! three carrier lanes. The loopback door calls `on_open`; the peer owner calls
 //! `open_peer_port` before it applies remote SDP, so neither races an ingress
-//! frame. Ports `apps/worker/src/local-door/local-terminal-socket.ts`.
+//! frame.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -30,7 +30,7 @@ use crate::session::table::SessionTable;
 use crate::terminal_input::{TerminalInputRouteOwner, TerminalInputWorkBudget};
 use crate::terminal_view::TerminalViewOwner;
 
-/// What the socket owner is built from. v2 `LocalTerminalSocketDeps`.
+/// What the socket owner is built from.
 #[derive(Debug, Clone)]
 pub struct LocalTerminalSocketsDeps {
     pub manager: Arc<SessionManager>,
@@ -66,7 +66,7 @@ impl PeerIngress {
     }
 }
 
-/// v2 `LocalTerminalSockets`.
+/// The owner of every direct terminal port.
 #[derive(Debug)]
 pub struct LocalTerminalSockets {
     pub(super) self_handle: Weak<Self>,
@@ -203,7 +203,7 @@ impl LocalTerminalSockets {
         tracing::debug!(socket_id, "local terminal port retired");
     }
 
-    /// v2 `revokeDevice`: the routes first, then the grants, whose removal
+    /// The routes first, then the grants, whose removal
     /// closes every port the device held.
     pub fn revoke_device(&self, device_fingerprint: &str) {
         self.authorization.routes.revoke_device(device_fingerprint);
@@ -266,7 +266,7 @@ impl LocalTerminalSockets {
         }
     }
 
-    /// v2 `onGrantChange`. A lazy expiry can report from inside another owner's
+    /// A lazy expiry can report from inside another owner's
     /// lock, so every close here is deferred; the port is fenced immediately.
     fn on_grant_change(&self, change: &GrantChange) {
         let (grant_id, reason) = match change {

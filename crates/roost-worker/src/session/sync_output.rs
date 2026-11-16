@@ -1,5 +1,4 @@
-//! Synchronized-output (DEC 2026) hold machinery: v2
-//! `apps/worker/src/session/session-sync-output.ts`. The core has no
+//! Synchronized-output (DEC 2026) hold machinery. The core has no
 //! `synchronizedOutput()`, so [`SyncOutputScan`] tracks the mode beside it from
 //! the byte stream; each hold carries `stream_fence::SyncOutputHold`'s two
 //! ceilings (1 s wall, 2 000 pending rows) whose firing IS the expiry.
@@ -20,7 +19,7 @@ use crate::stream_fence::{SYNC_OUTPUT_MAX_PENDING_ROWS, SYNC_OUTPUT_MAX_SILENT, 
 /// The longest private-mode parameter list carried across a chunk boundary.
 const SYNC_SCAN_CARRY_MAX: usize = 32;
 
-/// What the streaming path must do with this chunk's frame (v2 `SyncOutputAction`).
+/// What the streaming path must do with this chunk's frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SyncOutputAction {
     /// No synchronized frame is withholding anything: use the rate governor.
@@ -122,7 +121,7 @@ fn parse_private_mode(bytes: &[u8]) -> PrivateMode {
 }
 
 /// One synchronized frame whose intermediate sends the emitter is withholding
-/// (v2 `SyncOutputHold`).
+/// (a sync-output hold).
 #[derive(Debug)]
 pub struct ChannelSyncHold {
     pub generation: u64,
@@ -157,7 +156,7 @@ impl CellEmitter {
             .is_some_and(|scan| scan.open)
     }
 
-    /// Whether a hold exists for the channel (v2 `syncOutputHolds.has`).
+    /// Whether a hold exists for the channel.
     pub fn sync_output_held(&self, channel_id: ChannelId) -> bool {
         self.sync.holds.contains_key(&channel_id)
     }
@@ -185,7 +184,7 @@ impl CellEmitter {
         self.sync.holds.get(&channel_id).map(|hold| hold.tripped)
     }
 
-    /// v2 `syncOutputAction`.
+    /// What the streaming path does with this chunk's frame given the channel's hold.
     pub(crate) fn sync_output_action(
         &mut self,
         record: &SessionRecord,
@@ -254,7 +253,7 @@ impl CellEmitter {
         SyncOutputAction::Hold
     }
 
-    /// v2's armed wall timer firing: trip the hold and emit the withheld frame,
+    /// The armed wall timer firing: trip the hold and emit the withheld frame,
     /// forced when the withheld frame is an owed full.
     pub(crate) fn fire_sync_output_ceiling(
         &mut self,
@@ -293,7 +292,7 @@ impl CellEmitter {
             .collect()
     }
 
-    /// v2 `mayRearmCellEmission`'s last clause: no hold, or a tripped one.
+    /// The last clause of the re-arm rule: no hold, or a tripped one.
     pub(crate) fn sync_output_permits_rearm(&self, channel_id: ChannelId) -> bool {
         self.sync
             .holds
@@ -301,7 +300,7 @@ impl CellEmitter {
             .is_none_or(|hold| hold.tripped)
     }
 
-    /// v2 `releaseSyncOutputHold`: stop withholding and forget the generation.
+    /// Stop withholding and forget the generation.
     /// The resize transaction calls it when the core it is expressed in freezes
     /// or is replaced.
     pub fn release_sync_output_hold(&mut self, channel_id: ChannelId) {
@@ -324,7 +323,7 @@ impl CellEmitter {
         self.sync.scans.remove(&channel_id);
     }
 
-    /// v2 `tripSyncOutputHold`: stop withholding this generation, and leave the
+    /// Stop withholding this generation, and leave the
     /// trip legible in the suppression record until the application closes.
     fn trip_sync_output_hold(&mut self, channel_id: ChannelId, cap: &str, now_ms: i64) {
         let Some(hold) = self.sync.holds.get_mut(&channel_id) else {

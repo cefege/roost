@@ -17,7 +17,7 @@ async fn a_snapshot_answers_with_the_state_report_and_no_terminal_text() {
     assert!(data["captured_at_ms"].is_number());
 }
 
-/// A SNAPSHOT NAMES THE BUILD THAT ANSWERED, under v2's keys, and a half the
+/// A SNAPSHOT NAMES THE BUILD THAT ANSWERED under fixed keys, and a half the
 /// build does not know is a `null` member rather than a missing one.
 #[tokio::test]
 async fn a_snapshot_names_its_build_with_every_key_present() {

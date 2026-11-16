@@ -1,8 +1,7 @@
 //! The admission half of a reconcile pass: every durable claim the pass's
 //! possible outcomes need is reserved, per coordinator row, before the keeper
 //! or the session table is touched. Owned by `runtime::session_reconcile`, which
-//! runs the pass and gives unspent claims back; v2's
-//! `apps/worker/src/boot/boot-session-reconcile.ts` `:111-165` is the authority.
+//! runs the pass and gives unspent claims back.
 
 use roost_protocol::wire::brand::{ChannelId, SessionId};
 
@@ -30,7 +29,7 @@ pub(crate) struct Admission {
 
 impl SessionReconciler {
     /// The open-session rows, read with the admission deadline: a coordinator
-    /// that does not answer in time is recoverable, as v2 treats it.
+    /// that does not answer in time is recoverable.
     pub(crate) async fn read_rows(&self) -> Result<OpenSessionSet, ReconcileFailure> {
         match tokio::time::timeout(BOOT_SESSION_ADMISSION_TIMEOUT, self.sessions.read()).await {
             Ok(Ok(set)) => Ok(set),
@@ -101,9 +100,9 @@ impl SessionReconciler {
         }))
     }
 
-    /// A full outbox is recoverable (v2 `isSessionEventOutboxFullError`); a
+    /// A full outbox is recoverable; a
     /// store that refused in its own right is the durability failure the
-    /// worker must not survive (v2 `isSessionEventDurabilityError`).
+    /// worker must not survive.
     async fn claim(&self, kind: DurableEventKind) -> Result<DurableClaim, ReconcileFailure> {
         DurableClaim::take(&self.manager, kind)
             .await

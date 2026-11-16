@@ -1,8 +1,7 @@
 # roost-worker
 
 The v3 worker: one process per machine that owns the keeper connection, the
-session layer and the coordinator link. It ports `apps/worker/src` (v2); the
-deliberate differences are listed below.
+session layer and the coordinator link.
 
 ## Platforms
 
@@ -18,7 +17,7 @@ message: `host::samples` (Linux), `host::samples_darwin`,
 `host::shell_locate`, `host::shell_spec_resolver` and `host::shell_bootstrap`,
 and `host::install`'s `ServiceDefinition::WindowsLauncher`.
 
-## Deliberate deviations from v2
+## Attachments
 
 - **A resumed direct attachment upload appends at the journal's
   `bytesWritten`.** A resumed upload reopens its parked temp positioned after

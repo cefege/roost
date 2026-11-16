@@ -1,8 +1,6 @@
 //! The reverse-reap: every keeper channel this worker no longer tracks is
 //! killed after two consecutive stray sightings, so a deleted session's PTY
-//! cannot outlive its row. Ports v2 `apps/worker/src/session/session-lifecycle.ts`
-//! `reapStrayKeeperChannels` and the stray timer of `session-manager-state.ts`
-//! `startPostAdmissionMaintenance` / `dispose`. `runtime::owners` builds one;
+//! cannot outlive its row. `runtime::owners` builds one;
 //! the reconcile pass (boot, keeper death) sweeps and starts the timer.
 
 use std::collections::HashSet;
@@ -13,7 +11,7 @@ use tokio::task::JoinHandle;
 use super::lifecycle::SessionManager;
 use crate::strays::{STRAY_STRIKES, SWEEP_INTERVAL, StrayTracker, Verdict};
 
-/// v2 `SessionManager.strayStrikes` + `strayReaperTimer`, beside the manager.
+/// The stray strike tracker and the periodic sweep timer, beside the manager.
 pub struct StraySweeper {
     manager: Arc<SessionManager>,
     tracker: Mutex<StrayTracker>,
@@ -125,8 +123,8 @@ impl StraySweeper {
                     tracing::warn!(channel_id, error = %join_error, "a stray keeper channel's kill did not run")
                 }
             }
-            // Counted whether or not the kill landed, as v2 counted its
-            // fire-and-forget `pool.kill`: the verdict is what was decided.
+            // Counted whether or not the kill landed:
+            // the verdict is what was decided.
             reaped += 1;
             tracing::warn!(
                 channel_id,
@@ -137,7 +135,7 @@ impl StraySweeper {
         reaped
     }
 
-    /// Start the periodic sweep (v2 `strayReaperTimer`), once. `true` when this
+    /// Start the periodic sweep, once. `true` when this
     /// call started it; a second call keeps the running timer.
     pub fn start_post_admission_maintenance(self: &Arc<Self>) -> bool {
         let mut maintenance = self
@@ -172,7 +170,7 @@ impl StraySweeper {
             .is_some()
     }
 
-    /// Stop the periodic sweep (v2 `dispose` clears `strayReaperTimer`).
+    /// Stop the periodic sweep.
     pub fn dispose(&self) {
         if let Some(task) = self
             .maintenance

@@ -1,8 +1,7 @@
 //! How the terminal view owner answers one view command once its geometry is
-//! recomputed: v2's per-path tail (admit, reclaim, same- or new-revision
-//! update), the unavailable replay, and the view-state frames themselves. Ports
-//! `packages/protocol/src/terminal-view/terminal-view-registry-{commands,operations}.ts`
-//! reply halves, which `roost_protocol::terminal_view` returns as effects for
+//! recomputed: each command path's tail (admit, reclaim, same- or new-revision
+//! update), the unavailable replay, and the view-state frames themselves. The
+//! reply halves are what `roost_protocol::terminal_view` returns as effects for
 //! the host; called from `state.rs` and `streams.rs`.
 
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
@@ -13,7 +12,7 @@ use roost_protocol::wire::brand::SessionId;
 use super::deferred::{Deferred, Work};
 use super::state::OwnerState;
 
-/// Which v2 command path a view command takes. The registry's outcome does not
+/// Which command path a view command takes. The registry's outcome does not
 /// say, and each path finishes differently once the geometry is recomputed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum CommandPath {
@@ -44,7 +43,7 @@ impl OwnerState {
         }
     }
 
-    /// v2's per-path tail once the recompute has run. `broadcast` is the
+    /// Each path's tail once the recompute has run. `broadcast` is the
     /// recompute's "the decision already reached every live view".
     pub(super) fn finish_reply(
         &mut self,
@@ -95,7 +94,7 @@ impl OwnerState {
         }
     }
 
-    /// v2 `seedSocket`, which `deferred.rs` performs once the lock is released.
+    /// Seed a socket; `deferred.rs` performs it once the lock is released.
     fn seed(&self, socket_id: &str, session_id: &SessionId, work: &mut Work) {
         work.push(Deferred::Seed {
             socket_id: socket_id.to_owned(),
@@ -103,7 +102,7 @@ impl OwnerState {
         });
     }
 
-    /// v2 `replayUnavailable`: a heartbeat-policy session is redriven and the
+    /// A heartbeat-policy session is redriven and the
     /// next decision answers; anything else replays UNAVAILABLE.
     fn replay_unavailable(
         &mut self,
@@ -131,7 +130,7 @@ impl OwnerState {
         ));
     }
 
-    /// v2 `replyView`: a record's answer carries the session's stream and
+    /// A record's answer carries the session's stream and
     /// effective geometry, so there is none before a geometry exists.
     pub(super) fn reply_view(&self, reply: &PendingReply) {
         let PendingReply::View {
@@ -171,7 +170,7 @@ impl OwnerState {
         self.send(socket_id, frame.frame);
     }
 
-    /// v2 `replyCommand`: a refusal or an inactive acknowledgement carries no
+    /// A refusal or an inactive acknowledgement carries no
     /// stream and no geometry.
     fn reply_command(&self, reply: &PendingReply) {
         let PendingReply::Command {
@@ -192,7 +191,7 @@ impl OwnerState {
         self.send(socket_id, frame.frame);
     }
 
-    /// v2's `stateSink`: only the view-state member of the firehose frame the
+    /// Only the view-state member of the firehose frame the
     /// shared builder produces goes to the transport.
     fn send(&self, socket_id: &str, frame: Option<Frame>) {
         if let Some(Frame::TerminalViewState(state)) = frame {

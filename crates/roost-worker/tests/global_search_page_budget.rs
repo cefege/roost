@@ -9,11 +9,10 @@
 //! not "the scan stops" — it is that a page stops AT the caller's boundary and
 //! hands back a cursor a caller can actually continue from.
 //!
-//! `smoke/terminal/global-search.spec.ts` is the browser proof: it prints one
-//! marker, buries it under more rows than one page may read, clicks Load more,
-//! and waits for the buried marker to appear. Page one must NOT contain it, and
-//! page two must. A scan that reads past its budget satisfies the second
-//! without ever reporting a cursor that reaches the first.
+//! The browser scenario is: print one marker, bury it under more rows than one
+//! page may read, click Load more, and wait for the buried marker to appear. Page
+//! one must NOT contain it, and page two must. A scan that reads past its budget
+//! satisfies the second without ever reporting a cursor that reaches the first.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -40,7 +39,7 @@ use std::sync::Arc;
 /// page's newest boundary is older than the last line printed by this much.
 const ROWS: u16 = 24;
 
-/// The marker `global-search.spec.ts` types, and the padding it buries it
+/// The marker the scenario prints, and the padding it is buried
 /// under — more lines than one page is allowed to read.
 const MARKER: &str = "global-8a459306-secondary";
 const PADDING: usize = 2_105;

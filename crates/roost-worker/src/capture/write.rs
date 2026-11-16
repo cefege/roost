@@ -1,8 +1,6 @@
-//! Freezes one coordinator-driven CAPTURE: admission in v2's order, the
-//! remote evidence, and the worker section — all synchronous, under the record
-//! and registry locks — before `super::finish` writes it. Ports
-//! `captureTerminalIncident` and `replayCompletedCapture` of `apps/worker/src/
-//! diag/terminal-capture-write.ts`; called by `super::recorder`. Remote
+//! Freezes one coordinator-driven CAPTURE: admission, the remote evidence, and
+//! the worker section — all synchronous, under the record and registry locks —
+//! before `super::finish` writes it. Called by `super::recorder`. Remote
 //! sections are used exactly as the peers froze them, or are absent.
 
 use std::path::Path;
@@ -113,7 +111,7 @@ struct CaptureInputs<'a> {
     coordinator: Result<RemoteEvidence, Code>,
 }
 
-/// v2's admission order, then the freeze — all inside one registry hold.
+/// The admission order, then the freeze — all inside one registry hold.
 fn admit_capture(
     shared: &CaptureShared,
     inputs: CaptureInputs<'_>,

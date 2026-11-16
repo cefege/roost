@@ -1,7 +1,7 @@
 //! The production `ChannelDelivery`'s three lanes: an open resize capture holds
 //! and hands back, a trapped core retains without parsing, and everything else
-//! parses. Moved from `runtime/channel_delivery.rs`'s unit tests; the trapped
-//! lane ports v2 `emitUpstreamChunk`'s `!stream.coreValid` branch.
+//! parses. Moved from `runtime/channel_delivery.rs`'s unit tests, including the
+//! trapped lane (a chunk that arrives while the core is invalid).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod terminal_stream_support;

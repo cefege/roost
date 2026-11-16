@@ -276,8 +276,8 @@ pub fn wait_until(mut condition: impl FnMut() -> bool, what: &str) {
 /// A spec running `/bin/sh` in a directory that exists.
 ///
 /// It carries `PATH`, because the keeper clears the environment it did not
-/// inherit (`roost_keeper::pty_channel` calls `env_clear`, which is v2 parity:
-/// `Bun.spawn` treated `env` as a replace) and a resolved spec is what decides
+/// inherit (`roost_keeper::pty_channel` calls `env_clear`, so `env` replaces the
+/// environment) and a resolved spec is what decides
 /// what a login shell gets. A test child that could not find `sleep` would be a
 /// fixture that never ran its command, not a pool defect.
 pub fn sh_spec(args: &[&str], env: &[(&str, &str)]) -> ShellSpec {

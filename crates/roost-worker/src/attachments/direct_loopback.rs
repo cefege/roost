@@ -1,8 +1,7 @@
 //! The loopback attachment carrier: the port over one door WebSocket on the
 //! attachment subprotocol, and the handlers the door's shared loopback pump
 //! drives for that route. Protobuf admission, acknowledgements and close
-//! semantics stay in `direct_sockets`. Ports
-//! `apps/worker/src/attachments/local-ui-attachment-socket.ts`; mounted by
+//! semantics stay in `direct_sockets`. Mounted by
 //! `runtime::owners` as the door's attachment `LoopbackOwner`.
 
 use std::sync::Arc;

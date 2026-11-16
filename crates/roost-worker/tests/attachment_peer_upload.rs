@@ -1,8 +1,8 @@
 //! A direct upload over a real in-process str0m pair lands a file: the worker's
 //! attachment peer owner answers a browser-side str0m offerer, the hello and
 //! chunk travel packet-framed on their own channels, and the final ack names
-//! the committed path. No v2 test drives both natives in one process; this is
-//! the Rust acceptance proof for `attachment-peer-*` over the shared driver.
+//! the committed path. It drives both natives in one process over the shared
+//! driver.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

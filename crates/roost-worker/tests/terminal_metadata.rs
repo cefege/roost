@@ -1,7 +1,6 @@
-//! Ports `apps/worker/tests/session/session-terminal-metadata.test.ts` (bounded
-//! retained facts, capability cutover, replay, throttling, refusal, the 32-frame
-//! quantum), the title grammar of `packages/protocol/src/terminal-metadata.ts`,
-//! and the coalescing merge of `transport/coord-link-terminal-metadata.ts`.
+//! Terminal metadata: bounded retained facts, capability cutover, replay,
+//! throttling, refusal, the 32-frame quantum, the title grammar, and the
+//! coalescing merge.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_protocol::wire::brand::ChannelId;

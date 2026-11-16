@@ -1,8 +1,7 @@
-//! The production driver that makes cells flow: v2's `queueMicrotask`/
-//! `setTimeout` cadence around `session-cell-scheduler.ts`, `session-sync-output.ts`,
-//! and `session-terminal-metadata.ts`, plus `main.ts:200-217`
-//! (the `"coord"` sink registration) and the session half of `transport/
-//! coord-link-deps.ts:110-181` ([`LinkLifecyclePort`]). The lead calls
+//! The production driver that makes cells flow: the cadence around the cell
+//! scheduler, the sync-output hold and the terminal-metadata stage, the
+//! `"coord"` sink registration, and the session half of the link lifecycle
+//! ([`LinkLifecyclePort`]). The lead calls
 //! [`CellCadence::spawn`] once at boot and puts a clone in `DownstreamOwners.lifecycle`.
 
 use std::collections::HashSet;
@@ -48,8 +47,8 @@ impl std::fmt::Debug for CellCadence {
 
 impl CellCadence {
     /// Build the cadence over the ONE emitter (`TableCellDelivery::emitter`),
-    /// register `coord_sink` (the same `Arc` the link drains) the way v2's
-    /// `main.ts` did, and start the driver task on the current runtime.
+    /// register `coord_sink` (the same `Arc` the link drains), and start the
+    /// driver task on the current runtime.
     pub fn spawn(
         emitter: Arc<Mutex<CellEmitter>>,
         table: Arc<SessionTable>,
@@ -90,12 +89,12 @@ impl CellCadence {
         }
     }
 
-    /// v2 `registerCellSink` for a local terminal socket (or any other sink).
+    /// Register a cell sink: a local terminal socket, or any other sink.
     pub fn register_sink(&self, sink: Arc<dyn CellSink>) {
         lock(&self.shared.emitter).register_cell_sink(sink);
     }
 
-    /// v2 `unregisterCellSink`.
+    /// Remove a registered cell sink.
     pub fn unregister_sink(&self, sink_id: &str) {
         lock(&self.shared.emitter).unregister_cell_sink(sink_id);
     }
@@ -147,7 +146,7 @@ impl CellCadence {
         after.next_deadline
     }
 
-    /// v2 `flushTerminalMetadata` into the link's coalescing lane.
+    /// Flush terminal metadata into the link's coalescing lane.
     fn flush_terminal_metadata(&self) {
         let live = self.live_channels();
         let uplink = &self.shared.uplink;
@@ -165,7 +164,7 @@ impl CellCadence {
         );
     }
 
-    /// v2 `sessions.has`, taken before the emitter lock.
+    /// The channels the session table holds, read before the emitter lock.
     fn live_channels(&self) -> HashSet<ChannelId> {
         self.shared
             .table
@@ -189,12 +188,12 @@ impl CellCadence {
 }
 
 impl LinkLifecyclePort for CellCadence {
-    /// v2 `onOpen`: a fresh socket cannot carry cells until hello-ack.
+    /// A fresh socket cannot carry cells until hello-ack.
     fn on_open(&self) {
         self.suspend_coordinator("open");
     }
 
-    /// v2 `onHelloAck` (session half): attach the metadata lane, then
+    /// The session half of hello-ack: attach the metadata lane, then
     /// re-baseline the coord sink ONLY — stream identity and local viewers are
     /// untouched.
     fn on_hello_ack(&self, _capabilities: &[String]) {
@@ -205,22 +204,21 @@ impl LinkLifecyclePort for CellCadence {
         tracing::info!("the coordinator cell sink resumed at hello-ack");
     }
 
-    /// v2 `onDetach` (session half).
+    /// The session half of a detach.
     fn on_detach(&self) {
         self.suspend_coordinator("detach");
     }
 
-    /// v2 `onWritable`: resume parked parts, then retry coalesced metadata.
+    /// Resume parked parts, then retry coalesced metadata.
     /// Resuming drains the parked repair into the sink before this returns, so
-    /// the link writes it ahead of its queued controls
-    /// (`coord-link-repair-order.test.ts`).
+    /// the link writes it ahead of its queued controls.
     fn on_writable(&self) {
         lock(&self.shared.emitter).resume_cell_sink(COORD_CELL_SINK_ID);
         self.flush_terminal_metadata();
         tracing::debug!("the coordinator link reported writable");
     }
 
-    /// v2 `onSnapshotReady` (session half): replay retained metadata, and ship a
+    /// The session half of snapshot-ready: replay retained metadata, and ship a
     /// baseline parked at hello-ack now that the barrier cleared.
     fn on_snapshot_ready(&self) {
         let mut emitter = lock(&self.shared.emitter);

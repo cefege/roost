@@ -3,7 +3,7 @@
 //! link. `crate::local_terminal` owns the frames; this owns the negotiated
 //! carrier — offer/answer, packet framing from `roost_protocol::terminal_peer`,
 //! per-lane budgets and the history reservation. Built by `runtime::owners`
-//! ([`DirectTerminal`]); ports v2 `apps/worker/src/terminal/peer/*`.
+//! ([`DirectTerminal`]).
 
 mod config;
 mod connection;

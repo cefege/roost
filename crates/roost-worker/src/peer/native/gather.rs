@@ -1,9 +1,7 @@
 //! Binds one UDP socket per local address and gathers the peer's candidates
 //! before its answer is written: a host candidate per socket, then a
 //! server-reflexive one per socket a STUN server answers before the gathering
-//! deadline. Called by `peer::native::str0m_peer` from `answer`. Stands in for
-//! libjuice's gathering inside node-datachannel for v2
-//! `apps/worker/src/terminal/peer/terminal-peer-native.ts`.
+//! deadline. Called by `peer::native::str0m_peer` from `answer`.
 //!
 //! One socket per address, not one wildcard socket: str0m's ICE agent only
 //! answers a check that arrived on a known local candidate address, and a
@@ -170,7 +168,7 @@ async fn reflexive_candidates(
 /// Which servers each host socket probes: only the ones its address is the
 /// egress for, and none the routing table has no route to. A server whose
 /// egress is none of the sockets (an operator `bind_address`) or could not be
-/// read is probed by every socket of its family, as before, so a wrong guess
+/// read is probed by every socket of its family, so a wrong guess
 /// never costs a candidate. Probing from a socket that cannot reach the server
 /// only holds the gathering open for the settle.
 fn probe_targets(bases: &[IpAddr], servers: &[(SocketAddr, Egress)]) -> Vec<Vec<SocketAddr>> {

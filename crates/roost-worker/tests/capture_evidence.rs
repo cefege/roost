@@ -1,8 +1,7 @@
 //! Remote-evidence nesting for one CAPTURE: nested browser and coordinator
 //! payloads land as their own sections with the browser's authored trigger; a
 //! nested-but-invalid section is dropped WITHOUT costing the worker its own
-//! evidence; a FLATTENED payload is refused outright. Ports `apps/worker/tests/
-//! terminal/terminal-capture-evidence.test.ts`.
+//! evidence; a FLATTENED payload is refused outright.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod capture_support;

@@ -1,9 +1,7 @@
 //! The history pin a core geometry change writes (`sb_origin`, the `sb_dropped`
 //! floor, the replay floor), computed from the counters read around the change.
 //! `session::resize` pins an in-place resize; `session::resume_core` pins a core
-//! rebuilt from a keeper survivor. Split from `session::resize` (boundary half of
-//! v2 `apps/worker/src/session/session-resize-capture.ts`); the pin's shape is
-//! v2's `SbOriginPin` in `session-record.ts`.
+//! rebuilt from a keeper survivor. Split from the boundary half of `session::resize`.
 
 use super::history::SbOriginPin;
 use super::types::SessionRecord;

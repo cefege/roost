@@ -2,11 +2,9 @@
 //! command's owner, and the refusal every caller is owed. `runtime::link_drain`
 //! is the only caller, and it is the only thing that puts a reply on the link.
 //!
-//! The split below is by concept — which capability executes a command — and
-//! not by the TypeScript files it replaces. v2 kept one `switch` and four
-//! handler files, and the boundaries that survived are the ones that name a
-//! capability: sessions, the filesystem, a retained grid read, a
-//! search, the attachment store, and diagnostics.
+//! The split below is by concept — which capability executes a command:
+//! sessions, the filesystem, a retained grid read, a search, the attachment
+//! store, and diagnostics.
 //!
 //! ONE RULE: every command that asks for an answer gets one, correlated by the
 //! envelope's `request_id`. A command that is neither executed nor refused
@@ -14,7 +12,6 @@
 //! deadline with no cause in any log — which is why the routing is a TABLE
 //! rather than a `match`. A kind with no row is a refusal a test can observe;
 //! a missing `match` arm is a compile error nobody reads.
-//! Ports v2 `apps/worker/src/browser-commands/browser-command-handler.ts`.
 
 use std::pin::Pin;
 use std::sync::Arc;

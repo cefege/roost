@@ -33,7 +33,7 @@ pub trait KeeperChannels: Send + Sync {
     fn channel_history(&self, channel_id: u16) -> Result<SurvivorHistory, KeeperFault>;
     /// The geometry the keeper has actually applied to this channel.
     fn terminal_state(&self, channel_id: u16) -> Result<TerminalState, KeeperFault>;
-    /// v2 `reattach` + `getHistoryRecords` as one step at one keeper boundary:
+    /// Reattach and read the history as one step at one keeper boundary:
     /// `binding` receives everything the survivor emits after the returned
     /// history's head, and nothing inside it.
     fn reattach_with_history(
@@ -47,7 +47,7 @@ pub trait KeeperChannels: Send + Sync {
     /// Resize this channel and report the keeper's own answer: applied (with
     /// the sequence and geometry it applied), refused (with its reason), or
     /// unknown. `Err` is a request that never reached the keeper, which is the
-    /// only case a caller may report as pre-write (v2 `admission.written`).
+    /// only case a caller may report as pre-write.
     fn resize_channel(
         &self,
         channel_id: u16,
@@ -55,7 +55,7 @@ pub trait KeeperChannels: Send + Sync {
         cols: u16,
         rows: u16,
     ) -> Result<roost_keeper::client_resize::ResizeOutcome, KeeperFault>;
-    /// Begin one acknowledged input batch (v2 `beginInput`). The admission half
+    /// Begin one acknowledged input batch. The admission half
     /// is decided before this returns; the result half settles once the keeper
     /// answers, and a written batch whose answer is lost is ambiguous. BLOCKING:
     /// the write takes the keeper connection, so async callers run it on a
@@ -114,8 +114,8 @@ impl SurvivorHistory {
     }
 }
 
-/// Why an acknowledged batch provably never reached the keeper socket. v2
-/// `KeeperWriteRejection`; v2's `unsupported` has no form here because a keeper
+/// Why an acknowledged batch provably never reached the keeper socket. There is
+/// no `unsupported` form here because a keeper
 /// without acknowledged input fails `KeeperClient::hello`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputNotWritten {
@@ -134,8 +134,8 @@ impl InputNotWritten {
     }
 }
 
-/// What the keeper said, or failed to say, about one written batch. v2
-/// `KeeperInputResult`. `Reject` is the keeper proving nothing reached the PTY;
+/// What the keeper said, or failed to say, about one written batch.
+/// `Reject` is the keeper proving nothing reached the PTY;
 /// an ambiguous `written: None` is a batch whose count is unknown (timeout,
 /// disconnect, a result that contradicts the request).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,7 +152,7 @@ pub enum KeeperInputResult {
     },
 }
 
-/// A two-phase keeper input command. v2 `KeeperCommand<KeeperInputResult>`.
+/// A two-phase keeper input command.
 pub struct KeeperInputCommand {
     /// `Err` proves the request never reached the socket; `Ok` proves it did.
     pub admission: Result<(), InputNotWritten>,

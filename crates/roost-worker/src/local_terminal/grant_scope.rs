@@ -1,9 +1,7 @@
 //! The public shape of one local terminal grant, what a change to it reports,
 //! and the checks an install and a Hello run. `super::grants` is the store that
 //! holds them; `super::sockets` and the peer owner read only this public scope,
-//! never a digest or a secret. Ports the types and validators of
-//! `apps/worker/src/local-door/local-terminal-grants.ts` and
-//! `verifyLocalEndpointCapability` (`packages/host/src/local-endpoint.ts`).
+//! never a digest or a secret.
 
 use std::sync::Arc;
 
@@ -31,7 +29,7 @@ pub struct LocalTerminalGrant {
     pub expires_at: Instant,
 }
 
-/// What a Hello presents. v2 `LocalTerminalCredential`.
+/// What a Hello presents.
 #[derive(Debug, Clone, Copy)]
 pub struct GrantCredential<'a> {
     pub grant_id: &'a str,
@@ -133,7 +131,7 @@ pub(super) fn sha256_hex(secret: &str) -> String {
 
 const HEX: &[u8; 16] = b"0123456789abcdef";
 
-/// v2 `verifyLocalEndpointCapability`: both values are hashed to a fixed width
+/// Both values are hashed to a fixed width
 /// and compared without an early exit, so the comparison time says nothing
 /// about how much of the installed digest a guess matched.
 pub(super) fn capability_matches(expected: &str, received: &str) -> bool {

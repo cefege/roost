@@ -2,9 +2,8 @@
 //! survivor decision cannot proceed without. Called by the boot sequence once,
 //! between the link dialling and the keeper being admitted.
 //!
-//! WHY IT IS A SEPARATE CALL AND NOT A LINK FRAME. v2 reads it with a Connect
-//! unary during boot (`boot-session-reconcile.ts:96` calls `sessionsList`), not
-//! over the worker socket, and for the same reason this does: the decision it
+//! WHY IT IS A SEPARATE CALL AND NOT A LINK FRAME. It is read with a Connect
+//! unary during boot, not over the worker socket: the decision it
 //! feeds is a decision about whether to DESTROY something, and a fact read over
 //! a link that is still establishing itself is a fact the link can also be
 //! retrying. A unary either answers or does not.
@@ -12,8 +11,7 @@
 //! WHY THE WHOLE SET AND NOT A COUNT. [`crate::runtime::keeper_boot::decide`]
 //! takes a count, and the count is all the decision needs, but the set is what
 //! is fetched and the count is derived here so the two cannot disagree about
-//! what was asked for. v2 derived `coordinatorOpenSessionIds` from the same
-//! response it admitted against.
+//! what was asked for.
 //!
 //! AN UNANSWERED COORDINATOR IS `None`, NOT ZERO. Zero says "this coordinator
 //! has no open sessions", and a keeper survivor holding channels would then be

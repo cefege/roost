@@ -1,8 +1,7 @@
 //! The in-memory authority for exact direct attachment uploads. The
 //! coordinator installs only a secret's digest; this store binds a hello's
 //! device, tab, worker epoch and immutable upload descriptor independently.
-//! Terminal grants never enter it. Ports v2
-//! `apps/worker/src/attachments/attachment-grants.ts`. Built by
+//! Terminal grants never enter it. Built by
 //! `runtime::owners`; installed and revoked by `attachments::link`, read by
 //! hello admission and the attachment peer owner.
 
@@ -137,8 +136,8 @@ impl AttachmentGrantStore {
         self.listeners.subscribe(listener)
     }
 
-    /// v2 `install`: validate, renew or add, and announce. The error is the
-    /// message the coordinator's `rpc-error` carries.
+    /// Validate, renew or add, and announce. The error is the message the
+    /// coordinator's `rpc-error` carries.
     pub fn install(&self, frame: &DLocalAttachmentGrant) -> Result<AttachmentGrant, String> {
         let now = (self.clock)();
         let mut changes = Vec::new();
@@ -161,7 +160,7 @@ impl AttachmentGrantStore {
         current
     }
 
-    /// v2 `verify`: the grant a hello's credential proves, or why not.
+    /// The grant a hello's credential proves, or why not.
     pub fn verify(
         &self,
         credential: &AttachmentGrantCredential,
@@ -178,7 +177,7 @@ impl AttachmentGrantStore {
         verdict
     }
 
-    /// v2 `authorizePeer`: whether a peer negotiation may proceed under a grant.
+    /// Whether a peer negotiation may proceed under a grant.
     pub fn authorize_peer(&self, request: &PeerGrantRequest) -> PeerGrantAuthorization {
         let now = (self.clock)();
         let mut changes = Vec::new();

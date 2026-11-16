@@ -4,7 +4,7 @@
 //! revocation ends the socket, a socket that stops draining is dropped alone,
 //! and a socket that never says Hello is expired. The real grant store, view
 //! owner, session manager, cell sinks and cadence run; only the carrier is a
-//! stub. Ports `apps/worker/tests/local-door/local-terminal-socket.test.ts`.
+//! stub.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod local_terminal_support;
@@ -294,8 +294,7 @@ async fn a_socket_that_stops_draining_is_dropped_alone() {
     assert!(healthy.cases().contains(&"cellGrid"));
 }
 
-/// v2 `local-terminal-prehello.ts` through the socket owner: a loopback
-/// socket that never says Hello is closed at the deadline.
+/// A loopback socket that never says Hello is closed at the deadline.
 #[tokio::test(start_paused = true)]
 async fn a_socket_that_never_says_hello_is_closed_at_the_deadline() {
     let fixture = Fixture::new();

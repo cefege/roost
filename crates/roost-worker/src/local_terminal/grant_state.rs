@@ -1,8 +1,7 @@
 //! The grant store's locked state and the pure steps over it: install-frame
 //! validation, lazy expiry, removal with its expired-id memory, the sweep,
 //! and the clock they read. Called only by
-//! `super::grants::LocalTerminalGrantStore` with its lock held. Ports the
-//! private helpers of `apps/worker/src/local-door/local-terminal-grants.ts`.
+//! `super::grants::LocalTerminalGrantStore` with its lock held.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -34,8 +33,8 @@ pub(super) struct GrantState {
     pub(super) disposed: bool,
 }
 
-/// v2's install checks, in v2's order; the error is the refusal message. The
-/// session set comes back validated.
+/// The install checks, in their fixed order; the error is the refusal message.
+/// The session set comes back validated.
 pub(super) fn validated_session_ids(
     frame: &DLocalTerminalGrant,
     worker_epoch: &str,

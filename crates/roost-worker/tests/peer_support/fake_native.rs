@@ -1,8 +1,6 @@
 // A deterministic native-transport fake for the peer owner, connection and
 // packet-port suites: native callback ordering and peer state without a UDP
-// socket or a DTLS handshake. Ports v2
-// `apps/worker/tests/terminal/peer/terminal-peer-owner-fixture.ts` and the
-// fake channels of `terminal-peer-packet-port.test.ts`.
+// socket or a DTLS handshake.
 #![allow(clippy::unwrap_used, clippy::expect_used, dead_code)]
 
 use std::collections::VecDeque;
@@ -43,7 +41,7 @@ pub fn answer_sdp() -> String {
     offer_sdp().replace("a=setup:actpass", "a=setup:active")
 }
 
-/// v2 `createFakeNativeFixture()`.
+/// The fake native runtime.
 #[derive(Debug, Default)]
 pub struct FakeNative {
     peers: Mutex<Vec<Arc<FakePeer>>>,
@@ -66,7 +64,7 @@ impl FakeNative {
         })
     }
 
-    /// A loader that resolves only once `gate` gets a permit (v2 `nativeGate`).
+    /// A loader that resolves only once `gate` gets a permit.
     pub fn gated_loader(self: &Arc<Self>, gate: Arc<Semaphore>) -> NativeLoader {
         let fake = Arc::clone(self);
         Arc::new(move || {
@@ -102,7 +100,7 @@ impl FakeNative {
         self.defer_new_peers.store(defer, Ordering::SeqCst);
     }
 
-    /// v2 `afterAnswerSettled = () => peer.emitIceFailure()` for every new peer.
+    /// Every new peer reports an ICE failure once its answer settles.
     pub fn set_fail_after_answer(&self, fail: bool) {
         self.fail_after_answer.store(fail, Ordering::SeqCst);
     }
@@ -132,8 +130,7 @@ impl NativePeerFactory for FakeNative {
     }
 }
 
-/// One fake native peer and its channels (v2 `FakePeerConnection` +
-/// `FakeDataChannel`/`FakeNativeChannel`).
+/// One fake native peer and its channels.
 #[derive(Debug)]
 pub struct FakePeer {
     config: NativePeerConfig,
@@ -206,7 +203,7 @@ impl FakePeer {
         let _ = self.sender.send(event);
     }
 
-    /// v2 `channel.emitOpen()` through the event pump.
+    /// Open a channel through the event pump.
     pub fn open_channel(&self, channel: usize) {
         self.set_open(channel, true);
         self.emit(NativePeerEvent::ChannelOpen(channel));
@@ -220,7 +217,7 @@ impl FakePeer {
         self.buffered.lock_or_recover()[channel] = bytes;
     }
 
-    /// v2 `returnValues.push(value)`.
+    /// Queue the result of the channel's next send.
     pub fn push_send_result(&self, channel: usize, sent_now: bool) {
         self.send_results.lock_or_recover()[channel].push_back(sent_now);
     }

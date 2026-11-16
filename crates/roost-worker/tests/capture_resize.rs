@@ -1,8 +1,7 @@
 //! Resize boundaries in a recording: an accepted resize records the
 //! KEEPER-acknowledged parse boundary and the epoch transition, a lost ACK
 //! leaves a record with no proven boundary and a coverage reason, and a capture
-//! during an unresolved boundary reads the frozen core directly. Ports
-//! `apps/worker/tests/terminal/terminal-capture-resize.test.ts`.
+//! during an unresolved boundary reads the frozen core directly.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod capture_support;

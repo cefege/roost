@@ -1,9 +1,8 @@
 //! Coordinator keeper-update preparation, serialized across downstream
 //! requests: close channel creation, join the reconcile boundary, verify the
 //! coordinator's canonical session set against this worker's, then apply the
-//! journaled action or the maintenance shutdown. Ports v2
-//! `apps/worker/src/transport/coord-link-keeper-update.ts`. Built by
-//! `runtime::owners`; `runtime::downstream` routes `keeperUpdatePrepare` to it.
+//! journaled action or the maintenance shutdown. Built by `runtime::owners`;
+//! `runtime::downstream` routes `keeperUpdatePrepare` to it.
 //!
 //! A successful journaled preparation leaves admission CLOSED and the reconcile
 //! boundary HELD: the deploy is about to replace this worker, and a spawn or a
@@ -29,14 +28,14 @@ use crate::uplink::OwnerFuture;
 /// Releases a held reconcile boundary. Called at most once.
 pub type BoundaryRelease = Box<dyn FnOnce() + Send>;
 
-/// v2 `acquireKeeperUpdateBoundary`: block reconciliation and wait out the one
-/// in flight. `Err` carries that reconcile's failure.
+/// Block reconciliation and wait out the one in flight. `Err` carries that
+/// reconcile's failure.
 pub trait KeeperUpdateBoundary: Send + Sync {
     fn acquire(&self) -> OwnerFuture<Result<BoundaryRelease, String>>;
 }
 
-/// The two keeper actions a preparation ends in (v2 `applyKeeperUpdateAction`
-/// and `shutdownKeeperForMaintenance`, injectable exactly as there).
+/// The two keeper actions a preparation ends in (apply a journaled action, or
+/// shut the keeper down for maintenance), injectable for tests.
 pub trait KeeperUpdateActions: Send + Sync {
     fn apply(
         &self,
@@ -83,7 +82,7 @@ pub struct KeeperUpdatePreparer {
     table: Arc<SessionTable>,
     boundary: Arc<dyn KeeperUpdateBoundary>,
     actions: Arc<dyn KeeperUpdateActions>,
-    /// v2 `preparationTail`: one preparation at a time, in arrival order.
+    /// One preparation at a time, in arrival order.
     tail: Arc<tokio::sync::Mutex<()>>,
 }
 

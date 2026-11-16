@@ -1,9 +1,7 @@
 //! The operator's peer transport settings, resolved once at boot and shared by
 //! the terminal and attachment peer owners: whether direct peers run at all,
 //! the one address their sockets bind, and the UDP port range. Resolved by
-//! `runtime::boot` (`WorkerBoot::resolve`); read by `runtime::owners`. Ports
-//! `parseTerminalPeer{Enabled,BindAddress,PortRange}` of v2
-//! `apps/worker/src/host/config.ts`.
+//! `runtime::boot` (`WorkerBoot::resolve`); read by `runtime::owners`.
 
 use std::net::IpAddr;
 
@@ -16,7 +14,7 @@ pub const TERMINAL_PEER_PORT_RANGE_ENV: &str = "ROOST_TERMINAL_PEER_PORT_RANGE";
 const PORT_RANGE_REFUSAL: &str =
     "ROOST_TERMINAL_PEER_PORT_RANGE must be min-max with decimal ports from 1024 to 65535";
 
-/// v2 `WorkerConfig.terminalPeer{Enabled,BindAddress,PortRange}`.
+/// Whether peers run, the address their sockets bind, and the UDP port range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PeerTransportConfig {
     pub enabled: bool,
@@ -24,7 +22,7 @@ pub struct PeerTransportConfig {
     pub port_range: Option<(u16, u16)>,
 }
 
-/// The refusal a malformed setting boots into, worded as v2 throws it.
+/// The refusal a malformed setting boots into.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{0}")]
 pub struct PeerConfigError(pub &'static str);
@@ -39,7 +37,7 @@ impl PeerTransportConfig {
     }
 }
 
-/// Unset runs peers on the platforms v2 shipped them on; `0`/`1` otherwise.
+/// Unset runs peers on Linux and macOS; `0`/`1` otherwise.
 pub fn parse_enabled(value: Option<&str>, platform: HostPlatform) -> Result<bool, PeerConfigError> {
     match value {
         None => Ok(matches!(
@@ -59,7 +57,7 @@ pub fn parse_enabled(value: Option<&str>, platform: HostPlatform) -> Result<bool
 
 /// A literal unicast address: IPv4 with a first octet in 1..=223, or IPv6
 /// that is neither `::` nor `ff…`, and whose mapped IPv4 form (if any) is
-/// unicast by the same rule (v2 `isUnicastIpv6`).
+/// unicast by the same rule.
 pub fn parse_bind_address(value: Option<&str>) -> Result<Option<IpAddr>, PeerConfigError> {
     let Some(value) = value else {
         return Ok(None);

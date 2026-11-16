@@ -2,8 +2,6 @@
 //! bundle of them the link loop holds. Called by `runtime::downstream` and the
 //! link loop's lifecycle hooks; implemented by the terminal input, stream,
 //! pipeline, view and cell owners, and composed in `runtime::owners`.
-//! Ports the `CoordLinkDeps` callbacks and `CoordLinkPipelineState` of v2
-//! `apps/worker/src/transport/coord-link-types.ts` / `coord-link-deps.ts`.
 
 use std::sync::Arc;
 
@@ -45,7 +43,7 @@ pub trait TerminalInputPort: Send + Sync + std::fmt::Debug {
         budget: RequestBudget,
         fence: LinkFence,
     ) -> OwnerFuture<Option<InputResult>>;
-    /// `None` → the dispatcher sends v2's refused claim (`route_claim_busy`).
+    /// `None` → the dispatcher sends the refused claim (`route_claim_busy`).
     fn claim_route(
         &self,
         request: DTerminalInputRouteClaim,
@@ -55,12 +53,11 @@ pub trait TerminalInputPort: Send + Sync + std::fmt::Debug {
     fn retire_connection(&self, socket_id: &str);
 }
 
-/// Coordinator-driven stream state and repair. v2 `onTerminalStreamState`,
-/// `onTerminalSnapshotRequest`.
+/// Coordinator-driven stream state and repair.
 pub trait TerminalStreamPort: Send + Sync + std::fmt::Debug {
-    /// `fence.is_current()` is v2's `budget.isCurrentConnection()`. `None` is a
-    /// request no wire result can describe (a session id that is not a uuid):
-    /// the dispatcher sends nothing.
+    /// `fence.is_current()` reports whether the request's connection is still
+    /// the live one. `None` is a request no wire result can describe (a
+    /// session id that is not a uuid): the dispatcher sends nothing.
     fn apply_stream_state(
         &self,
         request: DTerminalStreamState,
@@ -70,7 +67,7 @@ pub trait TerminalStreamPort: Send + Sync + std::fmt::Debug {
     fn request_snapshot(&self, request: TerminalSnapshotRequest);
 }
 
-/// Content-free pipeline evidence. v2 `onTerminalPipelineSnapshot`.
+/// Content-free pipeline evidence.
 pub trait TerminalPipelinePort: Send + Sync + std::fmt::Debug {
     fn pipeline_snapshot(
         &self,
@@ -79,8 +76,7 @@ pub trait TerminalPipelinePort: Send + Sync + std::fmt::Debug {
     ) -> WTerminalPipelineSnapshot;
 }
 
-/// The link's own queue as pipeline evidence sees it. v2
-/// `CoordLinkPipelineState`.
+/// The link's own queue as pipeline evidence sees it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LinkPipelineState {
     pub queue_frames: u64,
@@ -92,16 +88,14 @@ pub struct LinkPipelineState {
 }
 
 /// Worker-owned terminal views. Synchronous, so one browser socket's decisions
-/// keep their receive order. v2 `onTerminalViewRelay`, the view half of
-/// `onTerminalViewSocketClosed`, and `viewOwner.dropCoordinatorSockets`.
+/// keep their receive order.
 pub trait TerminalViewPort: Send + Sync + std::fmt::Debug {
     fn relay(&self, request: DTerminalViewRelay);
     fn close_socket(&self, socket_id: &str);
     fn drop_coordinator_sockets(&self);
 }
 
-/// The session half of the link's lifecycle. v2 `onOpen`, `onHelloAck`,
-/// `onDetach`, `onWritable`, `onSnapshotReady`.
+/// The session half of the link's lifecycle.
 pub trait LinkLifecyclePort: Send + Sync + std::fmt::Debug {
     fn on_open(&self);
     fn on_hello_ack(&self, capabilities: &[String]);
@@ -111,9 +105,8 @@ pub trait LinkLifecyclePort: Send + Sync + std::fmt::Debug {
 }
 
 /// Several owners of the link's lifecycle behind the one port the link calls.
-/// v2's `CoordLinkDeps` callbacks each reach several owners —
-/// `coord-link-deps.ts` `onSnapshotReady` replays terminal metadata and resumes
-/// the cell sink in registration order.
+/// Each callback reaches several owners: `on_snapshot_ready` replays terminal
+/// metadata and resumes the cell sink in registration order.
 #[derive(Debug)]
 pub struct LinkLifecycles {
     owners: Vec<Arc<dyn LinkLifecyclePort>>,
@@ -147,8 +140,7 @@ impl LinkLifecyclePort for LinkLifecycles {
     }
 }
 
-/// The local terminal door's grant half. v2 `onLocalTerminalGrant` /
-/// `onLocalTerminalGrantRevoke`. Implemented by `local_terminal::LocalTerminalDoor`.
+/// The local terminal door's grant half. Implemented by `local_terminal::LocalTerminalDoor`.
 pub trait LocalTerminalGrantPort: Send + Sync + std::fmt::Debug {
     /// Install or renew a grant; `Err` is the message the install is refused with.
     fn install_grant(&self, request: &DLocalTerminalGrant) -> Result<(), String>;
@@ -156,9 +148,7 @@ pub trait LocalTerminalGrantPort: Send + Sync + std::fmt::Debug {
     fn revoke_device(&self, device_fingerprint: &str);
 }
 
-/// The direct terminal path. v2 `onLocalTerminalPeerOffer`,
-/// `onLocalTerminalPeerCancel`, `onTerminalTransportProbe`,
-/// `onTerminalDirectRetire`. Implemented by `peer::DirectTerminal`.
+/// The direct terminal path. Implemented by `peer::DirectTerminal`.
 pub trait DirectTerminalPort: Send + Sync + std::fmt::Debug {
     /// Negotiate one browser peer; the answer or refusal is fenced to `fence`.
     fn peer_offer(
@@ -176,8 +166,7 @@ pub trait DirectTerminalPort: Send + Sync + std::fmt::Debug {
     fn direct_retire(&self, request: &DTerminalDirectRetire);
 }
 
-/// Attachment peers. v2 `onLocalAttachmentPeerOffer`,
-/// `onLocalAttachmentPeerCancel`. Implemented by
+/// Attachment peers. Implemented by
 /// `attachments::direct_owners::AttachmentDirect`.
 pub trait AttachmentPeerPort: Send + Sync + std::fmt::Debug {
     /// Admission and the pending reservation happen synchronously in this
@@ -192,25 +181,23 @@ pub trait AttachmentPeerPort: Send + Sync + std::fmt::Debug {
 }
 
 /// Relayed attachment uploads and the direct-carrier grants the coordinator
-/// installs. v2 `onAttachmentChunk`, `onLocalAttachmentGrant`,
-/// `onLocalAttachmentGrantRevoke`, `onAttachmentDirectStatusRequest`.
-/// Implemented by `attachments::link::AttachmentLink`.
+/// installs. Implemented by `attachments::link::AttachmentLink`.
 pub trait AttachmentLinkPort: Send + Sync + std::fmt::Debug {
     /// The chunk is written in this call (arrival order is write order); the
     /// future settles what the coordinator is told.
     fn accept_relay_chunk(&self, chunk: DAttachmentChunk) -> OwnerFuture<RelayChunkOutcome>;
-    /// `Err` is the message v2's `rpc-error` carries.
+    /// `Err` is the message the `rpc-error` carries.
     fn install_grant(&self, request: &DLocalAttachmentGrant) -> Result<(), String>;
     fn revoke_device(&self, device_fingerprint: &str);
     fn direct_status(&self, request: &DAttachmentDirectStatusRequest) -> AttachmentTransferStatus;
 }
 
-/// Keeper replacement preparation. v2 `onKeeperUpdatePrepare`. Implemented by
+/// Keeper replacement preparation. Implemented by
 /// `keeper_pool::KeeperUpdatePreparer`.
 pub trait KeeperUpdatePort: Send + Sync + std::fmt::Debug {
-    /// Channel admission closes synchronously in this call (v2 closes it before
-    /// joining its serialized tail); the future resolves to the `rpc-ok` data,
-    /// or the `rpc-error` message.
+    /// Channel admission closes synchronously in this call, before the
+    /// preparation joins the serialized queue; the future resolves to the
+    /// `rpc-ok` data, or the `rpc-error` message.
     fn prepare(
         &self,
         request: DKeeperUpdatePrepare,

@@ -1,8 +1,7 @@
-//! Ports v2 `apps/worker/tests/host/listening-ports.test.ts` and the `portsEq`
-//! cases of `tests/host/pr-status.test.ts`: only non-loopback binds survive the
-//! `lsof` and `ss` parses (the folder chip opens them on the worker's tailnet
-//! address), ascending and distinct, and `ss` rows are filtered to the
-//! session's process tree. Rows are v2's verbatim captures.
+//! Only non-loopback binds survive the `lsof` and `ss` parses (the folder chip
+//! opens them on the worker's tailnet address), ascending and distinct, and `ss`
+//! rows are filtered to the session's process tree; `ports_eq` compares port
+//! lists. Rows are verbatim captures.
 
 use std::collections::BTreeSet;
 

@@ -1,10 +1,7 @@
-//! The downstream arms whose owners exist route to them with v2's semantics:
-//! hello-ack order, the snapshot-ready edge, PTY-bound binary only, input and
-//! stream requests answered once each (fenced) with v2's failure frame when the
-//! owner panics or is dropped, the stream in-flight cap, synchronous view relay,
-//! and route claims. Ports `coord-link-direct-terminal.test.ts` (route claim) and
-//! `coord-link-terminal-pipeline.test.ts` ("dispatches the typed downstream
-//! request directly to its owner") from `apps/worker/tests/transport/`.
+//! The downstream arms whose owners exist route to them: hello-ack order, the
+//! snapshot-ready edge, PTY-bound binary only, input and stream requests answered
+//! once each (fenced) with a failure frame when the owner panics or is dropped,
+//! the stream in-flight cap, synchronous view relay, and route claims.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod link_downstream_support;

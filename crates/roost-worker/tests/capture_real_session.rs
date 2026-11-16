@@ -3,8 +3,7 @@
 //! through the production session layer (`session_stack::build`, which builds
 //! the one recorder and attaches its tap to the one emitter), writes output
 //! the recorder retains, and a CAPTURE freezes it into a gzip bundle that
-//! carries that terminal content. No v2 counterpart: v2's suites drive a fake
-//! keeper; this is the end-to-end proof the port's wiring is live.
+//! carries that terminal content. This is the end-to-end proof the wiring is live.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod keeper_pool_support;

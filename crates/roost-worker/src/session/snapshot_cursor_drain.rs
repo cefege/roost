@@ -5,7 +5,6 @@
 //! `session::snapshot_cursor` parks the cursor it walks. Depends on
 //! `super::snapshot_cursor` for the part type and `super::cell_sink` for the
 //! answers.
-//! Ports v2 `apps/worker/src/session/session-snapshot-cursor.ts`.
 
 use std::sync::Arc;
 
@@ -19,8 +18,7 @@ impl CellEmitter {
     /// Send parked parts to every sink that owes them, then answer for the
     /// stream.
     ///
-    /// EACH SINK DRAINS ALONE, as v2's `installStreamBaseline` drains every
-    /// sink's cursor in turn (`session-snapshot-cursor.ts:100,167`): one that
+    /// EACH SINK DRAINS ALONE: one that
     /// refuses a part keeps its cursor parked, and its siblings still receive
     /// theirs. Stopping the sweep at the first refusal would leave a healthy
     /// sink without the baseline it could have taken, which blocks every delta.
@@ -51,8 +49,7 @@ impl CellEmitter {
         loop {
             if !self.sinks.contains(sink_id) {
                 // Dropped for an overflow, possibly inside its own send just
-                // now: a sink that is gone owes nothing and keeps no record, as
-                // v2's `dropCellSink` forgets it (`session-cell-sinks.ts:250-253`).
+                // now: a sink that is gone owes nothing and keeps no record.
                 self.forget_sink_records(sink_id);
                 return;
             }

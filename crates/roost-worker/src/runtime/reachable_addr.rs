@@ -1,7 +1,6 @@
 //! The address this machine is reached at, re-sent on every heartbeat: the live
 //! tailnet MagicDNS name, else the `ROOST_REACHABLE_ADDR` fallback deploy sets,
-//! cached five minutes. Ports v2 `currentReachableAddr`
-//! (`apps/worker/src/transport/heartbeat.ts`). `heartbeat_sources` owns one;
+//! cached five minutes. `heartbeat_sources` owns one;
 //! the resolver and environment are injected so the cache rule is testable.
 
 use std::sync::Arc;
@@ -12,7 +11,7 @@ use roost_observability::clock::EventClock;
 use super::bootstrap_redeem::ENV_REACHABLE_ADDR;
 use crate::host::tailnet::resolve_tailnet_dns_name;
 
-/// v2 `REACHABLE_ADDR_TTL_MS`: a resolved name is reused for five minutes, so
+/// A resolved name is reused for five minutes, so
 /// the 30 s beat does not fork `tailscale status` every tick.
 pub const REACHABLE_ADDR_TTL_MS: i64 = 5 * 60_000;
 
@@ -20,8 +19,8 @@ pub const REACHABLE_ADDR_TTL_MS: i64 = 5 * 60_000;
 pub type TailnetNameResolver = Box<dyn Fn() -> String + Send>;
 
 /// The cached reachable address. Never derived from the worker label: a label
-/// is a Tailscale HostName, which does not resolve, and v2 shipped dead
-/// `vnc://worker-*` links that way.
+/// is a Tailscale HostName, which does not resolve, and deriving one that way
+/// produced dead `vnc://worker-*` links.
 pub struct ReachableAddr {
     resolve_tailnet_name: TailnetNameResolver,
     env: Box<dyn EnvSource + Send>,

@@ -68,8 +68,8 @@ impl CredentialSource for FixedCredential {
 
 /// A codec that speaks the frame's own name as its bytes.
 ///
-/// The ported production codec does not exist yet, and a test that asserted on
-/// protobuf bytes would be testing a codec rather than the loop. What the loop
+/// The production codec is left out: a test that asserted on protobuf bytes
+/// would be testing a codec rather than the loop. What the loop
 /// owes this test is that it force-writes something as its first frame and then
 /// keeps serving; what the name carries is enough to prove that.
 #[derive(Debug, Clone, Copy)]

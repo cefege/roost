@@ -2,9 +2,7 @@
 //! coordinator link, the connection fence a reply is held to, and the request
 //! budget a terminal-control owner works against. Sent into by
 //! `runtime::downstream` owners and `runtime::link_loop::browser`; drained by
-//! `runtime::link_serve`. Ports `activeSocket() === socket` / `isCurrent` and
-//! `terminalBudget` from v2 `apps/worker/src/transport/coord-link-downstream.ts`,
-//! `coord-link-direct-terminal.ts`, and the two caps in `coord-link-constants.ts`.
+//! `runtime::link_serve`.
 
 pub mod terminal_results;
 
@@ -21,17 +19,15 @@ pub type OwnerFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 
 /// Ceiling on the coordinator's relative `budget_ms`, and the budget used when
 /// it sends none, so one request can never park an admission slot for ever.
-/// v2 `coord-link-constants.ts` `TERMINAL_REQUEST_BUDGET_CAP_MS`.
 pub const TERMINAL_REQUEST_BUDGET_CAP_MS: u32 = 30_000;
 
 /// How many terminal-stream requests may be in flight at once. Stream state has
 /// its own admission so resize traffic cannot block its own completion path.
-/// v2 `coord-link-constants.ts` `TERMINAL_STREAM_REQUEST_INFLIGHT_CAP`.
 pub const TERMINAL_STREAM_REQUEST_INFLIGHT_CAP: usize = 64;
 
 /// Which coordinator connection a request arrived on.
 ///
-/// `is_current()` is v2's `outbox.activeSocket() === socket`: it turns false
+/// `is_current()` turns false
 /// the moment the link loop re-dials or detaches, so a reply computed for a
 /// superseded connection never reaches the replacement one.
 #[derive(Clone, Debug)]
@@ -50,7 +46,7 @@ impl LinkFence {
     }
 }
 
-/// v2 `TerminalRequestBudget`: a monotonic budget whose origin is frame
+/// A terminal request's budget: a monotonic budget whose origin is frame
 /// receipt, so time a request queued inside the worker is charged against the
 /// same budget the coordinator is still waiting on, and neither host's wall
 /// clock participates.
@@ -89,7 +85,7 @@ impl RequestBudget {
 #[derive(Debug)]
 struct RoutedFrame {
     frame: CoordWorkerUpstream,
-    /// `None` for an unfenced send (v2 `link.send`), which waits for whichever
+    /// `None` for an unfenced send, which waits for whichever
     /// connection is next.
     fence: Option<u64>,
     admission: Option<tokio::sync::oneshot::Sender<bool>>,

@@ -1,9 +1,7 @@
 //! A direct carrier's hello admission: the hello's credential must prove its
 //! dedicated grant, and a WebRTC port's hello must also match the tuple its
 //! peer negotiation authorized. The admitted descriptor is immutable for the
-//! port's life. Ports v2
-//! `apps/worker/src/attachments/attachment-transfer-admission.ts`. Called by
-//! the direct attachment sockets.
+//! port's life. Called by the direct attachment sockets.
 
 use roost_proto::AttachmentTransferHello;
 use roost_protocol::attachment_transfer::TransferErrorReason;
@@ -37,8 +35,8 @@ pub struct AttachmentUploadMetadata {
     pub worker_epoch: String,
 }
 
-/// v2 `admitAttachmentTransferHello`. Every refusal is `grant_unavailable`:
-/// a hello learns nothing about which part of its credential was wrong.
+/// Every refusal is `grant_unavailable`: a hello learns nothing about which
+/// part of its credential was wrong.
 pub fn admit_attachment_transfer_hello(
     hello: &AttachmentTransferHello,
     grants: &AttachmentGrantStore,
@@ -81,8 +79,8 @@ pub fn admit_attachment_transfer_hello(
     })
 }
 
-/// v2 `attachmentMetadataMatchesGrant`: whether a renewed or replaced grant
-/// still authorizes exactly what the port was admitted for.
+/// Whether a renewed or replaced grant still authorizes exactly what the port
+/// was admitted for.
 pub fn attachment_metadata_matches_grant(
     metadata: &AttachmentUploadMetadata,
     grant: &AttachmentGrant,

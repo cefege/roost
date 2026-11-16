@@ -1,8 +1,6 @@
 //! The real grant store, socket owner, view owner, cell cadence and session
 //! manager over an auto-answering keeper, with the carrier stubbed: what the
-//! `local_terminal_*` suites drive. Mirrors the fixture of v2
-//! `apps/worker/tests/local-door/local-terminal-socket.test.ts` (its
-//! `installAutoKeeper` + stream harness + stub WebSocket).
+//! `local_terminal_*` suites drive.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 #![allow(dead_code)]
 
@@ -57,7 +55,7 @@ pub const UNGRANTED_SESSION: &str = "33333333-4444-4333-8444-555555555555";
 pub const SECRET: &str = "5ec2e75ec2e75ec2e75ec2e75ec2e75ec2e75ec2e75ec2e75ec2e75ec2e75ec2";
 pub const GRANT_ID: &str = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";
 
-/// v2 `installAutoKeeper`: every resize applies, every input is acknowledged
+/// Every resize applies, every input is acknowledged
 /// in full unless the test scripted another answer; the bytes are kept.
 #[derive(Default)]
 pub struct AutoKeeper {
@@ -191,8 +189,8 @@ pub fn view(session_id: &str, revision: u64) -> ClientFrame {
     )
 }
 
-/// v2's `view()` mints a fresh view id per call; two sockets sharing one id
-/// would be one view moving between them.
+/// Two sockets must not share a view id: that would be one view moving between
+/// them.
 pub fn view_with_id(view_id: &str, session_id: &str, revision: u64) -> ClientFrame {
     ClientFrame::from(TerminalViewCommand {
         view_id: view_id.to_owned(),
@@ -245,7 +243,7 @@ pub struct Fixture {
 }
 
 impl Fixture {
-    /// The fixture with v2's grant installed: the live session and a granted
+    /// The fixture with its grant installed: the live session and a granted
     /// session this worker does not hold.
     pub fn new() -> Self {
         let keeper = Arc::new(AutoKeeper::default());
@@ -263,8 +261,7 @@ impl Fixture {
             uplink.clone(),
             coord_sink,
         );
-        // v2's harness `"coord"` sink accepts every frame
-        // (`terminal-stream-state-harness.ts:92-96`). The cadence just
+        // The harness's "coord" sink accepts every frame. The cadence just
         // replaced it with a link sink that no link ever attaches, which
         // refuses every baseline part and so holds every delta stream-wide.
         let recording = Arc::clone(&harness.sink) as Arc<dyn CellSink>;

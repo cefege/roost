@@ -1,10 +1,9 @@
 #![cfg(unix)]
 //! A coordinator `input-request` through the production input owner, the real
 //! session layer and a real keeper, to a real PTY whose echo proves the bytes
-//! arrived. Also ports the keeper-key half of
-//! `apps/worker/tests/terminal/terminal-stream-input.test.ts`: two browser
-//! batches that both say `input_seq = 1` are correlated by worker-owned keeper
-//! sequences, so neither answer is lost or swapped.
+//! arrived. It also pins keeper-key correlation: two browser batches that both
+//! say `input_seq = 1` are correlated by worker-owned keeper sequences, so
+//! neither answer is lost or swapped.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod keeper_pool_support;

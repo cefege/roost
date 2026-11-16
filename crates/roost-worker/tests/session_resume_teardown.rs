@@ -1,5 +1,4 @@
-//! A failed adoption's teardown, ported from v2
-//! `apps/worker/tests/session/session-resume-orphan-teardown.test.ts`: when the
+//! A failed adoption's teardown: when the
 //! adoption fails AFTER the survivor was reattached, the survivor is killed
 //! through the keeper's own kill, its channel is marked recently closed for
 //! the tail gate, the coordinator gets the standard closed tombstone, and the
@@ -19,8 +18,8 @@ use session_support::{Harness, NOW, SESSION, ScriptedKeeper, session_id};
 const CHANNEL: u16 = 23;
 
 /// Adopt against a keeper whose applied geometry is `cols`x`rows`; 0x0 is the
-/// "keeper did not report valid terminal geometry" failure v2 forces with a
-/// null terminal state. The degraded hook counts its calls.
+/// "keeper did not report valid terminal geometry" failure. The degraded hook
+/// counts its calls.
 async fn adopt(cols: u16, rows: u16) -> (Harness, Arc<AtomicUsize>, bool) {
     let keeper = Arc::new(ScriptedKeeper::with_survivor(CHANNEL, 55_332));
     keeper.applied.lock().expect("held").cols = cols;

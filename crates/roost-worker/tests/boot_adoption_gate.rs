@@ -1,10 +1,10 @@
 #![cfg(unix)]
 //! Adoption and respawn against a REAL keeper, the way a restarted worker meets
-//! them: v2 `session-resume.ts` rebuilds a record around a surviving PTY from
-//! the keeper's ordered history (head + base geometry), and v2
-//! `session-respawn.ts` retires a held record by killing its PTY once the
-//! `respawned` event is durable. Drives `SessionManager::adopt_survivor` and
-//! `respawn_session` over `KeeperFixture` and a real SQLite journal.
+//! them: adoption rebuilds a record around a surviving PTY from the keeper's
+//! ordered history (head + base geometry), and respawn retires a held record by
+//! killing its PTY once the `respawned` event is durable. Drives
+//! `SessionManager::adopt_survivor` and `respawn_session` over `KeeperFixture` and
+//! a real SQLite journal.
 
 // A test unwraps the value it is asserting about: a failure there IS the
 // assertion failing, which is what a test wants.
@@ -105,9 +105,9 @@ fn running(pid: u32) -> bool {
     listing.status.success() && !state.is_empty() && !state.starts_with('Z')
 }
 
-/// v2 `resume`: a restarted worker adopts the survivor from the keeper's
-/// ordered history — the record's head is the keeper's byte head, the PTY and
-/// its pid are untouched, and the session is live under the coordinator's id.
+/// A restarted worker adopts the survivor from the keeper's ordered history —
+/// the record's head is the keeper's byte head, the PTY and its pid are untouched,
+/// and the session is live under the coordinator's id.
 #[tokio::test]
 async fn a_restarted_worker_adopts_its_survivor_from_the_keepers_history() {
     let fixture = KeeperFixture::start();
@@ -116,8 +116,7 @@ async fn a_restarted_worker_adopts_its_survivor_from_the_keepers_history() {
     let (binding, record) = session("survivor-with-history");
     // The original worker's pool stays alive until its child has printed: the
     // pool's dispatch loop is what delivers output, and it ends with the pool
-    // (v2 keeper-survivor-continuity.test.ts:274-288 destroys the original
-    // socket only after the marker was observed).
+    // (the original socket is destroyed only after the marker was observed).
     let original = fixture.pool();
     let spawned = opened(
         original.spawn(
@@ -134,8 +133,7 @@ async fn a_restarted_worker_adopts_its_survivor_from_the_keepers_history() {
 
     let restarted = fixture.pool();
     let stack = restarted_stack(Arc::clone(&restarted), &root).await;
-    // Session ids are UUIDs on the wire (v2 session-spawn.ts:53 mints
-    // `asSessionId(randomUUID())`).
+    // Session ids are UUIDs on the wire.
     let session_id =
         SessionId::try_from("00000000-0000-4000-8000-0000000000a1".to_owned()).unwrap();
     let request = AdoptionRequest {
@@ -167,9 +165,9 @@ async fn a_restarted_worker_adopts_its_survivor_from_the_keepers_history() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// v2 `session-respawn.ts:169-175`: respawning a session this worker still
-/// holds opens a new channel under the SAME session id and, once the
-/// `respawned` is durable, kills the PTY it replaced — no orphan survives it.
+/// Respawning a session this worker still holds opens a new channel under the
+/// SAME session id and, once the `respawned` is durable, kills the PTY it
+/// replaced — no orphan survives it.
 ///
 /// MULTI-THREADED because the replaced channel's exit reaches the session
 /// layer as soon as the keeper reports it, and the close that follows is a

@@ -1,9 +1,7 @@
 //! The direct-terminal downstream arms: a peer offer answered through the
 //! fenced uplink once negotiated, a peer cancel, a transport probe answered in
 //! receive order, and a direct retire. Called by `runtime::downstream`'s
-//! dispatch; routes to [`DirectTerminalPort`] (`peer::DirectTerminal`). Ports
-//! the terminal-peer, probe and retire cases of v2
-//! `apps/worker/src/transport/coord-link-direct-terminal.ts`.
+//! dispatch; routes to [`DirectTerminalPort`] (`peer::DirectTerminal`).
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -28,7 +26,7 @@ impl Dispatcher {
             .and_then(|owners| owners.direct.clone())
     }
 
-    /// v2 `localTerminalPeerOffer`: no owner answers `disabled` now; an owner's
+    /// A terminal peer offer: no owner answers `disabled` now; an owner's
     /// answer or refusal goes out only on the connection the offer came in on.
     pub(super) fn terminal_peer_offer(
         &self,
@@ -59,7 +57,7 @@ impl Dispatcher {
                         Ok(Err(failure)) => {
                             replies::terminal_peer_error(&key, &epoch, failure.as_str())
                         }
-                        // v2: an error that is not a TerminalPeerOfferError is `ice_failed`.
+                        // An error that is not a terminal-peer offer refusal is `ice_failed`.
                         Err(message) => {
                             tracing::warn!(request_id = %key.request_id, error = %message, "the terminal peer owner failed");
                             replies::terminal_peer_error(
@@ -84,7 +82,7 @@ impl Dispatcher {
         }
     }
 
-    /// v2 answers a probe only when its owner returns a result.
+    /// A probe is answered only when its owner returns a result.
     pub(super) fn terminal_transport_probe(
         &self,
         request: &DTerminalTransportProbe,

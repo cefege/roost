@@ -1,9 +1,7 @@
 //! How big the worker's terminal-core admission is: the operator cap from
 //! `ROOST_WORKER_TERMINAL_CAP`, the host-derived steady-state cap, and the one
 //! boot-time construction from this host's memory ceiling and resident set.
-//! Ports `defaultTerminalCoreCapacity`/`createWorkerTerminalCoreCapacity` of
-//! `apps/worker/src/terminal/terminal-core-capacity.ts` and `parseTerminalCoreCap`
-//! of `apps/worker/src/host/config.ts`. Called by `runtime::session_stack`.
+//! Called by `runtime::session_stack`.
 
 use std::sync::Arc;
 
@@ -14,7 +12,7 @@ use super::{
     TerminalCoreCapacityOptions,
 };
 
-/// The operator's upper bound on the host-derived cap (v2 `config.ts:79`).
+/// The operator's upper bound on the host-derived cap.
 pub const ENV_WORKER_TERMINAL_CAP: &str = "ROOST_WORKER_TERMINAL_CAP";
 
 /// `ROOST_WORKER_TERMINAL_CAP` was set to something other than a decimal u32.
@@ -25,7 +23,7 @@ pub struct TerminalCoreCapConfigError {
 }
 
 /// The operator cap, or `None` when unset. No sign, no leading zero, at most
-/// `0xffff_ffff`, exactly v2's `parseTerminalCoreCap`.
+/// `0xffff_ffff`.
 pub fn terminal_core_cap_from_env(
     env: &dyn EnvSource,
 ) -> Result<Option<u32>, TerminalCoreCapConfigError> {
@@ -66,7 +64,7 @@ pub struct WorkerTerminalCoreCapacityOptions {
 }
 
 /// Construct the worker-owned capacity state from the current host, once, at
-/// boot (v2 `createWorkerTerminalCoreCapacity`).
+/// boot.
 pub fn create_worker_terminal_core_capacity(
     options: WorkerTerminalCoreCapacityOptions,
 ) -> Arc<TerminalCoreCapacity> {

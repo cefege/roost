@@ -1,9 +1,7 @@
 //! One attachment peer offer from admission to answer: the admission verdict
 //! (checked before native allocation and again after every await), the
 //! capacity bounds, the native connection and its answer, and the retirement
-//! of the active entry it became. Called by `peer_owner`. Ports
-//! `admissionFailure`, `offer` and `handleConnectionClosed` of
-//! `apps/worker/src/attachments/attachment-peer-owner.ts`.
+//! of the active entry it became. Called by `peer_owner`.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -38,7 +36,7 @@ pub(super) struct PendingPeer {
     pub connection: Option<AttachmentPeerConnection>,
 }
 
-/// The first reason this offer may not proceed, in v2's order.
+/// The first reason this offer may not proceed, in check order.
 pub(super) fn admission_failure(
     inner: &OwnerInner,
     request: &DLocalAttachmentPeerOffer,

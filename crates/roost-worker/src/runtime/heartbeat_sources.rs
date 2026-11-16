@@ -1,9 +1,7 @@
 //! The production heartbeat sources and RPC: the cached host metrics, the
 //! build's git sha, the keeper runtime proof over the pool's own connection,
 //! the reachable address (`reachable_addr`), and the `WorkersHeartbeat`
-//! Connect call under a fresh worker credential. Ports v2
-//! `apps/worker/src/transport/heartbeat.ts` (`DEFAULT_HEARTBEAT_SOURCES`) and
-//! the heartbeat half of `transport/coord-client.ts`.
+//! Connect call under a fresh worker credential.
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -74,7 +72,7 @@ impl HeartbeatSources for WorkerHeartbeatSources {
         self.git_sha.clone()
     }
 
-    /// v2 `observeKeeperRuntime`: an unreachable, unauthenticated or
+    /// An unreachable, unauthenticated or
     /// incomplete keeper is no proof (`None`), never an error.
     fn observe_keeper_runtime(
         &self,
@@ -105,7 +103,7 @@ impl HeartbeatSources for WorkerHeartbeatSources {
     }
 }
 
-/// The `WorkersHeartbeat` call over Connect (v2 `createCoordClient`).
+/// The `WorkersHeartbeat` call over Connect.
 pub struct CoordinatorHeartbeatRpc {
     client: Arc<CoordinatorServiceClient<HttpClient>>,
     credential: Arc<dyn CredentialSource>,
@@ -149,7 +147,7 @@ impl HeartbeatRpc for CoordinatorHeartbeatRpc {
     }
 }
 
-/// v2's interceptor: a fresh credential per call; one that cannot be minted is
+/// Interceptor: a fresh credential per call; one that cannot be minted is
 /// logged and the call goes out without it, for the coordinator to refuse.
 fn authorized_options(credential: &dyn CredentialSource, timeout: Duration) -> CallOptions {
     let token = match credential.mint() {

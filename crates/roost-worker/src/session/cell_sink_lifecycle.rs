@@ -1,7 +1,6 @@
-//! Cell-sink lifecycle with v2's side effects: `apps/worker/src/session/
-//! session-cell-sinks.ts` (`registerCellSink`, `unregisterCellSink`,
-//! `suspendCellSink`, `resumeCellSink`, `forceBaselineForSink`) and
-//! `session-emit.ts` `resumeTerminalSnapshots`. The cadence and the link
+//! Cell-sink lifecycle: register, unregister, suspend, resume and force a
+//! baseline for a sink, plus the terminal-snapshot resume.
+//! The cadence and the link
 //! lifecycle call these; the registry and cursor halves live in
 //! `super::{cell_sink, snapshot_cursor}`.
 
@@ -15,7 +14,7 @@ use super::emit::CellEmitter;
 use super::snapshot_cursor::SnapshotDrain;
 
 impl CellEmitter {
-    /// v2 `registerCellSink`: a same-id registration is dropped first, then one
+    /// Register a sink: a same-id registration is dropped first, then one
     /// forced full is owed per watched channel.
     pub fn register_cell_sink(&mut self, sink: Arc<dyn CellSink>) {
         let sink_id = sink.id().to_owned();
@@ -27,7 +26,7 @@ impl CellEmitter {
         tracing::info!(sink_id, "cell_sink_registered");
     }
 
-    /// v2 `unregisterCellSink`: never calls the sink's `on_overflow`.
+    /// Unregister a sink; never calls the sink's `on_overflow`.
     pub fn unregister_cell_sink(&mut self, sink_id: &str) {
         if !self.sinks.contains(sink_id) {
             return;
@@ -36,13 +35,13 @@ impl CellEmitter {
         tracing::info!(sink_id, "cell_sink_unregistered");
     }
 
-    /// v2 `suspendCellSink`: transport known down. No repair is latched and no
+    /// Transport known down. No repair is latched and no
     /// full is forced, so a dead coordinator cannot restart anyone's baseline.
     pub fn suspend_cell_sink(&mut self, sink_id: &str) {
         self.suspend_sink(sink_id);
     }
 
-    /// v2 `resumeCellSink`: a suspended sink owes a full on every watched
+    /// Resume a sink: a suspended sink owes a full on every watched
     /// channel; an already-active one only resumes its parked parts.
     pub fn resume_cell_sink(&mut self, sink_id: &str) {
         if !self.sinks.contains(sink_id) {
@@ -56,7 +55,7 @@ impl CellEmitter {
         self.request_baselines_for_watched_streams();
     }
 
-    /// v2 `resumeTerminalSnapshots`: drain every parked cursor; a channel with
+    /// Drain every parked cursor; a channel with
     /// none parked and a latched repair owes its forced full now.
     pub fn resume_terminal_snapshots(&mut self) {
         let mut channels: Vec<ChannelId> = self
@@ -84,7 +83,7 @@ impl CellEmitter {
         }
     }
 
-    /// v2 `completeStreamBaseline`'s attribution half: the baseline gate is over
+    /// Attribution half of a completed stream baseline: the baseline gate is over
     /// unless a synchronized-output hold still owns the channel.
     pub(crate) fn note_stream_baseline_complete(&mut self, channel_id: ChannelId) {
         if !self.sync_output_held(channel_id) {
@@ -93,7 +92,7 @@ impl CellEmitter {
     }
 
     /// Queue a leading emit for a channel whose baseline just completed with
-    /// dirty work behind it (v2 `completeStreamBaseline` → `_scheduleCellEmit`).
+    /// dirty work behind it.
     fn schedule_leading_emission(&mut self, channel_id: ChannelId) {
         let Some(stream_id) = self
             .streams
@@ -112,7 +111,7 @@ impl CellEmitter {
         self.wake_cadence();
     }
 
-    /// v2 `forceBaselineForSink`'s build: every watched channel owes a forced
+    /// Build the forced fulls a sink owes: every watched channel owes a forced
     /// full, which the cadence builds with the record in hand.
     fn request_baselines_for_watched_streams(&mut self) {
         let watched: Vec<ChannelId> = self

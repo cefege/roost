@@ -1,8 +1,7 @@
 //! `recent_worker_capture` on every worker capture ack: a requested capture
 //! reports its own file and never echoes itself as a worker-detected incident;
 //! only a worker-local emission conflict populates it, and a peer-authored
-//! trigger cannot buy that claim. Ports `apps/worker/tests/terminal/
-//! terminal-capture-ack.test.ts`.
+//! trigger cannot buy that claim.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod capture_support;

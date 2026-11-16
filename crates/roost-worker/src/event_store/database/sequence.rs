@@ -16,7 +16,6 @@
 //! GAP in the sequence, never a repeat. A repeat is the one defect a durable
 //! path cannot recover from on its own, because the coordinator acknowledges by
 //! `client_seq` and has no second name for an event.
-//! Ports v2 `apps/worker/src/transport/session-event-store-sequence.ts`.
 
 use super::super::SEQUENCE_BLOCK_SIZE;
 use super::{Journal, JournalError, rows};
@@ -49,8 +48,7 @@ impl Journal {
     }
 
     /// The snapshot's sequence, drawn only while no committed row is numbered
-    /// above `offered_through` (v2 `startSnapshotBarrier`: `oldestDurable()`,
-    /// then `nextClientSeq()`). `None` when such a row exists: it must reach the
+    /// above `offered_through`. `None` when such a row exists: it must reach the
     /// coordinator before a snapshot numbered after it. Appends hold the same
     /// lock through their commit, so none can land between the check and the
     /// draw.

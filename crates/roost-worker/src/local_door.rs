@@ -2,8 +2,7 @@
 //! This owner expires unauthenticated local sockets, caps live grant bindings,
 //! and makes replaying one grant REPLACE its prior socket rather than multiply
 //! sinks. Called by `local_terminal::sockets` for every loopback port; the peer
-//! carrier has its own negotiation bound. Ports
-//! `apps/worker/src/local-door/local-terminal-prehello.ts`.
+//! carrier has its own negotiation bound.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
@@ -46,7 +45,7 @@ struct PreHelloShared {
     state: Mutex<PreHelloState>,
 }
 
-/// v2 `LocalTerminalPreHelloOwner`. Cheap to clone; clones share one table.
+/// Owner of the pre-hello socket table. Cheap to clone; clones share one table.
 #[derive(Clone)]
 pub struct LocalTerminalPreHelloOwner {
     shared: Arc<PreHelloShared>,

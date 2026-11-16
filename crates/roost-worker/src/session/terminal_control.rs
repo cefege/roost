@@ -2,8 +2,7 @@
 //! validate the desire, mint its generation, and queue its transaction on the
 //! channel's control lane; and answer a repeated snapshot request with a fresh
 //! baseline. Called by `terminal_view` (in-process) and, for the coordinator
-//! link, by `session::terminal_stream_owner::StreamOwner`. Ports the stream half
-//! of `apps/worker/src/session/session-terminal-control.ts`.
+//! link, by `session::terminal_stream_owner::StreamOwner`.
 
 use std::sync::Arc;
 
@@ -29,7 +28,7 @@ impl SessionManager {
         &self.lanes
     }
 
-    /// Apply one aggregated stream desire (v2 `applyTerminalStreamState`).
+    /// Apply one aggregated stream desire.
     ///
     /// Validation, the duplicate check, admission and the mint all happen NOW,
     /// in call order; only the keeper work waits on the control lane. A refused
@@ -149,7 +148,7 @@ impl SessionManager {
         Box::pin(generation.operation)
     }
 
-    /// A coordinator repair request (v2 `requestTerminalSnapshot`): every sink
+    /// A coordinator repair request: every sink
     /// of the CURRENT enabled, valid generation gets a fresh full baseline; a
     /// request for any other stream is ignored.
     pub fn request_terminal_snapshot(&self, session_id: &SessionId, stream_id: &str) {
@@ -183,7 +182,7 @@ impl SessionManager {
     }
 
     /// The stream id a viewer may address, when the channel's generation is
-    /// enabled and its core valid (v2 view screen `currentStreamId`).
+    /// enabled and its core valid.
     pub fn current_terminal_stream_id(&self, session_id: &SessionId) -> Option<String> {
         let channel_id = channel(self.sessions.channel_of(session_id)?)?;
         let facts = self.terminal_stream_facts(channel_id)?;
@@ -205,13 +204,13 @@ impl SessionManager {
     }
 }
 
-/// v2's `UUID_RE`: versions 1–5 only, which is narrower than the protocol's
-/// `is_terminal_uuid` (1–8) — v2 refuses a v7 id here, so this does too.
+/// Session ids are UUID versions 1–5 only, which is narrower than the protocol's
+/// `is_terminal_uuid` (1–8) — a v7 id is refused here.
 fn is_v2_uuid(value: &str) -> bool {
     is_terminal_uuid(value) && matches!(value.as_bytes().get(14), Some(b'1'..=b'5'))
 }
 
-/// The first rule an intent breaks, in v2's order.
+/// The first rule an intent breaks.
 fn invalid_intent(intent: &StreamIntent) -> Option<String> {
     if !is_v2_uuid(intent.session_id.as_str()) {
         return Some("session_id must be a UUID".to_owned());
@@ -237,7 +236,7 @@ fn invalid_intent(intent: &StreamIntent) -> Option<String> {
     None
 }
 
-/// v2 `invalidResult`: rejected before any write, echoing the intent.
+/// Rejected before any write, echoing the intent.
 fn refused(intent: &StreamIntent, failure: Failure, reason: &str) -> WorkerStreamResult {
     let facts = StreamFacts {
         stream_id: &intent.stream_id,

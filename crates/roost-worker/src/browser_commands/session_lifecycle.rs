@@ -21,7 +21,6 @@
 //! forever, and that is a condition no per-request answer can fix. It is
 //! reported as its own outcome so the caller can stop the worker rather than
 //! retry.
-//! Ports v2 `apps/worker/src/browser-commands/browser-command-spawn.ts`.
 
 use roost_protocol::wire::brand::SessionId;
 use roost_protocol::wire::control::ClientControlFrame;
@@ -43,8 +42,8 @@ pub enum SessionOutcome {
     Spawned { channel_id: u16 },
     /// A keeper survivor already held this session, so nothing was opened.
     AlreadyLive,
-    /// v2 `respawnIfMissing`'s record: the channel the session is live on, and
-    /// whether it was already live at the asked folder (`browser-command-spawn.ts:108-117`).
+    /// The record of a respawn-if-missing: the channel the session is live on,
+    /// and whether it was already live at the asked folder.
     Live { channel_id: u16, already_live: bool },
     /// A viewer claimed an existing session.
     Attached { replay_offset: u64 },

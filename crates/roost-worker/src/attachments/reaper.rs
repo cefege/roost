@@ -3,7 +3,6 @@
 //! session directories and every registered project media directory — is
 //! held under 1 GiB by evicting the oldest survivors. Dedup manifests and
 //! media `.gitignore`s are never swept; operation temps and shortcuts are.
-//! Ports the sweep of v2 `apps/worker/src/attachments/attachment-reaper.ts`.
 //! Started by `runtime::owners`; a missing base is a quiet no-op.
 
 use std::fs;
@@ -149,7 +148,7 @@ fn sweep_operations(dir: &Path, now: SystemTime, sweep: &mut Sweep) {
 }
 
 /// Delete a regular file past its TTL, or keep it as a survivor. The stat
-/// follows a symlink, as v2's does: a shortcut ages with its target.
+/// follows a symlink: a shortcut ages with its target.
 fn sweep_file(path: &Path, now: SystemTime, sweep: &mut Sweep, counts: bool) {
     let Ok(metadata) = fs::metadata(path) else {
         return;

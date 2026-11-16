@@ -1,8 +1,7 @@
 //! This host's Tailscale MagicDNS name, read from `tailscale status --json`
-//! without depending on a service manager's often-minimal `PATH`. Ports v2
-//! `packages/host/src/tailnet.ts` (`tailscaleBinaryCandidates`,
-//! `resolveTailnetDnsName`); `runtime::heartbeat_sources` re-resolves it for
-//! the heartbeat's `reachable_addr`. Depends on `host::tool_path`.
+//! without depending on a service manager's often-minimal `PATH`.
+//! `runtime::heartbeat_sources` re-resolves it for the heartbeat's
+//! `reachable_addr`. Depends on `host::tool_path`.
 
 use std::time::Duration;
 
@@ -14,10 +13,10 @@ use super::tool_path::run_bounded;
 /// An explicit `tailscale` binary, tried before the documented install paths.
 pub const TAILSCALE_BIN_ENV: &str = "ROOST_TAILSCALE_BIN";
 
-/// v2 bounds each `tailscale status --json` at two seconds (then SIGKILL).
+/// Each `tailscale status --json` is bounded at two seconds (then SIGKILL).
 const TAILSCALE_STATUS_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Where `tailscale` may be, in the order v2 tries them.
+/// Where `tailscale` may be, in the order they are tried.
 pub fn tailscale_binary_candidates(platform: HostPlatform, env: &dyn EnvSource) -> Vec<String> {
     let mut candidates: Vec<String> = env
         .get(TAILSCALE_BIN_ENV)

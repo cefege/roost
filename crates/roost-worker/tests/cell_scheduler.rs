@@ -1,7 +1,6 @@
-//! Ports `apps/worker/tests/session/session-cell-scheduler.test.ts`: the leading
-//! emit + 16 ms trailing coalesce, fenced to the stream generation it was armed
-//! for, and the input-echo promotion. Driven through the production ingest and
-//! `run_cadence_work` on a synthetic clock.
+//! The leading emit + 16 ms trailing coalesce, fenced to the stream generation
+//! it was armed for, and the input-echo promotion. Driven through the production
+//! ingest and `run_cadence_work` on a synthetic clock.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 #[path = "cell_support/mod.rs"]

@@ -1,7 +1,6 @@
 //! Boot admission while the link already dials: the boot reconcile reads the
 //! coordinator only once the durable session-event replay has drained, and the
-//! snapshot is activated only after that pass settled. Ports v2
-//! `apps/worker/src/boot/worker-boot-admission.ts` and `boot-reconcile.ts:69-80`.
+//! snapshot is activated only after that pass settled.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::sync::Arc;
@@ -135,8 +134,7 @@ async fn until_read(pass: &RecordingPass) {
     .expect("the pass never read the coordinator");
 }
 
-/// v2 `beforeRecoveryRead` then `activateSnapshotProvider`: no read while the
-/// replay is pending, no snapshot while the pass runs.
+/// No read while the replay is pending, no snapshot while the pass runs.
 #[tokio::test]
 async fn the_boot_pass_reads_only_after_the_replay_and_the_snapshot_only_follows_the_pass() {
     let rig = rig();
@@ -166,8 +164,7 @@ async fn the_boot_pass_reads_only_after_the_replay_and_the_snapshot_only_follows
     assert!(rig.snapshot.is_active());
 }
 
-/// v2 `completeWorkerBootAdmission` throws before activation: a refused boot
-/// pass never lets the snapshot publish.
+/// A refused boot pass never lets the snapshot publish.
 #[tokio::test]
 async fn a_refused_boot_pass_leaves_the_snapshot_held() {
     let rig = rig();
@@ -181,8 +178,8 @@ async fn a_refused_boot_pass_leaves_the_snapshot_held() {
     assert!(!rig.snapshot.is_active());
 }
 
-/// v2 `dispose` rejects the waiter: a link that stopped for good refuses the
-/// boot pass it was holding instead of leaving boot waiting for ever.
+/// A link that stopped for good refuses the boot pass it was holding instead of
+/// leaving boot waiting for ever.
 #[tokio::test]
 async fn a_disposed_link_refuses_the_boot_pass_without_a_read() {
     let rig = rig();

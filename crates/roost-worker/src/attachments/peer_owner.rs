@@ -1,9 +1,8 @@
 //! The worker's bounded attachment peer owner: admission, negotiation and
 //! close state independent of terminal peers, borrowing only the process-owned
 //! native loader (the terminal owner stays its sole cleaner). Built by
-//! `direct_owners`; offers and cancels arrive from the coordinator link. Ports
-//! `apps/worker/src/attachments/attachment-peer-owner.ts`; the path from an
-//! admitted offer to its answer is in `peer_negotiation`.
+//! `direct_owners`; offers and cancels arrive from the coordinator link. The
+//! path from an admitted offer to its answer is in `peer_negotiation`.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -41,7 +40,7 @@ pub enum AttachmentPeerBootstrapState {
 pub type AuthorizeAttachmentPeerGrant =
     Arc<dyn Fn(&DLocalAttachmentPeerOffer) -> PeerGrantAuthorization + Send + Sync>;
 
-/// v2 `isCurrentCoordinator(connectionGeneration)`.
+/// Whether a connection generation is the current coordinator's.
 pub type IsCurrentCoordinator = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
 pub struct AttachmentPeerOwnerDeps {

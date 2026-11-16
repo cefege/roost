@@ -1,6 +1,6 @@
-//! The loopback door's shared pieces (v2 `local-door/local-ui-server.ts`): who
-//! may knock ([`admission`]), the upgraded socket and the route owners it is
-//! handed to ([`loopback`]), and the page bundle ([`spa`]). `runtime::door_serve`
+//! The loopback door's shared pieces: who may knock ([`admission`]), the
+//! upgraded socket and the route owners it is handed to ([`loopback`]), and the
+//! page bundle ([`spa`]). `runtime::door_serve`
 //! binds and serves the door, `runtime::door_routes` answers its requests, and
 //! `crate::local_terminal` owns what a terminal socket does once upgraded. The
 //! browser-facing paths live in `roost_protocol::local_ui_door`.
@@ -15,7 +15,7 @@ pub use loopback_socket::{LoopbackSend, LoopbackSocket};
 /// The attachment transfer socket's path, subprotocol and largest frame the
 /// door hands to the attachment owner (a larger one closes the socket before
 /// any decoding); the transfer protocol's own constants, because the browser
-/// reads one value for both doors (v2 `local-ui-server.ts:60-63`).
+/// reads one value for both doors.
 pub use roost_protocol::attachment_transfer::{
     LOOPBACK_MAX_PAYLOAD_BYTES as LOCAL_ATTACHMENT_MAX_PAYLOAD_BYTES,
     LOOPBACK_PATH as LOCAL_ATTACHMENT_PATH, LOOPBACK_SUBPROTOCOL as LOCAL_ATTACHMENT_SUBPROTOCOL,

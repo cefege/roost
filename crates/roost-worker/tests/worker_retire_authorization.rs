@@ -44,8 +44,8 @@ use scratch::Scratch;
 /// A keeper that proves it holds one channel, so admission ADOPTS it without
 /// the coordinator. These activations have no coordinator, and an EMPTY
 /// keeper's replacement waits on the coordinator's open-session set; a keeper
-/// held for that read is a boot refusal (`boot_sequence.rs` step 6), just as
-/// v2's boot does not complete before `reconcileOpenSessions` has read it.
+/// held for that read is a boot refusal (`boot_sequence.rs` step 6): the boot
+/// does not complete before the open-session reconcile has read it.
 /// The pid is this process, so the survivor is a live one; no coordinator
 /// lists it, so the adoption leaves it alone.
 async fn adoptable_keeper(boot: &WorkerBoot, platform: HostPlatform) -> FakeKeeper {
@@ -68,9 +68,8 @@ async fn a_force_live_retire_authorisation_is_spent_once_after_admission() {
     let _keeper = adoptable_keeper(&boot, platform).await;
 
     let activation = serve_in_child(scratch.root(), platform, &definition);
-    // No coordinator here, so v2's boot refuses at its reconcile
-    // (`completeWorkerBootAdmission` throws), after the admission the spend
-    // belongs to; a refusal is accepted only from there.
+    // No coordinator here, so the boot refuses at its reconcile, after the
+    // admission the spend belongs to; a refusal is accepted only from there.
     let outcome = activation.outcome();
     let admitted = position_of(activation.events(), "boot: keeper admitted").is_some();
     assert!(
@@ -111,9 +110,8 @@ async fn an_activation_with_no_authorisation_to_spend_reports_that_it_had_none()
     let _keeper = adoptable_keeper(&boot, platform).await;
 
     let activation = serve_in_child(scratch.root(), platform, &definition);
-    // No coordinator here, so v2's boot refuses at its reconcile
-    // (`completeWorkerBootAdmission` throws), after the admission the spend
-    // belongs to; a refusal is accepted only from there.
+    // No coordinator here, so the boot refuses at its reconcile, after the
+    // admission the spend belongs to; a refusal is accepted only from there.
     let outcome = activation.outcome();
     let admitted = position_of(activation.events(), "boot: keeper admitted").is_some();
     assert!(
@@ -152,9 +150,8 @@ async fn the_authorisation_is_spent_after_admission_and_before_the_link() {
     let _keeper = adoptable_keeper(&boot, platform).await;
 
     let activation = serve_in_child(scratch.root(), platform, &definition);
-    // No coordinator here, so v2's boot refuses at its reconcile
-    // (`completeWorkerBootAdmission` throws), after the admission the spend
-    // belongs to; a refusal is accepted only from there.
+    // No coordinator here, so the boot refuses at its reconcile, after the
+    // admission the spend belongs to; a refusal is accepted only from there.
     let outcome = activation.outcome();
     let admitted = position_of(activation.events(), "boot: keeper admitted").is_some();
     assert!(

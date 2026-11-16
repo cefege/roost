@@ -1,4 +1,4 @@
-//! v2 `apps/worker/src/transport/heartbeat.ts` `collectHostMetrics`: one real
+//! Host metrics collection: one real
 //! sample per minute (beats in between reuse it and leave the bandwidth
 //! baseline alone), bandwidth as the rate between the last two real samples,
 //! zero before a baseline exists and for a counter that went backwards.

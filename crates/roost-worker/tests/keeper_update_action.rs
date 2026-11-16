@@ -1,7 +1,6 @@
 //! Keeper update action tests pin the authenticated live-worker boundary:
 //! preserve proves keeper identity plus the current session/channel mapping,
 //! and replacement accepts only an exact empty proof and waits for shutdown.
-//! Ports `apps/worker/tests/keeper-update-action.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 #[path = "keeper_update_support/mod.rs"]
@@ -22,8 +21,8 @@ const ACTIVE: [KeeperBinding; 1] = [KeeperBinding {
     pid: 5252,
 }];
 
-/// v2 `action(requiredAction, coordinatorSessionIds)`: target direction, the
-/// worker holding channel 7 exactly when the coordinator lists a session.
+/// Target direction: the worker holds channel 7 exactly when the coordinator
+/// lists a session.
 fn action(preserve: bool, sessions: &[&str]) -> JournaledKeeperUpdateActionV1 {
     JournaledKeeperUpdateActionV1 {
         schema_version: 1,
@@ -151,9 +150,9 @@ async fn preserve_rejects_a_keeper_channel_absent_from_the_worker_session_map() 
     );
 }
 
-/// v2 passes a JS object carrying `force_live`; the Rust action cannot hold the
-/// field, so the refusal is the strict decode every journaled action goes
-/// through — and the same value without it decodes.
+/// The action cannot carry a `force_live` field, so the refusal is the strict
+/// decode every journaled action goes through — and the same value without it
+/// decodes.
 #[test]
 fn rejects_a_journaled_action_that_tries_to_carry_force_live() {
     let mut value = serde_json::to_value(action(false, &[])).unwrap();

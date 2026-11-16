@@ -1,7 +1,6 @@
 //! Direct scrollback keeps its authorization predicate live across the
 //! authoritative reader: a grant reduction after the read was admitted returns
-//! no row payload even when the reader completed a valid page. Ports
-//! `apps/worker/tests/local-door/local-terminal-scrollback.test.ts`.
+//! no row payload even when the reader completed a valid page.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod terminal_stream_support;

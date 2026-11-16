@@ -142,8 +142,8 @@ fn the_token_never_reaches_the_resolved_boot() {
     std::fs::remove_dir_all(&root).expect("the scratch root is removable");
 }
 
-/// A RE-OFFERED TOKEN IS NOT A FAILURE. v2's message said a redemption "may be
-/// already used" and carried on; the coordinator makes that safe by rebinding
+/// A RE-OFFERED TOKEN IS NOT A FAILURE. A redemption that may find its token
+/// already used carries on; the coordinator makes that safe by rebinding
 /// a spent token to the key that already holds it, so a redeploy that re-offers
 /// its token costs one round trip instead of a machine that will not start.
 #[tokio::test]

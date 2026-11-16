@@ -1,9 +1,7 @@
 //! Boot's admission phase, run while the coordinator link already dials and
 //! replays: the first reconcile pass (which waits for the durable replay before
 //! it reads the coordinator), then snapshot activation, then readiness, in that
-//! order and no other. Ports `apps/worker/src/boot/worker-boot-admission.ts`
-//! (`completeWorkerBootAdmission`) and the provider activation of v2
-//! `main.ts:296-303`. Called by `runtime::boot_sequence` once.
+//! order and no other. Called by `runtime::boot_sequence` once.
 
 use super::boot_order::{BootSequence, Readiness, ReadyStep, StepId};
 use super::reconcile_gate::ReconcileGate;

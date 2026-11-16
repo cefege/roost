@@ -1,12 +1,10 @@
 //! The keeper resizes this pool has written and not yet heard back about:
-//! the in-flight table v2 keeps as `pool.pendingResizes`
-//! (`apps/worker/src/keeper/keeper-pool-io.ts` `resizeCommand` /
-//! `settlePendingResize`). `KeeperPool::resize` registers a sequence for the
+//! the in-flight table. `KeeperPool::resize` registers a sequence for the
 //! life of its round trip; `terminal_pipeline` reads the start instants as
 //! `KEEPER_RESIZE_PENDING` evidence.
 //!
-//! A sequence already in flight is refused before anything is written, as v2
-//! refuses it: a second writer of the same sequence cannot prove its fate.
+//! A sequence already in flight is refused before anything is written: a
+//! second writer of the same sequence cannot prove its fate.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard, PoisonError};

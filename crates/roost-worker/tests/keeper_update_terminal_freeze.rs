@@ -2,7 +2,6 @@
 //! keeper it is about to replace, and both preparation outcomes thaw them. The
 //! real admission lane and preparation handler run over a scripted keeper; only
 //! the maintenance action is deferred so the frozen window is observable.
-//! Ports `apps/worker/tests/keeper-update-terminal-freeze.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 #[path = "session_support/mod.rs"]

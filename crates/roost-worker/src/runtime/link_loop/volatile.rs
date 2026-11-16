@@ -1,7 +1,6 @@
 //! The volatile half of the coordinator link: the terminal metadata producer,
-//! whose newest record SUPERSEDES its predecessor. Ports v2
-//! `transport/coord-link-terminal-metadata.ts` (latest merged record per
-//! channel, bounded, dropped on reconnect). Owned by [`super::LinkLoop`]; the
+//! whose newest record SUPERSEDES its predecessor: the latest merged record per
+//! channel, bounded, dropped on reconnect. Owned by [`super::LinkLoop`]; the
 //! uplink admission routes
 //! `TerminalMetadata` frames here, and the link end calls
 //! [`LinkLoop::forget_terminal_metadata`]. Depends on `crate::outbox` only.
@@ -16,18 +15,18 @@ use crate::outbox::{AdmitError, Admitted, Lane};
 
 use super::{AdmitRefusal, LinkLoop};
 
-/// v2 `TERMINAL_METADATA_PENDING_CAP` (`WORKER_SNAPSHOT_MAX_SESSIONS`): at most
+/// At most
 /// one pending record per session the snapshot can describe.
 pub const TERMINAL_METADATA_PENDING_CAP: usize = 1_024;
 
-/// v2 `TERMINAL_METADATA_PENDING_BYTES_CAP`: 2 KiB per pending record.
+/// 2 KiB per pending record.
 pub const TERMINAL_METADATA_PENDING_BYTES_CAP: usize = TERMINAL_METADATA_PENDING_CAP * 2_048;
 
 /// The lane the metadata frames coalesce in.
 const TERMINAL_METADATA_LANE: Lane = Lane::Control;
 
 /// The last record admitted for each channel, so the next one can MERGE with it
-/// while it is still pending (v2 `pendingByChannel`). The encoded bytes live in
+/// while it is still pending. The encoded bytes live in
 /// the outbox; a remembered record whose frame already drained is ignored.
 #[derive(Debug, Default)]
 pub struct TerminalMetadataLane {
@@ -40,7 +39,7 @@ fn terminal_metadata_key(channel_id: ChannelId) -> String {
 }
 
 impl LinkLoop {
-    /// v2 `CoordLinkTerminalMetadataOutbox.send`: merge with the channel's
+    /// Send a terminal metadata record: merge with the channel's
     /// still-pending record, then admit it in place of that record.
     pub fn send_terminal_metadata(
         &mut self,
@@ -82,7 +81,7 @@ impl LinkLoop {
         Ok(admitted)
     }
 
-    /// v2 `disconnect()`/`clear()`: the reconnect's replay re-asserts every
+    /// The reconnect's replay re-asserts every
     /// retained fact, so nothing pending survives the socket generation.
     pub fn forget_terminal_metadata(&mut self) {
         let forgotten = self.terminal_metadata.held.len();
@@ -95,7 +94,7 @@ impl LinkLoop {
         }
     }
 
-    /// v2's pending-record caps, counted over the records still in the outbox.
+    /// The pending-record caps, counted over the records still in the outbox.
     fn refuse_over_metadata_caps(&mut self, incoming: usize) -> Result<(), AdmitRefusal> {
         let outbox = &self.outbox;
         self.terminal_metadata.held.retain(|channel_id, _| {
@@ -148,7 +147,7 @@ impl LinkLoop {
 }
 
 /// Fold a new terminal-metadata record into the one still pending for a
-/// channel (v2 `coord-link-terminal-metadata.ts:40-50`).
+/// channel.
 ///
 /// A flag survives if EITHER record raised it, and the value it names is the
 /// newest one that raised it: a title change and an activity change are

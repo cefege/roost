@@ -1,7 +1,7 @@
 //! The per-session window of the last [`BYTE_CAPTURE_WINDOW_BYTES`] of PTY
-//! output, always on. Ports `apps/worker/src/diag/byte-capture.ts`: the
-//! capture tap pushes every retained chunk with the session's `head_seq`, the
-//! worker-section freeze snapshots an OWNED tail, and session teardown drops it.
+//! output, always on: the capture tap pushes every retained chunk with the
+//! session's `head_seq`, the worker-section freeze snapshots an OWNED tail,
+//! and session teardown drops it.
 //!
 //! The offsets are ABSOLUTE stream positions, stamped from the `head_seq` the
 //! chunk ended at, so an evicted prefix reports the window it still covers
@@ -28,7 +28,7 @@ impl Default for ByteWindow {
 }
 
 impl ByteWindow {
-    /// One fixed allocation per session, as v2's `SbRing` makes.
+    /// One fixed allocation per session.
     pub fn new() -> Self {
         Self {
             bytes: VecDeque::with_capacity(BYTE_CAPTURE_WINDOW_BYTES),
@@ -80,7 +80,7 @@ pub struct ByteWindows {
 }
 
 impl ByteWindows {
-    /// v2 `push(sid, chunk, endSeq)`.
+    /// Append one retained chunk that ends at `end_seq`.
     pub fn push(&mut self, session_id: &str, chunk: &[u8], end_seq: u64) {
         if let Some(window) = self.rings.get_mut(session_id) {
             window.push(chunk, end_seq);
@@ -91,12 +91,12 @@ impl ByteWindows {
         self.rings.insert(session_id.to_owned(), window);
     }
 
-    /// v2 `drop(sid)`: a closed session's tail goes with it.
+    /// A closed session's tail goes with it.
     pub fn drop_session(&mut self, session_id: &str) {
         self.rings.remove(session_id);
     }
 
-    /// v2 `snapshotByteCapture(sid)`.
+    /// An owned snapshot of the session's tail.
     pub fn snapshot(&self, session_id: &str) -> Option<TerminalWorkerByteCaptureTail> {
         self.rings.get(session_id).and_then(ByteWindow::snapshot)
     }

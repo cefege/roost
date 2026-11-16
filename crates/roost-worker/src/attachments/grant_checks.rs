@@ -1,9 +1,6 @@
 //! The checks a grant must pass: the coordinator's install frame, and a
 //! hello's credential against the stored grant, its secret compared by digest
-//! without an early exit. Ports `validGrantFrame`, `verify` and
-//! `sameDescriptor` of v2 `apps/worker/src/attachments/attachment-grants.ts`
-//! and `verifyLocalEndpointCapability` of `packages/host/src/local-endpoint.ts`.
-//! Called by `grants`.
+//! without an early exit. Called by `grants`.
 
 use roost_proto::DLocalAttachmentGrant;
 use roost_protocol::attachment_transfer::{GRANT_TTL_MS, is_chunk_sha256};
@@ -43,8 +40,8 @@ pub(super) fn verify_stored(
     Ok(grant.clone())
 }
 
-/// v2 `verifyLocalEndpointCapability`: both sides hashed to a fixed length and
-/// compared without an early exit, so timing reveals nothing about the digest.
+/// Both sides hashed to a fixed length and compared without an early exit, so
+/// timing reveals nothing about the digest.
 fn capability_matches(expected: &str, received: &str) -> bool {
     let expected = Sha256::digest(expected.as_bytes());
     let received = Sha256::digest(received.as_bytes());

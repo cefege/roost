@@ -3,8 +3,7 @@
 //! route claims and history reads evaluate. Built by `super::sockets`
 //! immediately before each piece of work, and re-evaluated by the session
 //! layer after keeper admission — no grant scope is copied across an await,
-//! and a closed or replaced port fails every predicate. Ports
-//! `apps/worker/src/local-door/local-terminal-socket-authority.ts`.
+//! and a closed or replaced port fails every predicate.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,8 +29,7 @@ pub(super) enum Carrier {
     },
 }
 
-/// What a Hello bound a port to. v2 keeps these as mutable fields on the port
-/// session; here they change together under one lock.
+/// What a Hello bound a port to. These change together under one lock.
 #[derive(Debug, Clone, Default)]
 pub(super) struct PortIdentity {
     pub(super) generation: u64,
@@ -40,7 +38,7 @@ pub(super) struct PortIdentity {
     pub(super) tab_id: Option<String>,
 }
 
-/// One registered direct port. v2 `LocalTerminalPortSession`.
+/// One registered direct port.
 #[derive(Debug)]
 pub(super) struct PortSession {
     pub(super) carrier: Carrier,
@@ -163,7 +161,7 @@ impl PortRegistry {
     }
 }
 
-/// What every predicate reads. v2 `LocalTerminalAuthorizationDeps`.
+/// What every predicate reads.
 #[derive(Debug)]
 pub(super) struct AuthorizationDeps {
     pub(super) sessions: Arc<SessionTable>,
@@ -183,9 +181,9 @@ pub(super) fn direct_port_actor(session: &PortSession) -> Option<RouteActor> {
     })
 }
 
-/// v2 `isDirectPortSessionAuthorized`: the port is live and current, its grant
-/// is still installed for the same device and tab under an acceptable epoch,
-/// and the grant covers a session this worker holds.
+/// Whether the port is live and current, its grant is still installed for the
+/// same device and tab under an acceptable epoch, and the grant covers a
+/// session this worker holds.
 pub(super) fn is_direct_port_session_authorized(
     deps: &AuthorizationDeps,
     session: &Arc<PortSession>,
@@ -220,8 +218,8 @@ pub(super) fn is_direct_port_session_authorized(
         && SessionId::try_from(session_id).is_ok_and(|id| deps.sessions.channel_of(&id).is_some())
 }
 
-/// v2 `directPortRequestBudget`: the cap from the moment the work was taken,
-/// and a connection that stays current only while the port is.
+/// The request budget: the cap runs from the moment the work was taken, and
+/// the connection stays current only while the port is.
 #[derive(Debug, Clone)]
 pub(super) struct DirectPortBudget {
     pub(super) deps: Arc<AuthorizationDeps>,
@@ -275,7 +273,7 @@ impl RouteClaimBudget for DirectClaimBudget {
     }
 }
 
-/// v2 `directPortInputAuthority`: the session predicate, and the route rule —
+/// The input authority: the session predicate, and the route rule —
 /// a peer must name its live route epoch, loopback may write epoch-less only
 /// while no route holds the actor and session.
 #[derive(Debug, Clone)]

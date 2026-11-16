@@ -1,7 +1,7 @@
-//! Ports v2 `apps/worker/tests/host/pr-status.test.ts` (the rollup reduction and
-//! `prStatusEq`) and `tests/host/git-branch.test.ts` (a real `git` inside this
-//! repository answers a branch; `/` answers none). The `gh` subprocess itself
-//! is driven by `tests/host_folder_facts.rs` with fixture programs.
+//! The rollup reduction and PR status equality, and the branch lookup (a real
+//! `git` inside this repository answers a branch; `/` answers none). The `gh`
+//! subprocess itself is driven by `tests/host_folder_facts.rs` with fixture
+//! programs.
 
 use roost_protocol::wire::session::{PullRequestChecks, PullRequestState};
 use roost_worker::host::PrStatus;
@@ -72,9 +72,9 @@ fn queued_in_progress_or_pending_without_failure_is_pending() {
     );
 }
 
-/// v2 reads `conclusion ?? state`: a status that carries a state and no
-/// conclusion is judged by its state — including the two failure words only a
-/// check run's conclusion normally carries.
+/// A status that carries a state and no conclusion is judged by its state —
+/// including the two failure words only a check run's conclusion normally
+/// carries.
 #[test]
 fn an_entry_without_a_conclusion_is_judged_by_its_state() {
     assert_eq!(

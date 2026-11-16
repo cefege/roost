@@ -1,9 +1,7 @@
 //! The guarded taps the terminal data path calls — retained bytes, accepted and
 //! rejected emissions, resize boundaries — over the state they share with the
-//! lease façade. Ports the tap half of `apps/worker/src/diag/terminal-capture.ts`
-//! (`noteRetainedRawChunk`, `noteAcceptedCellEmission`, `noteRejectedCellEmission`,
-//! `noteResizeInstall`, `noteResizeResult`); `session::emit` holds a
-//! [`CaptureTap`]. Each tap settles on one atomic load while nothing is armed.
+//! lease façade. `session::emit` holds a [`CaptureTap`]. Each tap settles on
+//! one atomic load while nothing is armed.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -36,7 +34,7 @@ use crate::session::types::SessionRecord;
 pub struct CaptureShared {
     pub registry: Mutex<Registry>,
     pub windows: Mutex<ByteWindows>,
-    /// v2 `_armedCount`: read on every retained chunk, so the unarmed path is
+    /// Armed recordings: read on every retained chunk, so the unarmed path is
     /// one load rather than a lock.
     pub armed: AtomicUsize,
     pub storage: Arc<CaptureStorage>,
@@ -65,8 +63,7 @@ impl CaptureShared {
     }
 }
 
-/// A sequenced resize boundary as the capture records it (v2
-/// `LiveResizeCapture`'s identity half).
+/// A sequenced resize boundary as the capture records it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResizeBoundaryNote {
     pub resize_seq: u64,

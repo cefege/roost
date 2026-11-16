@@ -2,7 +2,6 @@
 //! latches the core fail-closed and hands back both its capture and its
 //! emission gate, no later generation escapes the latch without a re-proof,
 //! and the next desire re-proves the core from the keeper's ordered history.
-//! Ports `apps/worker/tests/terminal/terminal-stream-core-trap.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod terminal_stream_support;
@@ -21,7 +20,7 @@ const REPROVED_COLS: u16 = COLS + 6;
 const REPROVED_ROWS: u16 = ROWS + 2;
 
 /// An acknowledgement for geometry the worker never asked for: the boundary
-/// can never be applied, so the core traps (v2 `trapResizeCapture`).
+/// can never be applied, so the core traps.
 async fn trap(harness: &Harness) -> WorkerStreamResult {
     held(&harness.keeper.script).push_back(Answer::AckAt {
         cols: COLS + 9,

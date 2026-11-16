@@ -2,9 +2,7 @@
 //! browser-triggered write reserves against, the actor/session route owner
 //! that fences old routes out, the coordinator link's authority over one
 //! request, and the input owner `runtime::downstream` routes to. Built by the
-//! composition root; the session write itself is `session::input_write`. Ports
-//! `apps/worker/src/terminal/terminal-input-{route-owner,work-budget}.ts` and
-//! `apps/worker/src/transport/coord-link-input-authority.ts`.
+//! composition root; the session write itself is `session::input_write`.
 
 pub mod link_authority;
 pub mod port;

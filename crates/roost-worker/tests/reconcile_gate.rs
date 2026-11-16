@@ -1,5 +1,4 @@
-//! The reconcile gate, ported from v2 `apps/worker/tests/boot/boot-reconcile*.test.ts`
-//! and `keeper-death-reconcile.test.ts`: callers join the pass in flight, a
+//! The reconcile gate: callers join the pass in flight, a
 //! prepared keeper update blocks new passes and waits out the current one, a
 //! keeper death drives a pass unless an update is prepared, a durability loss
 //! stops the worker, and a degraded keeper is restarted only past the grace

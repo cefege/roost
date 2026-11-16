@@ -3,9 +3,7 @@
 //! the pump oldest first under the `client_seq` it is stored under (a restart's
 //! unacknowledged rows included), the snapshot draws its sequence from the same
 //! outbox, and the durable-replay barrier is decided here. Called by
-//! `runtime::link_drain::drain`. Ports `pump`/`oldestDurable`/
-//! `hasBlockingSessionEventReservation`/`startSnapshotBarrier` and the replay
-//! barrier edges of v2 `apps/worker/src/transport/coord-link-unacked.ts`.
+//! `runtime::link_drain::drain`.
 
 use std::sync::Arc;
 
@@ -20,9 +18,9 @@ use super::durable::OutboxRefusal;
 use super::{Authorised, LinkLoop};
 
 impl LinkLoop {
-    /// Hold the snapshot until the returned activation is released: v2 boot
+    /// Hold the snapshot until the returned activation is released: boot
     /// dials and replays first and activates the provider only once its first
-    /// reconcile pass settled (`main.ts:296-303`). Called once, before
+    /// reconcile pass settled. Called once, before
     /// [`LinkLoop::run`], by `runtime::boot_sequence`.
     pub fn hold_snapshot_until_activated(&mut self) -> SnapshotActivation {
         let hold = SnapshotActivation::held(std::sync::Arc::clone(&self.wake));
@@ -38,8 +36,8 @@ impl LinkLoop {
             .is_some_and(|hold| !hold.is_active())
     }
 
-    /// v2 `send`/`snapshotStateChanged` with the snapshot not yet in flight: a
-    /// durable row or blocking claim sends the barrier back to replay, so the
+    /// With the snapshot not yet in flight, a durable row or blocking claim
+    /// sends the barrier back to replay, so the
     /// row goes out now rather than behind a snapshot taken after it.
     fn reopen_replay_before_unsent_snapshot(&mut self) {
         if self.snapshot_wanted && self.pump.barrier() == Barrier::Snapshot {
@@ -116,7 +114,7 @@ impl LinkLoop {
         Ok(())
     }
 
-    /// v2 `hasBlockingSessionEventReservation`: a claim taken for an event that
+    /// Whether a claim blocks the snapshot: a claim taken for an event that
     /// does not exist yet holds the snapshot back.
     async fn refresh_snapshot_blocking(&mut self, outbox: &Arc<Journal>) {
         match outbox.claims().await {
@@ -134,7 +132,7 @@ impl LinkLoop {
         }
     }
 
-    /// v2 `markDrained`/`markPending`: drained once the barrier has left replay
+    /// Mark drained or pending: drained once the barrier has left replay
     /// with no durable event left and no claim holding the snapshot back.
     pub(in crate::runtime) fn decide_replay_barrier(&self) {
         let Some(delivery) = &self.durable_delivery else {
@@ -152,7 +150,7 @@ impl LinkLoop {
         }
     }
 
-    /// The snapshot the barrier asked for, framed as v2's `Event{snapshot,
+    /// The snapshot the barrier asked for, framed as an `Event{snapshot,
     /// client_seq}` under a sequence the outbox draws only while no committed
     /// row is left unoffered. A row that beat the draw sends the barrier back
     /// to replay: the snapshot would describe a state that already moved on.
@@ -160,8 +158,8 @@ impl LinkLoop {
         if !std::mem::take(&mut self.snapshot_wanted) || self.pump.barrier() != Barrier::Snapshot {
             return;
         }
-        // v2 `startSnapshotBarrier` with no provider yet: the stage waits,
-        // drained, until the activation wakes the link.
+        // With no provider yet the stage waits, drained, until the activation
+        // wakes the link.
         if self.snapshot_held() {
             self.snapshot_wanted = true;
             return;

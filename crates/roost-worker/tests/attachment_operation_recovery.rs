@@ -2,8 +2,7 @@
 //! The durable half of an attachment operation: a crashed commit's final name
 //! recovered without corrupting the manifest, a status that never reads the
 //! bytes it describes, a failed flush that withholds the receipt, and a
-//! journal that holds progress, never data. Ports those cases of v2
-//! `apps/worker/tests/attachments/attachment-operation-owner.test.ts`.
+//! journal that holds progress, never data.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod attachment_support;
@@ -74,8 +73,8 @@ async fn a_recovered_final_name_collision_is_refused_without_corrupting_the_mani
     assert!(!probe_attachment(&base, SESSION, &digest(&expected), false).hit);
 }
 
-/// v2 spies on `readSync`; here the temp is made unreadable, so a status that
-/// reopened or rehashed it would fail instead of answering from the journal.
+/// The temp is made unreadable, so a status that reopened or rehashed it would
+/// fail instead of answering from the journal.
 #[tokio::test]
 async fn the_status_of_a_detached_partial_upload_never_reads_its_bytes() {
     let scratch = Scratch::new("status");

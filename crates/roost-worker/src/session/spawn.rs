@@ -12,7 +12,6 @@
 //! touched, the PTY is killed, both claims are released and no record is
 //! returned. A leaked claim is how a store eventually refuses every write, and
 //! an orphan PTY is how a keeper fills up with terminals nobody can see.
-//! Ports v2 `apps/worker/src/session/session-spawn.ts`, `apps/worker/src/util/path.ts`.
 
 use std::sync::Arc;
 
@@ -64,13 +63,13 @@ pub struct SpawnRequest {
     /// browser watching that row to paint a start moment it never had.
     pub event: DurableEventKind,
     /// Which core lease this spawn takes: `Fresh`, or `Replacement` for a
-    /// respawn of a session this worker still holds (v2 `session-respawn.ts:78`).
+    /// respawn of a session this worker still holds.
     pub core_allocation: TerminalCoreAllocationKind,
     /// Who gives the two claims back when the spawn fails.
     pub claims: ClaimsOnFailure,
 }
 
-/// Who owns the claims of a spawn that failed (v2 `releaseReservationsOnFailure`):
+/// Who owns the claims of a spawn that failed:
 /// the spawn itself, or a caller that releases them after its own retries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClaimsOnFailure {
@@ -238,7 +237,7 @@ async fn spawn_claimed(
                 reason,
             })?,
     };
-    // After the launch contract, before the core: v2 `allocateTerminalCore`.
+    // After the launch contract, before the core.
     let lease = match context.core_capacity.reserve(request.core_allocation) {
         Ok(lease) => lease,
         Err(refusal) => {

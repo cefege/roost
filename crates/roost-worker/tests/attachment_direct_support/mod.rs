@@ -1,8 +1,6 @@
 //! The direct-receiver fixture the attachment direct tests share: a recording
 //! loopback port, one installed dedicated grant with a movable clock, and an
-//! operation owner rooted in a scratch directory removed on drop. Mirrors the
-//! `FakeLoopbackPort`/`createFixture` helpers of v2
-//! `apps/worker/tests/attachments/attachment-direct-socket.test.ts`.
+//! operation owner rooted in a scratch directory removed on drop.
 
 #![allow(dead_code, clippy::unwrap_used, clippy::expect_used)]
 

@@ -176,8 +176,8 @@ async fn a_respawn_announces_a_respawn_and_not_an_opened() {
 }
 
 /// Geometry is validated before a PTY is opened, and the refusal gives BOTH
-/// claims back: v2 `session-spawn.ts:49-50` throws inside the try whose catch
-/// (`:143-146`) releases the opened and close reservations it still owns.
+/// claims back: the opened and close reservations it still owns are released
+/// on the refusal.
 #[tokio::test]
 async fn a_refused_geometry_opens_no_pty_and_releases_both_claims() {
     let events = LedgerSink::new();

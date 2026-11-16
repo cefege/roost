@@ -3,8 +3,7 @@
 //! control and data channels, and the incoming half — bounds, reassembly,
 //! hello and stall deadlines, close. `direct_sockets` stays the sole protobuf
 //! admission boundary. Built and driven by `peer_connection`; the outgoing
-//! half is `peer_packet_egress`. Ports
-//! `apps/worker/src/attachments/attachment-peer-packet-port.ts`.
+//! half is `peer_packet_egress`.
 
 use std::fmt;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};

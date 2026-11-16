@@ -12,7 +12,6 @@
 //! [`super::types::SessionRecord::head_seq`], because the emitter, the
 //! `dead-birth` check and the wire's `end_seq` all read that one number, and a
 //! second counter inside the ring would be a second answer to it.
-//! Ports v2 `apps/worker/src/session/session-record.ts`, `apps/worker/src/session-scrollback-ring.ts`.
 
 use std::collections::VecDeque;
 
@@ -30,8 +29,8 @@ pub const SCROLLBACK_CAP_BYTES: usize = 1024 * 1024;
 /// The retained bytes are held oldest first. A window that has not wrapped
 /// holds a contiguous run; one that has wraps, and reading it back is an
 /// allocation rather than a view because the borrowed version's validity window
-/// ended at the next append — the same synchronous consumption the v2 rebuild
-/// path documented as its correctness argument, and the reason this is a ring
+/// ended at the next append — the same synchronous consumption that is the
+/// correctness argument for the rebuild path, and the reason this is a ring
 /// rather than a slice into a `Vec`.
 #[derive(Debug)]
 pub struct ScrollbackRing {

@@ -1,8 +1,7 @@
 //! What a frozen worker section can and cannot prove: the three coverage axes
-//! and their machine-readable reasons. Ports `coverageOf` and its three
-//! verdicts from `apps/worker/src/diag/terminal-capture-worker-section.ts`;
-//! called by `super::worker_section`. A claim of `complete` needs proven
-//! continuity; anything less is `partial` or `unavailable` with a reason.
+//! and their machine-readable reasons; called by `super::worker_section`. A
+//! claim of `complete` needs proven continuity; anything less is `partial` or
+//! `unavailable` with a reason.
 
 use roost_protocol::terminal_capture::bundle::{
     TerminalCaptureCoverage as Coverage, TerminalCaptureCoverageReport,

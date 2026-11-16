@@ -12,7 +12,6 @@
 //! everything that controls them. That is a deliberate choice to let a backlog
 //! of cells wait — a late frame is still correct, a frame ahead of its own
 //! `opened` is not recoverable.
-//! Ports v2 `apps/worker/src/transport/coord-link-constants.ts`, `apps/worker/src/transport/coord-link-outbox.ts`.
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -30,8 +29,8 @@ pub const PENDING_BYTES_CAP: usize = 8 * 1024 * 1024;
 /// Which lane a frame belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Lane {
-    /// v2 `livenessPending`: the pong. Written ahead of everything, and before
-    /// the barrier is live, so a coordinator's ping is answered while replay runs.
+    /// The pong. Written ahead of everything, and before the barrier is live,
+    /// so a coordinator's ping is answered while replay runs.
     Liveness,
     /// Session events the coordinator must not lose. Never evicted here: the
     /// session-event store owns that capacity, and evicting a durable event to

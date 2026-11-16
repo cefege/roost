@@ -26,15 +26,15 @@ use crate::keeper_pool::{BoundaryRelease, KeeperUpdateBoundary};
 use crate::session::durable_delivery::DurableDelivery;
 use crate::uplink::OwnerFuture;
 
-/// v2 `KEEPER_DEGRADED_REMEDIATION_GRACE_MS`.
+/// The grace window after a keeper degrades before remediation acts.
 pub const KEEPER_DEGRADED_REMEDIATION_GRACE_MS: i64 = 90_000;
-/// v2 `KEEPER_RESTART_BUDGET` within `KEEPER_RESTART_BUDGET_WINDOW_MS`.
+/// The restart budget: at most this many restarts within the window.
 pub const KEEPER_RESTART_BUDGET: usize = 2;
 pub const KEEPER_RESTART_BUDGET_WINDOW_MS: i64 = 5 * 60_000;
-/// v2's refusal while a keeper update is prepared.
+/// The refusal while a keeper update is prepared.
 pub const RECONCILE_BLOCKED_BY_UPDATE: &str = "keeper update preparation blocks reconciliation";
 
-/// One pass's result (v2 `ReconcileAdmissionOutcome`).
+/// One pass's result.
 pub type ReconcileOutcome = Result<ReconcileSummary, ReconcileFailure>;
 
 /// One reconcile pass; `runtime::session_reconcile::SessionReconciler` in
@@ -49,8 +49,8 @@ pub struct PassAdmission {
     pub durable_replay: Arc<DurableDelivery>,
 }
 
-/// What remediation acts on: whether a keeper update is prepared (v2
-/// `sessionMgr.keeperUpdatePrepared`) and the keeper restart (`restartKeeper`).
+/// What remediation acts on: whether a keeper update is prepared and the
+/// keeper restart.
 pub trait KeeperRemediation: Send + Sync {
     fn keeper_update_prepared(&self) -> bool;
     fn restart_keeper(&self) -> bool;
@@ -138,7 +138,7 @@ impl ReconcileGate {
         Self { inner }
     }
 
-    /// The production gate (v2 `setupReconcile`): the pass over `stack`'s
+    /// The production gate: the pass over `stack`'s
     /// manager and `pool`, the heart's stray sweeper and reconciliation stamp,
     /// the stack's durable replay, and the pool's death and the manager's
     /// degraded hooks pointed here. Called once by `runtime::owners`, inside
@@ -179,7 +179,7 @@ impl ReconcileGate {
         gate
     }
 
-    /// v2 `reconcileOpenSessions`: join the pass in flight or start one.
+    /// Reconcile open sessions: join the pass in flight or start one.
     pub fn reconcile_open_sessions(&self, reason: &'static str) -> OwnerFuture<ReconcileOutcome> {
         let mut state = self.inner.lock();
         if state.keeper_update_blocked {
@@ -211,7 +211,7 @@ impl ReconcileGate {
         Box::pin(shared)
     }
 
-    /// v2 `runReconcile`: the pass reads the coordinator only once the durable
+    /// Run a pass: the pass reads the coordinator only once the durable
     /// replay has drained, so the open-session set it reads reflects every
     /// session event this worker wrote.
     async fn run(&self, reason: &'static str) -> ReconcileOutcome {
@@ -252,7 +252,7 @@ impl ReconcileGate {
 }
 
 impl KeeperUpdateBoundary for ReconcileGate {
-    /// v2 `acquireKeeperUpdateBoundary`: block new passes, wait out the one in
+    /// Acquire the keeper-update boundary: block new passes, wait out the one in
     /// flight, and hand back a release that reopens only what this call closed.
     fn acquire(&self) -> OwnerFuture<Result<BoundaryRelease, String>> {
         let gate = self.clone();

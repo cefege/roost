@@ -12,9 +12,9 @@
 //! commands into the session layer, and the session layer is built over the
 //! keeper pool — while the decision that admits the keeper needed the
 //! coordinator's open-session set, which is read over Connect at step 5 and
-//! needs no socket of ours. The link DIALS before the boot reconcile (v2
-//! `main.ts`), because every pass waits for the durable replay before it reads
-//! the coordinator's recovery state; its snapshot is held until that pass ends.
+//! needs no socket of ours. The link DIALS before the boot reconcile, because
+//! every pass waits for the durable replay before it reads the coordinator's
+//! recovery state; its snapshot is held until that pass ends.
 //!
 //! Every step logs. A boot that cannot say where it got to is a boot whose
 //! refusal an operator has to guess at, and this one refuses in more places
@@ -97,9 +97,9 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     // 3. The local door, and it is HERE because of what it is for rather than
     //    where it is convenient: a browser on this machine reaches its own PTYs
     //    through the door, and it has to keep doing that while the coordinator
-    //    is unreachable. v2 opens it at `main.ts:158`, before the link at
-    //    `:173`, and a worker that opened it only once the link was up takes the
-    //    local terminal away exactly when the link is the thing that is broken.
+    //    is unreachable. It opens before the link, and a worker that opened it
+    //    only once the link was up takes the local terminal away exactly when
+    //    the link is the thing that is broken.
     //    A door that cannot be opened is a BOOT REFUSAL naming the door, never a
     //    worker that came up without one. The ROUTES on it are `crate::door`'s
     //    to mount; what this step owns is the bind and the refusal.
@@ -262,9 +262,9 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
         uplink_rx,
     );
 
-    // v2 `coordLinkSink`: every row the outbox holds (a restart's unacked ones
-    // included) is replayed under its stored sequence, and each new one reaches
-    // the link through the sink's change signal.
+    // Every row the outbox holds (a restart's unacked ones included) is
+    // replayed under its stored sequence, and each new one reaches the link
+    // through the sink's change signal.
     tracing::info!(outbox = %outbox_path.display(), "the coordinator link replays the durable outbox");
     link.attach_durable_outbox(outbox, Arc::clone(&owners.stack.durable_delivery));
     // The SAME sink the cadence registered with the emitter, so a cell the
@@ -275,9 +275,8 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
 
     // 8. The link dials NOW, before the boot reconcile, and its snapshot is
     //    held: the pass waits for the durable replay this link performs before
-    //    it reads the coordinator's recovery state (v2 `beforeRecoveryRead`),
-    //    and the snapshot describes the set that pass reserves (v2 activates
-    //    the provider only after it, `main.ts:296-303`).
+    //    it reads the coordinator's recovery state, and the snapshot describes
+    //    the set that pass reserves (the provider activates only after it).
     let snapshot = link.hold_snapshot_until_activated();
     let because = sequence
         .complete(StepId::CoordinatorLink)
@@ -292,9 +291,8 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     let link_task = tokio::spawn(link.run(stop.subscribe()));
 
     // 9-10. Survivors through the one reconcile gate, then snapshot activation,
-    //    then readiness (`boot_admission`). Any refusal is a boot refusal (v2
-    //    `completeWorkerBootAdmission` throws), and a link that never
-    //    published a snapshot goes with it.
+    //    then readiness (`boot_admission`). Any refusal is a boot refusal, and
+    //    a link that never published a snapshot goes with it.
     let admitted = super::boot_admission::complete_worker_boot_admission(
         &owners.reconcile,
         &snapshot,
@@ -337,8 +335,8 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     // the keeper, dropping the connection is the whole contract: it treats a
     // disconnect as a reason to keep serving, and a worker that took its PTYs
     // down on the way out would be the one bug this architecture exists to
-    // prevent. The door stops serving first (v2 `close()`), then the owners
-    // release their sockets, routes and cadence.
+    // prevent. The door stops serving first, then the owners release their
+    // sockets, routes and cadence.
     door.close();
     owners.shutdown();
     drop(keeper);

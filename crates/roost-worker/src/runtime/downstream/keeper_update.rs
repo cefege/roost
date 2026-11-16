@@ -1,8 +1,7 @@
 //! The `keeperUpdatePrepare` arm: the preparation owner answers later, with an
 //! `rpc-ok` carrying its result or an `rpc-error` carrying its failure, on the
 //! connection the request arrived on. Called by
-//! [`super::Dispatcher::dispatch`]. Ports the `keeperUpdatePrepare` case of v2
-//! `apps/worker/src/transport/coord-link-downstream.ts`.
+//! [`super::Dispatcher::dispatch`].
 
 use std::sync::Arc;
 
@@ -13,7 +12,7 @@ use super::owner_task::run_owner;
 use super::{Dispatcher, DownstreamLink, replies};
 
 impl Dispatcher {
-    /// With no owner, v2's own absent-callback answer; otherwise the owner's
+    /// With no owner, the absent-owner answer; otherwise the owner's
     /// synchronous half runs now (it closes channel admission in receive
     /// order) and its outcome is sent when it settles.
     pub(super) fn keeper_update_prepare(

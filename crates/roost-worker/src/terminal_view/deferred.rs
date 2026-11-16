@@ -2,7 +2,6 @@
 //! every session-layer call (stream applies, full requests, sink registration)
 //! and every local-transport callback that may re-enter the owner. The locked
 //! decision records them in order; [`TerminalViewOwner::run`] performs them.
-//! Ports the asynchronous halves of `apps/worker/src/terminal/view/terminal-view-owner*.ts`.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -35,17 +34,17 @@ pub(super) struct StreamApply {
 pub(super) enum Deferred {
     /// Drive one stream desire through the control lane.
     Apply(StreamApply),
-    /// v2 `seedSocket` for a local socket.
+    /// Seed a local socket.
     Seed {
         socket_id: String,
         session_id: SessionId,
     },
-    /// v2 `ensureSocketStream`, then `seedSocket` when the socket fell behind.
+    /// Ensure the stream, then seed when the socket fell behind.
     EnsureStream {
         socket_id: String,
         session_id: SessionId,
     },
-    /// v2 `resyncSocket`: every repair is a fresh authoritative full.
+    /// Every repair is a fresh authoritative full.
     Resync {
         socket_id: String,
         session_id: SessionId,
@@ -124,7 +123,7 @@ impl TerminalViewOwner {
         self.run(work);
     }
 
-    /// v2 `seedSocket`/`requestFull`: a forced full on the session's current
+    /// A forced full on the session's current
     /// stream, going through the snapshot request so another sink's pending
     /// cursor cannot swallow it.
     fn seed_socket(&self, socket_id: &str, session_id: &SessionId) {
@@ -145,7 +144,7 @@ impl TerminalViewOwner {
             .note_stream(socket_id, session_id, stream_id);
     }
 
-    /// v2 `ensureSocketStream`: the local socket entered a stream it was not
+    /// The local socket entered a stream it was not
     /// already painting, so it owes a baseline.
     fn socket_behind_stream(&self, socket_id: &str, session_id: &SessionId) -> bool {
         let Some(current) = self.sessions.current_stream_id(session_id) else {
@@ -156,7 +155,7 @@ impl TerminalViewOwner {
             && state.screen.painting(socket_id, session_id) != Some(current.as_str())
     }
 
-    /// v2 `resyncSocket`: the worker keeps no record of what it shipped to one
+    /// The worker keeps no record of what it shipped to one
     /// socket, so every repair is a fresh full — which also carries a relayed
     /// socket's repair to the coordinator replica that owns it.
     fn resync_socket(&self, socket_id: &str, session_id: &SessionId) {
@@ -173,8 +172,8 @@ impl TerminalViewOwner {
             .note_stream(socket_id, session_id, stream_id);
     }
 
-    /// v2 queues the projection flush as a microtask; a spawned task runs after
-    /// the decision that scheduled it has returned.
+    /// The projection flush runs as a spawned task, after the decision that
+    /// scheduled it has returned.
     fn schedule_flush(&self) {
         let owner = self.self_handle.clone();
         self.runtime.spawn(async move {

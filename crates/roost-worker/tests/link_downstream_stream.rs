@@ -1,8 +1,7 @@
-//! Coordinator stream state keeps its own bounded admission (v2
-//! `TERMINAL_STREAM_REQUEST_INFLIGHT_CAP` in
-//! `apps/worker/src/transport/coord-link-downstream.ts`): the 65th request in
-//! flight is refused before any write with v2's exact frame, a completed one
-//! frees its slot, and a failed owner is answered as an ambiguous boundary.
+//! Coordinator stream state keeps its own bounded admission: the 65th request
+//! in flight is refused before any write with the in-flight-cap frame, a
+//! completed one frees its slot, and a failed owner is answered as an ambiguous
+//! boundary.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod link_downstream_support;

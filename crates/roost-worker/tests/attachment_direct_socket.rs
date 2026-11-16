@@ -1,8 +1,6 @@
 //! The direct attachment receiver without a worker, coordinator or native
 //! peer: dedicated-grant hello admission, per-chunk receipts, the committed
-//! path, and grant expiry versus revocation. Ported from
-//! `apps/worker/tests/attachments/attachment-direct-socket.test.ts`, one test
-//! per v2 case with the v2 names kept.
+//! path, and grant expiry versus revocation.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -131,8 +129,8 @@ async fn an_admitted_upload_frees_its_pre_hello_slot_for_the_next_loopback_socke
     assert!(fixture.open().is_live());
 }
 
-/// No v2 counterpart asserts the loopback hello deadline; this pins v2's
-/// `armLoopbackHelloDeadline` (3 s, then `invalid_hello`).
+/// A loopback socket that never says hello is closed at the 3 s hello deadline
+/// with `invalid_hello`.
 #[tokio::test(start_paused = true)]
 async fn a_loopback_socket_that_never_says_hello_is_refused_at_the_deadline() {
     let fixture = DirectFixture::new(1);

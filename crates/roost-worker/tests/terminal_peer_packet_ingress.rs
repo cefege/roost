@@ -1,7 +1,6 @@
 //! Terminal peer packet port ingress: framed control reassembly, malformed
 //! packet rejection with its partial quota released on close, and refusal of
-//! client data off the control lane. Ports the receive cases of v2
-//! `apps/worker/tests/terminal/peer/terminal-peer-packet-port.test.ts`.
+//! client data off the control lane.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 #[path = "peer_support/fake_native.rs"]

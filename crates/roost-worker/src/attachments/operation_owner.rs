@@ -1,8 +1,8 @@
 //! The one owner of every attachment operation's bytes and outcome, for both
 //! carriers: a direct chunk's journal is written before its receipt, a relay's
-//! progress stays in memory until its final commit. Ports v2
-//! `apps/worker/src/attachments/attachment-operation-owner.ts` (its commit is
-//! `operation_commit`, its opening `operation_open`). Called by the upload facade.
+//! progress stays in memory until its final commit (its commit is
+//! `operation_commit`, its opening `operation_open`). Called by the upload
+//! facade.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -32,7 +32,7 @@ use super::{AttachmentClock, Carrier, OperationDescriptor};
 /// silent upload, so does the worker.
 pub const ATTACHMENT_OPERATION_IDLE: Duration = Duration::from_secs(5 * 60);
 
-/// v2 bounds a carrier id by JavaScript string length.
+/// A carrier id is bounded by JavaScript string length (UTF-16 code units).
 const MAX_CARRIER_ID_UNITS: usize = 128;
 
 /// One chunk offered to an operation.

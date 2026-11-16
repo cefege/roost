@@ -1,7 +1,5 @@
 //! One frozen capture's write and answer, and the worker-local capture an
-//! emission conflict schedules. Ports `finishCapture`, `captureStatusOf` and
-//! `scheduleWorkerLocalCapture` of `apps/worker/src/diag/
-//! terminal-capture-write.ts`; called by `super::write` and `super::tap`. The
+//! emission conflict schedules. Called by `super::write` and `super::tap`. The
 //! freeze happens in the caller's turn; only the gzip and the write await, and
 //! only this module decides a capture's status and records it in a ledger.
 

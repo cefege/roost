@@ -2,7 +2,6 @@
 //! loopback sockets and authenticated WebRTC packet ports, bound to the
 //! dedicated attachment grant store; the operation owner owns file state.
 //! Built by `direct_owners`, driven by `direct_loopback` and the peer ingress.
-//! Ports `apps/worker/src/attachments/attachment-direct-socket.ts`.
 
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};

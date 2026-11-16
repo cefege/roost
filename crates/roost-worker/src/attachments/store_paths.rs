@@ -2,10 +2,9 @@
 //! from, one session's directory inside it, the private names a directory
 //! holds beside its files, and the media directory a session's uploads land
 //! in — `<folder>/.roost/media` when its shell stands in a folder, else the
-//! private session directory. Ports the path half of v2
-//! `apps/worker/src/attachments/attachment-reaper.ts`. Called by the file
-//! store, the operation journal, the reaper and the browser attachment
-//! commands; the project half is `media_dirs`.
+//! private session directory. Called by the file store, the operation journal,
+//! the reaper and the browser attachment commands; the project half is
+//! `media_dirs`.
 
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
@@ -26,9 +25,9 @@ pub const ATTACHMENT_OPERATION_DIR_NAME: &str = ".operations";
 /// The `p1`, `p2`, … links a short-path upload is answered with.
 pub const SHORTCUT_DIR_NAME: &str = ".shortcuts";
 
-/// The attachment base, resolved once: `<worker data dir>/attachments` (v2
-/// used `~/.roost/attachments`; see the crate README's deviations). Operation
-/// journals always live beneath it; uploaded files land in [`Self::media_dir`].
+/// The attachment base, resolved once: `<worker data dir>/attachments`.
+/// Operation journals always live beneath it; uploaded files land in
+/// [`Self::media_dir`].
 #[derive(Clone)]
 pub struct AttachmentBase {
     root: PathBuf,
@@ -68,15 +67,15 @@ impl AttachmentBase {
         &self.root
     }
 
-    /// v2 `attachmentSessionDir`: the base joined with the id, unchecked.
+    /// The base joined with the id, unchecked.
     pub fn session_dir(&self, session_id: &str) -> PathBuf {
         join_lexically(&self.root, session_id)
     }
 
-    /// v2 `resolveSessionDirWithinBase`: the session's directory, or `None`
-    /// for an id such as `../../etc` that climbs out of the base. The id is
-    /// joined as text and folded without touching the filesystem, exactly as
-    /// Node's `path.resolve` does, and the base itself counts as inside.
+    /// The session's directory, or `None` for an id such as `../../etc` that
+    /// climbs out of the base. The id is joined as text and folded without
+    /// touching the filesystem, exactly as path-resolution rules do, and the
+    /// base itself counts as inside.
     pub fn resolve_session_dir(&self, session_id: &str) -> Option<PathBuf> {
         let dir = self.session_dir(session_id);
         dir.starts_with(&self.root).then_some(dir)
@@ -126,8 +125,8 @@ impl AttachmentBase {
     }
 }
 
-/// Node's `path.resolve` of one path: absolute against the current directory,
-/// `.` and `..` folded lexically.
+/// Resolve one path: absolute against the current directory, `.` and `..`
+/// folded lexically.
 pub fn resolve_lexically(path: &Path) -> PathBuf {
     if path.is_absolute() {
         return normalize(path);
@@ -138,7 +137,7 @@ pub fn resolve_lexically(path: &Path) -> PathBuf {
     }
 }
 
-/// Node's `path.join(base, tail)`: the tail is appended as TEXT — an absolute
+/// Join `base` and `tail`: the tail is appended as TEXT — an absolute
 /// tail does not replace the base, as `PathBuf::join` would — then folded.
 pub fn join_lexically(base: &Path, tail: &str) -> PathBuf {
     let mut joined = OsString::from(base.as_os_str());

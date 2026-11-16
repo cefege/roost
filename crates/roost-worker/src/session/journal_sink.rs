@@ -20,8 +20,7 @@
 //!
 //! EVERY STORE CHANGE IS SIGNALLED. A row appended, or a claim taken, held or
 //! given back, raises [`DurableDelivery::note_store_changed`], which is how the
-//! coordinator link learns there is a row to replay or a snapshot to hold (v2
-//! `event-sink.ts` `coordLinkSink`: `link.send` / `snapshotStateChanged`).
+//! coordinator link learns there is a row to replay or a snapshot to hold.
 
 use std::sync::Arc;
 

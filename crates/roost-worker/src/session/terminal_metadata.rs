@@ -1,8 +1,7 @@
-//! Worker-owned semantic terminal metadata: v2
-//! `apps/worker/src/session/session-terminal-metadata.ts` (per-channel title and
-//! activity facts, the attached flag, the fair 32-frame flush, replay after the
-//! snapshot barrier) and `packages/protocol/src/terminal-metadata.ts`
-//! (`TerminalTitleParser`). OSC 52 clipboard writes, long-command finishes,
+//! Worker-owned semantic terminal metadata: per-channel title and
+//! activity facts, the attached flag, the fair 32-frame flush, and replay after
+//! the snapshot barrier (titles parse through `TerminalTitleParser`).
+//! OSC 52 clipboard writes, long-command finishes,
 //! bells and program notifications are events: sent once, never reasserted by
 //! a replay; progress and user variables are retained facts (`signals.rs`). `session::emit`
 //! observes every chunk; the cadence flushes into the link's coalescing lane.
@@ -18,13 +17,13 @@ mod title_parser;
 pub use signals::{LiveSignals, TERMINAL_NOTIFICATION_RATE_LIMIT_MS};
 pub use title_parser::{TerminalTitleParser, TitleObservation, normalize_terminal_title};
 
-/// v2 `TERMINAL_METADATA_DISPATCH_FRAME_BUDGET`.
+/// The most metadata frames one flush sends.
 pub const TERMINAL_METADATA_DISPATCH_FRAME_BUDGET: usize = 32;
-/// v2 `TERMINAL_TITLE_CARRY_CAP` (characters).
+/// The most characters of an incomplete title carried between chunks.
 pub const TERMINAL_TITLE_CARRY_CAP: usize = 1_024;
-/// v2 `TERMINAL_TITLE_MAX_LENGTH` (UTF-16 code units, as v2 sliced).
+/// The longest title, in UTF-16 code units.
 pub const TERMINAL_TITLE_MAX_LENGTH: usize = 256;
-/// v2 `TERMINAL_METADATA_ACTIVITY_THROTTLE_MS`.
+/// The minimum spacing between activity updates.
 pub const TERMINAL_METADATA_ACTIVITY_THROTTLE_MS: i64 = 60_000;
 /// Minimum live command duration included in terminal metadata.
 pub const COMMAND_FINISHED_MIN_DURATION_MS: i64 = 10_000;
@@ -32,15 +31,15 @@ pub const COMMAND_FINISHED_MIN_DURATION_MS: i64 = 10_000;
 /// a loop (a held key at a prompt, `yes $'\a'`) must not flood every browser.
 pub const TERMINAL_BELL_RATE_LIMIT_MS: i64 = 500;
 
-/// What one send into the link did (v2 `TransportSendResult`, reduced to the
-/// one distinction the flush acts on).
+/// What one send into the link did, reduced to the
+/// one distinction the flush acts on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetadataSend {
     Accepted,
     Dropped,
 }
 
-/// v2 `TerminalMetadataState`: one channel's retained facts, and the clipboard
+/// One channel's retained facts, and the clipboard
 /// write still waiting for its one send.
 #[derive(Debug, Default, Clone)]
 pub struct ChannelMetadata {
@@ -84,12 +83,12 @@ impl TerminalMetadataStage {
         self.channels.get(&channel_id)
     }
 
-    /// Whether a flush is owed (v2's queued microtask / yielded timer).
+    /// Whether a flush is owed.
     pub fn flush_due(&self) -> bool {
         self.flush_scheduled && self.coordinator_attached && !self.ready.is_empty()
     }
 
-    /// v2 `observeTerminalMetadata`: record one chunk without retaining it.
+    /// Record one chunk without retaining it.
     /// Returns whether a flush became owed.
     pub fn observe(&mut self, channel_id: ChannelId, bytes: &[u8], now_ms: i64) -> bool {
         self.observe_live(channel_id, bytes, None, 0, now_ms)
@@ -221,7 +220,7 @@ impl TerminalMetadataStage {
         self.reassert_retained_facts()
     }
 
-    /// v2 `replayTerminalMetadata`: reassert retained facts once the reconnect
+    /// Reassert retained facts once the reconnect
     /// snapshot is live. Returns whether a flush became owed.
     pub fn replay(&mut self) -> bool {
         self.coordinator_attached && self.reassert_retained_facts()
@@ -242,7 +241,7 @@ impl TerminalMetadataStage {
         owed
     }
 
-    /// v2 `flushTerminalMetadata`: at most one budget of frames, round-robin by
+    /// Flush at most one budget of frames, round-robin by
     /// readiness. `live` is the session table's answer; `send` the link.
     pub fn flush(
         &mut self,
@@ -362,7 +361,7 @@ impl TerminalMetadataStage {
         self.flush_scheduled = !self.ready.is_empty();
     }
 
-    /// v2 `disposeTerminalMetadataState`, for a channel whose process exited.
+    /// Dispose a channel's state, for a channel whose process exited.
     /// The exit leaves program status standing (`done`, `error`), so the channel
     /// stays queued until the flush has sent it; `flush` then drops the state.
     pub fn forget_channel(&mut self, channel_id: ChannelId) {

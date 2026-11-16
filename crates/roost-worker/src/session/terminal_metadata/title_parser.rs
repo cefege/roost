@@ -12,7 +12,7 @@ pub struct TitleObservation {
     pub dedup_key: String,
 }
 
-/// v2 `normalizeTerminalTitle`: strip C0/DEL, cap the length, fold braille spinners.
+/// Strip C0/DEL, cap the length, fold braille spinners.
 pub fn normalize_terminal_title(raw: &str) -> TitleObservation {
     let mut title = String::new();
     let mut units = 0usize;
@@ -39,7 +39,7 @@ pub fn normalize_terminal_title(raw: &str) -> TitleObservation {
     TitleObservation { title, dedup_key }
 }
 
-/// v2 `TerminalTitleParser`: OSC 0/2 titles from one ordered PTY byte stream.
+/// OSC 0/2 titles from one ordered PTY byte stream.
 #[derive(Debug, Default, Clone)]
 pub struct TerminalTitleParser {
     carry: String,

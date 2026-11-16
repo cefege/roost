@@ -2,7 +2,7 @@
 // that creates the same negotiated channels a browser document does, applies
 // the worker's answer, and reports channel traffic as `NativePeerEvent`s.
 // Used by the terminal and attachment peer suites to prove a real DTLS/SCTP
-// path end to end (v2 proved it in a real browser only).
+// path end to end.
 #![allow(clippy::unwrap_used, clippy::expect_used, dead_code)]
 
 use std::net::SocketAddr;

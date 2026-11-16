@@ -159,9 +159,8 @@ fn a_credential_whose_bytes_were_touched_does_not_verify() {
 }
 
 /// A private key any other local user can read is a key the machine does not
-/// own. v2 never checked the mode on the way in; refusing here is the whole
-/// reason the mode is read, and a refusal nobody logs is a refusal an operator
-/// debugs for an hour.
+/// own. Refusing it is the whole reason the mode is read, and a refusal nobody
+/// logs is a refusal an operator debugs for an hour.
 #[test]
 fn a_key_another_user_can_read_is_refused_rather_than_signed_with() {
     let scratch = Scratch::new("mode");
@@ -293,8 +292,8 @@ fn a_machine_with_no_key_is_given_one_it_can_dial_with() {
     );
 }
 
-/// v2 regenerated the key whenever it could not parse one, which turned a
-/// damaged file into a different machine: the worker then presented a `kid` the
+/// A key that cannot be parsed is never regenerated: that would turn a damaged
+/// file into a different machine, and the worker would then present a `kid` the
 /// coordinator had never seen, on every dial, forever, with nothing in its own
 /// logs to explain it. The file is refused, and the refusal leaves it alone.
 #[test]
@@ -323,11 +322,11 @@ fn a_damaged_key_is_refused_and_left_exactly_as_it_was_found() {
 
 /// A machine that already has a key keeps the identity it was enrolled under.
 ///
-/// The fixture is a file v2's own `loadWorkerKey` wrote — captured under Bun,
-/// with the fingerprint v2 reported for it — because the failure this guards is
-/// invisible until a coordinator refuses a dial: a v3 worker that cannot read a
-/// v2 key file is a fleet that has to be re-enrolled machine by machine, and
-/// the first symptom is an `authorized_keys` row nobody can match.
+/// The fixture is a key file written by an earlier release — captured under Bun,
+/// with the fingerprint that release reported for it — because the failure this
+/// guards is invisible until a coordinator refuses a dial: a worker that cannot
+/// read an installed key file is a fleet that has to be re-enrolled machine by
+/// machine, and the first symptom is an `authorized_keys` row nobody can match.
 #[test]
 fn a_key_v2_installed_still_dials_as_the_machine_it_was_enrolled_as() {
     const V2_KEY_FILE: &str = "\

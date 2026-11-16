@@ -2,8 +2,6 @@
 //! fail-closed core in place so its stream can emit again, and settling a
 //! resize whose acknowledgement was lost. `session::terminal_txn` is the only
 //! caller of both, from a blocking thread (every keeper read here waits).
-//! Ports `apps/worker/src/session/session-core-reprove.ts` and
-//! `recoverAmbiguousResize` of `session-resize-capture.ts`.
 //!
 //! NOT THE REBUILD-FROM-RING-ON-RESIZE PATH `docs/FAILURE-INDEX.md` condemns
 //! ("A live viewport change rebuilds the terminal core"): a provable resize
@@ -34,7 +32,7 @@ use crate::terminal_core_capacity::TerminalCoreAllocationKind;
 
 const SUPERSEDED: &str = "terminal stream was superseded during core re-proof";
 
-/// Why a re-proof did not happen. `retryable` is v2's: a newer desire, a closed
+/// Why a re-proof did not happen. `retryable`: a newer desire, a closed
 /// session or a capacity refusal is `retryable_pre_write`, anything the keeper
 /// or the replay disproved is `core_failed`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,8 +41,8 @@ pub struct ReproofRefusal {
     pub retryable: bool,
 }
 
-/// A lost acknowledgement recovery could not settle. `trapped` is v2's
-/// `capture.failedReason`: a trapped core is re-provable (`core_failed`); an
+/// A lost acknowledgement recovery could not settle. `trapped`
+/// means the capture failed: a trapped core is re-provable (`core_failed`); an
 /// untrapped one lost its session mid-recovery (`ambiguous_boundary`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unrecovered {
@@ -61,7 +59,7 @@ pub(super) struct ReproofFor<'a> {
 
 impl SessionManager {
     /// Rebuild a fail-closed channel's core from the keeper's history and swap
-    /// it in (v2 `reproveTerminalCore`). BLOCKING.
+    /// it in. BLOCKING.
     pub(super) fn reprove_terminal_core(
         &self,
         channel_id: ChannelId,
@@ -197,8 +195,8 @@ impl SessionManager {
         Ok(())
     }
 
-    /// Settle a resize whose acknowledgement was lost (v2
-    /// `recoverAmbiguousResize`): replay only the suffix the existing core has
+    /// Settle a resize whose acknowledgement was lost:
+    /// replay only the suffix the existing core has
     /// not parsed, resize that SAME core at the retained marker, and trap the
     /// core when the boundary cannot be found. BLOCKING.
     pub(super) fn recover_lost_ack(

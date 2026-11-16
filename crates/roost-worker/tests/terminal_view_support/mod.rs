@@ -1,6 +1,6 @@
 //! The collaborators the worker's terminal view owner is exercised through: a
-//! scripted session port standing in for `SessionManager` (v2 runs the real one
-//! over a fake keeper), a recording local socket, a manual clock, and the real
+//! scripted session port standing in for `SessionManager`, a recording local
+//! socket, a manual clock, and the real
 //! `Uplink` receiver the coordinator-bound frames arrive on. Used by
 //! `terminal_view_owner.rs` and `terminal_view_relay.rs`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -89,7 +89,7 @@ impl EventClock for ManualClock {
 pub enum Outcome {
     Commit,
     /// The resize boundary trapped: the stream is installed but its core is
-    /// not provable, as v2's fake keeper `trapResizeSeqs` produces.
+    /// not provable.
     CoreFailed,
     /// The stream transaction refused the request itself. Nothing this worker
     /// asks for can produce it, so it is the verdict a protocol violation

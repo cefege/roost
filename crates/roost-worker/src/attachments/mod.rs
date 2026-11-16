@@ -2,9 +2,8 @@
 //! session's project media directory or its private one), the durable
 //! operation that writes them, the reaper that bounds them, the grants, hello
 //! admission and lease a direct carrier runs under, and the loopback and peer
-//! carriers themselves (`direct_*`, `peer_*`). Ports v2
-//! `apps/worker/src/attachments/`. Composed once by `runtime::owners`; the
-//! coordinator link reaches it through [`link`].
+//! carriers themselves (`direct_*`, `peer_*`). Composed once by
+//! `runtime::owners`; the coordinator link reaches it through [`link`].
 
 pub mod direct_chunks;
 pub mod direct_frames;
@@ -55,7 +54,7 @@ pub fn system_clock() -> AttachmentClock {
     Arc::new(Instant::now)
 }
 
-/// Which lane carried an attachment operation. v2 `AttachmentOperationCarrier`.
+/// Which lane carried an attachment operation.
 ///
 /// It is part of an operation's identity: a coordinator relay keeps its
 /// progress in memory and can never resume, while a direct operation's
@@ -81,7 +80,6 @@ impl Carrier {
 }
 
 /// What an attachment operation was asked to write, before any byte arrived.
-/// v2 `AttachmentOperationDescriptor`.
 ///
 /// Every later chunk must name the same descriptor: a chunk that disagrees on
 /// the session, the filename, the short-path choice or the declared total is a

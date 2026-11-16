@@ -1,9 +1,7 @@
 //! The local-terminal grant arms of the downstream dispatch: a worker with a
 //! local door acknowledges an install with its grant id, answers a refused
 //! install with the store's reason, and routes a revocation to the door; a
-//! worker without one answers v2's absent-owner refusal. Ports the
-//! `localTerminalGrant`/`localTerminalGrantRevoke` cases of
-//! `apps/worker/src/transport/coord-link-downstream.ts:269-300`.
+//! worker without one answers the absent-owner refusal.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod link_downstream_support;

@@ -8,7 +8,6 @@
 //!
 //! Everything policy-shaped — when to retry, when to escalate — is in
 //! [`crate::backoff`]. This file is the transport and the lifecycle around it.
-//! Ports v2 `apps/worker/src/transport/coord-link.ts`.
 
 use std::time::Duration;
 
@@ -106,9 +105,9 @@ impl CoordinatorEndpoint {
 /// One dial's lifecycle, so `open` and `closed` happen exactly once each.
 ///
 /// A dial produces several terminal events — a construction failure, an
-/// upgrade error, a close — and the v2 bug this replaces was cleanup running
-/// more than once for one of them. Making the lifecycle explicit means the
-/// second call is observably a no-op rather than a double teardown.
+/// upgrade error, a close — and cleanup must not run more than once for one of
+/// them. Making the lifecycle explicit means the second call is observably a
+/// no-op rather than a double teardown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DialPhase {
     /// Constructed but not yet open. Sends must NOT touch the socket: they

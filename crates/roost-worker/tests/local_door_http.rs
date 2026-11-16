@@ -1,7 +1,6 @@
 //! The gates a browser on this machine passes before it reaches the door's
-//! answers (v2 `apps/worker/tests/local-door/local-ui-server.test.ts`): Host
-//! and Origin refusal, the bootstrap payload, the CORS answers and the
-//! security headers. Drives the real listener over loopback HTTP.
+//! answers: Host and Origin refusal, the bootstrap payload, the CORS answers and
+//! the security headers. Drives the real listener over loopback HTTP.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod door_support;

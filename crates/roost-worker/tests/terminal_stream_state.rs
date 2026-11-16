@@ -1,8 +1,7 @@
 //! The worker terminal stream contract: validation, generation minting, the
 //! baseline a commit owes, snapshot repair, and the in-place resize at the
-//! keeper boundary with its truthful outcomes. Ports
-//! `apps/worker/tests/terminal/terminal-stream-{state,resize}.test.ts` over
-//! `session::terminal_control` / `terminal_txn` / `resize`.
+//! keeper boundary with its truthful outcomes, over `session::terminal_control` /
+//! `terminal_txn` / `resize`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod terminal_stream_support;
@@ -102,7 +101,7 @@ async fn a_same_geometry_commit_installs_one_baseline_and_a_repeat_is_the_same_a
         (STREAM_A, 1, 0)
     );
     assert!(Harness::row_text(&fulls[0], 0).contains("BASELINE"));
-    // v2 returns `current.operation`: the same stream id and payload is the same transaction.
+    // The same stream id and payload returns the same transaction.
     assert_eq!(harness.enable(STREAM_A, COLS, ROWS).await, first);
     assert_eq!(harness.fulls().len(), 1);
     let conflicting = harness.enable(STREAM_A, 10, 3).await;

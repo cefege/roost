@@ -18,7 +18,6 @@
 //! the owner's internals, and `tests/link_wire_parity.rs` is what keeps the
 //! delegation honest — a second mapping would round-trip against itself
 //! perfectly and still be wrong.
-//! Ports v2 `apps/worker/src/transport/coord-link-codec.ts`.
 
 use roost_proto::CoordWorkerDown;
 use roost_proto::buffa::Message as _;
@@ -35,7 +34,7 @@ pub enum WireError {
     Undecodable { reason: String },
     /// A well-formed `browser-command` envelope whose relayed frame does not
     /// parse. Distinct because it still carries the envelope's correlation,
-    /// which v2 answers with `rpc-error "invalid browser command"`.
+    /// which is answered with `rpc-error "invalid browser command"`.
     #[error("browser command {request_id} did not parse: {reason}")]
     InvalidBrowserCommand { request_id: String, reason: String },
 }

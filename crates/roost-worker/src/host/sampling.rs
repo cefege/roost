@@ -1,20 +1,19 @@
 //! The watchers that follow a session's folder on this host — its git branch
 //! and remote, its pull request and its listening ports — keyed by session id
-//! and owned here, NOT hung on the session record. Ports the polling half of v2
-//! `apps/worker/src/session/session-git-ports.ts` and `host/git-branch.ts`
-//! `watchGitBranch`; `session::git_ports` is the sink that compares each
-//! reading to the record and emits the `git`/`pr`/`ports` events.
+//! and owned here, NOT hung on the session record. `session::git_ports` is the
+//! sink that compares each reading to the record and emits the
+//! `git`/`pr`/`ports` events.
 //!
-//! THE SCHEDULE IS v2's: at start the branch, the remote and the ports are read
+//! THE SCHEDULE: at start the branch, the remote and the ports are read
 //! once; afterwards a branch switch re-reads the branch, and every ninety
 //! seconds the pull request and the ports are re-read. A branch or remote the
-//! sink says CHANGED re-resolves the pull request at once, as v2's
-//! `_resolvePr` after an emit did. The HEAD watcher polls the file instead of
-//! subscribing to an OS notifier (no notifier dependency; a branch switch is a
-//! write to one small file). Stopping flags the thread and detaches it: a
+//! sink says CHANGED re-resolves the pull request at once. The HEAD watcher
+//! polls the file instead of subscribing to an OS notifier (no notifier
+//! dependency; a branch switch is a write to one small file). Stopping flags
+//! the thread and detaches it: a
 //! thread inside a `gh` call may run up to the tool timeout, and a close path
 //! must not wait on it — its late reading is refused by the sink's record
-//! check, as v2's `sessions.get(channelId) !== rec` guard refused it.
+//! check.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -33,7 +32,7 @@ use super::tool_path::process_tool_path;
 /// to reach a browser. The file is tens of bytes; the cost is one read.
 pub const HEAD_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
-/// v2's `setInterval(.., 90_000)` for both the PR poll and the ports poll: `ss`
+/// The interval for both the PR poll and the ports poll: `ss`
 /// walks every listening socket on the host and `gh` is a network round trip.
 pub const FACTS_POLL_INTERVAL: Duration = Duration::from_secs(90);
 
@@ -59,8 +58,7 @@ pub trait FolderFactsSink: Send + Sync {
     /// Apply one reading; `true` when it changed what the session shows.
     fn apply(&self, reading: FolderReading) -> bool;
     /// The branch a pull request lookup should ask about now, or `None` when
-    /// the session is gone, the branch is unknown, or no GitHub remote is known
-    /// (v2 `_resolvePr`'s guard).
+    /// the session is gone, the branch is unknown, or no GitHub remote is known.
     fn pull_request_branch(&self) -> Option<String>;
 }
 
@@ -202,7 +200,7 @@ struct FolderReader {
 impl FolderReader {
     /// The watch loop for one session, until stopped.
     fn follow(&self, session_id: &str) {
-        // v2 `_startGitBranch`: branch, HEAD watch, remote; then `_startPorts`.
+        // Branch, HEAD watch, remote; then ports.
         self.apply_branch();
         let head = self.git.head_path(&self.folder);
         let mut head_contents = head
@@ -235,7 +233,7 @@ impl FolderReader {
         tracing::debug!(%session_id, "a folder watcher stopped");
     }
 
-    /// v2 `readGitBranch(..).then(apply)`: a changed branch re-resolves the PR.
+    /// Read the branch: a changed branch re-resolves the PR.
     fn apply_branch(&self) {
         let branch = self.git.branch(&self.folder);
         if !self.stopped() && self.sink.apply(FolderReading::Branch(branch)) {
@@ -243,7 +241,7 @@ impl FolderReader {
         }
     }
 
-    /// v2 `_resolvePr`: only for a known branch in a known GitHub repository.
+    /// Only for a known branch in a known GitHub repository.
     fn resolve_pull_request(&self) {
         let Some(branch) = self.sink.pull_request_branch() else {
             return;
@@ -254,7 +252,7 @@ impl FolderReader {
         }
     }
 
-    /// v2 `_resolvePorts`.
+    /// Re-read the listening ports.
     fn resolve_ports(&self) {
         let ports = ports::read_listening_ports(self.root_pid, self.platform);
         if !self.stopped() {

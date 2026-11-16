@@ -1,9 +1,6 @@
 //! Opening an operation for a chunk: the one already in the table, a journal
 //! found on disk (resumed if it is still writable, answered from disk if it is
-//! terminal), or a new one at sequence zero. Ports `prepare`, `openLoaded` and
-//! the temp checks of v2
-//! `apps/worker/src/attachments/attachment-operation-owner.ts`. Called by
-//! `operation_owner`.
+//! terminal), or a new one at sequence zero. Called by `operation_owner`.
 
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -150,9 +147,9 @@ fn open_new_temp(path: &Path) -> io::Result<File> {
     roost_keeper::owner_only::create_truncate_private_file(path)
 }
 
-/// Reopen a parked temp positioned after the bytes it holds. v2 reopened it
-/// `r+` and wrote at offset 0, overwriting the head of every resumed upload;
-/// appending is what its journal and digest already assume.
+/// Reopen a parked temp positioned after its bytes: the journal and digest
+/// count what is already written, so a write at offset 0 would overwrite the
+/// upload's head.
 fn resume_temp(
     temp_path: &Path,
     journal: &AttachmentOperationJournal,

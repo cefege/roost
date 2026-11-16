@@ -1,9 +1,7 @@
 //! The attachment-peer downstream arms with an attachment peer owner attached:
 //! an offer's answer or typed refusal goes out fenced to the connection it
 //! arrived on, a failed owner answers `ice_failed`, and a cancel reaches the
-//! owner. Ports the peer half of v2
-//! `apps/worker/tests/transport/coord-link-direct-terminal.test.ts`
-//! ("attachment controls emit typed answer, error, and durable status").
+//! owner.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod link_downstream_support;
@@ -30,7 +28,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// v2's fake `onLocalAttachmentPeerOffer`: `attachment-bad` is refused with
+/// A fake attachment peer owner: `attachment-bad` is refused with
 /// `invalid_offer`, `attachment-panic` fails outright, the rest are answered.
 #[derive(Debug, Default)]
 struct FakeAttachmentPeers {

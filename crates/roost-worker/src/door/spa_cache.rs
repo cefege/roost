@@ -1,6 +1,6 @@
-//! The memo of gzip bodies the door's SPA responder compresses on demand (v2
-//! `packages/host/src/spa.ts` `gzipCached`): a disk build is mutable, so a body
-//! is keyed on its file's path, mtime and size and recompressed when either
+//! The memo of gzip bodies the door's SPA responder compresses on demand: a
+//! disk build is mutable, so a body is keyed on its file's path, mtime and
+//! size and recompressed when either
 //! moves. Owned by `door::spa`, its only reader; the coordinator's front door
 //! keeps the same memo in `roost-coord` `http::spa_cache`, which a worker may
 //! not import.
@@ -12,7 +12,7 @@ use std::time::SystemTime;
 
 use axum::body::Bytes;
 
-/// v2's `GZIP_CACHE_MAX`: the four font faces, the shell and a session's
+/// The most bodies kept: the four font faces, the shell and a session's
 /// bundles fit, and a 33rd entry is a build nobody is looking at any more.
 const CACHE_MAX: usize = 32;
 

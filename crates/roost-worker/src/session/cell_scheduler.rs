@@ -1,6 +1,5 @@
-//! Cell-emission cadence: v2 `apps/worker/src/session/session-cell-scheduler.ts`
-//! (leading emit + 16 ms trailing coalesce, identity-fenced per stream
-//! generation, input-echo promotion) and `session-manager.ts` `markInputSensitive`.
+//! Cell-emission cadence: leading emit + 16 ms trailing coalesce,
+//! identity-fenced per stream generation, with input-echo promotion.
 //! `session::emit` schedules from every ingested chunk; `runtime::cell_cadence`
 //! owns the timer that runs [`CellEmitter::run_cadence_work`]. The gates it
 //! consults are `session::cell_gates` and `session::sync_output`.
@@ -21,8 +20,8 @@ pub const INPUT_ECHO_WINDOW_MS: i64 = 2 * CELL_EMIT_COALESCE_MS;
 /// The trailing coalesce window, as the cadence's clock spells it.
 pub const CELL_EMIT_COALESCE: Duration = Duration::from_millis(CELL_EMIT_COALESCE_MS as u64);
 
-/// One queued emission, fenced to the stream generation it was armed for (v2
-/// `CellEmissionSchedule`). `cooldown_until: None` is a queued leading emit.
+/// One queued emission, fenced to the stream generation it was armed for.
+/// `cooldown_until: None` is a queued leading emit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CellEmissionSchedule {
     pub(crate) stream_id: String,
@@ -61,7 +60,7 @@ impl CellEmitter {
         channels
     }
 
-    /// v2 `markInputSensitive`: a keystroke was written at `now_ms`, so output
+    /// A keystroke was written at `now_ms`, so output
     /// that lands within [`INPUT_ECHO_WINDOW_MS`] leads instead of waiting out
     /// the coalesce window. A later keystroke re-arms the window.
     pub fn note_input_echo(&mut self, channel_id: ChannelId, now_ms: i64) {
@@ -83,7 +82,7 @@ impl CellEmitter {
         }
     }
 
-    /// v2 `cancelCellEmission`: retire this channel's queued emission only.
+    /// Retire this channel's queued emission only.
     pub fn cancel_cell_emission(&mut self, channel_id: ChannelId) {
         self.schedules.remove(&channel_id);
     }
@@ -96,8 +95,8 @@ impl CellEmitter {
             .map(|schedule| schedule.cooldown_until.is_some())
     }
 
-    /// v2 `installTerminalBaseline` for a caller that holds no record: the
-    /// cadence builds the forced full on its next pass.
+    /// Request a forced full for a caller that holds no record: the
+    /// cadence builds it on its next pass.
     pub fn request_terminal_baseline(&mut self, channel_id: ChannelId) {
         if self.baselines_owed.insert(channel_id) {
             tracing::debug!(%channel_id, "a forced baseline was queued for the cadence");
@@ -105,7 +104,7 @@ impl CellEmitter {
         self.wake_cadence();
     }
 
-    /// v2 `scheduleCellEmission`: the rate governor every accepted chunk enters.
+    /// The rate governor every accepted chunk enters.
     pub fn schedule_cell_emission(
         &mut self,
         record: &mut SessionRecord,
@@ -284,12 +283,12 @@ impl CellEmitter {
             .map(|stream| stream.stream_id.clone())
     }
 
-    /// v2 `hasLiveCurrentStream` (the record's presence is the caller's proof).
+    /// Whether the channel's enabled stream is `stream_id` (the record's presence is the caller's proof).
     fn has_live_current_stream(&self, channel_id: ChannelId, stream_id: &str) -> bool {
         self.enabled_stream_id(channel_id).as_deref() == Some(stream_id)
     }
 
-    /// v2 `mayRearmCellEmission`.
+    /// Whether a queued emission may be re-armed for this stream.
     fn may_rearm(&self, channel_id: ChannelId, stream_id: &str) -> bool {
         if !self.has_live_current_stream(channel_id, stream_id) {
             return false;
@@ -304,7 +303,7 @@ impl CellEmitter {
         self.sync_output_permits_rearm(channel_id)
     }
 
-    /// v2 `armTrailingCooldown`. `fired` is the deadline this pass ran, if it
+    /// Arm the trailing cooldown. `fired` is the deadline this pass ran, if it
     /// ran a trailing one: the window grid continues from the deadline that
     /// came due rather than from the pass that ran it, so the runtime's timer
     /// overshoot is paid once instead of every frame.

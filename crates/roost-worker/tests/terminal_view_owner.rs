@@ -1,5 +1,4 @@
-//! Ports `apps/worker/tests/terminal/view/terminal-view-owner.test.ts`: the
-//! worker is the authority for its own sessions' terminal views. Geometry is the
+//! The worker is the authority for its own sessions' terminal views. Geometry is the
 //! minimum over live viewers, a parked viewer stops constraining only when its
 //! grace lapses, losing every viewer HOLDS the last geometry, a view decision
 //! precedes its stream's first cell, a coordinator reconnect drops only relayed

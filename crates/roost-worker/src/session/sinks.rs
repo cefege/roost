@@ -12,7 +12,6 @@
 //! it can say no, and when it does the session's end is unwritable, which is a
 //! condition no per-request answer can fix. Collapsing them would make "the
 //! keeper is producing" and "the coordinator can learn about it" one decision.
-//! Ports v2 `apps/worker/src/transport/event-sink.ts`.
 
 use std::pin::Pin;
 
@@ -22,9 +21,8 @@ use crate::event_store::{AppendError, DurableEventKind, Reservation, ReserveErro
 
 /// The session a keeper channel's output is delivered into.
 ///
-/// This is the v2 `MuxChannelCallbacks`, and the name is the port's: v2 called
-/// it "callbacks" because a channel was a JavaScript object's property bag,
-/// and here the thing being bound is the RELATIONSHIP between a keeper PTY and
+/// It is a binding rather than a bag of callbacks: the thing being bound is the
+/// RELATIONSHIP between a keeper PTY and
 /// the record it feeds. Note that `roost_keeper::frames::ChannelBinding` is a
 /// different type and not this one — that is the wire's `{channel_id, pid}`
 /// pair, and this is the worker-side delivery binding.
@@ -86,7 +84,7 @@ pub enum SessionEventError {
 
 /// The boundary every session event crosses before the coordinator sees it.
 ///
-/// The four methods are v2's `SessionEventSink`, in the same order, because the
+/// The four methods are in this order because the
 /// ordering IS the contract: a session that is open has not written its
 /// `closed` event yet and must be able to, so [`SessionEventSink::reserve`] is
 /// taken BEFORE the PTY exists and consumed by the close. [`hold`](

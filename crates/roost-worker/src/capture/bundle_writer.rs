@@ -2,8 +2,7 @@
 //! `terminal-incident-<capture-id>.json.gz`: fit the uncompressed budget by
 //! dropping whole sections and record arrays (never by truncating a string),
 //! run the shared bundle validator as a write-side gate, gzip, and hand the
-//! bytes to `super::storage`. Ports `apps/worker/src/diag/
-//! terminal-capture-bundle-writer.ts`; called by `super::write`, off the PTY path.
+//! bytes to `super::storage`; called by `super::write`, off the PTY path.
 
 use std::sync::Arc;
 

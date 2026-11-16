@@ -5,7 +5,7 @@
 #![allow(dead_code)]
 
 //! Every fake records into ONE ordered call log, shared with the fake link, so a
-//! suite can assert the order v2 calls its dependencies in, not just that each
+//! suite can assert the order the dependencies are called in, not just that each
 //! was called. An owner's future either answers now, panics, or holds on a
 //! shared gate the test opens one permit at a time.
 

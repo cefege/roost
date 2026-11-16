@@ -7,10 +7,9 @@
 //!
 //! Minting is re-done per dial rather than cached for the process, because a
 //! link that outlives its token authenticates as nothing and fails in a way
-//! that reads like a coordinator outage. v2 did the same and refreshed in band
-//! on a schedule; the per-dial mint here is strictly simpler and strictly
-//! harder to get wrong, at the cost of one signature per reconnect.
-//! Ports v2 `apps/worker/src/transport/coord-link.ts`, `apps/worker/src/host/jwt.ts`.
+//! that reads like a coordinator outage. The per-dial mint is strictly simpler
+//! than refreshing in band on a schedule and strictly harder to get wrong, at
+//! the cost of one signature per reconnect.
 
 use std::path::{Path, PathBuf};
 

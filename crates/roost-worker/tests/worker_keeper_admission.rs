@@ -54,8 +54,8 @@ fn adoptable(channels: &[u16]) -> KeeperProbe {
 }
 
 /// A survivor that authenticated but speaks an incompatible protocol, and
-/// reported no channels at all: the one replaceable survivor (v2
-/// `boot-keeper.ts:190-224`). A compatible empty keeper is adopted instead.
+/// reported no channels at all: the one replaceable survivor. A compatible
+/// empty keeper is adopted instead.
 fn proved_empty() -> KeeperProbe {
     let KeeperProbe::Probed(probe) = adoptable(&[]) else {
         unreachable!("adoptable builds a probed result");

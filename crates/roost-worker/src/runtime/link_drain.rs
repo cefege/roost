@@ -2,8 +2,7 @@
 //! [`super::link_serve`] from its tick and for every frame the [`crate::uplink`]
 //! carries, by [`super::link_downstream`] for every answer a downstream frame
 //! produces, and by [`super::link_loop`] when a producer offers a durable event
-//! (v2 `apps/worker/src/transport/coord-link-outbox.ts`'s gates and
-//! `maybeNotifyWritable`).
+//! (the outbox's gates and the cell sink's writable notification).
 //!
 //! This is the file where the pump's decisions become bytes. The pump says which
 //! one durable event may go out and the outbox says which lane comes next; this
@@ -40,11 +39,11 @@ enum NextWrite {
     /// A control or terminal frame, in lane order.
     Queued(Pending),
     /// The repair a refused cell sink produced when told the link is writable,
-    /// written as one run ahead of the queued controls (v2 `notifyingWritable`).
+    /// written as one run ahead of the queued controls.
     Repair(Vec<Pending>),
 }
 
-/// Admit one frame the uplink carried, on its lane, under v2's outbox gates:
+/// Admit one frame the uplink carried, on its lane, under the outbox's gates:
 /// compact metadata only once the hello is acknowledged.
 pub(super) fn admit_uplink(loop_state: &mut LinkLoop, frame: CoordWorkerUpstream) -> bool {
     match frame {
@@ -82,7 +81,7 @@ pub(super) async fn drain(loop_state: &mut LinkLoop, link: &mut Link) -> Option<
             "the coordinator's acknowledgements retired durable rows"
         );
     }
-    // v2 `coordLinkSink`: rows the sink wrote reach the pump before anything is
+    // The durable sink: rows it wrote reach the pump before anything is
     // chosen, and a snapshot the barrier asked for is numbered by the outbox.
     loop_state.sync_durable_rows().await;
     loop_state.authorise_snapshot().await;
@@ -151,7 +150,7 @@ async fn write_repair(
     Ok(0)
 }
 
-/// v2 `maybeNotifyWritable`: a cell sink that refused a frame is told the link
+/// Notify writable: a cell sink that refused a frame is told the link
 /// can take cells again only once the link is live, no durable event is left to
 /// write, and the terminal lane has drained. The session layer builds its repair
 /// inside `on_writable`, and what it produced is returned to be written next.
@@ -172,7 +171,7 @@ fn notify_writable(loop_state: &mut LinkLoop, now: Instant) -> Option<Vec<Pendin
     Some(repair.drain_all())
 }
 
-/// What goes on the socket next, or nothing — v2 `drainQueues`' order.
+/// What goes on the socket next, or nothing.
 ///
 /// The pong first, even before the link is live, so a ping is answered while
 /// replay runs. Then a durable write the barrier has released, because the
@@ -180,7 +179,7 @@ fn notify_writable(loop_state: &mut LinkLoop, now: Instant) -> Option<Vec<Pendin
 /// waiting on. After that only a live barrier releases the lanes, and a cell
 /// sink still owed a writable notification holds the controls: the repair the
 /// notification produces leads any queued reply, once per pass
-/// (`coord-link-repair-order.test.ts`: opened → full → RPC).
+/// (opened → full → RPC).
 fn next_write(loop_state: &mut LinkLoop, now: Instant, notified: &mut bool) -> Option<NextWrite> {
     if let Some(pong) = loop_state.outbox.take_from(Lane::Liveness) {
         return Some(NextWrite::Queued(pong));
@@ -263,7 +262,7 @@ pub(super) fn apply_to(loop_state: &mut LinkLoop, action: Action) {
 }
 
 /// Encode, admit to its lane and wake: the pong to the liveness lane, every
-/// other answer to the control lane (v2 `send`). A frame that does not fit is
+/// other answer to the control lane. A frame that does not fit is
 /// reported, never silently dropped: the caller is a liveness reply or an
 /// answer, and both are worse absent than refused.
 pub(super) fn push_upstream(

@@ -1,9 +1,7 @@
 //! Hello admission and the authority lifetime of an admitted direct upload:
 //! the grant verdict, the one-carrier-per-grant fence, the hello deadline of
 //! a loopback socket, the transfer lease's clock, and the grant changes that
-//! fence an admitted upload at once. Called by `direct_sockets`. Ports
-//! `acceptHello`, `handleGrantChange` and the timers of
-//! `apps/worker/src/attachments/attachment-direct-socket.ts`.
+//! fence an admitted upload at once. Called by `direct_sockets`.
 
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};

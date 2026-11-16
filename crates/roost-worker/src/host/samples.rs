@@ -1,9 +1,8 @@
 //! The raw counters a heartbeat ships — CPU, memory, disk and interface bytes —
-//! read from this host, and the cgroup-v2 throttle probe. Ports v2
-//! `apps/worker/src/host/host-sample-linux.ts`; the macOS half is
-//! [`super::samples_darwin`] (v2 `host-sample-darwin.ts`) and the Windows half
-//! `samples_windows`. Called by `runtime::heartbeat_metrics`, which owns the
-//! rate, the sixty-second cache and the wire shape.
+//! read from this host, and the cgroup-v2 throttle probe. The macOS half is
+//! [`super::samples_darwin`] and the Windows half `samples_windows`. Called by
+//! `runtime::heartbeat_metrics`, which owns the rate, the sixty-second cache
+//! and the wire shape.
 //!
 //! NEVER FAILS. A sampler that returned an error would mean a heartbeat is not
 //! sent, so a machine that cannot answer `/proc` or `vm_stat` would vanish from
@@ -18,7 +17,7 @@ use super::samples_darwin::DarwinSampler;
 use super::tool_path::run_bounded;
 use super::{HostSample, NetCounters};
 
-/// v2's `execSync(.., { timeout: 1000 })` bound on every Linux sampler tool.
+/// The bound on every Linux sampler tool.
 pub(super) const SAMPLER_TOOL_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// This process's own cgroup's memory throttle counters, when cgroup v2 is
@@ -34,8 +33,8 @@ pub struct CgroupPressure {
 ///
 /// Stateful because two readings cannot be taken in one pass: Linux CPU
 /// percentage is a difference between two `/proc/stat` readings, and the
-/// interface to watch comes from a route lookup whose answer is memoized (v2
-/// `_prevCpu`, `_primaryIface`). Holding that here keeps it off a module
+/// interface to watch comes from a route lookup whose answer is memoized.
+/// Holding that here keeps it off a module
 /// global, where a second sampler and a test would fight over the same slot.
 #[derive(Debug)]
 pub struct HostSampler {
@@ -72,7 +71,7 @@ impl HostSampler {
         }
     }
 
-    /// v2 `host-sample-linux.ts` `sampleHost`. The first CPU reading after a
+    /// Sample the Linux host. The first CPU reading after a
     /// worker starts is zero, and that is not a defect: `/proc/stat` holds
     /// jiffies since boot, so a single read says nothing about current load.
     fn sample_linux(&mut self) -> HostSample {
@@ -97,7 +96,7 @@ impl HostSampler {
         let Some(previous) = self.previous_cpu.replace(reading) else {
             return 0.0;
         };
-        // Signed, as v2's plain subtraction is: a counter that went backwards
+        // Signed: a counter that went backwards
         // is a non-positive total and reads as zero load.
         let total_delta = reading.total as i128 - previous.total as i128;
         let idle_delta = reading.idle as i128 - previous.idle as i128;
@@ -109,8 +108,7 @@ impl HostSampler {
     }
 
     /// The interface routing to the default gateway, `eth0` when the route
-    /// cannot be read. `ip` is resolved on this process's `PATH`, as v2's
-    /// `execSync("ip route show default")` shell did.
+    /// cannot be read. `ip` is resolved on this process's `PATH`.
     fn primary_linux_interface(&mut self) -> &str {
         if self.primary_interface.is_none() {
             let found = run_bounded(
@@ -136,7 +134,7 @@ struct CpuReading {
 }
 
 /// The `cpu ` aggregate line of `/proc/stat`, or `None` when any field fails
-/// to parse (v2: `fields.some((n) => !Number.isFinite(n))` → 0).
+/// to parse.
 fn read_cpu_jiffies() -> Option<CpuReading> {
     let stat = std::fs::read_to_string("/proc/stat").ok()?;
     let line = stat.lines().next()?;
@@ -160,7 +158,7 @@ pub fn sample_host(platform: HostPlatform) -> HostSample {
     HostSampler::new(platform).sample()
 }
 
-/// The token after `dev` in an `ip route` line (v2 `/\bdev\s+(\S+)/`).
+/// The token after `dev` in an `ip route` line.
 fn route_device(output: &str) -> Option<String> {
     output
         .split_whitespace()
@@ -185,7 +183,7 @@ pub fn sample_linux_memory() -> (u64, u64) {
     )
 }
 
-/// The `kB` value of one `/proc/meminfo` key, read as v2's `^Key:\s+(\d+)`:
+/// The `kB` value of one `/proc/meminfo` key:
 /// every row carries a ` kB` unit after the number, so the whole remainder
 /// never parses.
 fn meminfo_kb(meminfo: &str, key: &str) -> u64 {
@@ -198,8 +196,7 @@ fn meminfo_kb(meminfo: &str, key: &str) -> u64 {
 }
 
 /// (used, total) bytes of the root filesystem, from `df -k /`, or `None` when
-/// `df` could not be run. A row it printed but that does not parse is zeros,
-/// as v2's `Number(..) * 1024` of a missing column is.
+/// `df` could not be run. A row it printed but that does not parse is zeros.
 pub(super) fn read_disk() -> Option<(u64, u64)> {
     let out = run_bounded("df", &["-k", "/"], None, None, SAMPLER_TOOL_TIMEOUT)?;
     let row = out.lines().nth(1).unwrap_or_default().to_string();
@@ -222,7 +219,7 @@ pub fn sample_disk() -> (u64, u64) {
 
 /// Cumulative receive/transmit bytes for one interface, from `/proc/net/dev`.
 ///
-/// Every interface row is searched (v2 loops every line): the first line with
+/// Every interface row is searched: the first line with
 /// a colon is usually `lo`, not the interface routing to the gateway.
 #[must_use]
 pub fn sample_linux_net(interface: &str) -> Option<NetCounters> {
@@ -243,7 +240,7 @@ pub fn sample_linux_net(interface: &str) -> Option<NetCounters> {
 }
 
 /// This process's own cgroup-v2 memory throttle state, or `None` when it is
-/// not on cgroup v2, unlimited (`max`), or unreadable (v2 `sampleCgroupPressure`).
+/// not on cgroup v2, unlimited (`max`), or unreadable.
 ///
 /// The host-wide numbers above look perfectly healthy while a unit is being
 /// throttled by its own `MemoryHigh` (2026-08-01: ovh1 published "8.7 GB of

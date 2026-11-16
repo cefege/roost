@@ -1,7 +1,6 @@
 //! The real capture recorder over the terminal-stream harness: its tap on the
 //! harness's emitter, its bundles under a scratch log directory, and the wire
-//! payloads remote layers actually send. Mirrors v2 `apps/worker/tests/
-//! terminal/terminal-capture-fixtures.ts`; every `capture_*` test uses it.
+//! payloads remote layers actually send. Every `capture_*` test uses it.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 #![allow(dead_code)]
 

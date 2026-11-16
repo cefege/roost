@@ -1,5 +1,5 @@
-//! Ports v2 `apps/worker/src/session/session-respawn.ts` and
-//! `session-respawn-admission.ts`.
+//! Spawn and respawn admission on the session manager: channel ids, the keeper-degraded check,
+//! viewer claims, opening the shell, and the dead-birth classifier.
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 

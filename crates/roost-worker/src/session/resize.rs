@@ -2,9 +2,7 @@
 //! capture that withholds bytes while it is unresolved (the history pin it
 //! writes is `session::resize_pin`'s). `session::terminal_txn` is the production
 //! caller; `session::core_reprove` settles a lost acknowledgement through the
-//! primitives here. Ports the boundary half of
-//! `apps/worker/src/session/session-resize-capture.ts` and the keeper resize of
-//! `session-terminal-txn.ts`.
+//! primitives here.
 //!
 //! THE RESIZE IS IN PLACE, AT THE BOUNDARY: held bytes parse at the OLD size,
 //! then `TerminalCore::resize` runs on the same core. Rebuilding from a bounded
@@ -29,8 +27,8 @@ use super::types::SessionRecord;
 use crate::browser_commands::Refusal;
 use crate::capture::ResizeBoundaryNote;
 
-/// What a resize did at the keeper's boundary (v2 `applyResizeResultAtBoundary`
-/// and the transaction's admission check, as one answer).
+/// What a resize did at the keeper's boundary
+/// (the boundary result and the transaction's admission check, as one answer).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResizeOutcome {
     /// Exactly this sequence and geometry were acknowledged; the held bytes
@@ -38,11 +36,11 @@ pub enum ResizeOutcome {
     Applied { cols: u16, rows: u16 },
     /// Already at this geometry: nothing written, no sequence spent.
     Unchanged,
-    /// Never reached the keeper (v2 `admission.written === false`).
+    /// Never reached the keeper.
     NotWritten { reason: String },
     /// The keeper refused the written sequence; the core keeps its geometry.
     Refused { reason: ResizeRejectReason },
-    /// Unprovable: the core was latched fail-closed (v2 `failCore`).
+    /// Unprovable: the core was latched fail-closed.
     Trapped { reason: String },
     /// The answer was lost; the capture is STILL OPEN for `recover_lost_ack`.
     Unknown { boundary: OpenBoundary },
@@ -58,7 +56,7 @@ pub struct OpenBoundary {
     pub install_seq: u64,
     pub from: (u16, u16),
     pub to: (u16, u16),
-    /// The probe tokenizer's carry when the capture opened (v2 `queryCarry`):
+    /// The probe tokenizer's carry when the capture opened:
     /// the held bytes are answered from it at the boundary.
     pub query_carry: Vec<u8>,
 }
@@ -136,8 +134,7 @@ impl SessionManager {
         Ok(self.settle_boundary(channel_id, &boundary, answer))
     }
 
-    /// Settle an answered boundary under both locks (v2
-    /// `applyResizeResultAtBoundary`). A capture that outgrew the window, an
+    /// Settle an answered boundary under both locks. A capture that outgrew the window, an
     /// acknowledgement for another sequence or geometry, or a core that did not
     /// take the size all trap the core rather than guess.
     fn settle_boundary(
@@ -229,8 +226,8 @@ impl SessionManager {
         outcome
     }
 
-    /// Resize the core where it stands and reset its emission epoch (v2
-    /// `wtermCore.resize` + `resetEmissionEpoch`): a new grid identity, every
+    /// Resize the core where it stands and reset its emission epoch:
+    /// a new grid identity, every
     /// sink owed a baseline, and every viewport row dirty.
     pub(super) fn resize_in_place(
         &self,
@@ -278,8 +275,8 @@ impl SessionManager {
         }))
     }
 
-    /// The highest resize sequence written to the keeper on a channel (v2
-    /// `channelResizeSeq`); zero before the first.
+    /// The highest resize sequence written to the keeper on a channel;
+    /// zero before the first.
     pub fn channel_resize_seq(&self, channel_id: u16) -> u64 {
         lock(&self.resize_seqs)
             .get(&channel_id)
@@ -297,8 +294,8 @@ impl SessionManager {
 
 const CORE_FAILED: TerminalWorkerResizeOutcome = TerminalWorkerResizeOutcome::CoreFailed;
 
-/// v2 `noteResizeInstall` (`result: None`) / `noteResizeResult`: the
-/// recorder's resize record, noted under the record and delivery locks.
+/// The recorder's resize record (`result: None` at install, the outcome once
+/// known), noted under the record and delivery locks.
 pub(super) fn note_resize(
     delivery: &dyn ChannelDelivery,
     record: &SessionRecord,
@@ -323,7 +320,7 @@ pub(super) fn note_resize(
     }
 }
 
-/// Latch a core whose boundary cannot be proven (v2 `failCore`). The caller has
+/// Latch a core whose boundary cannot be proven. The caller has
 /// already closed the capture, so its gate is back; the latch is what keeps
 /// emission refused and later chunks on the retain-only lane.
 pub(super) fn trap_boundary(

@@ -1,8 +1,6 @@
 //! Worker-owned terminal-pipeline evidence through `PipelineOwner`, the value
 //! `DownstreamOwners::pipeline` holds: bounded target and response admission,
-//! enum-only reasons, and live reads of the session table and emitter. Ports
-//! `apps/worker/tests/terminal/terminal-pipeline-snapshot.test.ts` and the
-//! owner case of `apps/worker/tests/transport/coord-link-terminal-pipeline.test.ts`.
+//! enum-only reasons, and live reads of the session table and emitter.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

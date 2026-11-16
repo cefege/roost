@@ -1,9 +1,7 @@
 //! The session layer's view of a keeper, implemented over the pool that owns
 //! the socket. `session::resume`, `session::core_reprove`, `session::resize`
 //! and `session::input_write` are the callers; `keeper_pool::pool` holds the
-//! connection and `roost_keeper::client` speaks the protocol. Ports the
-//! channel half of `apps/worker/src/keeper/keeper-pool-channels.ts` and
-//! `keeper-pool-io.ts` as the session layer sees them.
+//! connection and `roost_keeper::client` speaks the protocol.
 
 use std::sync::Arc;
 
@@ -42,14 +40,14 @@ impl KeeperChannels for KeeperPool {
     }
 
     /// The ordered history, read at the keeper's boundary: the head, the base
-    /// geometry and the records up to the answer (v2 `getHistoryRecords`).
+    /// geometry and the records up to the answer.
     fn channel_history(&self, channel_id: u16) -> Result<SurvivorHistory, KeeperFault> {
         self.history_at_boundary(channel_id, None)
             .map(SurvivorHistory::from)
             .map_err(|error| fault("channel_history", &error))
     }
 
-    /// v2 `reattach` then `getHistoryRecords`, as one step at one boundary:
+    /// Reattach then read the history, as one step at one boundary:
     /// everything the survivor emits after the history's head reaches
     /// `binding`, and nothing inside the history reaches it twice.
     fn reattach_with_history(

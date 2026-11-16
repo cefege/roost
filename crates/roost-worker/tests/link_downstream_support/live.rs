@@ -58,8 +58,8 @@ impl SnapshotSource for FixedSnapshot {
 }
 
 /// The loopback worker's session set: empty, as the coordinator end reads it.
-/// Stamped like v2's `buildSnapshot` (`Date.now()`): the wire refuses a
-/// snapshot at the epoch (`session_event.snapshot.ts` must be at least 1).
+/// Stamped with the wall clock: the wire refuses a snapshot at the epoch
+/// (`session_event.snapshot.ts` must be at least 1).
 pub fn snapshot_event() -> SessionEvent {
     SessionEvent::Snapshot {
         worker_fp: WorkerFp::try_from(FINGERPRINT).unwrap(),
@@ -69,7 +69,7 @@ pub fn snapshot_event() -> SessionEvent {
     }
 }
 
-/// v2's snapshot frame: `Event{snapshot, client_seq}`, acknowledged like a row.
+/// The snapshot frame: `Event{snapshot, client_seq}`, acknowledged like a row.
 pub fn snapshot_frame(client_seq: u64) -> Up {
     Up::Event {
         event: snapshot_event(),

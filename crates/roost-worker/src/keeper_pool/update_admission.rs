@@ -1,6 +1,5 @@
 //! Applying one immutable keeper update action at the live worker boundary, and
-//! the operator-authorized maintenance shutdown. Ports v2
-//! `apps/worker/src/keeper/update-admission.ts`. Called by
+//! the operator-authorized maintenance shutdown. Called by
 //! `keeper_pool::update_prepare` once admission is closed; the keeper I/O is a
 //! [`KeeperUpdateHost`], in production `keeper_pool::update_host::PoolKeeperHost`.
 //!
@@ -43,9 +42,9 @@ pub enum UpdateDirection {
     Target,
 }
 
-/// v2 `JournaledKeeperUpdateActionV1`: the journaled update plus the open
-/// sessions and channels the worker admitted it against. Strict, so a replayed
-/// or hand-edited action that tries to carry `force_live` is refused.
+/// The journaled update plus the open sessions and channels the worker admitted
+/// it against. Strict, so a replayed or hand-edited action that tries to carry
+/// `force_live` is refused.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JournaledKeeperUpdateActionV1 {
@@ -65,7 +64,7 @@ impl JournaledKeeperUpdateActionV1 {
         Ok(action)
     }
 
-    /// The refinements v2's schema ran.
+    /// The schema's refinements.
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 1 {
             return Err("keeper update action schema_version must be 1".to_owned());
@@ -111,7 +110,7 @@ impl KeeperUpdateActionResult {
     }
 }
 
-/// Apply one journaled action (v2 `applyJournaledKeeperUpdateAction`).
+/// Apply one journaled action.
 pub async fn apply_journaled_keeper_update_action(
     action: &JournaledKeeperUpdateActionV1,
     host: &dyn KeeperUpdateHost,
@@ -210,9 +209,8 @@ pub async fn apply_journaled_keeper_update_action(
     Ok(KeeperUpdateActionResult::bare(OUTCOME_SHUTDOWN))
 }
 
-/// Operator-authorized maintenance (v2 `shutdownKeeperForMaintenance`): an
-/// empty keeper through the identity-fenced shutdown, a live one only under
-/// `force_live`, an unproven identity never.
+/// Operator-authorized maintenance: an empty keeper through the identity-fenced
+/// shutdown, a live one only under `force_live`, an unproven identity never.
 pub async fn shutdown_keeper_for_maintenance(
     force_live: bool,
     host: &dyn KeeperUpdateHost,

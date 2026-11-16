@@ -1,9 +1,6 @@
 //! The downstream arms whose owner lands in a later wave answer exactly what a
-//! v2 worker without that `CoordLinkDeps` callback answers, the link-level arms
-//! reach the link, and a worker with no owners at all refuses input the way
-//! v2 does. Ports the absent-dependency branches of
-//! `apps/worker/src/transport/coord-link-downstream.ts` and
-//! `coord-link-direct-terminal.ts`.
+//! worker without that dependency answers, the link-level arms reach the link,
+//! and a worker with no owners at all refuses input.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod link_downstream_support;
@@ -42,7 +39,7 @@ fn answers(frame: Down) -> Vec<Up> {
     link.replies
 }
 
-/// v2's answers when the `CoordLinkDeps` callback for the frame is absent.
+/// The answers when the owner for the frame is absent.
 fn answers_without_owners(frame: Down) -> Vec<Up> {
     let (uplink, mut receiver) = channel();
     let dispatcher = Dispatcher::new(uplink, EPOCH, None);
@@ -83,9 +80,8 @@ fn unsupported_grants_and_keeper_update_answer_v2s_rpc_errors() {
         request_id: "k1".to_owned(),
         ..Default::default()
     };
-    // v2 answers this only when `onKeeperUpdatePrepare` is absent
-    // (`coord-link-downstream.ts:303-309`); the owner's answers are
-    // `link_downstream_keeper_update.rs`'s.
+    // This is the answer only while the keeper-update owner is absent; the
+    // owner's answers are `link_downstream_keeper_update.rs`'s.
     assert_eq!(
         answers_without_owners(Down::KeeperUpdatePrepare(prepare)),
         rpc_error("k1", "keeper update preparation unsupported by this worker")
@@ -180,8 +176,8 @@ fn optional_callbacks_are_inert() {
     }
 }
 
-/// v2 `deps.onAttachmentChunk?.()` / `onLocalAttachmentGrantRevoke?.()`: a
-/// worker without the attachment owner sends nothing.
+/// Attachment chunks and grant revocations sent to a worker without the
+/// attachment owner produce nothing.
 #[test]
 fn attachment_chunks_and_revocations_without_the_owner_are_inert() {
     for frame in [

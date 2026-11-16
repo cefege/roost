@@ -1,9 +1,8 @@
 //! The session layer's input truth mapping over a scripted keeper: what is
 //! rejected (provably unwritten), what is ambiguous (written, outcome unknown),
 //! and the live-authority recheck after the write-ordering lane is granted.
-//! Ports `apps/worker/tests/terminal/terminal-stream-input.test.ts` (the
-//! authority and worker-owned cases; keeper-key correlation is pinned against a
-//! real keeper in `terminal_input_e2e.rs`).
+//! Keeper-key correlation is pinned against a real keeper in
+//! `terminal_input_e2e.rs`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 #[path = "session_support/mod.rs"]
@@ -166,7 +165,7 @@ async fn only_a_request_that_never_reached_the_socket_or_a_keeper_refusal_is_rej
     );
 }
 
-/// The v2 fence against a delayed old-route write: authority is checked
+/// The fence against a delayed old-route write: authority is checked
 /// again after the lane is granted, immediately before the keeper write.
 #[tokio::test]
 async fn live_authority_is_rechecked_after_the_lane_is_granted() {

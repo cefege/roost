@@ -157,8 +157,8 @@ fn a_delta_past_the_row_cap_becomes_a_viewport_only_full() {
 /// had lost one. It is rebuilt as a full, which does.
 #[test]
 fn a_delta_too_large_for_one_part_is_escalated_to_a_full() {
-    // The widest grid the protocol admits (`TERMINAL_MAX_COLS`, v2's
-    // `packages/protocol/src/viewport.ts:6`). This test once used 3000 columns,
+    // The widest grid the protocol admits (`TERMINAL_MAX_COLS`). This test once
+    // used 3000 columns,
     // which no frame may describe, so its baseline never installed and the
     // "escalation" it asserted was a withheld frame.
     const COLS: u16 = 256;
@@ -183,8 +183,7 @@ fn a_delta_too_large_for_one_part_is_escalated_to_a_full() {
 
     // One hyperlink run per cell, alternating two link ids: a span per cell
     // that each carries its URI is what pushes a delta past the 1 MiB part
-    // limit at a legal width, as v2's `DenseLinkedCore` does
-    // (`apps/worker/tests/terminal/terminal-stream-state-harness.ts:227-262`).
+    // limit at a legal width.
     // A span per colour change cannot: 256 columns of styled cells stay far
     // under the limit.
     let uri = format!("https://chunk.test/{}", "x".repeat(160));
@@ -260,8 +259,7 @@ fn a_held_channel_emits_nothing_and_says_which_gate_holds_it() {
         .expect("the gate is still open");
     assert_eq!(held.gate, CellGate::ResizeCapture);
     assert_eq!(held.since_ms, 1_005);
-    // The ingest's schedule and the emit each swallowed one (v2
-    // `scheduleCellEmission` and `emitCellFrame` both note the gate).
+    // The ingest's schedule and the emit each swallowed one.
     assert_eq!(held.suppressed, 2);
 
     emitter.release_frames(channel(6));

@@ -1,8 +1,7 @@
 //! The terminal view owner's locked state and how one membership decision is
 //! settled: run the shared machine, deliver its host effects, recompute what
 //! moved, then hand each answer to `replies.rs`; plus the coalesced projection
-//! publication. Ports the locked halves of
-//! `apps/worker/src/terminal/view/terminal-view-owner.ts`; `mod.rs` calls it.
+//! publication. `mod.rs` calls it.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -79,7 +78,7 @@ impl OwnerState {
         }
     }
 
-    /// One resync request. v2 serves it only while the stream the client named
+    /// One resync request. It is served only while the stream the client named
     /// is still this session's stream.
     pub(super) fn resync(
         &mut self,
@@ -99,7 +98,7 @@ impl OwnerState {
         }
     }
 
-    /// Run one machine call with v2's `allowsSession(sessionId)` predicate
+    /// Run one machine call with the allowed-session predicate
     /// answered for exactly the session it names. The machine asks about no
     /// other session, and clearing the answer afterwards keeps the socket's
     /// allowed set from accumulating every session a browser ever named.
@@ -174,7 +173,7 @@ impl OwnerState {
         }
     }
 
-    /// Answer every live view of a session (v2 `registry.broadcast`).
+    /// Answer every live view of a session.
     pub(super) fn broadcast(
         &mut self,
         session_id: &SessionId,

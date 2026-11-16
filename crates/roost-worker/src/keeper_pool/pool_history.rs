@@ -1,7 +1,5 @@
 //! A channel's retained history, read at the keeper's ordered boundary, with
-//! an optional reattach that takes effect at exactly that boundary. Ports the
-//! pool half of `apps/worker/src/keeper/keeper-pool-channels.ts`
-//! (`reattachChannel` + `getChannelHistoryRecords` + `releasePendingHistoryOutput`).
+//! an optional reattach that takes effect at exactly that boundary.
 //! `keeper_pool::session_seam` calls it for an adoption and for a core re-proof.
 //!
 //! THE ROUTING LOCK IS WHAT MAKES THE BOUNDARY EXACT. The client drops this

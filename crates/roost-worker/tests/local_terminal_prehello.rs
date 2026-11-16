@@ -1,7 +1,6 @@
 //! Unauthenticated loopback sockets are finite and expire before they can hold
 //! worker descriptors or socket-owner rows indefinitely; replaying one grant
-//! replaces its socket and authenticated grants stay capped. Ports
-//! `apps/worker/tests/local-door/local-terminal-prehello.test.ts`.
+//! replaces its socket and authenticated grants stay capped.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::sync::{Arc, Mutex};

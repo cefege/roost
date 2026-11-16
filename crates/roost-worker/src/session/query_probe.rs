@@ -17,7 +17,7 @@ const PRIVATE_MAX: u8 = 0x3f;
 /// read before they emit sixel.
 pub const PRIMARY_DA_REPLY: &str = "\x1b[?62;4;22c";
 /// XTVERSION reply, `DCS > | name ST`: a client that version-gates behaviour
-/// sees a name instead of silence. v2's bytes, verbatim.
+/// sees a name instead of silence.
 pub const XTVERSION_REPLY: &str = "\x1bP>|wterm(roost)\x1b\\";
 /// Feature-detection reply for OSC 7501: the states and kinds this terminal
 /// accepts, in the spec's own spacing.

@@ -1,8 +1,7 @@
 //! Opt-in terminal incident capture: the always-on byte window, the armed
 //! recorder's segment chain, emitted-frame fold and core samples, and the one
-//! gzip bundle a capture freezes. Ports `apps/worker/src/diag/
-//! {terminal-capture*,byte-capture,capture-storage}.ts`. `runtime` builds ONE
-//! [`CaptureRecorder`]; the session data path feeds it through [`CaptureTap`];
+//! gzip bundle a capture freezes. `runtime` builds ONE [`CaptureRecorder`]; the
+//! session data path feeds it through [`CaptureTap`];
 //! `browser_commands::diagnostics` dispatches the wire steps to it.
 //!
 //! The capture WIRE — the command, the acknowledgement and every bound — and
@@ -37,15 +36,15 @@ pub use recorder::{CaptureRecorder, CaptureRecorderDeps};
 pub use tap::{CaptureTap, ResizeBoundaryNote};
 
 /// How many bytes of raw PTY output are retained per session for the incident
-/// stream, whether or not a recording is armed (v2 `RING_CAP_BYTES`).
+/// stream, whether or not a recording is armed.
 ///
 /// ALWAYS ON, deliberately. An anomaly fires when the diagnostic gate was off,
 /// and a recorder that only retained bytes while armed would find an empty
 /// window at exactly the moment it is needed.
 pub const BYTE_CAPTURE_WINDOW_BYTES: usize = 256 * 1024;
 
-/// Wall-clock milliseconds, the clock v2's recorder dates every record and
-/// lease with (`Date.now()`).
+/// Wall-clock milliseconds, the clock the recorder dates every record and
+/// lease with.
 pub fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

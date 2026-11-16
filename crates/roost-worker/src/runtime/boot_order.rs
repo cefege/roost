@@ -8,10 +8,8 @@
 //! is the rule underneath it, and it is a state machine because the rule is
 //! about ordering: reconciliation must reserve every durable session before a
 //! snapshot publishes, so a failed keeper adoption cannot expose a partial
-//! worker state. That is the reason v2 put all three steps in one function
-//! (`apps/worker/src/boot/worker-boot-admission.ts`) rather than letting the
-//! caller sequence them, and it is why the rule is enforced here instead of
-//! trusted.
+//! worker state. That is why admission is one sequence rather than steps the
+//! caller orders, and why the rule is enforced here instead of trusted.
 
 /// One step of boot, and the invariant that puts it there.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

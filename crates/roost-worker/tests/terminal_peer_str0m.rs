@@ -2,8 +2,7 @@
 //! worker's terminal peer owner with the production str0m transport. The
 //! owner answers over its own UDP socket, DTLS and SCTP come up, the worker's
 //! terminal frame arrives framed on the terminal lane, and the browser's
-//! control frame reaches the socket owner's ingress. v2 proved this path only
-//! in a real browser (`smoke/terminal/terminal-peer.spec.ts`).
+//! control frame reaches the socket owner's ingress.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 #[path = "peer_support/offerer.rs"]

@@ -1,7 +1,6 @@
 //! Route claiming for the terminal input route owner: validation, the
 //! exact-latest dedup, admission against the work budget and the keeper lane,
 //! and the attempt `route_attempt::complete_claim` finishes on its own task.
-//! Ports the `claim` half of `apps/worker/src/terminal/terminal-input-route-owner.ts`.
 //! Called by `terminal_input::port` (coordinator link) and the local door.
 
 use std::sync::Arc;
@@ -170,7 +169,7 @@ impl TerminalInputRouteOwner {
 }
 
 /// Wait for an attempt's published result. A publisher that vanished without
-/// one is answered as busy, as v2 answers a claim whose promise rejected.
+/// one is answered as busy.
 fn awaited(
     mut outcome: watch::Receiver<Option<TerminalInputRouteResult>>,
     claim: &RouteClaim,

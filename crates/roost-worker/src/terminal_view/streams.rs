@@ -3,7 +3,6 @@
 //! `SessionManager::apply_terminal_stream_state`, and classifies the outcome.
 //! Desires coalesce per session, so a dragged pane resize cannot queue one keeper
 //! resize per intermediate width. Membership itself lives in the registry.
-//! Ports `apps/worker/src/terminal/view/terminal-view-owner-streams.ts`.
 
 use roost_proto::TerminalViewStatus;
 use roost_protocol::terminal_view::truncate_view_reason;
@@ -42,8 +41,7 @@ pub(super) struct Desire {
     retry: u8,
 }
 
-/// The stream this owner holds for one session (v2 `TerminalStreamState` plus
-/// the coalescing slots).
+/// The stream this owner holds for one session, plus the coalescing slots.
 #[derive(Debug, Clone)]
 pub(super) struct StreamSession {
     pub(super) effective: Option<TerminalGeometry>,
@@ -105,7 +103,7 @@ impl OwnerState {
         true
     }
 
-    /// v2 `redrive`: a heartbeat-policy session tries its geometry again.
+    /// A heartbeat-policy session tries its geometry again.
     pub(super) fn redrive(&mut self, session_id: &SessionId, work: &mut Work) {
         let Some(stream) = self.streams.get(session_id) else {
             return;

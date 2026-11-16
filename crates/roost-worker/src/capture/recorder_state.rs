@@ -1,7 +1,7 @@
 //! Mutable state of one armed recording: its lease, segment chain, the
 //! emitted-frame fold, the core-sampling gates and the automatic-capture latch.
-//! Ports `apps/worker/src/diag/terminal-capture-recorder.ts`; owned by
-//! `super::registry` and mutated by `super::recorder` and `super::emission`.
+//! Owned by `super::registry` and mutated by `super::recorder` and
+//! `super::emission`.
 //! Bounded retention lives in `super::pools`; every bound comes from
 //! `TERMINAL_CAPTURE_LIMITS`.
 
@@ -45,9 +45,9 @@ pub struct RecorderArming {
     pub head_seq: u64,
 }
 
-/// The identity a segment covers. v2 also keyed on the stream's version, which
-/// moves only together with its stream id (a same-id request reuses the
-/// generation), so the two keys open exactly the same segments.
+/// The identity a segment covers. The stream's version is not a key: it moves
+/// only together with its stream id (a same-id request reuses the generation),
+/// so it would open exactly the same segments.
 #[derive(Debug, Clone)]
 pub struct SegmentRequest<'a> {
     pub stream_id: &'a str,
@@ -93,7 +93,7 @@ pub struct WorkerRecorder {
     /// accepted full re-establishes a baseline.
     pub fold: Option<Arc<CellGridFrame>>,
     pub fold_segment_id: Option<String>,
-    /// In first-seen order, as v2's `Set` iterates.
+    /// In first-seen order.
     pub fold_reasons: Vec<TerminalCoverageReason>,
     pub last_sample_mono: Option<Instant>,
     pub sample_suppressed_until_mono: Option<Instant>,

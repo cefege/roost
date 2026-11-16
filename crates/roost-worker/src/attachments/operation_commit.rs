@@ -1,9 +1,7 @@
 //! An operation's final commit and its failure paths: reserve and occupy the
 //! final name without yielding, flush the bytes and the name before the
 //! committed journal, and finish from the journal a commit a crash interrupted.
-//! Ports `commitFinal`, `recoverFinalization` and `failJournal` of v2
-//! `apps/worker/src/attachments/attachment-operation-owner.ts`. Called by
-//! `operation_owner`.
+//! Called by `operation_owner`.
 
 use std::io;
 use std::path::{Path, PathBuf};

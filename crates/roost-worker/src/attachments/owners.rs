@@ -1,8 +1,6 @@
 //! The attachment owners one worker process runs: the operation owner every
 //! carrier writes through with its 60 s idle sweep, the reaper's boot and
 //! hourly sweep, the direct-grant store and the direct carriers built on them.
-//! Ports the composition in v2 `apps/worker/src/main.ts:196-199`,
-//! `attachments/attachment-upload.ts:40-43` and `boot/boot-local-terminal.ts`.
 //! Started by `runtime::owners`.
 
 use std::sync::Arc;
@@ -96,7 +94,7 @@ impl AttachmentOwners {
     }
 
     /// Stop both sweeps. The grants are disposed by the direct carriers' own
-    /// dispose, after their sockets (v2 `disposeDirect` order).
+    /// dispose, after their sockets.
     pub fn shutdown(&self) {
         self.idle_sweep.abort();
         self.reaper.abort();

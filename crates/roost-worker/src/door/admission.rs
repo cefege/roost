@@ -1,7 +1,5 @@
 //! Who may reach the loopback door: the Host names it answers on, the Origins
-//! it admits, and the `connect-src` its pages may use (v2
-//! `local-door/local-ui-server.ts` `allowedHosts`/`allowedOrigins`,
-//! `coordinatorConnectOrigins`, `browserOrigins`). Built once by
+//! it admits, and the `connect-src` its pages may use. Built once by
 //! `runtime::door_serve` after the listener owns its port; read per request by
 //! `runtime::door_routes`. Every rule is exact-match and fail-closed.
 
@@ -23,7 +21,7 @@ impl DoorAdmission {
     /// `coordinator_url`, admitting `allowed_browser_origins` besides.
     ///
     /// A coordinator URL with no origin is a refusal: the page this door
-    /// serves could reach no coordinator, and v2 threw here too.
+    /// serves could reach no coordinator.
     pub fn new(
         port: u16,
         coordinator_url: &str,
@@ -88,7 +86,7 @@ impl DoorAdmission {
 }
 
 /// The coordinator's origin and the same host over the WebSocket scheme that
-/// matches it (v2 `coordinatorConnectOrigins`).
+/// matches it.
 fn coordinator_connect_origins(coordinator_url: &str) -> anyhow::Result<Vec<String>> {
     let Some(origin) = browser_origin(coordinator_url) else {
         anyhow::bail!(
@@ -105,7 +103,7 @@ fn coordinator_connect_origins(coordinator_url: &str) -> anyhow::Result<Vec<Stri
 /// The coordinator this worker dials serves the dashboard, so its origin is
 /// the one foreign page always admitted, beside the operator's extras. Exact
 /// origins only: a prefix would admit a host that merely starts the same way.
-/// An entry with no origin is skipped, as v2 skipped a URL that would not parse.
+/// An entry with no origin (a URL that would not parse) is skipped.
 fn browser_origins(coordinator_url: &str, extra: &[String]) -> Vec<String> {
     std::iter::once(coordinator_url)
         .chain(extra.iter().map(String::as_str))

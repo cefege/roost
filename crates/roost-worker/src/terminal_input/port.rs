@@ -1,10 +1,7 @@
 //! The coordinator link's input owner: acknowledged `input-request`s, route
 //! claims, and the route half of a closed browser socket. Implements
 //! `link_ports::TerminalInputPort` for `runtime::downstream`; built by the
-//! composition root over the session layer. Ports `onInputRequest` and the
-//! route half of `onTerminalViewSocketClosed` of
-//! `apps/worker/src/transport/coord-link-deps.ts`, and
-//! `onTerminalInputRouteClaim` of `coord-link-direct-deps.ts`.
+//! composition root over the session layer.
 
 use std::sync::Arc;
 
@@ -22,7 +19,7 @@ use crate::session::table::SessionTable;
 use crate::uplink::terminal_results::{InputResultKey, worker_input_result};
 use crate::uplink::{LinkFence, OwnerFuture, RequestBudget};
 
-/// v2's coordinator-link input callbacks, over one route owner and one work
+/// The coordinator-link input callbacks, over one route owner and one work
 /// budget that the local door shares.
 #[derive(Debug)]
 pub struct InputOwner {

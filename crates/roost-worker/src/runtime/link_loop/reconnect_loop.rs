@@ -1,9 +1,8 @@
 //! The loop OVER dials: mint a credential, open a socket, serve it, and decide
 //! what the ending means. Owned by [`LinkLoop::run`], which is the only caller.
 //! Depends on [`crate::backoff`]'s ladder, [`crate::link_dial`]'s socket, and
-//! [`crate::runtime::link_serve`] for one dial's life. Ports the dial/cleanup
-//! half of v2 `apps/worker/src/transport/coord-link.ts` (the connection fence
-//! and `onDetach`) and `coord-link-outbox.ts` `detachSocket`.
+//! [`crate::runtime::link_serve`] for one dial's life. It owns the connection
+//! fence and the detach cleanup.
 //!
 //! It is its own file because the rule that decides everything here is the one
 //! at the bottom of the loop: **a dropped link is a reconnect, never a stop.**
@@ -50,7 +49,7 @@ impl LinkLoop {
                 Ok(link) => link,
                 Err(error) => {
                     self.report_dial_failure(attempt, &error.to_string());
-                    // v2's cleanup runs `onDetach` for a socket that never
+                    // Cleanup runs `notify_detach` for a socket that never
                     // opened, too; a mint failure never built one.
                     self.notify_detach();
                     self.wait_before_next_dial(&mut stop).await;
@@ -90,7 +89,7 @@ impl LinkLoop {
         }
     }
 
-    /// v2 `detachSocket` + `onDetach`. Application state resets and the
+    /// Detach the socket. Application state resets and the
     /// socket's lanes go with it: the pong, every control frame (a reply to a
     /// request of the gone connection, pending terminal metadata the replay
     /// re-asserts), terminal frames the next connection re-baselines, and raw
@@ -103,7 +102,7 @@ impl LinkLoop {
         self.authorised = None;
         self.snapshot_since = None;
         self.snapshot_wanted = false;
-        // v2 `disconnect`: the replay is pending again until the next link
+        // The replay is pending again until the next link
         // has replayed and reached its snapshot.
         if let Some(delivery) = &self.durable_delivery {
             delivery.mark_pending();
@@ -123,7 +122,7 @@ impl LinkLoop {
         self.notify_detach();
     }
 
-    /// v2 `clear`: the link is gone for good, so a reconcile waiting for its
+    /// The link is gone for good, so a reconcile waiting for its
     /// durable replay is refused rather than left waiting for ever.
     fn dispose_replay(&self, reason: StopReason) -> StopReason {
         if let Some(delivery) = &self.durable_delivery {

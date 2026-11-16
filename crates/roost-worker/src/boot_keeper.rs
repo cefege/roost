@@ -14,7 +14,6 @@
 //! Calling it BUSY blocks boot over a process nobody can identify. Both are
 //! worse than saying "unproven", which is a state an operator can act on and
 //! the code refuses to guess past.
-//! Ports v2 `apps/worker/src/boot/boot-keeper.ts`.
 
 use std::time::Duration;
 
@@ -116,18 +115,17 @@ pub fn predates_binding_proof(probe: &ProbeResult) -> bool {
         && (probe.bindings.is_none() || probe.spawning_channels.is_none())
 }
 
-/// Decide what boot does with whatever the probe found, in v2's order
-/// (`boot-keeper.ts:94-203`): an authenticated, protocol-compatible keeper is
-/// ADOPTED whether or not it is the exact build target and whether or not it
-/// holds channels; only an incompatible one is ever replaced, and only when it
-/// proves it is empty.
+/// Decide what boot does with whatever the probe found: an authenticated,
+/// protocol-compatible keeper is ADOPTED whether or not it is the exact build
+/// target and whether or not it holds channels; only an incompatible one is
+/// ever replaced, and only when it proves it is empty.
 pub fn admit(probe: &ProbeResult) -> Admission {
     if !probe.reachable {
         return Admission::StartFresh;
     }
     if probe.authenticated && probe.protocol_compatible {
-        // v2 `refuseUnknownSurvivorInventory`: a compatible keeper whose
-        // inventory is unknown cannot be admitted against core capacity.
+        // A compatible keeper whose inventory is unknown cannot be admitted
+        // against core capacity.
         let (Some(bindings), Some(spawning)) = (&probe.bindings, &probe.spawning_channels) else {
             return Admission::Unproven {
                 reason: Unproven::PredatesBindingProof,
@@ -149,7 +147,7 @@ pub fn admit(probe: &ProbeResult) -> Admission {
     }
     let (Some(bindings), Some(spawning)) = (&probe.bindings, &probe.spawning_channels) else {
         // Incompatible and unable to describe what it holds: neither
-        // adoptable nor provably empty (v2 `keeper_survivor_identity_unproven`).
+        // adoptable nor provably empty.
         return Admission::Unproven {
             reason: Unproven::PredatesBindingProof,
         };

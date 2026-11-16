@@ -1,8 +1,6 @@
 //! A durable event claim a reconcile pass holds on a session's behalf, given
-//! back when the outcome it was taken for does not happen. v2 tracks the same
-//! thing as `resumeCloseOwned` / `respawnEventOwned` / `futureCloseOwned`
-//! (`apps/worker/src/boot/boot-session-reconcile.ts`); `runtime::session_reconcile`
-//! is the only caller.
+//! back when the outcome it was taken for does not happen.
+//! `runtime::session_reconcile` is the only caller.
 //!
 //! A GUARD, because `Reservation` is `Copy` with no `Drop`: a claim that goes
 //! out of scope is not given back, it keeps its row and its reserved bytes

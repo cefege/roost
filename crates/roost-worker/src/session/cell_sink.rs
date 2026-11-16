@@ -16,7 +16,6 @@
 //! A sink that merely answers [`CellSinkResult::Dropped`] keeps its
 //! registration and owes a fresh baseline — it still has a transport, and a
 //! receiver that missed a delta can no longer reproduce the shipped screen.
-//! Ports v2 `apps/worker/src/session/session-cell-sinks.ts`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -28,9 +27,8 @@ use roost_protocol::wire::brand::ChannelId;
 
 use super::snapshot_cursor::{ParkedPart, SnapshotCursor};
 
-/// The coordinator link's sink id. Byte-compatible with v2's, because it is
-/// the same word in both workers' logs and a diagnostic that has to be read
-/// against a v2 line says `local:7` and `coord`.
+/// The coordinator link's sink id: a diagnostic
+/// names it `coord`, beside local sinks such as `local:7`.
 pub const COORD_CELL_SINK_ID: &str = "coord";
 
 /// The prefix every local terminal socket's sink id carries.
@@ -311,8 +309,7 @@ impl CellSinkRegistry {
     /// One part of a parked full for one sink.
     ///
     /// A full that fits one part goes to [`CellSink::send_frame`] and only a
-    /// chunk to [`CellSink::send_snapshot_part`], as v2's `sendCellPartToSink`
-    /// routes them (`apps/worker/src/session/session-cell-sinks.ts:220-222`).
+    /// chunk to [`CellSink::send_snapshot_part`].
     /// An overflow already dropped the sink, so the caller sees a non-advancing
     /// answer and abandons that cursor.
     pub fn send_part_to_sink(

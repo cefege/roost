@@ -1,7 +1,6 @@
 //! The terminal peer owner over the deterministic native fake, and the
 //! records its injected port dependency keeps. Included by
-//! `terminal_peer_owner.rs`. Ports v2
-//! `apps/worker/tests/terminal/peer/terminal-peer-owner-fixture.ts` (owner half).
+//! `terminal_peer_owner.rs`.
 #![allow(dead_code)]
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -72,7 +71,7 @@ pub fn owner_with(
             port_range: Some((41000, 41001)),
         },
         is_current_coordinator: Arc::new(|_: &str| true),
-        // v2 `grants.authorizePeer`: an unknown id is unavailable.
+        // An unknown grant id is unavailable.
         authorize_grant: Arc::new(|request: &DLocalTerminalPeerOffer| {
             if request.grant_id.starts_with("grant-") {
                 PeerGrantAuthorization::Authorized

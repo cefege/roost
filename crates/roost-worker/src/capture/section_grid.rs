@@ -1,9 +1,8 @@
 //! One bounded read of a session's authoritative grid for a capture: the
 //! geometry, the scrollback tail, and the absolute history rows the browser
 //! named, with evicted and not-yet-written ranges reported rather than
-//! omitted. Ports `readGridEvidence`/`readHistoryRanges` of `apps/worker/src/
-//! diag/terminal-capture-worker-section.ts`; called by `super::worker_section`.
-//! It reads the core directly and never calls a keeper history RPC.
+//! omitted. Called by `super::worker_section`. It reads the core directly and
+//! never calls a keeper history RPC.
 
 use roost_protocol::cell::CellRow;
 use roost_protocol::terminal_capture::TERMINAL_CAPTURE_LIMITS;

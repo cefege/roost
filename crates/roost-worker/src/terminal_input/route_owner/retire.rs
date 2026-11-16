@@ -1,6 +1,5 @@
 //! Route retirement for the terminal input route owner: a closed browser
-//! connection, an ended session, a revoked device, and disposal. Ports the
-//! retire/revoke/dispose half of `apps/worker/src/terminal/terminal-input-route-owner.ts`.
+//! connection, an ended session, a revoked device, and disposal.
 //! Called by the downstream dispatch (socket closed), the session-closed hook and
 //! shutdown in `runtime::owners`, and the grant-revoke path (W-DOOR).
 

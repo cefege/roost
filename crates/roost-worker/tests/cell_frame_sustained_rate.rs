@@ -1,9 +1,9 @@
 //! The product's SUSTAINED cell-frame rate, at the producer's own granularity.
 //!
-//! `smoke/terminal/terminal-render.spec.ts:30` drives a `printf`/`sleep` loop
-//! (one line every ~12 ms) and requires the browser's frame counter to climb by
-//! more than 200, so the wire owes ~55 frames a second while it streams. The
-//! frames that reach it are the ones the cadence builds from PTY CHUNKS, and a
+//! A browser watching a `printf`/`sleep` loop (one line every ~12 ms) needs its
+//! frame counter to climb by more than 200, so the wire owes ~55 frames a second
+//! while it streams. The frames that reach it are the ones the cadence builds
+//! from PTY CHUNKS, and a
 //! chunk is whatever the keeper's drain hands over — so the rate the product can
 //! possibly deliver is set by the chunk cadence, and the emitter's job is to
 //! turn every chunk into exactly one frame without adding latency of its own.

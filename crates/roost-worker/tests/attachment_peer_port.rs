@@ -1,9 +1,7 @@
 //! The attachment peer packet port over the shared fake native: fragments are
 //! reassembled per channel before the direct receiver sees them, the data
 //! channel is closed to a peer that has not been admitted, and an unadmitted
-//! peer is retired at the hello deadline. Pins the guards of v2
-//! `apps/worker/src/attachments/attachment-peer-packet-port.ts` (`receive`,
-//! the control-channel `onOpen` hello timer) that no v2 test names.
+//! peer is retired at the hello deadline.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

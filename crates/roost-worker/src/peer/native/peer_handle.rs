@@ -1,9 +1,8 @@
 //! The [`NativePeer`] a connection holds for one str0m peer: the answer
-//! (gather, then accept the offer, then start the driver), sends that
-//! libdatachannel would have accepted or buffered, and close. Returned by
+//! (gather, then accept the offer, then start the driver), sends that are
+//! accepted or buffered, and close. Returned by
 //! `peer::native::factory`; called by the terminal and attachment peer
-//! connections. Ports the node-datachannel `PeerConnection`/`DataChannel`
-//! methods v2 `apps/worker/src/terminal/peer/terminal-peer-connection.ts` calls.
+//! connections.
 
 use std::sync::Arc;
 use std::time::Duration;

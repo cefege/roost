@@ -2,9 +2,7 @@
 //! shared by every peer until it ages out, one gathering cache, and the
 //! negotiated channels made before any remote description is applied.
 //! Built by [`super::str0m_loader`]; `create` is called by the peer
-//! connections. Ports v2 `apps/worker/src/terminal/peer/terminal-peer-native.ts`
-//! (`loadTerminalPeerNative`, `native.cleanup`) and the `new PeerConnection` /
-//! `createDataChannel` calls of `terminal-peer-connection.ts`.
+//! connections.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -24,7 +22,7 @@ use super::{NativePeer, NativePeerConfig, NativePeerError, NativePeerEvents, Nat
 /// costs no security; regenerating daily bounds how long one key is exposed.
 const DTLS_CERT_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
-/// The loaded str0m transport (v2 `TerminalPeerNative` after `preload()`).
+/// The loaded str0m transport.
 #[derive(Debug)]
 pub struct Str0mPeerFactory {
     provider: Arc<CryptoProvider>,

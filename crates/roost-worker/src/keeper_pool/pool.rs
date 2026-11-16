@@ -26,7 +26,6 @@
 //! returned. That is also what keeps a resize's result ahead of the PTY bytes
 //! the resize produced: the result is settled inside the request, and no later
 //! frame is dispatched until the handle is free.
-//! Ports v2 `apps/worker/src/keeper/keeper-pool-io.ts`, `apps/worker/src/keeper/keeper-pool-lifecycle.ts`, `apps/worker/src/keeper/multiplexed-client.ts`.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -79,7 +78,7 @@ pub struct KeeperPool {
     /// Held by a dispatch pass from take to last delivery, and by a history
     /// read at its ordered boundary, so neither interleaves with the other.
     pub(super) routing: Mutex<()>,
-    /// Resizes written and not yet answered (v2 `pendingResizes`).
+    /// Resizes written and not yet answered.
     pub(super) pending_resizes: PendingResizes,
     /// What a lost connection fires once its channels are ended.
     pub(super) death_hook: Mutex<Option<KeeperDeathHook>>,
@@ -151,7 +150,7 @@ impl KeeperPool {
     }
 
     /// Put one acknowledged batch on the socket under a worker-owned sequence,
-    /// and hand back its two halves (v2 `beginInput`).
+    /// and hand back its two halves.
     ///
     /// The sequence is claimed, written and registered while this call holds
     /// the connection, and the dispatcher needs the connection to take frames,

@@ -12,7 +12,6 @@
 //! held by the recently-closed set. Killing twice must not tell the coordinator
 //! one channel ended twice, while a session this worker NEVER held still needs
 //! a tombstone: an orphan whose keeper died is otherwise unkillable.
-//! Ports v2 `apps/worker/src/session/session-lifecycle.ts`, `apps/worker/src/session/session-manager-state.ts`, `apps/worker/src/session/session-manager.ts`, `apps/worker/src/session/session-respawn-admission.ts`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
@@ -85,19 +84,17 @@ pub struct SessionManager {
     /// Wall-clock ms at which this worker last closed each of these sessions.
     pub(super) recently_closed: Mutex<HashMap<SessionId, i64>>,
     /// The per-channel control and write-ordering lanes every terminal write
-    /// and stream transaction takes (v2 `terminalControlChains` +
-    /// `keeperAdmissionLane`). One per worker, so an input and a resize on one
+    /// and stream transaction takes. One per worker, so an input and a resize on one
     /// channel land in the order they were made.
     pub(super) lanes: Arc<super::control_lanes::ControlLanes>,
-    /// Which coordinator-minted generation owns each channel (v2
-    /// `terminalStreams` + `lastAppliedSize`).
+    /// Which coordinator-minted generation owns each channel, with the last applied size.
     pub(super) terminal_streams: super::terminal_state::TerminalStreams,
-    /// The worker's terminal-core admission (v2 `terminalCoreCapacity`): every
+    /// The worker's terminal-core admission: every
     /// record's core holds a lease here from construction through teardown.
     pub(super) core_capacity: Arc<crate::terminal_core_capacity::TerminalCoreCapacity>,
-    /// The owners told when a held session ends (v2 `onSessionClosed`).
+    /// The owners told when a held session ends.
     pub(super) closed_hooks: super::closed_hooks::SessionClosedHooks,
-    /// v2 `#channelCreationGate`: spawn/respawn leases vs keeper-update preparation.
+    /// Spawn/respawn leases vs keeper-update preparation.
     pub(super) creation_gate: super::channel_creation_gate::ChannelCreationGate,
     /// Owners told when a live session's folder is (re)established.
     pub(super) folder_hooks: super::folder_hooks::SessionFolderHooks,
@@ -220,8 +217,8 @@ impl SessionManager {
         let Some(entry) = self.sessions.forget(channel_id) else {
             return Ok(SessionOutcome::Killed);
         };
-        // The record left the table and its core with it: v2 `_dropChannelState`
-        // releases the core lease beside `sessions.delete`.
+        // The record left the table and its core with it: the core lease is released
+        // beside the table removal.
         self.core_capacity.release_channel(channel_id);
         // EVERYTHING THAT NEEDS THE RECORD HAPPENS INSIDE THIS BLOCK, so the
         // guard goes out of SCOPE before the first `.await` below rather than
@@ -253,7 +250,7 @@ impl SessionManager {
                 transition,
             )
         };
-        // v2 `_dropChannelState` → `onSessionClosed`: the record has left the
+        // The record has left the
         // table, so the owners holding per-session state (input routes, view
         // membership and stream identity) drop it now, with no lock held.
         self.closed_hooks.notify(&session_id);

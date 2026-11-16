@@ -1,9 +1,7 @@
 //! Per-port state for direct attachment uploads and the terminal transitions
 //! every refusal ends in: fail with an ack and a closed frame, retire an
 //! unacknowledgeable route, close after the terminal frame. `direct_sockets`
-//! and `direct_chunks` hold the lock these run under. Ports
-//! `apps/worker/src/attachments/attachment-direct-session.ts` and the terminal
-//! half of `attachment-direct-socket.ts`.
+//! and `direct_chunks` hold the lock these run under.
 
 use std::collections::HashMap;
 use std::sync::Arc;

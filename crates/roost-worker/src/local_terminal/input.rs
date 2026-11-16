@@ -2,8 +2,7 @@
 //! live grant/route checks and the input-work accounting here. Everything up to
 //! keeper admission runs in receive order inside `on_message`; only the wait for
 //! the keeper's answer runs on its own task, and the reservation is released
-//! after the answer is sent. Ports
-//! `apps/worker/src/local-door/local-terminal-socket-input.ts`.
+//! after the answer is sent.
 
 use std::sync::Arc;
 

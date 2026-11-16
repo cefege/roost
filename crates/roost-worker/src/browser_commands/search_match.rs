@@ -3,11 +3,10 @@
 //! `crate::session::retained_grid`'s rows; nothing here knows about a request
 //! or a result.
 //!
-//! It is v2's `apps/worker/src/terminal/search/terminal-search-matcher.ts` plus
-//! the two conversions the scan needs around it, and it exists as its own file
-//! because the matcher is the one part of a search with a shape a reader wants
-//! to check on its own: what compiles, what does not, and what a match offset
-//! means.
+//! It exists as its own file because the matcher is the one part of a search
+//! with a shape a reader wants to check on its own: what compiles, what does
+//! not, and what a match offset means. The two conversions the scan needs
+//! around it live beside it.
 
 use roost_protocol::cell::{spans_text, text_range_to_columns};
 use roost_protocol::terminal_search::TERMINAL_SEARCH_PREVIEW_MAX_CODE_POINTS;
@@ -42,7 +41,7 @@ impl Scan<'_> {
 pub(super) enum Matcher {
     /// A case-sensitive substring.
     ///
-    /// v2 skips the engine for exactly this combination, and it is worth
+    /// The regex engine is skipped for exactly this combination, and it is worth
     /// keeping: a literal scan is linear in the row and cannot time out on a
     /// pattern, which is the whole point of the deadline the scan carries.
     Literal(String),
@@ -97,9 +96,8 @@ impl Matcher {
                 while let Some(found) = text[from..].find(needle.as_str()) {
                     let start = from + found;
                     visit(text[..start].chars().count(), needle.chars().count());
-                    // Non-overlapping, exactly as v2's `indexOf` loop: an
-                    // overlapping match is a second copy of one the caller
-                    // already has.
+                    // Non-overlapping: an overlapping match is a second copy of
+                    // one the caller already has.
                     from = start + needle.len();
                 }
             }

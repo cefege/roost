@@ -1,5 +1,5 @@
-//! Binding the loopback door, then serving its routes on that listener (v2
-//! `local-door/local-ui-server.ts` `startLocalUiServer` and its bind rule).
+//! Binding the loopback door, then serving its routes on that listener, under
+//! the bind rule `LocalDoor::bind` documents.
 //! `runtime::boot_sequence` binds BEFORE the coordinator link dials and serves
 //! once the socket owners exist, for the life of `link.run`; the answers are
 //! `runtime::door_routes`'s. A door that cannot open is a boot refusal naming
@@ -39,7 +39,7 @@ pub struct LocalDoor {
 impl LocalDoor {
     /// Bind the door, or refuse with a reason that names it.
     ///
-    /// Only `127.0.0.1` and `[::1]` are doors, as in v2: this door upgrades
+    /// Only `127.0.0.1` and `[::1]` are doors: this door upgrades
     /// terminal sockets for the PTYs on this machine, so any other interface
     /// hands them to the network, and the check is on the ADDRESS because an
     /// operator who moved the port has already allowlisted its new origin.
@@ -148,8 +148,8 @@ struct Bootstrap<'config> {
     worker_fingerprint: &'config str,
 }
 
-/// v2 `applySecurityHeaders(headers, false, false, connectOrigins)`, as the
-/// header values every answer is stamped with.
+/// The security header values every answer is stamped with, built from the
+/// admission's connect origins.
 fn security_headers(admission: &DoorAdmission) -> anyhow::Result<Vec<(HeaderName, HeaderValue)>> {
     let mut headers = Vec::new();
     for (name, value) in
@@ -184,7 +184,7 @@ async fn serve_until_stopped(
 }
 
 /// A serving door. Closing or dropping it stops the listener and ends every
-/// socket it upgraded (v2 `server.stop(true)`).
+/// socket it upgraded.
 #[derive(Debug)]
 pub struct DoorServer {
     address: SocketAddr,
@@ -214,8 +214,8 @@ impl Drop for DoorServer {
     }
 }
 
-/// What the door answers with besides its sockets (v2 `loadWorkerConfig`'s
-/// door fields plus the worker's identity).
+/// What the door answers with besides its sockets: the door fields of the
+/// worker's config plus the worker's identity.
 #[derive(Debug, Clone)]
 pub struct DoorConfig {
     pub coordinator_url: String,

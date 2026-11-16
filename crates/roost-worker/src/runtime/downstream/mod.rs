@@ -1,13 +1,11 @@
 //! Coordinator → worker frame dispatch: one explicit arm for every
 //! `CoordWorkerDownstream` variant, each routed to its owner or answered with
-//! what a v2 worker without that owner answers. Called by
+//! what a worker without that owner answers. Called by
 //! `runtime::link_downstream::on_frame` for every decoded frame of the live link.
-//! Ports v2 `apps/worker/src/transport/coord-link-downstream.ts`
-//! (`handleDownstream`) and the dispatch half of `coord-link-direct-terminal.ts`.
 //!
 //! No frame here can be stale: `link_serve` owns exactly one socket per dial and
-//! only frames read from it reach this file, which is v2's
-//! `activeSocket() !== socket` guard made structural. Answers produced now go
+//! only frames read from it reach this file, so a frame from a superseded
+//! socket cannot arrive. Answers produced now go
 //! through [`DownstreamLink::reply`] in receive order; answers an owner
 //! produces later go through the [`Uplink`] fenced to the connection they
 //! arrived on.
@@ -36,24 +34,24 @@ use crate::uplink::{LinkFence, Uplink};
 pub trait DownstreamLink {
     /// Admit an answer now, in receive order, on the connection it answers.
     fn reply(&mut self, frame: CoordWorkerUpstream);
-    /// Advance the replay barrier past the hello (v2 `outbox.acceptHelloAck`).
+    /// Advance the replay barrier past the hello.
     fn hello_acknowledged(&mut self);
     /// Apply a durable or snapshot ack; true when THIS ack took the link live.
     fn event_acknowledged(&mut self, client_seq: u64) -> bool;
     /// Hand a browser command to the command pump, its answers fenced to `fence`.
     fn browser_command(&mut self, command: Command, fence: LinkFence);
-    /// The link's own queue, for pipeline evidence (v2 `link.pipelineState()`).
+    /// The link's own queue, for pipeline evidence.
     fn pipeline_state(&self) -> LinkPipelineState;
 }
 
 /// The dispatch, and the state it keeps across frames.
 #[derive(Debug)]
 pub struct Dispatcher {
-    /// `None` is a worker without the terminal owners, which answers exactly
-    /// as v2 does when those `CoordLinkDeps` callbacks are absent.
+    /// `None` is a worker without the terminal owners, which answers
+    /// owner-routed frames the absent-owner way.
     owners: Option<DownstreamOwners>,
     uplink: Uplink,
-    /// This worker process's epoch, stamped into the refusals v2 stamps it in.
+    /// This worker process's epoch, stamped into the refusals that carry one.
     process_epoch: String,
     stream_requests_in_flight: Arc<AtomicUsize>,
 }
@@ -141,9 +139,7 @@ impl Dispatcher {
             CoordWorkerDownstream::AttachmentDirectStatusRequest(request) => {
                 self.attachment_status(request, link);
             }
-            // v2's absent-owner behaviour for these is `deps.onX?.()`: nothing
-            // is sent (coord-link-direct-terminal.ts:155-157,193-195;
-            // coord-link-downstream.ts:297-300,324-331).
+            // With no owner, these send nothing.
             CoordWorkerDownstream::TerminalTransportProbe(request) => {
                 self.terminal_transport_probe(&request, link);
             }

@@ -1,8 +1,7 @@
 //! The terminal route end to end: the real door upgrading a real WebSocket
-//! onto the real `LocalTerminalSockets` (v2 `local-door/local-ui-server.ts`
-//! handing its socket to `local-terminal-socket.ts`). A Hello that names no
-//! grant is closed with its reason, a granted one is answered, and a socket
-//! that never says Hello is closed at the pre-hello deadline.
+//! onto the real `LocalTerminalSockets`. A Hello that names no grant is closed
+//! with its reason, a granted one is answered, and a socket that never says
+//! Hello is closed at the pre-hello deadline.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod door_support;

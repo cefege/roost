@@ -1,8 +1,7 @@
 //! Bounded identity validation for coordinator-authenticated terminal peer
 //! offers: the peer id is a UUID and every other opaque id is present, short
 //! and free of control characters. Called by `peer::owner_offer` before any
-//! native allocation; it owns no state and never logs an identifier. Ports v2
-//! `apps/worker/src/terminal/peer/terminal-peer-request-validation.ts`.
+//! native allocation; it owns no state and never logs an identifier.
 
 use roost_proto::DLocalTerminalPeerOffer;
 
@@ -17,7 +16,7 @@ pub fn valid_terminal_peer_offer_identity(request: &DLocalTerminalPeerOffer) -> 
         && valid_opaque_id(&request.tab_id)
 }
 
-/// v2's `/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i`.
+/// A canonical UUID, version 1 to 5, RFC 4122 variant, in either case.
 fn is_uuid(value: &str) -> bool {
     let groups: Vec<&str> = value.split('-').collect();
     let [first, second, third, fourth, fifth] = groups.as_slice() else {
@@ -38,7 +37,7 @@ fn is_uuid(value: &str) -> bool {
         )
 }
 
-/// v2 bounds `value.length`, which counts UTF-16 code units, so this does too.
+/// The length counts UTF-16 code units, the length a JavaScript string reports.
 fn valid_opaque_id(value: &str) -> bool {
     !value.is_empty()
         && value.encode_utf16().count() <= MAX_OPAQUE_ID_BYTES

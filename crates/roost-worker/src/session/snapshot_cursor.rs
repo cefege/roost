@@ -14,7 +14,6 @@
 //! COMPLETION IS STREAM-WIDE: a repair or a gate release that fired while one
 //! sink still owed a baseline would let a delta reach a sink that cannot
 //! reproduce the screen.
-//! Ports v2 `apps/worker/src/session/session-snapshot-cursor.ts`.
 
 use std::sync::Arc;
 
@@ -36,9 +35,7 @@ use super::ids::{MintError, mint_uuid};
 
 /// One part of a parked full, in the shape the sink method that takes it wants.
 ///
-/// A full that fits one part is handed WHOLE to [`CellSink::send_frame`], as
-/// v2's `sendCellPartToSink` hands a `frame` part to `sendFrame`
-/// (`apps/worker/src/session/session-cell-sinks.ts:220-222`); only a chunk of a
+/// A full that fits one part is handed WHOLE to [`CellSink::send_frame`]; only a chunk of a
 /// full too large for one part reaches [`CellSink::send_snapshot_part`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParkedPart {
@@ -272,8 +269,7 @@ impl CellEmitter {
         }
     }
 
-    /// One owed full per watched channel for a sink that just gained delivery,
-    /// as v2's `forceBaselineForSink` (`session-cell-sinks.ts:258-269`).
+    /// One owed full per watched channel for a sink that just gained delivery.
     ///
     /// Every parked cursor is dropped, not waited on: the new full supersedes
     /// it, and a forced build withheld behind one leaves every sink owing a

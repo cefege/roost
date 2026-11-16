@@ -2,8 +2,7 @@
 //! `runtime::link_downstream` hands a command to [`BrowserLink::offer`] with the
 //! fence of the connection it arrived on; the pump answers through the
 //! [`Uplink`], fenced to that connection, so `runtime::link_serve` admits the
-//! answers on the one uplink arm every off-loop frame uses. Ports the
-//! `onBrowserCommand` hand-off of v2 `apps/worker/src/transport/coord-link-downstream.ts`.
+//! answers on the one uplink arm every off-loop frame uses.
 //!
 //! A disconnected receiver refuses a command instead of leaving its request
 //! pending. Production also supervises the pump task: once a dispatch panics,

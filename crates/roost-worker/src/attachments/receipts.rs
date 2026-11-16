@@ -1,8 +1,6 @@
 //! What one attachment operation answers a carrier with: the receipt for an
 //! accepted chunk, the status a lost acknowledgement is recovered from, and
-//! the refusal vocabulary both carry. Ports v2
-//! `apps/worker/src/attachments/attachment-operation-receipts.ts` and the
-//! refusal messages of `attachment-upload.ts`. Pure: no file, disk or clock.
+//! the refusal vocabulary both carry. Pure: no file, disk or clock.
 //! Read by the operation owner, the upload facade and the direct sockets.
 
 use roost_proto::AttachmentTransferStatus;
@@ -10,8 +8,8 @@ use roost_protocol::attachment_transfer::TransferErrorReason;
 
 use super::journal::AttachmentOperationJournal;
 
-/// Why an operation refused a chunk. v2 `AttachmentOperationError`, the
-/// operation-owned subset of the transfer refusal reasons.
+/// Why an operation refused a chunk: the operation-owned subset of the
+/// transfer refusal reasons.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AttachmentOperationError {
     UploadNotFound,
@@ -39,7 +37,7 @@ impl AttachmentOperationError {
         self.reason().as_str()
     }
 
-    /// v2 `ERROR_MESSAGE`: what a coordinator relay's `rpc-error` says.
+    /// What a coordinator relay's `rpc-error` says.
     pub fn message(self) -> &'static str {
         match self {
             Self::UploadNotFound => "upload is unavailable",
@@ -65,7 +63,7 @@ impl AttachmentOperationError {
         }
     }
 
-    /// v2 `isOperationError`.
+    /// The error whose wire name is `value`, if any.
     fn parse(value: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|error| error.as_str() == value)
     }

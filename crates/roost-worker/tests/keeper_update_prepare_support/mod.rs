@@ -4,7 +4,7 @@
 // Compiled once per test binary, and each binary drives a different subset.
 #![allow(dead_code)]
 
-//! Fakes for the keeper-update preparer: v2's injected reconcile boundary and
+//! Fakes for the keeper-update preparer: an injected reconcile boundary and
 //! update actions, a keeper spawn the test holds, and the request builders.
 //! What calls it: `keeper_update_prepare.rs`, `keeper_update_prepare_drain.rs`
 //! (each also declares `session_support` and `keeper_update_support`).
@@ -52,7 +52,7 @@ impl KeeperUpdateBoundary for Boundary {
     }
 }
 
-/// v2's injected `applyKeeperUpdateAction` / `shutdownKeeperForMaintenance`.
+/// The injected keeper-update action and maintenance shutdown.
 #[derive(Default)]
 pub struct Actions {
     pub applied: Mutex<Vec<JournaledKeeperUpdateActionV1>>,
@@ -124,8 +124,8 @@ pub fn fixture_over(harness: Harness, actions: Actions) -> Fixture {
     }
 }
 
-/// A keeper whose one spawn blocks until the test answers it (v2
-/// `deferKeeperSpawn`), and which says when that spawn was entered.
+/// A keeper whose one spawn blocks until the test answers it, and which says
+/// when that spawn was entered.
 pub struct HeldSpawn {
     answer: Mutex<Option<mpsc::Receiver<Result<u32, String>>>>,
     entered: Mutex<mpsc::Sender<()>>,

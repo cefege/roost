@@ -43,7 +43,7 @@ impl KeeperHandle {
         }
     }
 
-    /// Drive a different connection from now on (v2 `pool.ensure()` after a
+    /// Drive a different connection from now on (after a
     /// keeper death); the old client is dropped, which stops its reader.
     pub fn replace(&self, client: KeeperClient) {
         *self.0.lock().unwrap_or_else(PoisonError::into_inner) = client;

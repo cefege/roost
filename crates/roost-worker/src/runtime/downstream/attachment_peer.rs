@@ -1,9 +1,7 @@
 //! The attachment peer arms: an offer's admission runs now, in receive order,
 //! and its answer or refusal goes back fenced to the connection it arrived on;
 //! a cancel reaches the owner only for the generation this link accepted.
-//! Called by [`super::Dispatcher::dispatch`]. Ports the
-//! `localAttachmentPeerOffer`/`localAttachmentPeerCancel` cases of v2
-//! `apps/worker/src/transport/coord-link-direct-terminal.ts`.
+//! Called by [`super::Dispatcher::dispatch`].
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -24,8 +22,8 @@ impl Dispatcher {
             .and_then(|owners| owners.attachment_peers.clone())
     }
 
-    /// No owner is v2's absent `onLocalAttachmentPeerOffer` ("disabled"); an
-    /// owner refusal carries its own reason; anything else is `ice_failed`.
+    /// No owner is "disabled"; an owner refusal carries its own reason;
+    /// anything else is `ice_failed`.
     pub(super) fn attachment_peer_offer(
         &self,
         request: DLocalAttachmentPeerOffer,
@@ -62,7 +60,7 @@ impl Dispatcher {
         );
     }
 
-    /// v2's optional `onLocalAttachmentPeerCancel`: no answer either way.
+    /// An optional cancel: no answer either way.
     pub(super) fn attachment_peer_cancel(&self, request: &DLocalAttachmentPeerCancel) {
         match self.attachment_peers() {
             Some(peers) => peers.cancel(request),

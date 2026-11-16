@@ -2,9 +2,7 @@
 //! loads the transport once, reserves a bounded number of peers, answers one
 //! offer per peer, and retires only the peer a cancel, revoke, detach or close
 //! names. Built by `peer::direct::DirectTerminal`; offers arrive from the
-//! direct-terminal downstream arms. Ports v2
-//! `apps/worker/src/terminal/peer/terminal-peer-owner.ts` (the offer path is
-//! `peer::owner_offer`).
+//! direct-terminal downstream arms (the offer path is `peer::owner_offer`).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -23,7 +21,7 @@ use super::packet_budget::{TerminalPeerPacketBudget, lock};
 use crate::local_terminal::{ExpectedPeer, PeerGrantAuthorization, TerminalPacketPort};
 use crate::uplink::{LinkFence, OwnerFuture, RequestBudget};
 
-/// v2 `TerminalPeerBootstrapState`.
+/// Whether terminal peers are disabled, unavailable natively, or ready.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PeerBootstrapState {
     Disabled,
@@ -31,7 +29,7 @@ pub enum PeerBootstrapState {
     Ready,
 }
 
-/// v2 `TerminalPeerOfferFailureReason`: the `reason` a refused offer's
+/// Why an offer was refused: the `reason` a refused offer's
 /// `local-terminal-peer-error` carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminalPeerOfferFailure {
@@ -60,7 +58,7 @@ impl TerminalPeerOfferFailure {
     }
 }
 
-/// v2 `TerminalPeerOwnerDeps`.
+/// What the terminal peer owner is built over.
 pub struct TerminalPeerOwnerDeps {
     pub process_epoch: String,
     pub transport: PeerTransportConfig,
@@ -84,8 +82,8 @@ impl std::fmt::Debug for TerminalPeerOwnerDeps {
     }
 }
 
-/// An offer between admission and its answer (v2 `PendingPeer`). The token is
-/// v2's object identity: a replaced or cancelled entry never matches it.
+/// An offer between admission and its answer. The token is the entry's
+/// identity: a replaced or cancelled entry never matches it.
 #[derive(Debug)]
 pub(super) struct PendingPeer {
     pub(super) token: u64,
@@ -148,8 +146,8 @@ impl TerminalPeerOwner {
         self.state().pending.len()
     }
 
-    /// v2 `bootstrap`: `disabled` without loading anything, otherwise the one
-    /// shared load's outcome.
+    /// `disabled` without loading anything, otherwise the one shared load's
+    /// outcome.
     pub fn bootstrap(self: &Arc<Self>) -> OwnerFuture<PeerBootstrapState> {
         let owner = Arc::clone(self);
         Box::pin(async move {
@@ -187,7 +185,7 @@ impl TerminalPeerOwner {
         }
     }
 
-    /// v2 `cancel`: only the exact offer the coordinator cancels.
+    /// Only the exact offer the coordinator cancels.
     pub fn cancel(&self, request: &DLocalTerminalPeerCancel) {
         let connection = {
             let mut state = self.state();
@@ -215,7 +213,7 @@ impl TerminalPeerOwner {
         );
     }
 
-    /// v2 `revokeDevice`: every pending and established peer of the device.
+    /// Every pending and established peer of the device.
     pub fn revoke_device(&self, device_fingerprint: &str) {
         let connections: Vec<Arc<TerminalPeerConnection>> = {
             let mut state = self.state();
@@ -249,8 +247,8 @@ impl TerminalPeerOwner {
         );
     }
 
-    /// v2 `cancelPendingForCoordinator`: unsettled signaling is fenced by
-    /// coordinator loss; established peers keep their grant lifetime.
+    /// Unsettled signaling is fenced by coordinator loss; established peers
+    /// keep their grant lifetime.
     pub fn cancel_pending_for_coordinator(&self) {
         let connections: Vec<_> = {
             let mut state = self.state();
@@ -273,8 +271,7 @@ impl TerminalPeerOwner {
         );
     }
 
-    /// v2 `dispose`: every peer closes, the budget stops, the transport is
-    /// cleaned up once.
+    /// Every peer closes, the budget stops, the transport is cleaned up once.
     pub fn dispose(&self) {
         let (active, native) = {
             let mut state = self.state();
@@ -300,8 +297,7 @@ impl TerminalPeerOwner {
         tracing::info!("terminal peer owner disposed");
     }
 
-    /// v2 `handleConnectionClosed`: only the connection that is active under
-    /// its peer id is removed.
+    /// Only the connection that is active under its peer id is removed.
     pub(super) fn connection_closed(&self, peer_id: &str, socket_id: &str, reason: &str) {
         let mut state = self.state();
         let current = state

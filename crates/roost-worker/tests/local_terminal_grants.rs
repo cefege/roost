@@ -1,8 +1,7 @@
 //! Grant-store lifecycle: renewal keeps one grant identity, scope growth stays
 //! live, scope reduction is reported for carrier closure, expiry actively
-//! removes the public scope, and a Hello's credential is checked in v2's order.
-//! The test never observes a credential digest. Ports
-//! `apps/worker/tests/local-door/local-terminal-grants.test.ts`.
+//! removes the public scope, and a Hello's credential is checked in a fixed
+//! order. The test never observes a credential digest.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::sync::{Arc, Mutex};

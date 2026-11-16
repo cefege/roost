@@ -2,8 +2,7 @@
 //! durable sink writes reach the coordinator under their stored `client_seq`
 //! (live and after a restart), the snapshot is `Event{snapshot, client_seq}`
 //! numbered from the same outbox, the replay barrier the boot reconcile awaits,
-//! and boot's hold on the snapshot. Ports v2 `apps/worker/src/transport/event-sink.ts`
-//! `coordLinkSink`, `coord-link-unacked.ts` and `coord-link-replay-barrier.ts`.
+//! and boot's hold on the snapshot.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod link_downstream_support;
@@ -151,7 +150,7 @@ async fn eventually_drained(delivery: &DurableDelivery) {
         .expect("the link was disposed while it replayed");
 }
 
-/// v2 `coordLinkSink`: a row the sink wrote before the hello-ack replays
+/// A row the sink wrote before the hello-ack replays
 /// first; one written while live goes out at once; each ack retires its row.
 #[tokio::test]
 async fn sink_rows_reach_the_coordinator_before_the_snapshot_and_while_live() {
@@ -181,7 +180,7 @@ async fn sink_rows_reach_the_coordinator_before_the_snapshot_and_while_live() {
     link.live.stop().await;
 }
 
-/// v2 `coord-link-unacked.ts` `oldestDurable`: rows a previous process left
+/// Rows a previous process left
 /// unacknowledged replay oldest first under their stored sequences, before a
 /// snapshot numbered above the sequence block this process took over.
 #[tokio::test]
@@ -216,7 +215,7 @@ async fn a_restart_replays_the_unacknowledged_rows_before_its_snapshot() {
     link.live.stop().await;
 }
 
-/// v2 `startSnapshotBarrier` draws `store.nextClientSeq()`: the snapshot and
+/// The snapshot and
 /// a journal row never share a sequence, and a committed row the link has not
 /// offered keeps the snapshot from being numbered at all.
 #[tokio::test]
@@ -250,7 +249,7 @@ async fn the_snapshot_and_a_journal_row_never_share_a_sequence() {
     assert!(row < drawn && drawn < pending_rows(&journal).await[1]);
 }
 
-/// v2 `waitForDurableSessionEventReplay`: resolves once every row is acked and
+/// The replay barrier resolves once every row is acked and
 /// the snapshot stage is reached; an append makes it pending at once, and a
 /// live link with a claim for an event not yet written stays pending.
 #[tokio::test]
@@ -293,7 +292,7 @@ async fn the_replay_barrier_waits_for_acked_rows_and_unblocked_claims() {
     link.live.stop().await;
 }
 
-/// v2 `hasBlockingSessionEventReservation`: a claim for an event that does not
+/// A claim for an event that does not
 /// exist yet holds the snapshot back until it is held.
 #[tokio::test]
 async fn a_blocking_claim_holds_the_snapshot_until_it_is_held() {
@@ -314,10 +313,10 @@ async fn a_blocking_claim_holds_the_snapshot_until_it_is_held() {
     link.live.stop().await;
 }
 
-/// v2 boot dials and replays before its reconcile and activates the snapshot
+/// Boot dials and replays before its reconcile and activates the snapshot
 /// provider only after it: a held link drains its replay at the snapshot stage
-/// without publishing, a row appended meanwhile goes out at once (v2 `send`
-/// turns an unsent snapshot phase back into replay), and the snapshot follows
+/// without publishing, a row appended meanwhile goes out at once (an unsent
+/// snapshot phase turns back into replay), and the snapshot follows
 /// the activation.
 #[tokio::test]
 async fn a_held_snapshot_drains_the_replay_and_publishes_only_once_activated() {
@@ -346,8 +345,8 @@ async fn a_held_snapshot_drains_the_replay_and_publishes_only_once_activated() {
     link.live.stop().await;
 }
 
-/// v2 `startSnapshotBarrier` numbers the snapshot with `store.nextClientSeq()`,
-/// which never goes backwards across a restart: a process whose outbox was
+/// The snapshot is numbered from a client sequence that never goes backwards
+/// across a restart: a process whose outbox was
 /// fully acknowledged still numbers its snapshot above every sequence the
 /// previous process issued, so the coordinator never sees one reused.
 #[tokio::test]

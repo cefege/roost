@@ -1,10 +1,8 @@
 #![cfg(unix)]
-//! Ports v2 `apps/worker/tests/session/session-channel-creation-gate.test.ts`:
-//! keeper-update preparation drains a spawn (and a respawn) that already held
+//! Keeper-update preparation drains a spawn (and a respawn) that already held
 //! its lease, refuses a new creation at once, stays closed after a successful
 //! preparation, and reopens only on rollback. The keeper spawn is held on a
-//! channel, as v2 deferred `pool.spawn`. The update action itself (v2
-//! `createKeeperUpdatePrepareHandler`) belongs to the keeper-update owner.
+//! channel. The update action itself belongs to the keeper-update owner.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -30,7 +28,7 @@ use session_support::{Harness, SESSION, channel, session_id};
 enum Spawn {
     /// Answer at once with this child pid.
     Now(u32),
-    /// Block until the test sends the answer (v2 `deferKeeperSpawn`).
+    /// Block until the test sends the answer.
     Held(mpsc::Receiver<Result<u32, String>>),
 }
 
@@ -194,8 +192,7 @@ async fn a_failed_admitted_respawn_drains_before_preparation_and_rollback_reopen
     let reopened = manager
         .respawn_lost_child(&session_id(SESSION), "/tmp", 80, 24)
         .await;
-    // v2 asserts only the reopened respawn's child pid (`respawnIfMissing`
-    // answers with the live record, `SessionOutcome::Live` here).
+    // The reopened respawn answers with the live record, `SessionOutcome::Live`.
     assert!(
         matches!(reopened, Ok(SessionOutcome::Live { .. })),
         "rollback did not reopen creation: {reopened:?}"
@@ -203,7 +200,7 @@ async fn a_failed_admitted_respawn_drains_before_preparation_and_rollback_reopen
     assert_eq!(child_pid(&fixture.harness), Some(8765));
 }
 
-/// v2 `beginPreparation`'s rollback releases only ITS attempt, once: an
+/// A rollback releases only ITS attempt, once: an
 /// overlapping preparation keeps admission closed, and a repeated rollback of
 /// the same attempt cannot release the other one.
 #[tokio::test]

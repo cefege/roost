@@ -1,7 +1,6 @@
 //! Terminal peer owner: offer fencing, bounded negotiations, the expected
 //! tuple bound before native SDP, and single-peer retirement — over the
-//! deterministic native fake. Ports v2
-//! `apps/worker/tests/terminal/peer/terminal-peer-owner.test.ts`.
+//! deterministic native fake.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 #[path = "peer_support/fake_native.rs"]

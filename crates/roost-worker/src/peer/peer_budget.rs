@@ -2,8 +2,7 @@
 //! budget: the queues and assemblers of `peer::packet_port` each hold a lane
 //! quota from here, and a port's close keeps the worker charged while a hold
 //! (an in-flight history read) outlives it. Created by
-//! [`super::packet_budget::TerminalPeerPacketBudget::create_peer_budget`]. Ports
-//! `TerminalPeerPacketPeerBudget` of v2 `apps/worker/src/terminal/peer/terminal-peer-packet-budget.ts`.
+//! [`super::packet_budget::TerminalPeerPacketBudget::create_peer_budget`].
 
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
@@ -33,14 +32,14 @@ struct PeerBudgetInner {
     state: Mutex<PeerBudgetState>,
 }
 
-/// v2 `TerminalPeerPacketPeerBudget`. Clone shares it.
+/// One peer's budget against the worker's. Clone shares it.
 #[derive(Debug, Clone)]
 pub struct TerminalPeerPacketPeerBudget {
     inner: Arc<PeerBudgetInner>,
 }
 
 /// One lane of one direction, as the protocol's queue and assembler reserve
-/// against it (v2 `quota(direction, lane)`).
+/// against it.
 #[derive(Debug, Clone)]
 pub struct TerminalPeerQuota {
     budget: TerminalPeerPacketPeerBudget,
@@ -58,8 +57,8 @@ impl TerminalPeerPacketQuota for TerminalPeerQuota {
     }
 }
 
-/// Keeps the worker charged while async work outlives a closing port
-/// (v2 `hold()`'s release function, run on drop).
+/// Keeps the worker charged while async work outlives a closing port; the
+/// release runs on drop.
 #[derive(Debug)]
 pub struct PeerBudgetHold {
     budget: TerminalPeerPacketPeerBudget,
@@ -112,7 +111,7 @@ impl TerminalPeerPacketPeerBudget {
         }
     }
 
-    /// `None` once the peer is closing (v2 throws "terminal peer packet budget is closing").
+    /// `None` once the peer is closing.
     pub fn hold(&self) -> Option<PeerBudgetHold> {
         let mut state = self.state();
         if state.dispose_requested || state.disposed {
@@ -199,7 +198,8 @@ impl TerminalPeerPacketPeerBudget {
         }
         let retained = &mut state.retained[direction.index()][lane as usize];
         if bytes == 0 || bytes > *retained {
-            // v2 throws "terminal peer packet peer budget underflow".
+            // A release past what is retained is an accounting error: it is
+            // logged and skipped.
             tracing::error!(
                 lane = lane.as_str(),
                 bytes,

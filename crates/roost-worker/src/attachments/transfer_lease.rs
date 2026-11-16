@@ -1,9 +1,8 @@
 //! The finite authority one admitted direct port runs on. Grant expiry gates a
 //! new hello only; an authenticated port is bounded instead by a hard lifetime
 //! and an idle deadline that valid activity refreshes but can never push past
-//! the hard one. Ports v2
-//! `apps/worker/src/attachments/attachment-transfer-lease.ts` as a pure
-//! deadline; the direct sockets arm the timer and fail the port at expiry.
+//! the hard one. Pure deadline; the direct sockets arm the timer and fail the
+//! port at expiry.
 
 use std::time::{Duration, Instant};
 
@@ -20,7 +19,7 @@ pub struct AttachmentTransferLease {
 }
 
 impl AttachmentTransferLease {
-    /// v2 `start`: both clocks run from admission.
+    /// Both clocks run from admission.
     pub fn start(now: Instant) -> Self {
         Self {
             hard_deadline: now + ACTIVE_MAX,

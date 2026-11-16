@@ -1,8 +1,8 @@
-//! Retiring a surviving keeper at admission, the two ways v2 allows: the
+//! Retiring a surviving keeper at admission, in the two ways it is allowed: the
 //! operator-authorized force-live retirement of a keeper that predates binding
 //! proof (ends every PTY it hosts), and the identity-fenced shutdown of an
-//! authenticated incompatible keeper proven empty. Ports
-//! `apps/worker/src/boot/boot-keeper.ts:143-224`; `runtime::keeper_boot::ensure_keeper`
+//! authenticated incompatible keeper proven empty.
+//! `runtime::keeper_boot::ensure_keeper`
 //! calls both on the probe's own connection, then starts a fresh keeper.
 
 use std::path::Path;
@@ -16,7 +16,7 @@ use crate::keeper_pool::{
     wait_for_keeper_exit,
 };
 
-/// v2 `KEEPER_FORCE_LIVE_RETIRE_REJECTED_ERROR`.
+/// The error when an authenticated force-live keeper retirement is rejected.
 pub const KEEPER_FORCE_LIVE_RETIRE_REJECTED_ERROR: &str =
     "authenticated force-live keeper retirement was rejected";
 
@@ -28,7 +28,7 @@ pub struct RetiredSurvivor {
     pub coordinator_sessions: Option<usize>,
 }
 
-/// v2 `:143-172`: log what this ends, shut the keeper down unconditionally,
+/// Log what this ends, shut the keeper down unconditionally,
 /// wait for its endpoint to refuse, and remove it.
 pub async fn retire_force_live(
     socket: &Path,
@@ -62,10 +62,9 @@ pub async fn retire_force_live(
     Ok(())
 }
 
-/// v2 `:205-224`: an authenticated keeper this worker cannot adopt, proven
+/// An authenticated keeper this worker cannot adopt, proven
 /// empty by it AND by the coordinator, shut down under an identity fence the
-/// keeper re-checks atomically. A refusal is `blocked` (v2 throws
-/// `KEEPER_REPLACEMENT_BLOCKED_ERROR`).
+/// keeper re-checks atomically. A refusal is `blocked`.
 pub async fn replace_empty(
     socket: &Path,
     client: KeeperClient,
@@ -99,7 +98,7 @@ pub async fn replace_empty(
     Ok(())
 }
 
-/// v2 `cleanupLocalEndpoint`: remove a POSIX socket nothing answers on any
+/// Remove a POSIX socket nothing answers on any
 /// more, so a fresh keeper can bind and readiness is not read off a dead file.
 pub fn cleanup_endpoint(socket: &Path) {
     match std::fs::remove_file(socket) {

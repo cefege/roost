@@ -19,7 +19,6 @@
 //!
 //! Every path here comes from a `roost-host` path function. This file decides
 //! which file lives where; it does not decide where a file lives.
-//! Ports v2 `apps/worker/src/host/config.ts`.
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -147,8 +146,8 @@ pub struct WorkerBoot {
     /// adopted or proved empty. It ends every PTY that keeper hosts, which is
     /// why it defaults off and why spending it is the activation's job.
     pub force_live_retire: bool,
-    /// v2 `terminalPeer{Enabled,BindAddress,PortRange}`, shared by both peer
-    /// owners.
+    /// Terminal-peer enable flag, bind address and port range, shared by both
+    /// peer owners.
     pub terminal_peer: crate::peer::PeerTransportConfig,
 }
 
@@ -285,7 +284,7 @@ fn resolve_fingerprint(key_path: &Path) -> Result<WorkerFp, BootConfigError> {
 
 /// A fresh per-activation identity.
 ///
-/// A UUID is what v2 minted; nothing downstream parses this string as one, and
+/// A UUID would do; nothing downstream parses this string as one, and
 /// a hand-rolled value keeps a uuid dependency out of a crate with no other
 /// use for it. The pid is here because two activations inside one nanosecond
 /// are possible on a coarse clock, and the wall reading is here because pids

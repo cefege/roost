@@ -1,9 +1,8 @@
-//! One str0m `Rtc` and the state node-datachannel kept beside it: each
+//! One str0m `Rtc` and the state kept beside it: each
 //! channel's open flag, the accepted bytes SCTP had no room for yet, and the
 //! low-water bookkeeping; plus the turn that feeds str0m input and turns its
-//! output into the callbacks v2 relied on. Driven by `peer::native::driver`;
-//! reached through `peer::native::peer_handle`. Ports the node-datachannel half
-//! of v2 `apps/worker/src/terminal/peer/terminal-peer-native.ts`.
+//! output into [`NativePeerEvent`]s. Driven by `peer::native::driver`;
+//! reached through `peer::native::peer_handle`.
 
 use std::collections::VecDeque;
 use std::net::SocketAddr;
@@ -25,7 +24,7 @@ pub(super) struct ChannelSlot {
     pub(super) id: ChannelId,
     pub(super) open: bool,
     pub(super) closed: bool,
-    /// Accepted bytes SCTP had no room for yet — libdatachannel's buffer.
+    /// Accepted bytes SCTP had no room for yet.
     pub(super) pending: VecDeque<Vec<u8>>,
     pub(super) pending_bytes: usize,
     pub(super) low_threshold: usize,

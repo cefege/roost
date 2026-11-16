@@ -3,8 +3,7 @@
 //! its one outcome. It lives beneath the session's private directory and is
 //! flushed before any direct receipt is sent, so a restarted worker still
 //! answers a lost acknowledgement; the temp lives in the media directory so
-//! the commit is a same-filesystem rename. Ports v2
-//! `apps/worker/src/attachments/attachment-operation-journal.ts`. Called by the
+//! the commit is a same-filesystem rename. Called by the
 //! operation owner and the upload facade.
 
 use std::fs;
@@ -22,8 +21,8 @@ use super::media_dirs::is_project_media_dir;
 use super::store_paths::{ATTACHMENT_OPERATION_DIR_NAME, AttachmentBase, resolve_lexically};
 use super::{Carrier, OperationDescriptor};
 
-/// JavaScript's `Number.MAX_SAFE_INTEGER`. v2 counts in doubles; a larger
-/// counter is one no worker wrote.
+/// JavaScript's `Number.MAX_SAFE_INTEGER`. Counters travel as JSON numbers,
+/// so a larger counter is one no worker wrote.
 pub const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
 
 const JOURNAL_VERSION: u8 = 1;
@@ -33,8 +32,8 @@ const MAX_CARRIER_ID_BYTES: usize = 128;
 const MAX_FINAL_NAME_BYTES: usize = 255;
 const MAX_MEDIA_DIR_BYTES: usize = 4_096;
 
-/// The journal file, field for field as v2 writes it — camelCase, because a
-/// worker upgraded mid-upload must read the journal its predecessor left.
+/// The journal file, camelCase on disk: a worker upgraded mid-upload must read
+/// the journal its predecessor left.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AttachmentOperationJournal {
@@ -48,7 +47,7 @@ pub struct AttachmentOperationJournal {
     #[serde(default)]
     pub media_dir: String,
     pub short_path: bool,
-    /// Required on disk and nullable, as v2's schema is.
+    /// Required on disk and nullable.
     #[serde(deserialize_with = "required_nullable")]
     pub total_bytes: Option<u64>,
     pub last_chunk_final: bool,
@@ -65,8 +64,7 @@ pub struct AttachmentOperationJournal {
 }
 
 impl AttachmentOperationJournal {
-    /// v2 `sameOperationDescriptor`: the request id is the lookup key and is
-    /// not compared again.
+    /// The request id is the lookup key and is not compared again.
     pub fn same_descriptor(&self, descriptor: &OperationDescriptor) -> bool {
         self.session_id == descriptor.session_id
             && self.filename == descriptor.filename
@@ -74,7 +72,7 @@ impl AttachmentOperationJournal {
             && self.total_bytes == descriptor.total_bytes
     }
 
-    /// v2 `sameCarrier`.
+    /// Whether the journal belongs to this carrier and carrier id.
     pub fn same_carrier(&self, carrier: Carrier, carrier_id: &str) -> bool {
         self.carrier == carrier && self.carrier_id == carrier_id
     }
@@ -330,7 +328,7 @@ pub(super) fn valid_opaque_id(value: &str) -> bool {
         && !has_control(value)
 }
 
-/// v2's `/[\x00-\x1f\x7f]/`.
+/// ASCII control characters: C0 and DEL.
 fn has_control(value: &str) -> bool {
     value.bytes().any(|byte| byte <= 0x1f || byte == 0x7f)
 }

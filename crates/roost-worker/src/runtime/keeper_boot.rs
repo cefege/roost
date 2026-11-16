@@ -9,13 +9,12 @@
 //! [`decide`], a pure function, precisely so that meeting can be tested without
 //! a keeper, a coordinator, or a PTY.
 //!
-//! The order is the point. v2 admits a survivor only after the coordinator's
+//! The order is the point. A survivor is admitted only after the coordinator's
 //! COMPLETE open-session set is reserved, because "this keeper holds no
 //! channels" is not enough on its own: a session the coordinator still lists as
 //! open is a session somebody is looking at, and replacing its keeper ends it.
 //! So a replacement waits for the coordinator, and an adoption — which changes
 //! nothing about anyone's terminals — does not.
-//! Ports v2 `apps/worker/src/boot/boot-keeper.ts`, `apps/worker/src/keeper/keeper-pool-config.ts`, `apps/worker/src/keeper/multiplexed-client.ts`.
 
 use std::path::Path;
 use std::time::Duration;
@@ -33,9 +32,8 @@ use crate::runtime::keeper_retire::{
     RetiredSurvivor, cleanup_endpoint, replace_empty, retire_force_live,
 };
 
-/// The refusal an operator sees when a survivor cannot be identified. Carried
-/// over verbatim from `apps/worker/src/boot/boot-keeper.ts` so the v2 runbook's
-/// string still finds the failure.
+/// The refusal an operator sees when a survivor cannot be identified. The
+/// string is stable so a runbook that searches for it still finds the failure.
 pub const KEEPER_IDENTITY_UNPROVEN_ERROR: &str = "keeper endpoint is held by a process that did not prove keeper identity; stop that process, then restart the worker";
 
 /// The refusal an operator sees when a survivor holds live sessions.
@@ -64,7 +62,7 @@ pub enum KeeperBootDecision {
     ForceLiveRetire,
     /// An authenticated keeper this worker cannot adopt, proven empty by itself
     /// AND by the coordinator: shut it down under an identity fence, then start
-    /// fresh (v2 `boot-keeper.ts:205-224`).
+    /// fresh.
     ReplaceEmpty,
     /// A replacement would end a terminal.
     Blocked { reason: Blocked },
@@ -111,7 +109,7 @@ pub fn decide(
     };
     // Nothing is listening, so there is no survivor and no PTY to end: the
     // coordinator's open-session set has no bearing on this decision and boot
-    // does not wait for it. v2 cleans the endpoint up and returns here.
+    // does not wait for it.
     if !probe.reachable {
         return KeeperBootDecision::StartFresh;
     }
@@ -141,7 +139,7 @@ pub fn decide(
 /// Admit the keeper, or start one.
 ///
 /// `coordinator_open_sessions` is the coordinator's complete open-session count,
-/// or `None` while nobody has read it. The order is v2's: adopt what can be
+/// or `None` while nobody has read it. The order is: adopt what can be
 /// adopted, refuse what cannot be proved, and consider a replacement only once
 /// both halves of the proof are in.
 pub async fn ensure_keeper(
@@ -182,7 +180,7 @@ pub async fn ensure_keeper(
             ),
         },
         KeeperBootDecision::StartFresh => {
-            // Nothing answered: v2 removes the dead endpoint so the fresh
+            // Nothing answered: the dead endpoint is removed so the fresh
             // keeper can bind and readiness is not read off a stale file.
             drop(keeper);
             cleanup_endpoint(&boot.keeper_socket);
@@ -295,8 +293,7 @@ async fn start_fresh_keeper(
         .with_context(|| format!("could not start {}", boot.keeper_executable.display()))?;
     // The keeper must outlive this process: that is the reason it exists. So
     // the child handle goes to a task that only ever WAITS on it, which reaps
-    // the process when it eventually ends and never kills it. v2 needed a
-    // dedicated reaper for the same reason.
+    // the process when it eventually ends and never kills it.
     let pid = child.id();
     if let Some(pid) = pid {
         process.started(pid);

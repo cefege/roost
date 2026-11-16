@@ -1,11 +1,10 @@
 //! The OpenSSH private key container for an ed25519 key: the format the
 //! worker's key file is written in, and the only reader of it. Called by
 //! `host::jwt` when a key file is loaded or written, and by nothing else.
-//! Reproduced from `apps/worker/src/host/jwt.ts` (`parseOpenSshEd25519`,
-//! `encodeOpenSshEd25519`) so a key written here is byte-for-byte the file a v2
-//! install holds, and an existing one still parses.
+//! The encoding is byte-for-byte the file an installed key holds, and an
+//! existing one still parses.
 //!
-//! A real parse, not v2's scan for the 32-byte public key appearing twice. A
+//! A real parse, not a scan for the 32-byte public key appearing twice. A
 //! scan cannot tell an unencrypted key from one whose body is ciphertext under
 //! a passphrase, and signing with those bytes produces a signature no
 //! coordinator can verify — presented as an unknown `kid`, with nothing in the
@@ -26,8 +25,8 @@ const PEM_LINE: usize = 70;
 const PAD_BLOCK: usize = 8;
 
 /// The integrity word pair written into an unencrypted private block. Any
-/// consistent value is valid; this is v2's, so a key file this writes differs
-/// from v2's only in the key material.
+/// consistent value is valid; this one keeps the file this writes identical to
+/// an earlier worker's for the same key material.
 const CHECK_WORD: u32 = 0x1234_5678;
 
 /// A reader over the length-prefixed fields of an OpenSSH key document.
@@ -236,12 +235,11 @@ mod tests {
     };
     use base64::prelude::{BASE64_STANDARD, Engine as _};
 
-    /// A key file v2 itself wrote, byte for byte: the output of
-    /// `loadWorkerKey` from `apps/worker/src/host/jwt.ts` under Bun, whose seed
-    /// and public key are the two constants below. An install that already has
-    /// one of these has to keep working, and a key this writes has to be
-    /// readable by every `ssh-keygen` and every `authorized_keys` row built
-    /// from the last one.
+    /// A key file an earlier worker wrote, byte for byte; its seed and public
+    /// key are the two constants below. An install that already has one of
+    /// these has to keep working, and a key this writes has to be readable by
+    /// every `ssh-keygen` and every `authorized_keys` row built from the last
+    /// one.
     const V2_KEY_FILE: &str = "\
 -----BEGIN OPENSSH PRIVATE KEY-----
 b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
@@ -289,9 +287,9 @@ lzDrmmsja65im/lI+R0rAAAAAAECAwQF
 
     #[test]
     fn a_damaged_body_is_refused_rather_than_signed_with() {
-        // v2 located the seed by scanning for the public key appearing twice,
-        // which cannot tell these three from a healthy key. Each is a file a
-        // worker would have signed a token from.
+        // A scan for the public key appearing twice cannot tell these three
+        // from a healthy key. Each is a file a worker would have signed a token
+        // from.
         let (seed, public) = v2_parts();
         let mut damaged = decode_pem(V2_KEY_FILE).expect("the fixture decodes");
         let integrity = damaged

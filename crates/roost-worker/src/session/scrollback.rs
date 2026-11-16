@@ -4,8 +4,7 @@
 //! (capture) for every chunk; [`append_pty_chunk`] retains a chunk and advances
 //! its stream state, [`replay_retained_into`] rebuilds a replacement core from
 //! the ring, and `browser_commands::scrollback_page` reads what this leaves
-//! behind. Ports the lane half of
-//! `apps/worker/src/session/session-scrollback.ts`. Depends on
+//! behind. Depends on
 //! `super::stream_scan`, `super::query_reply`, `super::types` and `roost_term`.
 //!
 //! THE CONTAINER IS NOT HERE. `super::ring::ScrollbackRing` is a fixed-capacity
@@ -180,7 +179,7 @@ pub fn advance_captured_query_carry(record: &mut SessionRecord, chunk: &[u8]) {
 }
 
 /// Say what a chunk's answer withheld: an abandoned partial probe, and native
-/// replies v2's core never sent. Both are state an application believes it
+/// replies the lane does not forward. Both are state an application believes it
 /// negotiated, so neither may vanish unexplained.
 fn note_query_reply(record: &SessionRecord, reply: &QueryReply) {
     if reply.dropped_carry > 0 {

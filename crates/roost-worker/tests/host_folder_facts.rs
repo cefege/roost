@@ -161,7 +161,7 @@ fn a_pull_request_row_becomes_the_protocols_own_states() {
 #[test]
 fn a_rollup_is_classified_by_its_worst_member() {
     // An empty conclusion stands for gh printing none: a commit status has no
-    // `conclusion` field, so v2's `conclusion ?? state` reads its state.
+    // `conclusion` field, so its state is read instead.
     let entry = |status: &str, conclusion: &str, state: Option<&str>| RollupEntry {
         status: status.to_string(),
         conclusion: (!conclusion.is_empty()).then(|| conclusion.to_string()),

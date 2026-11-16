@@ -2,8 +2,7 @@
 //! a control and a data lane per peer, and one worker-wide data ceiling across
 //! every attachment peer. Terminal peers never share these counters, so
 //! attachment pressure cannot retire or delay a terminal carrier. Built by
-//! `peer_owner`, consumed by `peer_packet_port`. Ports
-//! `apps/worker/src/attachments/attachment-peer-packet-budget.ts`.
+//! `peer_owner`, consumed by `peer_packet_port`.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 

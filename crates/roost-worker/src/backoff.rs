@@ -11,7 +11,6 @@
 //! three dials and then stayed invisible for minutes. The escalation was
 //! working exactly as written and was still wrong, because it assumed a
 //! specific cause for a symptom that has several.
-//! Ports v2 `apps/worker/src/transport/coord-link-constants.ts`, `apps/worker/src/transport/coord-link-reconnect.ts`.
 
 use std::time::Duration;
 

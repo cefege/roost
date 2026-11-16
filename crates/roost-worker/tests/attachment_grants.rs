@@ -2,8 +2,6 @@
 //! The direct attachment grant store and hello admission: what an install
 //! must carry, what a hello must prove, how expiry, replacement and device
 //! revocation are announced, and the peer tuple a WebRTC hello must repeat.
-//! Pins v2 `apps/worker/src/attachments/attachment-{grants,transfer-admission}.ts`
-//! (v2 covers them only through its direct-socket suite).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod attachment_support;

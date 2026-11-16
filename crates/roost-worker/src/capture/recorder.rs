@@ -1,9 +1,7 @@
 //! The lease façade over opt-in terminal incident capture: what a START, STOP
-//! and CAPTURE step does, session teardown, and process shutdown. Ports
-//! `apps/worker/src/diag/terminal-capture.ts` (`startTerminalRecording`,
-//! `stopTerminalRecording`, `stopTerminalCaptureMaintenance`) and the teardown
-//! of `terminal-capture-registry.ts`. `runtime::session_stack` builds the one
-//! recorder through [`CaptureRecorder::attach_to_emitter`]; `browser_commands::diagnostics`
+//! and CAPTURE step does, session teardown, and process shutdown.
+//! `runtime::session_stack` builds the one recorder through
+//! [`CaptureRecorder::attach_to_emitter`]; `browser_commands::diagnostics`
 //! reaches it as [`DiagnosticReports`].
 //!
 //! A REPEAT START FROM THE SAME RECORDING RENEWS THE LEASE AND KEEPS EVERY
@@ -112,9 +110,9 @@ impl CaptureRecorder {
     }
 
     /// The ONE recorder over a session stack: the emitter's data path feeds
-    /// its tap, and a closed session drops its window and recorder (v2
-    /// `session-lifecycle.ts:243-244`). The hook holds the recorder weakly:
-    /// the recorder already holds the manager the hook is registered on.
+    /// its tap, and a closed session drops its window and recorder. The hook
+    /// holds the recorder weakly: the recorder already holds the manager the
+    /// hook is registered on.
     pub fn attach_to_emitter(deps: CaptureRecorderDeps, emitter: &Mutex<CellEmitter>) -> Arc<Self> {
         let manager = Arc::clone(&deps.manager);
         let log_dir = deps.log_dir.display().to_string();
@@ -140,9 +138,8 @@ impl CaptureRecorder {
         CaptureTap::attached(Arc::clone(&self.shared))
     }
 
-    /// Session close or channel teardown (v2 `byteCapture.drop` +
-    /// `dropTerminalRecorder`): the window, the recorder and the one-shot
-    /// ledger go with the session.
+    /// Session close or channel teardown: the window, the recorder and the
+    /// one-shot ledger go with the session.
     pub fn drop_session(&self, session_id: &SessionId) {
         let session_id = session_id.as_str();
         let armed = {
@@ -166,15 +163,15 @@ impl CaptureRecorder {
         self.shared.storage.stop_capture_retention();
     }
 
-    /// Diagnostic seam (v2 `_settleScheduledCaptures`): wait until every
-    /// worker-local capture in flight has written, instead of guessing a delay.
+    /// Diagnostic seam: wait until every worker-local capture in flight has
+    /// written, instead of guessing a delay.
     pub async fn settle_scheduled_captures(&self) {
         let mut scheduled = self.shared.scheduled.subscribe();
         let _ = scheduled.wait_for(|count| *count == 0).await;
     }
 
-    /// Test seam (v2 `terminalRecorderArmed`): whether a live lease is held,
-    /// disarming an expired one on observation.
+    /// Test seam: whether a live lease is held, disarming an expired one on
+    /// observation.
     pub fn _terminal_recorder_armed(&self, session_id: &str) -> bool {
         let mut registry = self.shared.registry();
         let live = registry.disarm_if_expired(session_id);
@@ -182,8 +179,8 @@ impl CaptureRecorder {
         live
     }
 
-    /// Test seam (v2 `_terminalRecorderForTest`): the raw recorder, WITHOUT an
-    /// expiry check, so a test can age or inspect it.
+    /// Test seam: the raw recorder, WITHOUT an expiry check, so a test can age
+    /// or inspect it.
     pub fn _with_terminal_recorder<R>(
         &self,
         session_id: &str,
@@ -198,7 +195,7 @@ impl CaptureRecorder {
         )
     }
 
-    /// v2 `startTerminalRecording`.
+    /// Arm a recording, or renew the lease of the same one.
     fn start(&self, command: &CaptureCommand) -> TerminalCaptureWorkerAck {
         let now = now_ms();
         let session_id = command.session_id.as_str();
@@ -292,8 +289,8 @@ impl CaptureRecorder {
         recording_ack(expires_at_ms, None)
     }
 
-    /// v2 `stopTerminalRecording`: release the lease and free every retained
-    /// record. Saved files are NOT deleted, and a repeat STOP is harmless.
+    /// Release the lease and free every retained record. Saved files are NOT
+    /// deleted, and a repeat STOP is harmless.
     fn stop(&self, command: &CaptureCommand) -> TerminalCaptureWorkerAck {
         let session_id = command.session_id.as_str();
         let mut registry = self.shared.registry();

@@ -1,6 +1,5 @@
 //! Input-route fencing: exact-claim caching, stale revisions, epoch rotation,
 //! claims queued behind the keeper lane, tombstones and device revocation.
-//! Ports `apps/worker/tests/terminal/terminal-input-route-owner.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 #[path = "session_support/mod.rs"]

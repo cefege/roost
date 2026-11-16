@@ -1,10 +1,8 @@
 //! The dispatch through a REAL link loop and a loopback coordinator speaking the
 //! production protobuf codec: the hello advertises what the worker serves, the
-//! lifecycle hooks fire in v2's order across a re-dial, an input request is
-//! answered on the link, and a browser command whose relayed frame does not
-//! parse is refused on its envelope's `request_id` (v2
-//! `coord-link-downstream-search.test.ts`, "invalid search JSON emits a
-//! correlated rpc-error").
+//! lifecycle hooks fire in order across a re-dial, an input request is answered
+//! on the link, and a browser command whose relayed frame does not parse is
+//! refused with a correlated rpc-error on its envelope's `request_id`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod link_downstream_support;
@@ -77,7 +75,7 @@ async fn a_live_link_dispatches_answers_and_calls_every_lifecycle_hook_across_a_
         capabilities,
         roost_worker::runtime::capabilities::advertised(Default::default())
     );
-    // v2 `coord-link-deps.ts:96-100` + `main.ts:181-185`, by the protocol's own spellings.
+    // Spelled out as the protocol spells them.
     for capability in [
         CAPABILITY_TERMINAL_VIEW_OWNER_V1,
         CAPABILITY_TERMINAL_INPUT_ROUTE_V1,

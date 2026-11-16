@@ -15,7 +15,6 @@
 //! [`SnapshotSource::snapshot`]: the link asks once, at boot, whether the barrier
 //! will ever be released, rather than discovering the answer once per dial from
 //! an error nobody can act on.
-//! Ports v2 `apps/worker/src/snapshot.ts`.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -36,7 +35,7 @@ pub enum SnapshotError {
     Unavailable { reason: String },
 }
 
-/// Publishes the worker's complete session set. The link frames it as v2's
+/// Publishes the worker's complete session set. The link frames it as an
 /// `Event{snapshot, client_seq}` under a sequence the durable outbox draws
 /// (`runtime::link_loop::durable_sync`).
 pub trait SnapshotSource: Send + Sync {
@@ -50,9 +49,9 @@ pub trait SnapshotSource: Send + Sync {
     fn snapshot(&self) -> Result<SessionEvent, SnapshotError>;
 }
 
-/// v2 `activateSnapshotProvider`: boot holds the link's snapshot until its first
-/// reconcile pass has produced the complete local session set, while the link
-/// already dials and replays the durable outbox (v2 `main.ts:296-303`). Made by
+/// The activation of the snapshot provider: boot holds the link's snapshot
+/// until its first reconcile pass has produced the complete local session set,
+/// while the link already dials and replays the durable outbox. Made by
 /// `LinkLoop::hold_snapshot_until_activated`, released by
 /// `runtime::boot_admission`, read by the link's snapshot stage. Every clone is
 /// the same hold.
@@ -77,7 +76,7 @@ impl SnapshotActivation {
     }
 
     /// Release the hold and wake the link, so a barrier already waiting at the
-    /// snapshot stage publishes now (v2 pumps when its phase is `snapshot`).
+    /// snapshot stage publishes now.
     pub fn activate(&self) {
         if !self.active.swap(true, Ordering::AcqRel) {
             tracing::info!(
@@ -90,9 +89,9 @@ impl SnapshotActivation {
 
 /// The worker's own session set, as the snapshot barrier publishes it.
 ///
-/// Ported from `apps/worker/src/snapshot.ts`, which builds the frame from ONE
-/// membership copy of the session manager rather than reading the table once
-/// per field: a snapshot assembled from several reads describes a set that never
+/// The frame is built from ONE membership copy of the session manager rather
+/// than reading the table once per field: a snapshot assembled from several
+/// reads describes a set that never
 /// existed, and the coordinator closes every session the difference contains.
 pub struct SessionSnapshot {
     worker_fp: WorkerFp,

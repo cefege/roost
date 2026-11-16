@@ -15,19 +15,16 @@
 //! unhandled-sequence log in [`super::history`], and the retained bytes in
 //! [`super::ring`].
 //!
-//! NAME MAPPING FROM v2 (`apps/worker/src/session/session-record.ts`,
-//! `session-manager-state.ts`). v2 had one `SessionManagerState` class holding
-//! every map; the maps that are per-session are fields here, and the maps that
-//! are per-worker or per-stream belong to the slices that drive them.
-//! `SessionRecordCommon` and `SessionShellRecord` are one type because v2's
-//! `SessionKind` is a closed set of exactly one member — a structured or
-//! unsupported kind is a protocol error, not a variant
-//! (`roost_protocol::wire::session::SessionKind`). `head_seq`, `alt_mode`,
-//! `mode_carry`, `osc7_carry` and `query_carry` keep their snake_case wire
-//! names because they are the names the frame fields use.
+//! WHAT LIVES WHERE. The maps that are per-session are fields of one record; the
+//! maps that are per-worker or per-stream belong to the slices that drive them.
+//! A shell record is the only kind of record because `SessionKind` is a closed
+//! set of exactly one member — a structured or unsupported kind is a protocol
+//! error, not a variant (`roost_protocol::wire::session::SessionKind`).
+//! `head_seq`, `alt_mode`, `mode_carry`, `osc7_carry` and `query_carry` keep
+//! their snake_case wire names because they are the names the frame fields use.
 //!
-//! THE HANDLES ARE NOT HERE. v2 hung a `.git/HEAD` watcher, a PR poller and a
-//! ports poller on the record as optional closures. A record is data here, and
+//! THE HANDLES ARE NOT HERE. A `.git/HEAD` watcher, a PR poller and a ports
+//! poller are not optional closures on the record. A record is data, and
 //! those three live in `crate::host` keyed by session id, so a closed session's
 //! record cannot keep a file handle alive and a record stays printable.
 
@@ -43,7 +40,7 @@ use crate::shell_spec::ShellSpec;
 
 /// A field with three states: not looked yet, looked and found nothing, set.
 ///
-/// v2 spelled this `T | null | undefined` and the distinction is load-bearing —
+/// The distinction is load-bearing —
 /// "this folder is not a git repository" and "the worker has not checked" are
 /// different answers and a client renders them differently. `roost_protocol`'s
 /// [`roost_protocol::wire::session::Session`] keeps the same shape on the wire.
@@ -77,7 +74,7 @@ pub struct SessionIdentity {
 
 /// One live terminal session.
 ///
-/// DATA, and only data. Every process-local handle v2 hung here — the
+/// DATA, and only data. Every process-local handle — the
 /// `.git/HEAD` watcher, the PR poller, the ports poller — lives in
 /// [`crate::host`] keyed by session id, so a record is printable, comparable
 /// across a close, and cannot keep a file handle alive past its session.

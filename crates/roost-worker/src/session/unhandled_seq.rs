@@ -1,8 +1,7 @@
 //! Core-reported unhandled escape sequences, per session: sample the core's
 //! never-cleared ring against the record's own high-water mark, and project the
 //! result for the diagnostics snapshot. The emitter samples on every frame, the
-//! diagnostic snapshot samples before it reads. Ports
-//! `apps/worker/src/session/session-unhandled-seq.ts`.
+//! diagnostic snapshot samples before it reads.
 //!
 //! THE RING IS NEVER CLEARED, so reporting straight off its window would re-fire
 //! the same stale entry on every frame; `UnhandledSequenceLog::consumed` is the

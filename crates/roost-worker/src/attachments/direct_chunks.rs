@@ -1,8 +1,7 @@
 //! The admitted half of a direct upload: a chunk is checked under the lock,
 //! written by the operation owner off it, and acknowledged — or refused — once
 //! the write settles; a status request answers lost-ACK recovery. Called by
-//! `direct_sockets`. Ports `acceptChunk`, `acceptStatusRequest` and the
-//! acknowledgement half of `apps/worker/src/attachments/attachment-direct-socket.ts`.
+//! `direct_sockets`.
 
 use std::time::Instant;
 
@@ -18,7 +17,7 @@ use super::direct_session::{DirectState, Refusal};
 use super::receipts::AttachmentOperationReceipt;
 use super::upload::{AttachmentOperations, DirectChunk, DirectChunkOutcome};
 
-/// The largest offset v2 could represent exactly; beyond it the chunk's
+/// The largest offset a JSON number represents exactly; beyond it the chunk's
 /// position is unknowable and is refused as a mismatch.
 const MAX_SAFE_OFFSET: u64 = (1 << 53) - 1;
 
@@ -175,7 +174,7 @@ impl DirectState {
         }
     }
 
-    /// A lease that has lapsed fails the upload as v2's expiry callback does;
+    /// A lease that has lapsed fails the upload;
     /// a session whose lease is already gone was retired and hears nothing.
     fn note_activity(&mut self, operations: &AttachmentOperations, ticket: &WriteTicket) -> bool {
         let Some(session) = self.session(&ticket.socket_id, ticket.serial) else {
@@ -225,12 +224,9 @@ impl DirectState {
         session.terminal = true;
         let port = std::sync::Arc::clone(&session.port);
         send_attachment_closed(port.as_ref(), COMPLETE_REASON);
-        // v2's own line is `log.info("attachment-transfer", "upload_completed",
-        // { carrier })` — the event NAME is the message, and the facade renders
-        // `msg` before the caller's fields. That adjacency is what the oracle
-        // greps for, and it is v2's real output rather than a quirk of it, so
-        // the name belongs in the message where it was. The line renders
-        // `"msg":"upload_completed","carrier":"loopback"`.
+        // The event name is the message, and the facade renders `msg` before the
+        // caller's fields, so the line reads
+        // `"msg":"upload_completed","carrier":"loopback"`, which log readers match.
         tracing::info!(carrier = port.kind().as_str(), "upload_completed");
     }
 

@@ -1,9 +1,7 @@
 //! The keeper-lane half of one input-route claim: wait for the write-ordering
 //! lane (or a cancellation), recheck live authority, and either activate the
 //! route under a fresh epoch or retire it. Spawned by
-//! `route_owner::TerminalInputRouteOwner::claim`. Ports `completeClaim`,
-//! `failAttempt` and the attempt cancellation of
-//! `apps/worker/src/terminal/terminal-input-route-owner.ts`.
+//! `route_owner::TerminalInputRouteOwner::claim`.
 
 use std::sync::{Arc, Mutex};
 

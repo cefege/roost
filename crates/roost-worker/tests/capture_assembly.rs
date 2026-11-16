@@ -1,8 +1,7 @@
 //! Capture assembly: the absolute history rows the browser named are read back
 //! at their exact indices THROUGH the payload nesting, rows below the floor or
 //! past the total are reported evicted/unavailable rather than omitted, and an
-//! over-budget grid is never scanned. Ports `apps/worker/tests/terminal/
-//! terminal-capture-assembly.test.ts`.
+//! over-budget grid is never scanned.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod capture_support;

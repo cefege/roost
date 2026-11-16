@@ -28,13 +28,13 @@ use tracing::field::{Field, Visit};
 use tracing::{Event, Subscriber};
 use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 
-/// The message v2 `logCgroupPressure` emits and `docs/FAILURE-INDEX.md` tells
+/// The message the collector logs and `docs/FAILURE-INDEX.md` tells
 /// an operator to grep for. Spelled out rather than imported because it is the
 /// contract with whoever reads the log, not an internal detail.
 const EXCEEDED: &str = "cgroup_memory_high_exceeded";
 const CLEARED: &str = "cgroup_memory_high_cleared";
 
-/// `v2 CGROUP_RELOG_EVERY`, which the collector keeps private. The test needs it
+/// The collector's relog cadence, which it keeps private. The test needs it
 /// to drive the cadence, and a cadence the test cannot name is a cadence it
 /// cannot pin.
 const RELOG_EVERY: usize = 10;

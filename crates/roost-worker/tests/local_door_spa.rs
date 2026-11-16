@@ -1,7 +1,6 @@
-//! The door's pages (v2 `local-ui-server.test.ts` "unknown paths reach the SPA
-//! responder; writes do not", over the real responder of
-//! `packages/host/src/spa.ts`): a deep link is the shell, a missing bundle is
-//! a 404 rather than HTML, and a door with no build says so on every page.
+//! The door's pages (unknown paths reach the SPA responder; writes do not): a
+//! deep link is the shell, a missing bundle is a 404 rather than HTML, and a door
+//! with no build says so on every page.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod door_support;

@@ -2,7 +2,7 @@
 //! `direct_loopback::LoopbackAttachmentTransferPort` and
 //! `peer_packet_port::AttachmentPeerPacketPort`. `direct_sockets` owns protobuf
 //! admission and destination writes; a carrier owns its bytes, backpressure and
-//! close lifecycle. Ports `apps/worker/src/attachments/attachment-transfer-port.ts`.
+//! close lifecycle.
 
 use std::fmt;
 

@@ -1,9 +1,7 @@
 //! The downstream arms whose owners exist: link lifecycle (hello-ack, the
 //! snapshot-ready edge), browser input, coordinator stream state and repair,
 //! pipeline evidence, worker-owned views, and input-route claims. Called by
-//! [`super::Dispatcher::dispatch`]. Ports those cases of v2
-//! `apps/worker/src/transport/coord-link-downstream.ts` and
-//! `coord-link-direct-terminal.ts`, with the ordering of `coord-link-deps.ts`.
+//! [`super::Dispatcher::dispatch`]. Ordering follows the link lifecycle.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -24,8 +22,8 @@ use crate::uplink::terminal_results::InputResultKey;
 use crate::uplink::{RequestBudget, TERMINAL_STREAM_REQUEST_INFLIGHT_CAP};
 
 impl Dispatcher {
-    /// v2 order: the barrier first (`acceptHelloAck`), then the coordinator's
-    /// browser sockets are dropped, then the session half is told.
+    /// Order: the barrier first, then the coordinator's browser sockets are
+    /// dropped, then the session half is told.
     pub(super) fn hello_ack(&self, capabilities: &[String], link: &mut dyn DownstreamLink) {
         link.hello_acknowledged();
         if let Some(owners) = &self.owners {
@@ -36,7 +34,7 @@ impl Dispatcher {
     }
 
     /// One sequence space serves both durable events and the snapshot; the ack
-    /// that takes the barrier live is v2's `onLive` → `onSnapshotReady`.
+    /// that takes the barrier live is the snapshot-ready edge.
     pub(super) fn event_ack(&self, client_seq: u64, link: &mut dyn DownstreamLink) {
         if !link.event_acknowledged(client_seq) {
             return;
@@ -190,7 +188,7 @@ impl Dispatcher {
         }
     }
 
-    /// v2 order: the socket's input route is retired before its views close.
+    /// The socket's input route is retired before its views close.
     pub(super) fn view_socket_closed(&self, socket_id: &str) {
         match &self.owners {
             Some(owners) => {
@@ -205,7 +203,7 @@ impl Dispatcher {
     }
 
     /// Every answer is fenced; no claim, a failed claim, and no owner are all
-    /// v2's `refusedClaim`.
+    /// a refused claim.
     pub(super) fn route_claim(
         &self,
         request: DTerminalInputRouteClaim,

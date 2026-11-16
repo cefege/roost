@@ -1,6 +1,5 @@
 //! Streaming SHA-256 for attachment temp and destination files, and the one
-//! lowercase-hex rendering every attachment digest uses. Ports v2
-//! `apps/worker/src/attachments/attachment-file-hash.ts`. Called by the
+//! lowercase-hex rendering every attachment digest uses. Called by the
 //! operation owner (rebuilding a parked upload's digest, verifying a recovered
 //! final name) and the file store (a destination that is already occupied).
 

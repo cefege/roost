@@ -2,8 +2,7 @@
 //! route claims, transport probes and history reads. They receive only live
 //! predicates and the owner's send paths, never keep a grant scope across a
 //! call, and answer on the control or history lane rather than as cell
-//! traffic. Called by `super::sockets::on_message`. Ports
-//! `apps/worker/src/local-door/local-terminal-socket-controls.ts`.
+//! traffic. Called by `super::sockets::on_message`.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -41,7 +40,7 @@ struct ControlsState {
     loopback_history_reserved: usize,
 }
 
-/// The per-port history bookkeeping. v2 `LocalTerminalPortControls` state.
+/// The per-port history bookkeeping.
 #[derive(Debug, Default)]
 pub(super) struct PortControls {
     state: Mutex<ControlsState>,

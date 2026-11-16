@@ -7,7 +7,6 @@
 //! redemption: a one-shot secret held longer than the grant it was is a secret
 //! with a longer life than its own value. The label's own resolution, and the
 //! reason its ordering is that ordering, is the `label` submodule beside this.
-//! Ports v2 `apps/worker/src/transport/coord-client.ts`, `apps/worker/src/host/install.ts`.
 
 use std::path::{Path, PathBuf};
 
@@ -114,11 +113,9 @@ pub struct Enrollment {
 /// the boot, because the machine has no authority to go on with.
 ///
 /// A call that never reached the coordinator is the other case, and it is
-/// tolerated — v2 tolerated EVERY redemption failure under one
-/// "may be already used" warning, and this keeps the half of that which was
-/// load-bearing. The half that was not is that the token a redeploy re-offers
+/// tolerated; no other redemption failure is. The token a redeploy re-offers
 /// is redeemed idempotently for the key that already holds it, so a spent
-/// token is a success and never the failure v2's message described.
+/// token is a success and never a failure.
 ///
 /// `key_path` is `WorkerBoot::worker_key_path`, the same file the boot sequence
 /// derived this worker's fingerprint from, so the key the token is bound to and
@@ -312,7 +309,7 @@ fn coordinator_is_silent(error: &ConnectError) -> bool {
 /// The resolution is `roost_host::build_identity`'s, not a second reading of
 /// `GIT_SHA`, so the `git_sha` a registration records and the one the hello
 /// reports are the same value by construction. A source checkout with no stamp
-/// sends nothing, which is what v2 did.
+/// sends nothing.
 pub(crate) fn build_sha(env: &dyn EnvSource) -> Option<String> {
     let sha = build_identity(env).build_sha;
     if sha.is_empty() || sha == DEV_BUILD_STAMP {
@@ -364,7 +361,7 @@ mod tests {
     fn only_a_coordinator_that_did_not_answer_counts_as_silent() {
         // An outage the link recovers from is tolerated; an authorization this
         // machine did not get is not, and the two must not collapse into one
-        // arm the way v2's single catch did.
+        // arm.
         for silent in [ErrorCode::Unavailable, ErrorCode::DeadlineExceeded] {
             let error = ConnectError::new(silent, "no answer");
             assert!(coordinator_is_silent(&error), "{silent:?} was not silent");

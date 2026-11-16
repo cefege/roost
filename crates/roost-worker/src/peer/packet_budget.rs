@@ -2,13 +2,12 @@
 //! direction has independent per-peer and worker ceilings, so slow receive
 //! assembly cannot spend the outgoing budget or starve control replies. Built
 //! once by `peer::owner`; each `peer::packet_port` takes one peer budget.
-//! Ports v2 `apps/worker/src/terminal/peer/terminal-peer-packet-budget.ts`.
 //!
-//! THE TURN. v2 ran every port, budget and pressure handler on one thread, and
-//! a pressure handler retiring another peer ran inside the reservation that
-//! needed its bytes. Here every port entry point takes this budget's turn
-//! first, so that re-entrant sequence runs with nothing interleaved; what
-//! leaves a port (ingress, owner callbacks) is deferred to the turn's end.
+//! THE TURN. A pressure handler retiring another peer runs inside the
+//! reservation that needed its bytes, so every port entry point takes this
+//! budget's turn first and that re-entrant sequence runs with nothing
+//! interleaved; what leaves a port (ingress, owner callbacks) is deferred to
+//! the turn's end.
 
 use std::mem;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
@@ -21,7 +20,7 @@ use roost_protocol::terminal_peer::peer::{
 
 use super::peer_budget::TerminalPeerPacketPeerBudget;
 
-/// v2 `TerminalPeerPacketDirection`.
+/// Whether a packet is incoming or outgoing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PacketDirection {
     Incoming,
@@ -37,7 +36,7 @@ impl PacketDirection {
     }
 }
 
-/// v2 `TerminalPeerPacketBudgetSnapshot`.
+/// A point-in-time reading of the worker budget.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PacketBudgetSnapshot {
     pub application_bytes: usize,
@@ -45,8 +44,8 @@ pub struct PacketBudgetSnapshot {
     pub retained_bytes: usize,
 }
 
-/// A port that can give back application bytes when the worker runs out
-/// (v2 `TerminalPeerHistoryPressureHandler`). True when it released some.
+/// A port that can give back application bytes when the worker runs out.
+/// True when it released some.
 pub(crate) trait HistoryPressure: Send + Sync {
     fn relieve_history_pressure(&self) -> bool;
 }
@@ -83,8 +82,8 @@ impl DirectionBudget {
     fn release(&mut self, lane: TerminalPeerPacketLane, bytes: usize) {
         let retained = self.lane_bytes(lane);
         if bytes == 0 || bytes > *retained {
-            // v2 throws here; the release path has no caller to throw to, so
-            // the accounting error is logged and the lane saturates.
+            // The release path has no caller to return an error to, so the
+            // accounting error is logged and the lane saturates.
             tracing::error!(
                 lane = lane.as_str(),
                 bytes,
@@ -127,8 +126,8 @@ struct WorkerBudget {
     deferred: Mutex<Vec<DeferredEffect>>,
 }
 
-/// Worker-owned aggregate accounting (v2 `TerminalPeerPacketBudget`). Clone
-/// shares it; create exactly one peer budget per peer port.
+/// Worker-owned aggregate accounting. Clone shares it; create exactly one peer
+/// budget per peer port.
 #[derive(Clone, Default)]
 pub struct TerminalPeerPacketBudget {
     inner: Arc<WorkerBudget>,
@@ -168,7 +167,7 @@ impl TerminalPeerPacketBudget {
         Self::default()
     }
 
-    /// `None` once disposed (v2 throws "terminal peer packet budget is disposed").
+    /// `None` once disposed.
     pub fn create_peer_budget(&self) -> Option<TerminalPeerPacketPeerBudget> {
         if self.state().disposed {
             return None;
@@ -213,8 +212,8 @@ impl TerminalPeerPacketBudget {
             .retain(|(registered, _)| *registered != id);
     }
 
-    /// v2 `reserve`: an outgoing terminal reservation the worker cannot take
-    /// asks every other port's history holder to give its bytes back first.
+    /// An outgoing terminal reservation the worker cannot take asks every
+    /// other port's history holder to give its bytes back first.
     pub(super) fn reserve(
         &self,
         direction: PacketDirection,

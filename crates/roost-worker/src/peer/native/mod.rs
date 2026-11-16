@@ -1,9 +1,7 @@
 //! The native WebRTC transport both direct peers stand on: one str0m peer
-//! connection presented with node-datachannel's surface, so the terminal and
-//! attachment connections port onto it line for line. Built once by
-//! `runtime::owners` through [`str0m_loader`]; called by `peer::connection` and
-//! the attachment peer. Ports v2 `apps/worker/src/terminal/peer/terminal-peer-native.ts`
-//! and the node-datachannel calls `terminal-peer-connection.ts` makes.
+//! connection behind the [`NativePeer`] trait, which the terminal and
+//! attachment connections share. Built once by `runtime::owners` through
+//! [`str0m_loader`]; called by `peer::connection` and the attachment peer.
 
 mod driver;
 mod factory;
@@ -36,33 +34,32 @@ pub struct NativeChannelSpec {
     pub protocol: String,
 }
 
-/// What one peer connection is built with (v2 `new PeerConnection(name, {..})`).
+/// What one peer connection is built with.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativePeerConfig {
     /// A log label; never SDP, never a grant.
     pub name: String,
-    /// Normalized `stun:host[:port]` URLs (v2 `iceServers`).
+    /// Normalized `stun:host[:port]` URLs.
     pub stun_urls: Vec<String>,
     pub bind_address: Option<IpAddr>,
-    /// Inclusive local UDP port range (v2 `portRangeBegin`/`portRangeEnd`).
+    /// Inclusive local UDP port range.
     pub port_range: Option<(u16, u16)>,
-    /// The largest message `send` accepts (v2 `maxMessageSize`).
+    /// The largest message `send` accepts.
     pub max_message_size: usize,
     pub channels: Vec<NativeChannelSpec>,
 }
 
-/// The callbacks node-datachannel delivered, as one ordered stream.
+/// The transport's callbacks, as one ordered stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NativePeerEvent {
-    /// ICE and DTLS are up (v2 `onStateChange("connected")`); the remote
+    /// ICE and DTLS are up; the remote
     /// fingerprint is readable from here on.
     Connected,
-    /// The connection failed (v2 state `failed` / ICE state `failed`).
+    /// The connection failed (connection state or ICE state `failed`).
     Failed,
-    /// The connection closed underneath its owner (v2 state `closed`).
+    /// The connection closed underneath its owner.
     Closed,
-    /// The remote opened a channel or track nobody negotiated
-    /// (v2 `onDataChannel` / `onTrack`).
+    /// The remote opened a channel or track nobody negotiated.
     UnsolicitedChannel,
     ChannelOpen(usize),
     ChannelMessage {
@@ -73,11 +70,11 @@ pub enum NativePeerEvent {
     /// Buffered bytes fell to the channel's low threshold after exceeding it.
     BufferedAmountLow(usize),
     ChannelClosed(usize),
-    /// A buffered write failed inside the transport (v2 channel `onError`).
+    /// A buffered write failed inside the transport.
     ChannelError(usize),
 }
 
-/// The remote DTLS certificate fingerprint (v2 `remoteFingerprint()`).
+/// The remote DTLS certificate fingerprint.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeFingerprint {
     pub algorithm: String,
@@ -107,8 +104,7 @@ pub enum NativePeerError {
 
 pub type NativePeerEvents = mpsc::UnboundedReceiver<NativePeerEvent>;
 
-/// One peer connection (v2 `InstanceType<TerminalPeerNative["PeerConnection"]>`
-/// plus its data channels, addressed by index).
+/// One peer connection plus its data channels, addressed by index.
 pub trait NativePeer: Send + Sync + fmt::Debug {
     /// Applies the remote offer, then resolves with the local answer when
     /// candidate gathering completes or `gathering_deadline` passes, carrying
@@ -120,7 +116,7 @@ pub trait NativePeer: Send + Sync + fmt::Debug {
     ) -> OwnerFuture<Result<String, NativePeerError>>;
     fn remote_fingerprint(&self) -> Option<NativeFingerprint>;
     /// `Ok(true)` handed to the transport now, `Ok(false)` accepted but
-    /// buffered behind earlier bytes (libdatachannel's `sendMessageBinary`).
+    /// buffered behind earlier bytes.
     fn send(&self, channel: usize, bytes: &[u8]) -> Result<bool, NativePeerError>;
     /// Accepted bytes the transport has not taken yet.
     fn buffered_amount(&self, channel: usize) -> usize;
@@ -130,22 +126,22 @@ pub trait NativePeer: Send + Sync + fmt::Debug {
     fn close(&self);
 }
 
-/// The loaded transport (v2 `TerminalPeerNative`).
+/// The loaded transport.
 pub trait NativePeerFactory: Send + Sync + fmt::Debug {
     fn create(
         &self,
         config: NativePeerConfig,
     ) -> Result<(Arc<dyn NativePeer>, NativePeerEvents), NativePeerError>;
-    /// Process teardown (v2 `native.cleanup()`); no peer is created after it.
+    /// Process teardown; no peer is created after it.
     fn cleanup(&self);
 }
 
-/// Loads the transport once per loader (v2 `nativeLoader`).
+/// Loads the transport once per loader.
 pub type NativeLoader =
     Arc<dyn Fn() -> OwnerFuture<Result<Arc<dyn NativePeerFactory>, NativePeerError>> + Send + Sync>;
 
-/// The production loader. Every clone shares one load, as v2's module-level
-/// `nativePromise` did, so the terminal and attachment owners hold one factory.
+/// The production loader. Every clone shares one load, so the terminal and
+/// attachment owners hold one factory.
 pub fn str0m_loader() -> NativeLoader {
     let loaded: Arc<OnceCell<Arc<dyn NativePeerFactory>>> = Arc::new(OnceCell::new());
     Arc::new(move || {
@@ -162,7 +158,7 @@ pub fn str0m_loader() -> NativeLoader {
     })
 }
 
-/// v2 `verifyRemoteFingerprint`'s test: a SHA-256 certificate whose digest is
+/// The fingerprint check: a SHA-256 certificate whose digest is
 /// the one the offer declared. An unreadable fingerprint does not match.
 pub fn remote_fingerprint_matches(peer: &dyn NativePeer, expected_sha256: &str) -> bool {
     let Some(fingerprint) = peer.remote_fingerprint() else {

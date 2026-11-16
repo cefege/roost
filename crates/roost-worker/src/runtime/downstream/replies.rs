@@ -1,11 +1,7 @@
 //! The frames the downstream dispatch answers with itself: refusals, the
 //! answers a worker without a later-wave owner gives, and the failure frames
 //! for an owner that panicked. Called by `runtime::downstream` and its
-//! `terminal` arms. Ports the literal frames of v2
-//! `apps/worker/src/transport/coord-link-downstream.ts` (`sendImmediateInputResult`,
-//! the stream-admission and stream-failure results, the unsupported answers)
-//! and `coord-link-direct-terminal.ts` (`sendPeerError`,
-//! `sendAttachmentPeerError`, `sendUnavailableAttachmentStatus`, `refusedClaim`).
+//! `terminal` arms.
 
 use roost_proto::buffa::MessageField;
 use roost_proto::{
@@ -31,9 +27,9 @@ pub(super) const LOCAL_ATTACHMENT_GRANTS_UNSUPPORTED: &str =
     "local attachment grants unsupported by this worker";
 pub(super) const KEEPER_UPDATE_PREPARE_UNSUPPORTED: &str =
     "keeper update preparation unsupported by this worker";
-/// v2 `refusedClaim`'s reason.
+/// The reason a route claim is refused.
 const ROUTE_CLAIM_BUSY: &str = "route_claim_busy";
-/// v2 `sendUnavailableAttachmentStatus`'s error.
+/// The error of an attachment status for an unknown upload.
 const UPLOAD_NOT_FOUND: &str = "upload_not_found";
 
 pub(super) fn rpc_error(request_id: String, message: impl Into<String>) -> CoordWorkerUpstream {
@@ -44,8 +40,8 @@ pub(super) fn rpc_error(request_id: String, message: impl Into<String>) -> Coord
     }
 }
 
-/// An `input-result` the dispatcher answers without an owner (v2
-/// `sendImmediateInputResult`). `None`, logged, when the coordinator's session
+/// An `input-result` the dispatcher answers without an owner.
+/// `None`, logged, when the coordinator's session
 /// id is not one the wire record can carry.
 pub(super) fn input_result(
     key: &InputResultKey,
@@ -122,7 +118,7 @@ impl StreamResultKey {
     }
 }
 
-/// v2 `refusedClaim`: not accepted, no route epoch, this process's epoch.
+/// A refused claim: not accepted, no route epoch, this process's epoch.
 pub(super) fn refused_claim(
     request: &DTerminalInputRouteClaim,
     worker_epoch: &str,
@@ -172,7 +168,7 @@ impl From<&DLocalTerminalPeerOffer> for PeerErrorKey {
     }
 }
 
-/// v2 `sendPeerError`.
+/// A terminal peer error frame.
 pub(super) fn terminal_peer_error(
     key: &PeerErrorKey,
     worker_epoch: &str,
@@ -188,7 +184,7 @@ pub(super) fn terminal_peer_error(
     })
 }
 
-/// v2 `sendAttachmentPeerError`.
+/// An attachment peer error frame.
 pub(super) fn attachment_peer_error(
     request: &DLocalAttachmentPeerOffer,
     worker_epoch: &str,
@@ -204,7 +200,7 @@ pub(super) fn attachment_peer_error(
     })
 }
 
-/// v2 `sendUnavailableAttachmentStatus`: an upload this worker has no record of.
+/// An attachment status for an upload this worker has no record of.
 pub(super) fn attachment_status_unavailable(
     request: &DAttachmentDirectStatusRequest,
 ) -> CoordWorkerUpstream {

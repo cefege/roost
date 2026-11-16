@@ -1,7 +1,6 @@
 //! The real session manager, the real emitter and delivery, over a scripted
 //! keeper and a recording coordinator sink: what the terminal stream tests drive.
-//! Mirrors v2 `apps/worker/tests/terminal/terminal-stream-state-harness.ts`,
-//! whose fake keeper socket answers resizes, history and terminal state.
+//! The scripted keeper answers resizes, history and terminal state.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 #![allow(dead_code)]
 

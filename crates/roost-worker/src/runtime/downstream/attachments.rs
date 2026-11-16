@@ -1,9 +1,7 @@
 //! The downstream attachment arms: a relayed upload chunk, a direct grant and
 //! its revocation, and a direct status request — each routed to the attachment
-//! owner, or answered as a v2 worker without that owner answers. Called by
-//! [`super::Dispatcher::dispatch`]. Ports those cases of v2
-//! `apps/worker/src/transport/coord-link-downstream.ts`,
-//! `coord-link-direct-terminal.ts` and the reply shapes of `coord-link-deps.ts`.
+//! owner, or answered as a worker without that owner answers. Called by
+//! [`super::Dispatcher::dispatch`].
 
 use std::sync::Arc;
 
@@ -20,9 +18,9 @@ use super::{Dispatcher, DownstreamLink};
 use crate::attachments::upload::RelayChunkOutcome;
 
 impl Dispatcher {
-    /// v2 `onAttachmentChunk`: the bytes are written before the next frame is
-    /// read. Only a final chunk or a refusal is answered, on whichever
-    /// connection is live when it settles — v2's unfenced `link().send`.
+    /// The bytes are written before the next frame is read. Only a final chunk
+    /// or a refusal is answered, on whichever connection is live when it
+    /// settles; the answer is not fenced to the connection the chunk arrived on.
     pub(super) fn attachment_chunk(&self, chunk: DAttachmentChunk) {
         let Some(owners) = &self.owners else {
             tracing::warn!(
@@ -47,7 +45,7 @@ impl Dispatcher {
                     Ok(RelayChunkOutcome::Failed(error)) => {
                         replies::rpc_error(request_id, error.message())
                     }
-                    // v2 `handleAttachmentChunk`'s `.catch`: logged, never answered.
+                    // An owner failure is logged, never answered.
                     Err(message) => {
                         tracing::warn!(%request_id, error = %message, "attachment_reply_failed");
                         return;
@@ -58,7 +56,7 @@ impl Dispatcher {
         );
     }
 
-    /// v2 `localAttachmentGrant`: installed → `rpc-ok { grant_id }`, refused →
+    /// A direct grant: installed → `rpc-ok { grant_id }`, refused →
     /// the store's own message.
     pub(super) fn attachment_grant(
         &self,
@@ -86,7 +84,7 @@ impl Dispatcher {
         link.reply(reply);
     }
 
-    /// v2 `localAttachmentGrantRevoke`: nothing is answered.
+    /// A grant revocation: nothing is answered.
     pub(super) fn attachment_grant_revoke(&self, request: &DLocalAttachmentGrantRevoke) {
         match &self.owners {
             Some(owners) => owners
@@ -98,7 +96,7 @@ impl Dispatcher {
         }
     }
 
-    /// v2 `attachmentDirectStatusRequest`: the operation's durable status, or
+    /// A direct status request: the operation's durable status, or
     /// `upload_not_found` from a worker without the owner.
     pub(super) fn attachment_status(
         &self,

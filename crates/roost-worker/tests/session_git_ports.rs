@@ -1,6 +1,5 @@
 #![cfg(unix)]
-//! Pins v2 `apps/worker/src/session/session-git-ports.ts` as the session side
-//! of the folder watcher applies it: a reading that changes what the session
+//! The session side of the folder watcher: a reading that changes what the session
 //! shows is written to the record and published once (`git`, `pr`, `ports`), an
 //! unchanged one is not, a non-repository or an unsampled record publishes
 //! nothing, a reading for a record that is no longer this session's is dropped,
@@ -183,8 +182,8 @@ fn ports_publish_only_on_change_and_an_unsampled_record_equals_none_listening() 
     assert!(matches!(&events[1], SessionEvent::Ports { ports, .. } if ports.is_empty()));
 }
 
-/// v2 `sessions.get(rec.channelId) !== rec`: a watcher started for one record
-/// generation cannot write into another session that now owns the channel.
+/// A watcher started for one record generation cannot write into another
+/// session that now owns the channel.
 #[test]
 fn a_reading_for_a_channel_now_held_by_another_session_is_dropped() {
     let fixture = fixture();

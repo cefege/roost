@@ -1,8 +1,7 @@
 //! The capability-probe tokenizer and the single ordered reply lane's core
 //! half: feed one PTY chunk to the core and say what the application is owed
 //! for it, in probe order. `session::scrollback` calls [`answer_queries`] for
-//! every chunk; nothing else writes a live core with `write_raw`. Ports
-//! `apps/worker/src/terminal/terminal-query-reply.ts`.
+//! every chunk; nothing else writes a live core with `write_raw`.
 //!
 //! TWO SOURCES FEED ONE LANE, and the application reads both off one stdin:
 //!   native     probes the core answers itself — the cursor report (`CSI 6n`),
@@ -23,7 +22,7 @@
 //! The core also answers DA1, DA2, XTVERSION, `CSI 5n`, DECRQM (except mode
 //! 2027, which is forwarded) and `CSI 18t`;
 //! those are WITHHELD so DA1 and XTVERSION are synthesized once and the rest
-//! stay as v2 left them.
+//! go unanswered.
 //!
 //! A Kitty keyboard query is segmented like a synthesized probe to preserve ordering; replay uses [`TerminalCore::write`].
 //!
@@ -82,7 +81,7 @@ pub struct QueryReply {
     pub synth_bytes: usize,
     /// Bytes of an unterminated CSI abandoned at [`QUERY_CARRY_MAX`].
     pub dropped_carry: usize,
-    /// Native replies v2's core never sent, withheld rather than forwarded.
+    /// Native replies the lane does not forward, withheld instead.
     pub withheld_native: u32,
 }
 

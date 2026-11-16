@@ -3,11 +3,10 @@
 //! truthful outcome it is told ([`WorkerStreamResult`]), and which generation
 //! owns each channel ([`TerminalStreams`]). `session::terminal_control` mints
 //! generations, `session::terminal_txn` settles them, `terminal_view` and the
-//! pipeline snapshot read them. Ports `apps/worker/src/session/session-terminal-state.ts`
-//! and the `terminalStreams`/`lastAppliedSize` maps of `session-manager-state.ts`.
+//! pipeline snapshot read them.
 //!
-//! WHAT IS NOT HERE. v2's `TerminalStreamState` also carried the per-sink
-//! deliveries, the live resize capture and `coreValid`. Those are the emitter's
+//! WHAT IS NOT HERE. A generation carries no per-sink deliveries, no live resize capture and no
+//! `core_valid`. Those are the emitter's
 //! (`session::emit::StreamOutput`) and the delivery's (`runtime::channel_delivery`)
 //! in this crate, because a second copy of "is this core trustworthy" is two
 //! answers the ingest path and the transaction would disagree on.
@@ -27,13 +26,13 @@ use super::types::SessionRecord;
 /// layer does not depend on the link.
 pub type StreamOperation = Pin<Box<dyn Future<Output = WorkerStreamResult> + Send + 'static>>;
 
-/// v2 `TerminalRequestBudget` (`coord-link-types.ts:65`) as a stream
-/// transaction reads it. The coordinator path answers from its link fence and
+/// The request budget a stream
+/// transaction reads. The coordinator path answers from its link fence and
 /// frame-receipt budget; a view owner answers from its own stream table.
 pub trait StreamRequestBudget: Send + Sync + std::fmt::Debug {
     /// False once whatever asked can no longer receive the answer.
     fn is_current_connection(&self) -> bool;
-    /// v2 `remainingMs() <= 0`.
+    /// No time remains.
     fn expired(&self) -> bool;
 }
 
@@ -42,7 +41,7 @@ pub trait StreamRequestBudget: Send + Sync + std::fmt::Debug {
 /// the lock the ingest path parses under. `runtime::channel_delivery` is the
 /// production implementation; the halves live in `session::emit_streams`.
 pub trait StreamEmission: Send + Sync {
-    /// v2 `applyTerminalStreamState`'s mint: retire the old generation's
+    /// Mint a generation: retire the old generation's
     /// deliveries and queued work, address the emit state to `stream_id`, and
     /// carry core validity across (a fresh channel starts valid).
     fn mint_stream(
@@ -54,26 +53,26 @@ pub trait StreamEmission: Send + Sync {
     );
     /// Whether this channel's core may be parsed and emitted from.
     fn core_valid(&self, channel_id: ChannelId) -> bool;
-    /// v2 `installTerminalBaseline`, answering whether the core is still
+    /// Install a baseline, answering whether the core is still
     /// valid afterwards (an unencodable full latches it invalid).
     fn install_baseline(&self, record: &mut SessionRecord, now_ms: i64) -> bool;
-    /// v2 `retireStreamDelivery` + `clearStreamDeliveryDirty`.
+    /// Retire the stream delivery and clear its dirty mark.
     fn retire_delivery(&self, channel_id: ChannelId);
-    /// v2 `resetEmissionEpoch`'s delivery half: every sink owes a new baseline.
+    /// The delivery half of an emission-epoch reset: every sink owes a new baseline.
     fn reset_delivery(&self, channel_id: ChannelId);
-    /// v2 `failCore`'s delivery half: retire, latch the core invalid, cancel
+    /// The delivery half of failing a core: retire, latch the core invalid, cancel
     /// queued emission. Later chunks take the retain-only lane.
     fn trap_core(&self, channel_id: ChannelId);
-    /// A re-proved core may emit again (v2 `state.coreValid = true`).
+    /// A re-proved core may emit again.
     fn prove_core(&self, channel_id: ChannelId);
     /// Queue the probe replies a boundary replay produced for the PTY, AFTER
-    /// the resize (v2 `forwardReplies`), on the same lane live replies take.
+    /// the resize, on the same lane live replies take.
     fn forward_query_replies(&self, record: &SessionRecord, replies: String);
     /// The capture recorder's tap, for the resize boundary's notes.
     fn capture_tap(&self) -> crate::capture::CaptureTap;
 }
 
-/// One aggregated stream desire (v2 `WorkerTerminalStreamIntent`).
+/// One aggregated stream desire.
 #[derive(Debug, Clone)]
 pub struct StreamIntent {
     pub request_id: String,
@@ -82,11 +81,11 @@ pub struct StreamIntent {
     pub enabled: bool,
     pub cols: u32,
     pub rows: u32,
-    /// Absent for a caller with no deadline, exactly as v2's optional budget.
+    /// Absent for a caller with no deadline.
     pub budget: Option<Arc<dyn StreamRequestBudget>>,
 }
 
-/// v2 `WorkerTerminalStreamResult` (`session-terminal-state.ts:16`). A committed
+/// The outcome of a stream desire. A committed
 /// result is always phase `written`; the two failures carry their own phase
 /// because a keeper refusal after the write is `rejected` + `written`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,7 +120,7 @@ pub enum WorkerStreamResult {
     },
 }
 
-/// Whether a failure is a rejection or an ambiguity: the two v2 statuses a
+/// Whether a failure is a rejection or an ambiguity: the two statuses a
 /// `failed(...)` result can carry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FailedStatus {
@@ -130,7 +129,7 @@ pub enum FailedStatus {
 }
 
 impl WorkerStreamResult {
-    /// v2 txn `committed()`: a disabled stream reports zero geometry.
+    /// A committed result: a disabled stream reports zero geometry.
     pub fn committed(facts: StreamFacts<'_>, channel_resize_seq: u64, resized: bool) -> Self {
         let (cols, rows) = if facts.enabled {
             (facts.cols, facts.rows)
@@ -147,7 +146,7 @@ impl WorkerStreamResult {
         }
     }
 
-    /// v2 txn `failed()`, with its phase default: a rejection is pre-write and
+    /// A failed result, with its phase default: a rejection is pre-write and
     /// an ambiguity is unknown unless the caller proved otherwise.
     pub fn failed(
         facts: StreamFacts<'_>,
@@ -231,9 +230,9 @@ pub struct StreamFacts<'a> {
     pub rows: u32,
 }
 
-/// The generation that owns one channel (v2 `TerminalStreamState` minus the
-/// emitter-owned fields). `version` is the object identity v2 compared with
-/// `!==`: a transaction whose generation is no longer current is superseded.
+/// The generation that owns one channel, minus the emitter-owned fields.
+/// `version` is the generation's identity: a transaction whose generation is no
+/// longer current is superseded.
 #[derive(Clone)]
 pub struct StreamGeneration {
     pub stream_id: String,
@@ -242,8 +241,7 @@ pub struct StreamGeneration {
     pub rows: u32,
     pub version: u64,
     /// The transaction this generation was minted with. A repeated request for
-    /// the same stream id is answered from it, finished or not, as v2 returns
-    /// `current.operation`.
+    /// the same stream id is answered from it, finished or not.
     pub(crate) operation: Shared<StreamOperation>,
 }
 
@@ -272,7 +270,7 @@ impl std::fmt::Debug for StreamGeneration {
 }
 
 /// What a reader outside the transaction may know about a channel's stream
-/// (v2 readers of `terminalStreams.get(ch)`: the view screen, the pipeline).
+/// (the view screen and the pipeline).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalStreamFacts {
     pub version: u64,
@@ -307,7 +305,7 @@ impl TerminalStreams {
         self.table().generations.get(&channel_id).cloned()
     }
 
-    /// Whether `version` still owns the channel (v2 `terminalStreams.get(ch) === state`).
+    /// Whether `version` still owns the channel.
     pub fn is_current(&self, channel_id: ChannelId, version: u64) -> bool {
         self.table()
             .generations
@@ -331,7 +329,7 @@ impl TerminalStreams {
         })
     }
 
-    /// The geometry the core was last proven at (v2 `lastAppliedSize`).
+    /// The geometry the core was last proven at.
     pub fn applied_size(&self, channel_id: ChannelId) -> Option<(u16, u16)> {
         self.table().applied_size.get(&channel_id).copied()
     }
@@ -340,8 +338,7 @@ impl TerminalStreams {
         self.table().applied_size.insert(channel_id, (cols, rows));
     }
 
-    /// A closed channel's generation and geometry go with it (v2
-    /// `session-lifecycle.ts:252-253`).
+    /// A closed channel's generation and geometry go with it.
     pub fn forget(&self, channel_id: ChannelId) {
         let mut table = self.table();
         let had = table.generations.remove(&channel_id).is_some();
@@ -367,8 +364,7 @@ impl StreamSlot<'_> {
         self.table.applied_size.get(&self.channel_id).copied()
     }
 
-    /// Install the generation `build` makes from the next version (v2
-    /// `nextTerminalStreamVersion` + `terminalStreams.set`), and return it.
+    /// Install the generation `build` makes from the next version, and return it.
     pub(crate) fn install(
         &mut self,
         build: impl FnOnce(u64) -> StreamGeneration,

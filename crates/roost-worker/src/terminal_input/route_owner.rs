@@ -3,7 +3,7 @@
 //! `route_attempt`) before any bytes reach the keeper, a writer asks
 //! `is_current` for its epoch, and `session::input_write` asks again immediately
 //! before the keeper write. Called by `terminal_input::port` (coordinator link)
-//! and the local door. Ports `apps/worker/src/terminal/terminal-input-route-owner.ts`.
+//! and the local door.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -37,7 +37,7 @@ pub struct RouteActor {
     pub connection_id: String,
 }
 
-/// The claim fields the owner reads. v2 `TerminalInputRouteClaim`.
+/// The claim fields the owner reads.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouteClaim {
     pub request_id: String,
@@ -47,12 +47,12 @@ pub struct RouteClaim {
 }
 
 /// A claim's request budget plus the ingress's live session authority, which
-/// is retained as a predicate rather than snapshotted. v2 `TerminalInputRouteClaimBudget`.
+/// is retained as a predicate rather than snapshotted.
 pub trait RouteClaimBudget: TerminalWriteBudget {
     fn is_session_authorized(&self) -> bool;
 }
 
-/// The clock tombstones are measured on; a test seam, as in v2.
+/// The clock tombstones are measured on; a test seam.
 pub type RouteClock = Arc<dyn Fn() -> Instant + Send + Sync>;
 
 pub(super) type RouteKey = (String, String, String);
@@ -116,7 +116,7 @@ impl RouteShared {
     }
 }
 
-/// v2 `TerminalInputRouteOwner`. Cheap to clone; clones share one route table.
+/// The owner of the route table. Cheap to clone; clones share one route table.
 #[derive(Clone)]
 pub struct TerminalInputRouteOwner {
     shared: Arc<RouteShared>,

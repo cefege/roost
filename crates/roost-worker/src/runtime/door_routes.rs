@@ -1,5 +1,5 @@
-//! The loopback door's one request handler (v2 `local-door/local-ui-server.ts`
-//! `fetch`): the Host and Origin gate, the bootstrap, the two socket upgrades,
+//! The loopback door's one request handler: the Host and Origin gate, the
+//! bootstrap, the two socket upgrades,
 //! and the page fallback, every answer stamped with the shared security
 //! headers. Mounted by `runtime::door_serve` on the bound listener; reads its
 //! policy from `crate::door` and hands upgraded sockets to the route owners.
@@ -27,8 +27,8 @@ use crate::door::{
 #[derive(Debug)]
 pub struct DoorState {
     pub admission: DoorAdmission,
-    /// v2 `applySecurityHeaders(headers, false, false, connectOrigins)`,
-    /// resolved once: the values cannot change while the door serves.
+    /// The shared security headers, resolved once: the values cannot change
+    /// while the door serves.
     pub security: Vec<(HeaderName, HeaderValue)>,
     /// `{"coordinatorUrl":…,"workerFingerprint":…}`, serialized once.
     pub bootstrap_body: Bytes,
@@ -38,8 +38,8 @@ pub struct DoorState {
     pub stop: watch::Receiver<bool>,
 }
 
-/// The door's router: one fallback, because v2 branches on the path inside a
-/// single handler and a path a route table does not name is still a page.
+/// The door's router: one fallback, because the one handler branches on the
+/// path itself and a path a route table does not name is still a page.
 pub fn router(state: Arc<DoorState>) -> Router {
     Router::new().fallback(fetch).with_state(state)
 }
@@ -164,7 +164,7 @@ fn allow_origin(headers: &mut HeaderMap, origin: &str) {
     }
 }
 
-/// Upgrade a loopback socket onto its route's owner, in v2's order: method,
+/// Upgrade a loopback socket onto its route's owner, in this order: method,
 /// then subprotocol, then the handshake itself.
 async fn upgrade(
     door: &DoorState,
@@ -238,7 +238,7 @@ fn refused(status: StatusCode, reason: impl Display, facts: &RequestFacts) -> Re
 }
 
 /// Every answer carries the security headers except the handshake that
-/// switches protocols, which v2 answered with the subprotocol alone.
+/// switches protocols, which carries the subprotocol alone.
 fn secured(door: &DoorState, mut response: Response) -> Response {
     if response.status() != StatusCode::SWITCHING_PROTOCOLS {
         let headers = response.headers_mut();

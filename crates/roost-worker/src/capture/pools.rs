@@ -1,8 +1,7 @@
 //! Bounded record pools for one armed recording: the byte budgets, the
 //! oldest-first eviction, and the omission ledger that names every evicted
-//! range. Ports `apps/worker/src/diag/terminal-capture-pools.ts`; called by
-//! `super::recorder_state`, `super::emission` and `super::recorder`. Every
-//! ceiling comes from `TERMINAL_CAPTURE_LIMITS`.
+//! range. Called by `super::recorder_state`, `super::emission` and
+//! `super::recorder`. Every ceiling comes from `TERMINAL_CAPTURE_LIMITS`.
 
 use std::collections::VecDeque;
 
@@ -188,7 +187,7 @@ pub fn approximate_cell_frame_bytes(frame: &CellGridFrame) -> u64 {
         + approximate_cell_rows_bytes(&frame.scrollback_append)
 }
 
-/// Text is measured in UTF-16 code units, as v2's `string.length` measured it.
+/// Text is measured in UTF-16 code units, the unit a JavaScript string length counts.
 pub fn approximate_cell_rows_bytes(rows: &[CellRow]) -> u64 {
     let units = |text: Option<&String>| text.map_or(0, |text| text.encode_utf16().count() as u64);
     rows.iter()

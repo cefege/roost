@@ -1,7 +1,7 @@
 //! The session layer's [`CellDelivery`] over the one shared `CellEmitter`: the
-//! manager's reach into v2 `session-manager.ts` `installTerminalBaseline` (on
-//! stream install), `markInputSensitive`, `cancelCellEmission` and
-//! `_releaseSyncOutputHold`. Built by `runtime::session_stack`, which hands
+//! manager's reach into the emitter for the terminal baseline on stream
+//! install, input-sensitivity marking, cell-emission cancellation and the
+//! sync-output release. Built by `runtime::session_stack`, which hands
 //! [`TableCellDelivery::emitter`] to `super::channel_delivery` and the cadence.
 //! Lock order: `cells` → record → emitter; never take a record under the emitter.
 
@@ -58,10 +58,9 @@ impl TableCellDelivery {
 }
 
 impl CellDelivery for TableCellDelivery {
-    /// Adopt a channel's stream generation and owe its baseline (v2 commits a
-    /// stream and then `installTerminalBaseline`s it). A channel the table does
-    /// not hold is reported and left alone: installing a generation nothing
-    /// will emit against is a row that looks live and paints nothing.
+    /// Adopt a channel's stream generation and owe its baseline. A channel the
+    /// table does not hold is reported and left alone: installing a generation
+    /// nothing will emit against is a row that looks live and paints nothing.
     fn install_stream(&mut self, channel_id: ChannelId, stream_id: &str) {
         let Some(record) =
             Self::table_key(channel_id).and_then(|raw| self.sessions.record_of_channel(raw))

@@ -9,7 +9,7 @@
 //! or a history assembled from a head nobody reported, is a wrong screen that
 //! no amount of stubbing would have caught.
 //!
-//! The history is the keeper's ordered answer (v2 `getHistoryRecords`): the
+//! The history is the keeper's ordered answer: the
 //! byte head, the base geometry and the resize markers a replay needs, read at
 //! the boundary a reattach takes effect. Depends on `keeper_pool_support`.
 
@@ -88,7 +88,7 @@ fn a_restarted_worker_finds_the_channels_the_keeper_still_holds() {
 }
 
 /// A SURVIVOR'S BYTES GO WHERE THE NEW WORKER PUT THEM, from exactly the
-/// history's head: v2 `reattach` + `getHistoryRecords` at one keeper boundary,
+/// history's head: the reattach and the history read share one keeper boundary,
 /// so output inside the returned history is never delivered again and output
 /// after it reaches only the new binding.
 #[test]
@@ -234,8 +234,7 @@ fn a_refused_resize_is_reported_rather_than_swallowed() {
 }
 
 /// A resize is a marker in the history at the byte it took effect, under the
-/// sequence that applied it, so an adopter reflows exactly where the PTY did
-/// (v2 `appendResizeHistory`).
+/// sequence that applied it, so an adopter reflows exactly where the PTY did.
 #[test]
 fn a_resize_is_a_marker_in_the_survivors_history() {
     let fixture = KeeperFixture::start();

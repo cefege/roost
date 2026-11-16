@@ -13,7 +13,6 @@
 //! `session::retained_grid`, `runtime::deps`. Depends on `super::types` for the
 //! record and on `roost_protocol` for the two id brands — nothing that depends
 //! on it back.
-//! Ports v2 `apps/worker/src/session/session-lifecycle.ts`, `apps/worker/src/session/session-manager.ts`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -28,7 +27,7 @@ use crate::browser_commands::Refusal;
 struct LiveSet {
     by_channel: HashMap<u16, Arc<Mutex<SessionRecord>>>,
     by_session: HashMap<SessionId, u16>,
-    /// Sessions with a respawn in flight (v2 `pendingSpawnSessionIds`).
+    /// Sessions with a respawn in flight.
     respawning: std::collections::HashSet<SessionId>,
 }
 
@@ -63,7 +62,7 @@ impl SessionTable {
     }
 
     /// Install a respawned record under the SAME session id, displacing the
-    /// record on `replaces` (v2 `session-respawn.ts` swaps the map entries).
+    /// record on `replaces` (the map entries are swapped).
     /// The displaced entry is handed back for the caller to retire; a session
     /// held on any other channel, or a channel already live, is refused.
     #[allow(clippy::type_complexity)]

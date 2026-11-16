@@ -1,7 +1,6 @@
 //! Remote evidence for one CAPTURE: envelope-check the browser and coordinator
 //! JSON, and derive from the browser's painted states the exact absolute
-//! history rows the worker reads back. Ports `apps/worker/src/diag/
-//! terminal-capture-evidence.ts`; called by `super::write` before the freeze.
+//! history rows the worker reads back. Called by `super::write` before the freeze.
 //! No remote field is trusted for anything but a bounded row range.
 
 use serde_json::{Map, Value};
@@ -123,7 +122,7 @@ fn collect_gap_ranges(state: &Map<String, Value>, ranges: &mut Vec<HistoryReques
     }
 }
 
-/// A JSON number that is an exact non-negative integer (v2 `isSafeInteger`).
+/// A JSON number that is an exact non-negative integer.
 fn safe_row_number(value: &Value) -> Option<u64> {
     let number = value.as_number()?;
     let row = match (number.as_u64(), number.as_f64()) {

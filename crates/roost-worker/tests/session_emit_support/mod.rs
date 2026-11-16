@@ -27,11 +27,10 @@ use roost_worker::shell_spec::ShellSpec;
 /// What this sink answers for every frame.
 ///
 /// `Dropped` and `Overflow` refuse DELTAS and take every full, which is how the
-/// v2 tests they port drive a refusing sink: the repair tests answer `sent` for
-/// any `frame.full` (`apps/worker/tests/session/session-cell-sinks.test.ts:60`,
-/// `:122`), and the overflow test flips its sink to `overflow` only after the
-/// baseline landed (same file, `:91-97`). A sink that refused its baseline too
-/// would park a cursor, and no delta would ever be built to refuse.
+/// repair tests drive a refusing sink: they answer `sent` for any `frame.full`,
+/// and the overflow test flips its sink to `overflow` only after the baseline
+/// landed. A sink that refused its baseline too would park a cursor, and no delta
+/// would ever be built to refuse.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Answer {
     Sent,

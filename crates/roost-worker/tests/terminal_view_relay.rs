@@ -2,8 +2,7 @@
 //! relayed view command comes back as a `terminal-view-state` for that browser
 //! socket plus a `terminal-view-projection` on the real `Uplink` receiver; only
 //! a local socket is seeded with a worker full; a resync is served only on the
-//! current stream; a closed relayed socket parks until its grace lapses. v2:
-//! `terminal-view-owner{,-screen}.ts` `handleRelay`, `seedSocket`, `closeSocket`.
+//! current stream; a closed relayed socket parks until its grace lapses.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod terminal_view_support;

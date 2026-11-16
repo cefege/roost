@@ -1,8 +1,7 @@
-//! Ports v2 `apps/worker/tests/transport/heartbeat.test.ts`: the completion-
-//! scheduled loop (first attempt awaited, exact RPC deadline, no overlap, next
-//! attempt timed from settlement), last-good metrics, per-instance stall
-//! counting, the capacity report, and the keeper runtime proof's gating on the
-//! reconciliation it belongs to. Time is tokio's paused clock (v2 fake timers).
+//! The completion-scheduled loop (first attempt awaited, exact RPC deadline, no
+//! overlap, next attempt timed from settlement), last-good metrics, per-instance
+//! stall counting, the capacity report, and the keeper runtime proof's gating on
+//! the reconciliation it belongs to. Time is tokio's paused clock.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -148,9 +147,8 @@ async fn counts_one_miss_per_settlement_resets_on_success_and_isolates_instances
     stop_first.stop();
     stop_second.stop();
 
-    // Beyond v2's assertions, which the signal cooldown leaves blind to a
-    // count that never resets: miss, miss, success, miss, miss is never three
-    // consecutive misses, so nothing may stall.
+    // A count that never resets would hide behind the signal cooldown: miss, miss,
+    // success, miss, miss is never three consecutive misses, so nothing may stall.
     let interrupted = ScriptedRpc::new(move |attempt| {
         if attempt == 3 {
             Ok(()).into()

@@ -13,7 +13,6 @@
 //! the terminal metadata producer, `cell_sink.rs` the coordinator's cell
 //! receiver, `browser.rs` the command pump, and `reconnect_loop.rs` the loop
 //! over dials.
-//! Ports v2 `apps/worker/src/transport/coord-link.ts`.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -183,7 +182,7 @@ impl std::fmt::Debug for LinkLoop {
 
 impl LinkLoop {
     /// A link with no downstream owners: until [`LinkLoop::attach_owners`] it
-    /// answers every terminal request as a v2 worker without those callbacks.
+    /// answers every terminal request as a worker without those owners does.
     pub fn new(
         endpoint: CoordinatorEndpoint,
         identity: WorkerIdentity,
@@ -242,8 +241,8 @@ impl LinkLoop {
         tracing::info!("the coordinator link's downstream owners are attached");
     }
 
-    /// Advertise the direct peers whose owners bootstrapped (v2
-    /// `peerSupported` / `attachmentPeerSupported`). Called once, before
+    /// Advertise the direct peers whose owners bootstrapped
+    /// (terminal peer and attachment peer support). Called once, before
     /// [`LinkLoop::run`].
     pub fn attach_direct_peers(&mut self, support: crate::peer::DirectPeerSupport) {
         self.direct_peers = support;

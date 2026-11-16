@@ -1,14 +1,13 @@
 //! The pool's connection lifecycle: the keeper going away, every channel it
 //! drove ending with it, the death hook the reconcile gate registers, and the
-//! reconnect a later reconcile performs. Ports the close handler and
-//! `setOnKeeperDeath` of `apps/worker/src/keeper/keeper-pool-lifecycle.ts` /
-//! `multiplexed-client.ts`. Called by the dispatch loop (a closed connection),
-//! by `KeeperPool::request` (a failed write), and by `runtime::session_reconcile`.
+//! reconnect a later reconcile performs. Called by the dispatch loop (a closed
+//! connection), by `KeeperPool::request` (a failed write), and by
+//! `runtime::session_reconcile`.
 //!
 //! A LOST KEEPER CONNECTION IS A DEAD KEEPER, and every channel it drove is
-//! told `on_exit(None)`, as v2's socket-close handler does: the sessions close,
-//! and the death hook drives the reconcile that respawns what the coordinator
-//! still lists open under a fresh keeper.
+//! told `on_exit(None)`: the sessions close, and the death hook drives the
+//! reconcile that respawns what the coordinator still lists open under a fresh
+//! keeper.
 
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, PoisonError};
@@ -22,8 +21,7 @@ use super::pool::KeeperPool;
 pub type KeeperDeathHook = Arc<dyn Fn() + Send + Sync>;
 
 impl KeeperPool {
-    /// Register the one death hook (v2 `setOnKeeperDeath`). A second
-    /// registration replaces the first, as v2's setter does.
+    /// Register the one death hook. A second registration replaces the first.
     pub fn set_on_keeper_death(&self, hook: KeeperDeathHook) {
         *self
             .death_hook
@@ -75,9 +73,8 @@ impl KeeperPool {
         }
     }
 
-    /// Drive a new keeper connection from now on (v2 `ensure()` after a death):
-    /// the old client is dropped, and the pool is connected again with an
-    /// empty channel table.
+    /// Drive a new keeper connection from now on: the old client is dropped,
+    /// and the pool is connected again with an empty channel table.
     pub fn reconnect(&self, client: KeeperClient) {
         self.keeper.replace(client);
         self.channels.drain();

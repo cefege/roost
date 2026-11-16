@@ -1,9 +1,7 @@
 //! Respawning a logical session onto a fresh keeper PTY without replacing the
 //! session: a new channel under the SAME session id, announced by `respawned`,
 //! and — when this worker still held a record for it — the old record retired
-//! and its PTY killed only once that event is durable. Ports
-//! `apps/worker/src/session/session-respawn.ts` and
-//! `session-respawn-admission.ts`. Called by `runtime::session_reconcile`
+//! and its PTY killed only once that event is durable. Called by `runtime::session_reconcile`
 //! (reservations owned by the reconcile) and by the browser's
 //! `respawn-if-missing` (`lifecycle_commands`).
 
@@ -28,7 +26,7 @@ pub struct RespawnRequest {
     pub session_id: SessionId,
     pub cwd: String,
     /// Used when this worker holds no record for the session; a held record's
-    /// own launch contract always wins (v2 `existing?.shellSpec ?? opts.shellSpec`).
+    /// own launch contract always wins.
     pub shell_spec: Option<ShellSpec>,
     pub cols: Option<u16>,
     pub rows: Option<u16>,
@@ -42,7 +40,7 @@ pub struct Respawned {
 }
 
 /// Why a respawn failed. The first two are the classes the reconcile stops on
-/// (v2 `isSessionEventDurabilityError`, `isTerminalCoreCapacityError`).
+/// (event durability and terminal core capacity).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RespawnError {
     #[error("{0}")]
@@ -55,7 +53,7 @@ pub enum RespawnError {
 
 impl SessionManager {
     /// The launch contract a session is opened under, through the manager's one
-    /// resolver (v2 `resolveShellSpec({cwd, sessionId, envOverlay})`).
+    /// resolver.
     pub fn resolve_shell_spec(&self, cwd: &str, session_id: &str) -> Result<ShellSpec, String> {
         self.resolver.resolve_shell_spec(cwd, session_id)
     }
@@ -69,7 +67,7 @@ impl SessionManager {
         self.events.reserve(kind).await
     }
 
-    /// v2 `respawnIfMissing`: the held record when there is one, else a respawn
+    /// The held record when there is one, else a respawn
     /// under fresh claims that are given back if it fails.
     pub async fn respawn_lost_child(
         &self,
@@ -106,7 +104,7 @@ impl SessionManager {
         })
     }
 
-    /// v2 `respawn` without caller reservations: claims taken here and given
+    /// Respawn without caller reservations: claims taken here and given
     /// back if the respawn fails.
     async fn respawn_missing(
         &self,
@@ -135,7 +133,7 @@ impl SessionManager {
             .map_err(|error| Refusal::failed("sessions", error.to_string()))
     }
 
-    /// v2 `respawn`: open a new channel for `request.session_id`, announce it
+    /// Open a new channel for `request.session_id`, announce it
     /// with `respawned` under `event`, and only then retire a record this
     /// worker still held for the session (its claim released, its PTY killed).
     pub async fn respawn_session(
@@ -145,7 +143,7 @@ impl SessionManager {
         close: Reservation,
         claims: ClaimsOnFailure,
     ) -> Result<Respawned, RespawnError> {
-        // v2 `#executeAdmittedChannelCreation`: a respawn holds the creation
+        // A respawn holds the creation
         // lease for its whole length, so a keeper update cannot start under it.
         let _lease = match self.admit_channel_creation() {
             Ok(lease) => lease,
@@ -280,7 +278,7 @@ impl SessionManager {
 
     /// The record a durable `respawned` just superseded: its close claim goes
     /// back (the session did not close), its delivery state is dropped, and
-    /// its PTY is killed so no orphan outlives it (v2 `session-respawn.ts:169-175`).
+    /// its PTY is killed so no orphan outlives it.
     async fn retire_replaced(&self, old: Arc<std::sync::Mutex<super::types::SessionRecord>>) {
         let (channel_id, reservation) = {
             let record = old.lock().unwrap_or_else(|poisoned| poisoned.into_inner());

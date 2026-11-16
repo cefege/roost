@@ -1,17 +1,15 @@
 //! The filename an upload lands under: every control character stripped, the
 //! leaf kept, its extension preserved, the stem bounded and never a dotfile.
-//! Ports the POSIX branch of v2 `sanitizeAttachmentName`
-//! (`apps/worker/src/attachments/attachment-reaper.ts`) together with the
-//! Node `path.posix.extname` rule it parses with. Called by the file store.
+//! The POSIX branch of the rules. Called by the file store.
 
-/// A sanitized name's budget, in UTF-16 code units because v2 measured and
-/// sliced JavaScript strings.
+/// A sanitized name's budget, in UTF-16 code units: the length a JavaScript
+/// string reports for the name.
 const NAME_MAX_UNITS: usize = 80;
 
 /// What a stem that sanitizes to nothing becomes.
 const EMPTY_STEM: &str = "file";
 
-/// v2 `sanitizeAttachmentName` on darwin and linux.
+/// Sanitize a name for darwin and linux.
 pub fn sanitize_attachment_name(raw: &str) -> String {
     let clean: String = raw
         .chars()
@@ -30,7 +28,7 @@ pub fn sanitize_attachment_name(raw: &str) -> String {
     format!("{stem}{extension}")
 }
 
-/// Node `path.posix.extname` of one leaf: from its last dot, unless that dot
+/// The extension of one leaf: from its last dot, unless that dot
 /// begins the leaf (a dotfile has no extension) or the leaf is exactly `..`.
 pub(crate) fn node_extname(leaf: &str) -> &str {
     let bytes = leaf.as_bytes();
@@ -43,13 +41,12 @@ pub(crate) fn node_extname(leaf: &str) -> &str {
     &leaf[last_dot..]
 }
 
-/// C0, DEL and C1 — v2's `/[\x00-\x1F\x7F-\x9F]/g`.
+/// C0, DEL and C1.
 fn is_stripped_control(character: char) -> bool {
     character <= '\u{1F}' || ('\u{7F}'..='\u{9F}').contains(&character)
 }
 
-/// The last `/`-separated segment, trailing separators ignored, as Node's
-/// `basename` reads a path.
+/// The last `/`-separated segment, trailing separators ignored.
 fn last_segment(path: &str) -> &str {
     let trimmed = path.trim_end_matches('/');
     trimmed.rsplit('/').next().unwrap_or(trimmed)

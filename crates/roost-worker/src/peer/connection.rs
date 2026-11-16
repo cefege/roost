@@ -2,8 +2,7 @@
 //! channels before applying remote SDP, binds the socket owner's ingress to
 //! the packet port before any frame can arrive, verifies the browser's DTLS
 //! fingerprint once connected, and retires itself on any failure rather than
-//! renegotiating. Built by `peer::owner_offer`. Ports v2
-//! `apps/worker/src/terminal/peer/terminal-peer-connection.ts`.
+//! renegotiating. Built by `peer::owner_offer`.
 
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
@@ -27,7 +26,7 @@ use super::packet_port::{PacketPortDeps, TerminalPeerPacketIngress, TerminalPeer
 use super::peer_budget::TerminalPeerPacketPeerBudget;
 use crate::local_terminal::{ExpectedPeer, TerminalPacketPort};
 
-/// v2 `TerminalPeerConnectionConfig`.
+/// What one terminal peer connection is configured with.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalPeerConnectionConfig {
     pub stun_urls: Vec<String>,
@@ -35,15 +34,15 @@ pub struct TerminalPeerConnectionConfig {
     pub port_range: Option<(u16, u16)>,
 }
 
-/// v2 `OpenTerminalPeerPort`: the socket owner registers the port under the
-/// offer's tuple and hands back where its messages go. `None` refuses it.
+/// The socket owner registers the port under the offer's tuple and hands back
+/// where its messages go. `None` refuses it.
 pub type OpenTerminalPeerPort = Arc<
     dyn Fn(Arc<TerminalPeerPacketPort>, ExpectedPeer) -> Option<Arc<dyn TerminalPeerPacketIngress>>
         + Send
         + Sync,
 >;
 
-/// v2 `TerminalPeerConnectionDeps`.
+/// The collaborators one terminal peer connection is built over.
 pub struct TerminalPeerConnectionDeps {
     pub native: Arc<dyn NativePeerFactory>,
     pub peer_id: String,
@@ -169,7 +168,7 @@ impl TerminalPeerConnection {
         if !attached {
             tracing::warn!("the terminal peer port ingress is unavailable");
             // Closed first: the port's close hook must not report a
-            // connection its owner never held (v2 `if (connection)`).
+            // connection its owner never held.
             connection.lock_state().closed = true;
             connection
                 .port
@@ -191,7 +190,7 @@ impl TerminalPeerConnection {
         self.lock_state().closed
     }
 
-    /// v2 `answer`: the answer once gathering completes, or at the gathering
+    /// The answer once gathering completes, or at the gathering
     /// deadline if it already carries a candidate; `ice_failed` otherwise.
     pub async fn answer(
         &self,
@@ -234,8 +233,8 @@ impl TerminalPeerConnection {
             .unwrap_or(Err(ConnectionFailure::ConnectionSuperseded))
     }
 
-    /// v2 `close`: rejects a pending answer, closes the port and the native
-    /// peer, and tells the owner once.
+    /// Reject a pending answer, close the port and the native
+    /// peer, and tell the owner once.
     pub fn close(&self, reason: ConnectionFailure) {
         let waiter = {
             let mut state = self.lock_state();
@@ -295,8 +294,8 @@ impl TerminalPeerConnection {
         }
     }
 
-    /// v2 `installPeerCallbacks` plus the port's channel callbacks: channel
-    /// events go to the port, after the fingerprint check a channel open needs.
+    /// Native events: channel events go to the port, after the fingerprint
+    /// check a channel open needs.
     fn on_native_event(&self, event: NativePeerEvent) {
         match event {
             NativePeerEvent::Connected => {

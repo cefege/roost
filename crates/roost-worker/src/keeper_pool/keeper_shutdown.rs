@@ -1,9 +1,7 @@
 //! Administrative keeper shutdown: the identity-fenced empty shutdown every
 //! automatic replacement uses, the unconditional one reserved for an
 //! operator-authorized destruction, and the wait that proves the process left.
-//! Ports the shutdown half of v2 `apps/worker/src/keeper/keeper-probe.ts`
-//! (`shutdownEmptyKeeperAuthenticated`, `shutdownKeeperAuthenticated`,
-//! `waitForKeeperExit`). Called by `keeper_pool::update_admission` through
+//! Called by `keeper_pool::update_admission` through
 //! `keeper_pool::update_host`, and by `runtime::keeper_boot` for a survivor.
 //!
 //! The `_on` forms act on a connection the caller already holds; the endpoint

@@ -1,8 +1,7 @@
-//! The link-side gates v2 keeps in `apps/worker/src/transport/coord-link-outbox.ts`,
-//! through a real link loop: a cell sink that was refused is told the link is
-//! writable (`maybeNotifyWritable`) only once the link is live, and once; compact
-//! terminal metadata rides a link once its hello is acknowledged; the pong goes
-//! out before the link is live; a detach drops the control lane.
+//! The link-side gates of the outbox, through a real link loop: a cell sink that
+//! was refused is told the link is writable only once the link is live, and
+//! once; compact terminal metadata rides a link once its hello is acknowledged;
+//! the pong goes out before the link is live; a detach drops the control lane.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod link_downstream_support;
@@ -163,9 +162,8 @@ async fn a_hello_acked_link_carries_compact_metadata() {
     assert_eq!(kinds, ["rpc-ok", "terminal-metadata"]);
 }
 
-/// v2 `drainQueues` writes the liveness lane before replay and before the link
-/// is live (`coord-link-outbox.ts:168`, `send` routes `pong` there at `:233`):
-/// a ping that arrives while the barrier waits on hello-ack is answered now.
+/// The liveness lane is written before replay and before the link is live: a
+/// ping that arrives while the barrier waits on hello-ack is answered now.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_ping_is_answered_before_the_link_is_live() {
     let fakes = Fakes::new(OwnerMode::Answer);
@@ -190,8 +188,8 @@ async fn a_ping_is_answered_before_the_link_is_live() {
     live.stop().await;
 }
 
-/// v2 `detachSocket` empties the control lane (`coord-link-outbox.ts:341`): a
-/// reply queued for a connection that closed is never sent on the next one.
+/// A detach empties the control lane: a reply queued for a connection that
+/// closed is never sent on the next one.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_control_frame_queued_for_a_closed_connection_is_not_sent_on_the_next() {
     let fakes = Fakes::new(OwnerMode::Answer);

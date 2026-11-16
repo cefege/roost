@@ -26,7 +26,7 @@ pub(crate) const AUTHORIZATION: &str = "authorization";
 /// This runs before the link and the heartbeat exist, so a coordinator that
 /// accepts the connection and then dies — the operator's front door answers,
 /// the dead process behind it never does — would hang the boot forever with no
-/// retry loop in range. v2 observed a worker stuck 48 minutes that way.
+/// retry loop in range. A worker has been seen stuck 48 minutes that way.
 const BOOT_CALL_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The per-call options every boot-time coordinator call carries.

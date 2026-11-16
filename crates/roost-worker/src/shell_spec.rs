@@ -12,7 +12,6 @@
 //! The contract is resolved BEFORE the spawn rather than applied by the keeper:
 //! a spawn that fails has to fail with a reason the caller can read, and a
 //! reason the keeper invents three frames later is a reason nobody sees.
-//! Ports v2 `apps/worker/src/shell-spec.ts`.
 
 use roost_host::HostPlatform;
 use roost_keeper::frames::ShellSpec as KeeperShellSpec;
@@ -71,7 +70,7 @@ pub struct ShellSpec {
     pub cwd: String,
     /// The PTY's whole environment, in a deterministic order.
     ///
-    /// A map in v2 and a vector here because the keeper's wire form is a
+    /// A vector rather than a map because the keeper's wire form is a
     /// sequence, and a `HashMap` in between would make two resolutions of the
     /// same request produce two different byte streams for no reason.
     pub env: Vec<(String, String)>,

@@ -1,8 +1,7 @@
 //! The coordinator link's terminal-stream port: [`StreamOwner`] maps a
 //! `terminalStreamState` frame onto `SessionManager::apply_terminal_stream_state`
 //! (`session::terminal_control`) and its outcome onto the wire result. Built by
-//! `runtime::owners`; called by `runtime::downstream`. Ports
-//! `onTerminalStreamState` of `apps/worker/src/transport/coord-link-deps.ts:250-287`.
+//! `runtime::owners`; called by `runtime::downstream`.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -63,7 +62,7 @@ impl TerminalStreamPort for StreamOwner {
     }
 }
 
-/// v2's coordinator budget: the frame-receipt deadline and the link fence.
+/// The coordinator budget: the frame-receipt deadline and the link fence.
 #[derive(Debug)]
 struct LinkBudget {
     budget: RequestBudget,
@@ -80,7 +79,7 @@ impl StreamRequestBudget for LinkBudget {
     }
 }
 
-/// `terminal-stream-result` exactly as `coord-link-deps.ts:259-285` builds it.
+/// The `terminal-stream-result` wire frame for a stream outcome.
 fn wire_result(
     request_id: String,
     session_id: SessionId,

@@ -1,8 +1,6 @@
 //! The git facts about a session's folder, read on the worker host because a
 //! browser cannot shell out. A branch name and a GitHub remote feed the folder
-//! row's subtitle. Ports v2 `apps/worker/src/host/git-branch.ts`
-//! (`readGitBranch`, `readGitRemote`, the `--git-path HEAD` lookup of
-//! `watchGitBranch`); `host::sampling` calls it. Depends on `host::tool_path`.
+//! row's subtitle. `host::sampling` calls it. Depends on `host::tool_path`.
 //!
 //! EVERY FAILURE IS `None`. A missing `git`, a folder that is not a repository,
 //! a repository with no `origin` — all of them are "nothing to show", and none
@@ -32,9 +30,8 @@ impl GitReader {
         }
     }
 
-    /// The production reader: `git` on this process's own `PATH`, as v2's
-    /// `Bun.spawn(["git", ..])` ran it (v2 widened `PATH` for `gh` and the
-    /// socket tools, never for `git`).
+    /// The production reader: `git` on this process's own `PATH`, which is not
+    /// widened the way the `gh` and socket tools' is.
     #[must_use]
     pub fn system() -> Self {
         Self::new("git")
@@ -97,10 +94,9 @@ impl GitReader {
 
 /// The `owner/repo` of a GitHub remote URL, or `None`.
 ///
-/// Read as v2's `/github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?\/?$/`: after any
-/// `github.com` followed by `:` or `/`, exactly two path segments end the URL
-/// (one trailing `/` allowed), and a `.git` suffix is not part of the name. A
-/// remote with a deeper path, or one that is not GitHub, is `None`.
+/// After any `github.com` followed by `:` or `/`, exactly two path segments end
+/// the URL (one trailing `/` allowed), and a `.git` suffix is not part of the
+/// name. A remote with a deeper path, or one that is not GitHub, is `None`.
 #[must_use]
 pub fn github_owner_repo(url: &str) -> Option<String> {
     let url = url.trim();

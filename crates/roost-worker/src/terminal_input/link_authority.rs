@@ -3,9 +3,7 @@
 //! connection; route ownership stays worker-owned and is checked again
 //! immediately before `session::input_write` begins the keeper write. Frames
 //! from a coordinator that sends no actor fields keep the empty-epoch rule.
-//! Built by `terminal_input::port`. Ports
-//! `apps/worker/src/transport/coord-link-input-authority.ts` and the link half of
-//! `terminalBudget` (`coord-link-direct-deps.ts` `onTerminalInputRouteClaim`).
+//! Built by `terminal_input::port`.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -81,7 +79,7 @@ impl RouteClaimBudget for LinkClaimBudget {
     }
 }
 
-/// v2 `coordLinkInputAuthority`'s predicates for one `DInputRequest`.
+/// The predicates for one `DInputRequest`.
 #[derive(Debug, Clone)]
 pub struct LinkInputAuthority {
     fence: LinkFence,

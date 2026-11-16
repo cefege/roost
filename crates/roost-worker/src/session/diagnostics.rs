@@ -19,7 +19,7 @@
 //!
 //! NOTHING HERE MAY CARRY TERMINAL TEXT. Every value is an id, a bound, a count
 //! or a duration, because this report is read by parsers and shipped to
-//! operators. Ports v2 `apps/worker/src/session/session-diag-snapshot.ts`.
+//! operators.
 
 use serde_json::{Value, json};
 

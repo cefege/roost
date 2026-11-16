@@ -1,8 +1,7 @@
 //! The session layer's core leases, through the real `SessionManager`: an
 //! adopted core is resident until its record is torn down, an over-cap
 //! adoption touches nothing and returns its close claim, and an abandoned
-//! adoption gives its slot back. Ports the record-teardown and resume cases of
-//! `apps/worker/tests/terminal/terminal-core-capacity.test.ts`.
+//! adoption gives its slot back.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

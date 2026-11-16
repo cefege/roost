@@ -2,8 +2,6 @@
 //! offer's answer or typed refusal goes out on the connection it arrived on
 //! and never on a re-dialled one, a failed owner answers `ice_failed`, the
 //! probe answers in receive order, and cancel and retire reach the owner.
-//! Ports the terminal half of v2
-//! `apps/worker/tests/transport/coord-link-direct-terminal.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod link_downstream_support;

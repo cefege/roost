@@ -1,16 +1,15 @@
 //! Rebuilding a record around a PTY whose keeper survived this worker: the
 //! reattach at the history's ordered boundary, the replay into a cold core,
-//! the staged concurrent output, and the atomic swap. Ports
-//! `apps/worker/src/session/session-resume.ts` (`resume`). The boot and
+//! the staged concurrent output, and the atomic swap. The boot and
 //! keeper-death reconcile (`runtime::session_reconcile`) is the only caller; a
 //! refusal is its signal to respawn the logical session.
 //!
-//! THE ORDER IS v2's. The core is admitted, then the survivor is reattached and
+//! THE ORDER IS THE CONTRACT. The core is admitted, then the survivor is reattached and
 //! its history read at one keeper boundary (`KeeperChannels::reattach_with_history`),
 //! then the applied geometry is read, then the core is rebuilt and the record
 //! installed, and only then does the staged output go live. Every failure after
 //! the reattach KILLS the survivor and records its end before any capacity is
-//! released, so no orphan outlives its durable close (v2 `resume` catch).
+//! released, so no orphan outlives its durable close.
 //!
 //! OVERFLOW REFUSES THE ADOPTION. A PTY stream is contiguous, so discarding
 //! either end of the staged window splices a hole into parser state nothing
@@ -53,7 +52,7 @@ pub enum AdoptRefusal {
     )]
     StagingOverflow { channel: u16, cap: usize },
     /// Terminal-core admission refused an adoption core. Nothing was touched
-    /// and the close claim was given back (v2 `session-resume.ts:294`); the
+    /// and the close claim was given back; the
     /// reconcile stops rather than respawning.
     #[error("channel {channel} could not be adopted: {refusal}")]
     TerminalCoreCapacity {
@@ -119,7 +118,7 @@ struct Progress {
 }
 
 impl SessionManager {
-    /// v2 `resume`: rebuild a record around a surviving PTY, or refuse and
+    /// Rebuild a record around a surviving PTY, or refuse and
     /// leave the logical session to a respawn.
     pub async fn adopt_survivor(&self, request: &AdoptionRequest) -> Result<Adopted, AdoptFailure> {
         let channel = request.channel_id.as_u32() as u16;
@@ -266,7 +265,7 @@ impl SessionManager {
         })
     }
 
-    /// v2 `resume` catch: kill the survivor BEFORE any capacity is released,
+    /// Kill the survivor BEFORE any capacity is released,
     /// mark its channel recently closed, and record the session's end once.
     async fn abandon_adoption(&self, request: &AdoptionRequest, channel: u16, progress: Progress) {
         if let Err(fault) = self.keeper.kill_channel(channel) {
@@ -302,7 +301,7 @@ impl SessionManager {
         );
     }
 
-    /// v2 `emitClosedTombstone`: a `closed` with no exit code for a session this
+    /// Emit a `closed` with no exit code for a session this
     /// worker holds no record of, under the caller's claim or a fresh one.
     pub(crate) async fn emit_closed_tombstone(
         &self,

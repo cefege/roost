@@ -1,8 +1,7 @@
 //! Parser alignment for replaying an evicted raw PTY window into a cold core.
 //! The survivor-adoption replay (`session::resume_core`) and a core rebuild
 //! from the ring call [`skip_orphan_sequence_prefix`] on the FIRST bytes a cold
-//! core is handed, and only when the window was evicted. Ports
-//! `apps/worker/src/terminal/terminal-replay-align.ts`.
+//! core is handed, and only when the window was evicted.
 //!
 //! The oldest retained byte is wherever eviction last overwrote — an arbitrary
 //! offset. A leading UTF-8 continuation byte or escape-sequence remnant has no

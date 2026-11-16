@@ -2,14 +2,12 @@
 //! the loopback WebSocket adapter (`super::loopback`) and the WebRTC peer port
 //! (`crate::peer`) implement it; the socket owner chooses the lane and owns the
 //! frame encoding, the carrier owns admission, backpressure and its own close.
-//! Ports `apps/worker/src/terminal/peer/terminal-packet-port.ts` and the peer
-//! port and expected tuple of `local-door/local-terminal-socket{,-controls}.ts`.
 
 use roost_protocol::terminal_peer::peer::TerminalPeerPacketLane;
 
 use crate::uplink::OwnerFuture;
 
-/// What a carrier did with one whole frame. v2 `TerminalPacketSendResult`.
+/// What a carrier did with one whole frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PacketSendResult {
     /// The carrier took the frame now.
@@ -36,7 +34,7 @@ pub trait TerminalPacketPort: Send + Sync + std::fmt::Debug {
 
 /// A WebRTC peer port: framing is native, so the owner marks it authenticated
 /// once the Hello matched the offer, and history is reserved and drained per
-/// lane. v2 `PeerTerminalPacketPort` + `HistoryDrainPort`.
+/// lane.
 pub trait PeerTerminalPacketPort: TerminalPacketPort {
     /// The Hello matched the offer tuple and its grant: native framing may
     /// admit authenticated traffic.
@@ -48,14 +46,14 @@ pub trait PeerTerminalPacketPort: TerminalPacketPort {
 }
 
 /// One reserved history read. Dropping it releases whatever was not
-/// transferred to the lane. v2 `TerminalPeerHistoryReadReservation`.
+/// transferred to the lane.
 pub trait HistoryReadReservation: Send {
     /// The response is about to be queued: its bytes now belong to the lane.
     fn transfer(&mut self);
 }
 
 /// The tuple a peer offer was authorized for, which its Hello must repeat
-/// exactly. v2 `TerminalPeerExpectedTuple`.
+/// exactly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpectedPeer {
     pub peer_id: String,

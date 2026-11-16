@@ -14,13 +14,12 @@
 //! untracked is a LIVE session, and killing it takes a user's terminal with
 //! it. Every rule below is about telling those two apart, and every threshold
 //! comes from a case where guessing wrong was observed.
-//! Ports v2 `apps/worker/src/session/session-lifecycle.ts`.
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 /// How often the reverse-reap sweep diffs the keeper's channels against the
-/// worker's own sessions (v2 `STRAY_REAP_INTERVAL_MS`).
+/// worker's own sessions.
 pub const SWEEP_INTERVAL: Duration = Duration::from_secs(60);
 
 /// How many CONSECUTIVE sweeps a channel must read stray before it is reaped.
@@ -73,9 +72,9 @@ pub enum Verdict {
     Reap { channel_id: u16 },
 }
 
-/// The worker's view of which channels are strays: the decision half of v2
-/// `session-lifecycle.ts` `reapStrayKeeperChannels`, whose `strayStrikes` map
-/// this is. `session::stray_reap` lists the keeper and kills the reaps.
+/// The worker's view of which channels are strays: the decision half of the
+/// reverse reap, holding the per-channel strike counts.
+/// `session::stray_reap` lists the keeper and kills the reaps.
 #[derive(Debug, Default)]
 pub struct StrayTracker {
     /// Consecutive sweeps each channel has read stray. Dropped the moment it

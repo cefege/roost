@@ -3,8 +3,7 @@
 //! worker epoch fenced, a loopback grant's prior socket replaced, and only then
 //! is the port bound, told it is ready, and registered with the terminal view
 //! owner under the grant's live session scope. Called by `super::sockets` for a
-//! `hello` frame. Ports `accept`/`matchesExpectedPeer` of
-//! `apps/worker/src/local-door/local-terminal-socket.ts`.
+//! `hello` frame.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;

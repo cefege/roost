@@ -1,6 +1,5 @@
-//! The ingest half of the cell producer: v2 `apps/worker/src/session/
-//! session-emit.ts` `emitUpstreamChunk` (live, capture and invalid-core lanes)
-//! and `session-terminal-metadata.ts` `setTerminalMetadataNegotiated`/`replay`.
+//! The ingest half of the cell producer: the live, capture and invalid-core
+//! lanes of an upstream chunk, and terminal-metadata negotiation and replay.
 //! `runtime::channel_delivery` calls it on the keeper's dispatch thread with the
 //! record locked; every chunk is retained and scanned, then routed to the cell
 //! cadence and the two metadata lanes.
@@ -17,7 +16,7 @@ use super::terminal_metadata::LiveSignals;
 use super::types::SessionRecord;
 
 impl CellEmitter {
-    /// v2 `emitUpstreamChunk`, live lane: retain + scan, parse, then route.
+    /// Live lane: retain + scan, parse, then route.
     pub fn ingest_pty_chunk(
         &mut self,
         record: &mut SessionRecord,
@@ -84,7 +83,7 @@ impl CellEmitter {
         }
     }
 
-    /// v2's capture and invalid-core lanes (`appendCapturedScrollback`): retain
+    /// The capture and invalid-core lanes: retain
     /// and scan, never parse; the metadata lanes still see the bytes.
     pub fn retain_without_parsing(
         &mut self,
@@ -109,7 +108,7 @@ impl CellEmitter {
         end_seq
     }
 
-    /// v2 `emitUpstreamChunk`'s stream branch. Returns whether a stream took it.
+    /// The stream branch of ingest. Returns whether a stream took it.
     fn route_chunk_to_cells(
         &mut self,
         record: &mut SessionRecord,
@@ -179,7 +178,7 @@ impl CellEmitter {
         }
     }
 
-    /// v2 `replayTerminalMetadata`.
+    /// Reassert retained terminal metadata.
     pub fn replay_terminal_metadata(&mut self) {
         if self.metadata.replay() {
             self.wake_cadence();
@@ -187,7 +186,7 @@ impl CellEmitter {
     }
 }
 
-/// OSC 7 moved the session (v2 `session-scrollback.ts:178-185`): the scan
+/// OSC 7 moved the session: the scan
 /// updates the record's cwd, which the snapshot reads, and the `cwd` event is
 /// published off this thread by `session::cwd_events`.
 fn note_cwd_change(

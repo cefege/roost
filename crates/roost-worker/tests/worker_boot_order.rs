@@ -249,9 +249,9 @@ fn a_step_cannot_be_added_to_one_of_the_two_without_the_other() {
     }
 }
 
-/// v2 put reconciliation, the snapshot provider and readiness in one function
-/// for a reason: a snapshot published before reconciliation describes a set the
-/// coordinator has not confirmed, and acting on it closes live sessions.
+/// Reconciliation, the snapshot provider and readiness are ordered for a reason:
+/// a snapshot published before reconciliation describes a set the coordinator has
+/// not confirmed, and acting on it closes live sessions.
 #[test]
 fn readiness_cannot_be_announced_before_the_reconcile_it_claims_to_describe() {
     let mut readiness = Readiness::default();

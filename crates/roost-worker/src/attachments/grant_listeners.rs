@@ -1,8 +1,7 @@
 //! Who hears a grant change. Listeners are called in subscription order after
 //! the store has applied the change and released its lock, so a listener may
-//! read the store again. Ports the `subscribe`/`notify` half of v2
-//! `apps/worker/src/attachments/attachment-grants.ts`. Owned by `grants`; the
-//! direct attachment sockets subscribe.
+//! read the store again. Owned by `grants`; the direct attachment sockets
+//! subscribe.
 
 use std::sync::{Arc, Mutex, Weak};
 
@@ -10,7 +9,7 @@ use super::grants::{GrantChange, lock};
 
 pub type GrantListener = Box<dyn Fn(&GrantChange) + Send + Sync>;
 
-/// A registered listener. `cancel` is v2's unsubscribe; dropping it does not
+/// A registered listener. `cancel` unsubscribes; dropping it does not
 /// unsubscribe.
 #[derive(Debug)]
 pub struct GrantSubscription {

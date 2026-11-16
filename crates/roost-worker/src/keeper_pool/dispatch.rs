@@ -3,7 +3,7 @@
 //! results, settled into `input_command`'s waiters. `pool::KeeperPool` starts
 //! the loop in its constructor; nothing else drives it. Depends on the pool and
 //! the keeper's frame types — nothing here. A connection the keeper closed is
-//! seen here first and reported as a lost keeper (v2's socket `close` handler).
+//! seen here first and reported as a lost keeper.
 //!
 //! THE LOOP OWNS THE EVENT STREAM. The client hands a frame to whoever is
 //! waiting for it and drops the rest here, so there is exactly one reader: a
@@ -20,7 +20,6 @@
 //!
 //! A PASS HOLDS `routing` FROM TAKE TO LAST DELIVERY, so a history read at an
 //! ordered boundary (`pool_history`) never races a batch taken before it.
-//! Ports v2 `apps/worker/src/keeper/keeper-pool-lifecycle.ts`.
 
 use std::sync::{PoisonError, Weak};
 use std::time::Duration;

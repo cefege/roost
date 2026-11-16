@@ -1,10 +1,7 @@
 //! The local-terminal grant arms of the downstream dispatch: an acknowledged
 //! install answers `rpc-ok` with the grant id or `rpc-error` with the store's
 //! refusal (a browser is told the fast path exists only after this ack), and a
-//! revocation fences the device. Called by `super::Dispatcher::dispatch`. Ports
-//! the `localTerminalGrant`/`localTerminalGrantRevoke` cases of
-//! `apps/worker/src/transport/coord-link-downstream.ts` and their callbacks in
-//! `transport/coord-link-deps.ts`.
+//! revocation fences the device. Called by `super::Dispatcher::dispatch`.
 
 use roost_proto::{DLocalTerminalGrant, DLocalTerminalGrantRevoke};
 use roost_protocol::wire::coord_worker::CoordWorkerUpstream;

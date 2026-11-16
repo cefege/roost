@@ -3,7 +3,6 @@
 //! `roost_protocol::terminal_view::ViewRegistry`, answering each decision on the
 //! transport that declared the view and publishing the per-session projection.
 //! The link's downstream dispatcher reaches it as `link_ports::TerminalViewPort`.
-//! Ports `apps/worker/src/terminal/view/terminal-view-owner.ts`.
 
 mod deferred;
 mod replies;
@@ -249,7 +248,7 @@ impl TerminalViewOwner {
     }
 
     /// A session closed: its membership and its stream identity go, instead of
-    /// holding a dead geometry (v2 `main.ts` sessionClosed hook).
+    /// holding a dead geometry.
     pub fn close_session(&self, session_id: &SessionId) {
         let mut work = Work::new();
         {

@@ -1,8 +1,6 @@
 //! The worker's terminal-pipeline evidence owner: it answers one
 //! `DTerminalPipelineSnapshotRequest` by reading live session, emitter, lane and
-//! keeper state, never terminal content. Ports the owner half of
-//! `apps/worker/src/terminal/terminal-pipeline-snapshot.ts` (`indexSessions`,
-//! `sampleKeeperFacts`, the per-session reads). `runtime::owners` builds it
+//! keeper state, never terminal content. `runtime::owners` builds it
 //! into `DownstreamOwners::pipeline`; the link dispatcher calls it.
 
 pub mod bounds;
@@ -46,9 +44,9 @@ impl KeeperPipelineSource for KeeperPool {
     }
 }
 
-/// v2 `sampleKeeperFacts` for one channel: every pending input and every
-/// pending resize is one frame aged from its start, and the usage ledger can
-/// only raise the input frame count (`terminal-pipeline-snapshot.ts:160-180`).
+/// The keeper facts for one channel: every pending input and every pending
+/// resize is one frame aged from its start, and the usage ledger can only
+/// raise the input frame count.
 pub fn keeper_facts_from_pending(
     pending: &PendingInputUsage,
     resize_starts: &[Instant],
@@ -151,8 +149,8 @@ impl TerminalPipelinePort for PipelineOwner {
     }
 }
 
-/// v2 lane depth counts writers QUEUED behind the holder; a Rust lane's depth
-/// also counts the holder, so it is taken back out here.
+/// The wire's lane depth counts writers QUEUED behind the holder; a Rust
+/// lane's depth also counts the holder, so it is taken back out here.
 pub fn control_facts(lanes: LaneSnapshot, now_mono_ms: u64) -> ControlPipelineFacts {
     let control_running = lanes.control_running.is_some();
     let admission_held = lanes.admission_holder.is_some();

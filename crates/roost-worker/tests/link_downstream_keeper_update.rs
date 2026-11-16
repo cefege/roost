@@ -1,8 +1,7 @@
-//! `keeperUpdatePrepare` routes to its owner: the owner is entered in receive
+//! `Down::KeeperUpdatePrepare` routes to its owner: the owner is entered in receive
 //! order (it closes channel admission synchronously), and its outcome is sent
-//! later as v2's `rpc-ok` carrying the result or `rpc-error` carrying the
-//! failure — a panicking owner included. Ports the `keeperUpdatePrepare` case
-//! of `apps/worker/src/transport/coord-link-downstream.ts`.
+//! later as `rpc-ok` carrying the result or `rpc-error` carrying the failure —
+//! a panicking owner included.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod link_downstream_support;

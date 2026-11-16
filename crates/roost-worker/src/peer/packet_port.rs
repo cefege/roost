@@ -2,12 +2,11 @@
 //! queues per lane, reassembly of the control lane, retained-byte quotas and
 //! the port's own close. `LocalTerminalSockets` stays the only frame owner.
 //! Built by `peer::connection`; driven by `crate::local_terminal` through
-//! [`PeerTerminalPacketPort`]. Ports v2
-//! `apps/worker/src/terminal/peer/terminal-peer-packet-port.ts`.
+//! [`PeerTerminalPacketPort`].
 //!
 //! Every entry point takes the worker budget's turn (see
 //! `peer::packet_budget`), so a pressure handler may retire this port in the
-//! middle of another port's reservation exactly as v2 did.
+//! middle of another port's reservation.
 
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Instant;
@@ -35,8 +34,8 @@ use crate::uplink::OwnerFuture;
 /// A port-level callback, run after the turn that raised it.
 pub type PortHook = Arc<dyn Fn(&str) + Send + Sync>;
 
-/// Where reassembled control messages go (v2 `TerminalPeerPacketIngress`).
-/// Called only after the port's turn, so it may send on the port.
+/// Where reassembled control messages go. Called only after the port's turn,
+/// so it may send on the port.
 pub trait TerminalPeerPacketIngress: Send + Sync {
     fn on_message(&self, bytes: &[u8]);
     fn on_close(&self);
@@ -52,16 +51,16 @@ impl TerminalPeerPacketIngress for PeerIngress {
     }
 }
 
-/// What one port is built over (v2 `TerminalPeerPacketPortDeps`).
+/// What one port is built over.
 pub struct PacketPortDeps {
     pub socket_id: String,
     /// The connection's native peer; channel `i` carries lane `i`.
     pub native: Arc<dyn NativePeer>,
     pub budget: TerminalPeerPacketBudget,
     pub peer_budget: TerminalPeerPacketPeerBudget,
-    /// The port closed, with its reason (v2 `onClosed`).
+    /// The port closed, with its reason.
     pub on_closed: Option<PortHook>,
-    /// The port failed, before it closes (v2 `onFatal`).
+    /// The port failed, before it closes.
     pub on_fatal: Option<PortHook>,
     pub runtime: Handle,
 }
@@ -218,7 +217,7 @@ impl TerminalPeerPacketPort {
         u64::try_from(self.origin.elapsed().as_millis()).unwrap_or(u64::MAX)
     }
 
-    /// v2 `fail`: the fatal hook, then the close, both under this turn.
+    /// The fatal hook, then the close, both under this turn.
     pub(super) fn fail_in_turn(&self, core: &mut PortCore, reason: &str) {
         if core.closed {
             return;
@@ -232,9 +231,8 @@ impl TerminalPeerPacketPort {
         self.close_in_turn(core, reason);
     }
 
-    /// v2 `close`: every queue, assembler, timer and waiter is released, the
-    /// channels close, and the socket owner and connection hear of it after
-    /// the turn.
+    /// Every queue, assembler, timer and waiter is released, the channels
+    /// close, and the socket owner and connection hear of it after the turn.
     pub(super) fn close_in_turn(&self, core: &mut PortCore, reason: &str) {
         if core.closed {
             return;
@@ -254,7 +252,7 @@ impl TerminalPeerPacketPort {
             core.queues[index].clear();
             core.assemblers[index].reset();
             self.native.close_channel(index);
-            // v2 rejects the waiters; every caller swallows it, so they resolve.
+            // Waiters resolve rather than fail: every caller ignores the outcome.
             for waiter in core.drain_waiters[index].drain(..) {
                 let _ = waiter.send(());
             }

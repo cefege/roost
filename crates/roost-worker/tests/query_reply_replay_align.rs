@@ -2,9 +2,7 @@
 //! window opens wherever its own ring last evicted, so the first replayed byte
 //! can be the tail of a sequence whose `ESC [` is gone; a cold parser prints
 //! that remnant as literal text and nothing downstream ever re-parses it
-//! (production: `32m1969M` burned into an htop grid). Ports
-//! `apps/worker/tests/session/session-resume-replay-align.test.ts` and pins
-//! `session::replay_align`.
+//! (production: `32m1969M` burned into an htop grid). Pins `session::replay_align`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod session_support;

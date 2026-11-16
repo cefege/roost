@@ -2,8 +2,7 @@
 //! An OSC 7 report of a NEW folder publishes one `cwd` session event naming the
 //! session, the folder and the chunk's time, through the manager's event sink;
 //! the same folder again, or a chunk with no report, publishes nothing. Both
-//! ingest lanes (live and capture) publish. Ports v2
-//! `apps/worker/src/session/session-scrollback.ts:178-185` (`scanStreamState`).
+//! ingest lanes (live and capture) publish.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod session_support;

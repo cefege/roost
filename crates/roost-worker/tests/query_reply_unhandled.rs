@@ -2,8 +2,7 @@
 //! The per-session unhandled-sequence log against a real core: a sequence the
 //! core dropped is reported once per core, distinct parameters are distinct
 //! sequences, the log stops at its cap and says so, and entries the core's
-//! ring overwrote before a sample are counted rather than invented. Ports the
-//! behaviour of `apps/worker/src/session/session-unhandled-seq.ts`.
+//! ring overwrote before a sample are counted rather than invented.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_host::HostPlatform;

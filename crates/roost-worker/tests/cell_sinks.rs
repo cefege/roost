@@ -1,6 +1,6 @@
-//! Ports `apps/worker/tests/session/session-cell-sinks.test.ts`: one built
-//! frame, many transports. Each case asserts on the frames a sink was handed,
-//! because "what reached this browser" is the only contract a renderer folds.
+//! One built frame, many transports. Each case asserts on the frames a sink was
+//! handed, because "what reached this browser" is the only contract a renderer
+//! folds.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 #[path = "cell_support/mod.rs"]

@@ -1,7 +1,6 @@
 //! Where a finished upload lands: its final name, the short path handed back
 //! for it, the flushes that make it durable, and the session's dedup manifest.
-//! Ports v2 `apps/worker/src/attachments/attachment-file-store.ts`. Called by
-//! the operation owner once its journal is ready, and by the browser
+//! Called by the operation owner once its journal is ready, and by the browser
 //! `attachment-probe` command, which reads the manifest without owning uploads.
 
 use std::collections::HashSet;
@@ -261,7 +260,7 @@ fn create_shortcut_link(_file_path: &Path, _shortcut: &Path) -> io::Result<()> {
     Err(io::Error::from(io::ErrorKind::Unsupported))
 }
 
-/// v2's `/^p\d+$/`.
+/// A shortcut name is `p` followed by one or more digits.
 fn is_shortcut_name(name: &str) -> bool {
     name.strip_prefix('p').is_some_and(|digits| {
         !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())

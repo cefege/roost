@@ -1,7 +1,7 @@
 //! Server-frame encoding for direct attachment ports: each function builds one
 //! protobuf frame and hands it to the port's control lane, reporting refusal so
 //! the caller can retire the route. `direct_sockets` decides what to send and
-//! when. Ports `apps/worker/src/attachments/attachment-direct-frames.ts`.
+//! when.
 
 use roost_proto::__buffa::oneof::attachment_transfer_server_frame::Frame;
 use roost_proto::buffa::Message;

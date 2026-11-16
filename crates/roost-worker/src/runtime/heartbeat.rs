@@ -3,9 +3,8 @@
 //! overlap. Each beat carries host metrics (the last good sample when this one
 //! failed), git sha, os, host identity, the keeper runtime proof (only after a
 //! reconciliation it still belongs to), the reachable address and the
-//! terminal-core capacity. Ports v2 `apps/worker/src/transport/heartbeat.ts`
-//! (`startHeartbeat`); `runtime::heart_owners` starts it with the production
-//! sources of `runtime::heartbeat_sources`.
+//! terminal-core capacity. `runtime::heart_owners` starts it with the
+//! production sources of `runtime::heartbeat_sources`.
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -26,14 +25,14 @@ use tokio::task::JoinHandle;
 
 use crate::uplink::OwnerFuture;
 
-/// v2 `HEARTBEAT_INTERVAL_MS`: from one attempt's settlement to the next start.
+/// From one attempt's settlement to the next start.
 pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
-/// v2 `HEARTBEAT_RPC_TIMEOUT_MS`: the deadline every attempt's RPC carries.
+/// The deadline every attempt's RPC carries.
 pub const HEARTBEAT_RPC_TIMEOUT: Duration = Duration::from_secs(10);
 /// Consecutive failed attempts, within one loop, before `heartbeat.stalled`.
 const HEARTBEAT_STALL_AFTER: u32 = 3;
 
-/// What a beat reads besides the terminal-core capacity (v2 `HeartbeatSources`).
+/// What a beat reads besides the terminal-core capacity.
 pub trait HeartbeatSources: Send + Sync {
     /// Host metrics; `Err` keeps the last good sample (sampling is metadata).
     fn collect_host_metrics(&self) -> OwnerFuture<Result<HostMetrics, String>>;
@@ -46,7 +45,7 @@ pub trait HeartbeatSources: Send + Sync {
     fn reachable_addr(&self) -> OwnerFuture<Option<String>>;
 }
 
-/// The coordinator call itself (v2 `client().workersHeartbeat(.., { timeoutMs })`).
+/// The coordinator call itself, bounded by a per-call timeout.
 pub trait HeartbeatRpc: Send + Sync {
     fn workers_heartbeat(
         &self,
@@ -55,10 +54,10 @@ pub trait HeartbeatRpc: Send + Sync {
     ) -> OwnerFuture<Result<(), String>>;
 }
 
-/// v2 `readTerminalCoreCapacity`: the worker-owned admission report.
+/// The worker-owned terminal-core admission report.
 pub type CapacityReader = Arc<dyn Fn() -> TerminalCoreCapacityReport + Send + Sync>;
 
-/// v2 `main.ts` `keeperReconciledAtMs`: when the reconciliation the keeper
+/// When the reconciliation the keeper
 /// proof belongs to succeeded, `None` while one runs or none has. The
 /// reconcile pass writes it (`started`, `reconciled`); the heartbeat reads it.
 #[derive(Debug, Clone, Default)]
@@ -67,13 +66,13 @@ pub struct KeeperReconciliation {
 }
 
 impl KeeperReconciliation {
-    /// v2 `onReconcileStarted`: withhold the proof until this one succeeds.
+    /// Withhold the proof until this reconciliation succeeds.
     pub fn started(&self) {
         *self.at_ms.lock().unwrap_or_else(PoisonError::into_inner) = None;
         tracing::info!("keeper runtime proof withheld: a reconciliation started");
     }
 
-    /// v2 `onReconciled`.
+    /// Record the successful reconciliation the proof belongs to.
     pub fn reconciled(&self, at_ms: i64) {
         *self.at_ms.lock().unwrap_or_else(PoisonError::into_inner) = Some(at_ms);
         tracing::info!(
@@ -93,9 +92,9 @@ pub struct HeartbeatConfig {
     pub reconciliation: KeeperReconciliation,
     pub read_terminal_core_capacity: Option<CapacityReader>,
     pub sources: Arc<dyn HeartbeatSources>,
-    /// v2 `HOST_PLATFORM`, re-sent every beat.
+    /// The host platform, re-sent every beat.
     pub os: &'static str,
-    /// v2 `staticHostIdentity()`, read once when the loop starts.
+    /// The static host identity, read once when the loop starts.
     pub host_identity: Option<HostIdentity>,
 }
 
@@ -110,7 +109,7 @@ impl std::fmt::Debug for HeartbeatConfig {
     }
 }
 
-/// v2 `HeartbeatDisposer`: stops scheduling; an attempt in flight completes.
+/// Stops scheduling; an attempt in flight completes.
 /// Dropping the handle stops the loop too, so a loop nothing can stop does not
 /// outlive whoever started it.
 #[derive(Debug)]
@@ -134,8 +133,7 @@ impl HeartbeatHandle {
     }
 }
 
-/// Start the loop and return once its FIRST attempt has settled (v2
-/// `await startHeartbeat(..)`).
+/// Start the loop and return once its FIRST attempt has settled.
 pub async fn start_heartbeat(config: HeartbeatConfig) -> HeartbeatHandle {
     let (handle, first_settled) = spawn_heartbeat(config);
     if first_settled.await.is_err() {
@@ -145,7 +143,7 @@ pub async fn start_heartbeat(config: HeartbeatConfig) -> HeartbeatHandle {
 }
 
 /// Start the loop without waiting for its first attempt. The composition root
-/// uses this: v2's link was already dialling when it awaited the first beat,
+/// uses this: the link is already dialling when the first beat is awaited,
 /// and awaiting it here, before the link runs, would delay the dial by up to
 /// the RPC deadline against an unreachable coordinator.
 pub fn spawn_heartbeat(config: HeartbeatConfig) -> (HeartbeatHandle, oneshot::Receiver<()>) {
@@ -158,8 +156,8 @@ pub fn spawn_heartbeat(config: HeartbeatConfig) -> (HeartbeatHandle, oneshot::Re
             last_good_host_metrics: None,
         };
         beat.attempt().await;
-        // v2 `scheduleNext` runs before `startHeartbeat` resolves: the next
-        // attempt's deadline is fixed at settlement, not when a waiter wakes.
+        // The next attempt's deadline is fixed at settlement, before the first
+        // attempt's waiter wakes, not when it does.
         let mut next = Box::pin(tokio::time::sleep(HEARTBEAT_INTERVAL));
         let _ = settled.send(());
         loop {
@@ -193,7 +191,7 @@ struct Beat {
 }
 
 impl Beat {
-    /// v2 `beat`: sample, observe, send, and count the outcome.
+    /// Sample, observe, send, and count the outcome.
     async fn attempt(&mut self) {
         let mut host_metrics = self.last_good_host_metrics.clone();
         match self.config.sources.collect_host_metrics().await {
@@ -230,7 +228,7 @@ impl Beat {
         }
     }
 
-    /// Everything inside v2's `try`: a failure anywhere here is one miss.
+    /// Everything fallible in a beat: a failure anywhere here is one miss.
     async fn send(
         &self,
         host_metrics: Option<HostMetrics>,
@@ -286,7 +284,7 @@ impl Beat {
     }
 }
 
-/// The wire metrics as the proto carries them (v2's inline `BigInt(..)`).
+/// The wire metrics as the proto carries them.
 fn host_metrics_to_proto(metrics: &HostMetrics) -> roost_proto::HostMetrics {
     let unsigned = |value: i64| u64::try_from(value).unwrap_or(0);
     roost_proto::HostMetrics {

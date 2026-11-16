@@ -1,9 +1,7 @@
-//! The two rules every downstream reply is held to: the request budget v2
-//! derives from the coordinator's RELATIVE `budget_ms`, and the connection fence
-//! that keeps a reply computed for a superseded coordinator socket off the
-//! replacement one (v2 `terminalBudget` and `isCurrent` in
-//! `apps/worker/src/transport/coord-link-downstream.ts` /
-//! `coord-link-direct-terminal.ts`).
+//! The two rules every downstream reply is held to: the request budget derived
+//! from the coordinator's RELATIVE `budget_ms`, and the connection fence that
+//! keeps a reply computed for a superseded coordinator socket off the
+//! replacement one.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::time::{Duration, Instant};

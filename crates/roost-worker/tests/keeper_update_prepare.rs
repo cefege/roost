@@ -2,9 +2,7 @@
 //! in the call, the coordinator's session set must equal the worker's, a
 //! journaled preparation that succeeds stays closed, and every failure — and a
 //! completed maintenance shutdown — reopens admission and releases the reconcile
-//! boundary. Ports the handler cases of
-//! `apps/worker/tests/session/session-channel-creation-gate.test.ts` and the
-//! request validation of `apps/worker/src/transport/coord-link-keeper-update.ts`.
+//! boundary.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 #[path = "keeper_update_prepare_support/mod.rs"]

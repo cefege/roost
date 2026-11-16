@@ -1,10 +1,8 @@
 //! The keeper's authenticated runtime proof: its contract, its pid and process
 //! epoch, and the channels it holds, read over a keeper connection and turned
 //! into the binding digest and runtime observation a deploy admits against.
-//! Ports the proof fields of v2 `apps/worker/src/keeper/keeper-probe.ts`
-//! (`probeKeeperCompatible`) and `observeKeeperRuntime` of
-//! `transport/heartbeat.ts`. Called by `keeper_pool::update_host`, the
-//! heartbeat and `runtime::keeper_probe`.
+//! Called by `keeper_pool::update_host`, the heartbeat and
+//! `runtime::keeper_probe`.
 //!
 //! OVER THE CONNECTION THE CALLER ALREADY HOLDS. The keeper serves one
 //! connection at a time (`roost_keeper::server`), so a fresh socket opened while
@@ -43,7 +41,7 @@ pub struct KeeperRuntimeProbe {
 }
 
 /// A probe whose identity fields are all present: the proof an update or a
-/// maintenance shutdown may act on (v2 `requireAuthenticatedProof`).
+/// maintenance shutdown may act on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeeperRuntimeProof {
     pub contract: KeeperContractV1,
@@ -53,7 +51,7 @@ pub struct KeeperRuntimeProof {
     pub spawning_channels: Vec<u32>,
 }
 
-/// v2's refusal when an authenticated runtime proof is missing a field.
+/// The refusal when an authenticated runtime proof is missing a field.
 pub const KEEPER_IDENTITY_UNPROVEN: &str =
     "keeper identity is unproven: no authenticated runtime proof";
 
@@ -79,7 +77,7 @@ impl KeeperRuntimeProbe {
         }
     }
 
-    /// The complete proof, or v2's unproven refusal.
+    /// The complete proof, or the unproven refusal.
     pub fn proof(&self) -> Result<KeeperRuntimeProof, String> {
         let (
             true,
@@ -112,8 +110,7 @@ impl KeeperRuntimeProbe {
     }
 
     /// The runtime observation a heartbeat reports, or `None` when the probe
-    /// proves no identity or the observation fails its own contract (v2
-    /// `observeKeeperRuntime` → null).
+    /// proves no identity or the observation fails its own contract.
     pub fn observation(&self, reconciled_at_ms: i64) -> Option<KeeperRuntimeObservationV1> {
         let proof = self.proof().ok()?;
         let value = serde_json::json!({
@@ -172,9 +169,9 @@ pub fn binding_digest(bindings: &[KeeperBinding], spawning_channels: &[u32]) -> 
 /// Ask a connected keeper for its proof: a fresh `Hello`, then its channels.
 ///
 /// Blocking. A keeper whose hello lacks a required feature still authenticated
-/// (the observation is recorded before the feature check), which is v2's
-/// independent `authenticated` / `protocolCompatible` split. The keeper decides
-/// a spawn before it answers the next frame, so it is never mid-spawn here and
+/// (the observation is recorded before the feature check), so `authenticated`
+/// and `protocol_compatible` are independent. The keeper decides a spawn
+/// before it answers the next frame, so it is never mid-spawn here and
 /// `spawning_channels` is empty by construction.
 pub fn read_runtime_probe(client: &KeeperClient) -> Result<KeeperRuntimeProbe, ClientError> {
     match client.hello() {
@@ -230,8 +227,8 @@ impl KeeperPool {
     }
 }
 
-/// How long a probe over a fresh connection may take (v2 `probeKeeperCompatible`'s
-/// default): a keeper that accepts and then says nothing is not proven.
+/// How long a probe over a fresh connection may take: a keeper that accepts
+/// and then says nothing is not proven.
 pub const KEEPER_PROBE_TIMEOUT: Duration = Duration::from_millis(800);
 
 /// The proof over a fresh connection, for a caller that holds none.

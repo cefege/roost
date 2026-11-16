@@ -1,6 +1,5 @@
 //! Stream generation fencing, and the synchronized-output hold's two ceilings
-//! (v2 `apps/worker/src/session/session-sync-output.ts`, `session-constants.ts`
-//! `SYNC_OUTPUT_MAX_MS`/`SYNC_OUTPUT_MAX_PENDING_ROWS`). `session::sync_output`
+//! (`SYNC_OUTPUT_MAX_MS`/`SYNC_OUTPUT_MAX_PENDING_ROWS`). `session::sync_output`
 //! owns one [`SyncOutputHold`] per synchronized frame and the cadence arms its
 //! wake at [`SyncOutputHold::deadline`]. Depends on nothing in the crate.
 
@@ -202,9 +201,9 @@ impl SyncOutputHold {
         self.pending_rows = 0;
     }
 
-    /// Record what the browser is missing right now. v2 re-measures it from
-    /// the core at every evaluation (`session-sync-output.ts` `syncPendingRows`),
-    /// so this REPLACES the last measurement rather than accumulating.
+    /// Record what the browser is missing right now. The core is re-measured
+    /// at every evaluation, so this REPLACES the last measurement rather than
+    /// accumulating.
     pub fn measure_pending(&mut self, rows: u64) {
         if self.is_open() {
             self.pending_rows = rows;

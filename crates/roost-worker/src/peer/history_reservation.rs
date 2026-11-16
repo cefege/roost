@@ -2,8 +2,7 @@
 //! queue: one read owns the worst-case reservation, and only that read's
 //! explicitly transferred final response replaces it with exact queue bytes.
 //! Owned by `peer::packet_port` (its history queue's quota and
-//! `reserve_history_read`). Ports v2
-//! `apps/worker/src/terminal/peer/terminal-peer-history-reservation.ts`.
+//! `reserve_history_read`).
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -20,8 +19,8 @@ struct ReservationState {
     hold: Option<PeerBudgetHold>,
 }
 
-/// v2 `TerminalPeerHistoryReservationOwner`. Clone shares it: the history
-/// queue's quota and the port both reach one state.
+/// The history reservation owner. Clone shares it: the history queue's quota
+/// and the port both reach one state.
 #[derive(Debug, Clone)]
 pub(crate) struct HistoryReservations {
     base: TerminalPeerQuota,
@@ -38,7 +37,7 @@ impl HistoryReservations {
         }
     }
 
-    /// The history queue's quota (v2 `queueQuota`).
+    /// The history queue's quota.
     pub(crate) fn queue_quota(&self) -> HistoryQueueQuota {
         HistoryQueueQuota {
             owner: self.clone(),
@@ -87,7 +86,7 @@ impl HistoryReservations {
         drop(hold);
     }
 
-    /// v2 `cancelForPressure`: true when an outstanding read was cancelled.
+    /// True when an outstanding read was cancelled.
     pub(crate) fn cancel_for_pressure(&self) -> bool {
         let mut state = self.state();
         if state.bytes == 0 {

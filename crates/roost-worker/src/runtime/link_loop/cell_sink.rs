@@ -1,9 +1,9 @@
-//! The coordinator link's [`CellSink`]: v2 `main.ts:211-217`'s `"coord"` sink
-//! over `transport/coord-link-outbox.ts` `sendCellGrid`/`sendCellGridChunk`.
+//! The coordinator link's [`CellSink`]: the `"coord"` sink, which queues cell
+//! frames for the link's outbox.
 //! `runtime::cell_cadence` registers it with the emitter and suspends/resumes it
 //! across the link's lifecycle; the link drain moves its queue onto the Terminal
-//! lane and consumes [`CoordinatorCellSink::take_writable_owed`] (v2
-//! `maybeNotifyWritable`). Depends on the link codec and `crate::outbox` only.
+//! lane and consumes [`CoordinatorCellSink::take_writable_owed`]. Depends on
+//! the link codec and `crate::outbox` only.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -28,8 +28,8 @@ use super::LinkLoop;
 ///
 /// It holds its own bounded queue because [`CellSink::send_frame`] is `&self`
 /// and must not block (the emitter holds a record lock across the fan-out),
-/// while the link's outbox is behind `&mut LinkLoop`. Its answers are v2's
-/// `TerminalCellSendResult`: `Sent` or `Dropped`, never `Overflow` — the
+/// while the link's outbox is behind `&mut LinkLoop`. Its answers are
+/// `CellSinkResult`'s `Sent` or `Dropped`, never `Overflow` — the
 /// coordinator's transport is not a local socket the registry may close, and
 /// dropping this sink would darken every session on the machine.
 pub struct CoordinatorCellSink {
@@ -37,11 +37,10 @@ pub struct CoordinatorCellSink {
     /// drain writes would be a private wire definition.
     wire: Arc<dyn LinkWire>,
     queue: Mutex<Outbox>,
-    /// v2 `linkReady && nativeWriter.isAttached()`: false from a socket's open
-    /// until its hello-ack, and after it detaches.
+    /// False from a socket's open until its hello-ack, and after it detaches.
     attached: AtomicBool,
-    /// v2 `writableNotificationPending`: a frame was refused, so the session
-    /// layer is owed an `on_writable` once the link has room again.
+    /// A frame was refused, so the session layer is owed an `on_writable` once
+    /// the link has room again.
     writable_owed: AtomicBool,
     /// The link's wake, installed with this sink. A queued frame that waited
     /// for the drain's tick instead reached the browser up to a tick late,
@@ -74,8 +73,8 @@ impl CoordinatorCellSink {
         }
     }
 
-    /// Wake `link` whenever a frame is queued for it (v2 `sendCellGrid`
-    /// writes through at once).
+    /// Wake `link` whenever a frame is queued for it: the queue writes through
+    /// at once.
     pub fn wake_link_with(&self, link: Arc<Notify>) {
         if let Ok(mut held) = self.link_wake.lock() {
             *held = Some(link);
@@ -104,9 +103,8 @@ impl CoordinatorCellSink {
         self.queue.lock().map(|held| held.byte_count()).unwrap_or(0)
     }
 
-    /// Whether a refused frame still owes the session layer an `on_writable`
-    /// (v2 `writableNotificationPending`); the link drain holds its controls
-    /// behind it.
+    /// Whether a refused frame still owes the session layer an `on_writable`;
+    /// the link drain holds its controls behind it.
     pub fn writable_owed(&self) -> bool {
         self.writable_owed.load(Ordering::Acquire)
     }
@@ -119,7 +117,7 @@ impl CoordinatorCellSink {
     }
 
     /// Drop every queued frame: they describe a socket generation that is gone,
-    /// and v2 never queued a cell across a detach. Returns how many were dropped.
+    /// and a cell is never queued across a detach. Returns how many were dropped.
     pub fn discard_queued(&self) -> usize {
         let Ok(mut held) = self.queue.lock() else {
             return 0;
@@ -155,7 +153,7 @@ impl CoordinatorCellSink {
         moved
     }
 
-    /// A refused frame: v2 sets `writableNotificationPending` on every drop.
+    /// A refused frame: every drop sets the writable-owed flag.
     fn refuse(&self) -> CellSinkResult {
         self.writable_owed.store(true, Ordering::Release);
         CellSinkResult::Dropped

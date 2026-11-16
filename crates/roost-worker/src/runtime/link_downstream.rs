@@ -2,8 +2,8 @@
 //! it to [`super::downstream::Dispatcher`], and answer as its [`DownstreamLink`]
 //! (replies, hello/event acknowledgements into the pump, browser commands,
 //! pipeline state). Called by [`super::link_serve`] for every frame it reads.
-//! Split from `runtime::link_drain`; the link side of the helloAck, browserCommand
-//! and eventAck arms of v2 `apps/worker/src/transport/coord-link-downstream.ts`.
+//! Split from `runtime::link_drain`; the link side of the helloAck,
+//! browserCommand and eventAck arms.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -23,7 +23,7 @@ use super::link_loop::LinkLoop;
 use super::link_wire::WireError;
 use super::stop::LinkEnd;
 
-/// v2's answer to a browser command whose frame does not parse.
+/// The answer to a browser command whose frame does not parse.
 pub const INVALID_BROWSER_COMMAND: &str = "invalid browser command";
 
 /// Decode one downstream frame and dispatch it. Returns an end only for a stop.

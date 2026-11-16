@@ -1,7 +1,6 @@
-//! The door's two WebSocket routes (v2 `local-door/local-ui-server.test.ts`
-//! socket cases and `local-attachment-ui.test.ts`): each upgrades only its own
-//! subprotocol, carries binary frames both ways to its own owner, drops text,
-//! refuses oversized frames unread, and tells its owner when the socket ends.
+//! The door's two WebSocket routes: each upgrades only its own subprotocol,
+//! carries binary frames both ways to its own owner, drops text, refuses
+//! oversized frames unread, and tells its owner when the socket ends.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod door_support;
@@ -107,7 +106,7 @@ async fn a_terminal_frame_over_the_payload_ceiling_is_never_read() {
     );
 }
 
-/// Without an attachment owner the attachment path is v2's 404, even for a
+/// Without an attachment owner the attachment path is a 404, even for a
 /// well-formed handshake.
 #[tokio::test]
 async fn an_absent_attachment_owner_answers_404() {
@@ -192,7 +191,7 @@ async fn an_oversized_attachment_frame_closes_the_socket_before_its_owner_reads_
 }
 
 /// Closing the door ends every socket it upgraded and tells each owner, so a
-/// stopping worker leaves no terminal socket behind (v2 `server.stop(true)`).
+/// stopping worker leaves no terminal socket behind.
 #[tokio::test]
 async fn closing_the_door_ends_its_open_sockets_and_tells_their_owner() {
     let door = start_door(DoorOptions::default()).await;

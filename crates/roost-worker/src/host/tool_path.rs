@@ -11,10 +11,7 @@
 //! spawn then ENOENTs and the feature that needed it — the PR badge — silently
 //! never resolves, with no error anywhere. The fix is the same in both places,
 //! and the two lists differ for one reason: `/usr/sbin` holds root's tools, and
-//! a PTY is the user's shell rather than this daemon. The tool prefix is v2's
-//! `listening-ports.ts` darwin `TOOL_PATH`; v2's `pr-status.ts` `GH_PATH` and
-//! its linux ports path are the same directories minus one that holds neither
-//! `gh` nor `ss` on any supported host.
+//! a PTY is the user's shell rather than this daemon.
 
 use std::io::Read as _;
 use std::path::Path;
@@ -28,13 +25,11 @@ use std::time::{Duration, Instant};
 pub const PTY_PATH_PREFIX: &str = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin";
 
 /// How long a host tool may run before it is killed and its reading is
-/// discarded, for the tools v2 ran through `Bun.spawn` with no timeout at all
-/// (`git`, `gh`, `ps`, `ss`, `lsof`). Ten seconds because the slowest caller is
-/// `gh`, a network round trip.
+/// discarded, for `git`, `gh`, `ps`, `ss` and `lsof`. Ten seconds because the
+/// slowest caller is `gh`, a network round trip.
 ///
-/// This bound is a v3 choice and NOT a port: v2 inherited a hung `gh` into a
-/// hung poll. The samplers and the tailnet resolver pass v2's own bounds to
-/// [`run_bounded`] instead.
+/// A hung `gh` must not become a hung poll. The samplers and the tailnet
+/// resolver pass their own bounds to [`run_bounded`] instead.
 pub const TOOL_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The `PATH` this worker resolves its own tools against, prefix included.

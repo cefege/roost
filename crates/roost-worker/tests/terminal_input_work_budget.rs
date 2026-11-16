@@ -1,6 +1,5 @@
 //! The browser input work budget: worker-wide and per-port input caps, route
-//! claim caps, and release exactly once by drop. Ports
-//! `apps/worker/tests/terminal/terminal-input-work-budget.test.ts`.
+//! claim caps, and release exactly once by drop.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_worker::terminal_input::work_budget::{

@@ -1,5 +1,4 @@
-//! The stray reaper's decision (v2 `session-lifecycle.ts`
-//! `reapStrayKeeperChannels`, `strayStrikes`), the stillborn detector, and the
+//! The stray reaper's decision (strike counting), the stillborn detector, and the
 //! channel allocator. Each test names the incident or the invariant it pins,
 //! because these thresholds are decisions rather than tunables.
 
@@ -66,7 +65,7 @@ fn strikes_reset_when_the_workers_view_catches_up() {
     );
 }
 
-/// v2 deletes the strike entry when it reaps: a kill that did not land (the
+/// The strike entry is deleted when it reaps: a kill that did not land (the
 /// channel is still listed next sweep) earns two fresh strikes, never an
 /// immediate second kill.
 #[test]

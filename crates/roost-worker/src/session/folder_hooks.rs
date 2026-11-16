@@ -1,7 +1,5 @@
 //! The owners told when a live session's shell is (re)established in a folder:
-//! after a spawn, a respawn, a survivor adoption, and an OSC 7 folder change —
-//! the four places v2 calls `_startGitBranch` + `_startPorts`
-//! (`apps/worker/src/session/session-{spawn,respawn,resume,scrollback}.ts`).
+//! after a spawn, a respawn, a survivor adoption, and an OSC 7 folder change.
 //! `session::git_ports` registers the folder watcher; `session::respawn`,
 //! `session::resume` and `session::cwd_events` notify, with no lock held.
 

@@ -14,7 +14,6 @@
 //! with every spawn failing `worker not connected`. And a barrier that cannot
 //! leave the snapshot stage, which is a build gap and is torn down so it shows
 //! up in the ladder instead of looking healthy.
-//! Ports v2 `apps/worker/src/transport/coord-link-native-writer.ts`, `apps/worker/src/transport/coord-link.ts`.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -58,7 +57,7 @@ pub(super) async fn serve(
             () = wake.notified() => {
                 if let Some(end) = on_tick(loop_state, &mut link).await { return end; }
             }
-            // v2 `coordLinkSink`: the durable sink wrote a row or moved a claim.
+            // The durable sink wrote a row or moved a claim.
             () = store_changed(delivery.as_deref()) => {
                 if let Some(end) = on_tick(loop_state, &mut link).await { return end; }
             }
@@ -105,9 +104,8 @@ async fn force_hello(loop_state: &mut LinkLoop, link: &mut Link) -> Option<LinkE
             ));
         }
     }
-    // `process_epoch` is wired for real: the boot config has minted it and
-    // `LinkLoopState` already carries it, and v2 sent it, so omitting it was a
-    // parity gap rather than a missing feature.
+    // `process_epoch` is the one the boot config minted; `LinkLoopState`
+    // carries it and the hello sends it.
     //
     // `capabilities` is what this worker can actually SERVE, and the list and
     // the collaborator behind each entry live in `runtime::capabilities`: a
@@ -141,7 +139,7 @@ async fn force_hello(loop_state: &mut LinkLoop, link: &mut Link) -> Option<LinkE
         barrier = ?loop_state.pump.barrier(),
         "the hello is the only forced first write"
     );
-    // v2 calls `onOpen` after the forced hello write, never for a hello that
+    // `on_open` fires after the forced hello write, never for a hello that
     // failed; a fresh socket's session half starts suspended until hello-ack.
     loop_state.hello_acked = false;
     if let Some(owners) = loop_state.dispatcher.owners() {

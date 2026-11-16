@@ -3,8 +3,7 @@
 //! channels, control-lane reassembly into the socket owner's ingress, and the
 //! per-lane stall and low-water handling. Called through
 //! [`super::packet_port::TerminalPeerPacketPort`]'s entry points and by
-//! `peer::connection`'s native event pump. Ports the send, receive and flush
-//! paths of v2 `apps/worker/src/terminal/peer/terminal-peer-packet-port.ts`.
+//! `peer::connection`'s native event pump.
 
 use std::time::Duration;
 
@@ -25,7 +24,7 @@ pub(super) const DATA_CHANNEL_CLOSED: &str = "data_channel_closed";
 
 impl TerminalPeerPacketPort {
     /// One native channel event for lane `channel` (connection-level events
-    /// are the connection's). v2 `installChannelCallbacks`.
+    /// are the connection's).
     pub fn on_channel_event(&self, event: NativePeerEvent) {
         let _turn = self.budget.turn();
         let mut core = self.lock_core();
@@ -204,7 +203,7 @@ impl TerminalPeerPacketPort {
         }
     }
 
-    /// v2 `setTimeout(flush, 0)`: the rest of the queue goes on a later turn.
+    /// The rest of the queue goes on a later turn.
     fn schedule_flush(&self, core: &mut PortCore) {
         let queued = core.queues.iter().any(|queue| queue.message_count() > 0);
         if core.flush_scheduled || !queued {

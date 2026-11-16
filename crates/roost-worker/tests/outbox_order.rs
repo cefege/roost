@@ -179,7 +179,7 @@ fn the_drain_order_places_terminal_last() {
             .position(|l| *l == lane)
             .expect("the lane is listed")
     };
-    // v2 `drainQueues` (`coord-link-outbox.ts:165-177`): liveness, then events.
+    // Liveness, then events.
     assert_eq!(position(Lane::Liveness), 0, "the pong first");
     assert_eq!(position(Lane::Durable), 1, "durable next");
     assert!(

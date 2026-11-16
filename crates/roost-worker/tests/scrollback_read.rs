@@ -225,9 +225,9 @@ fn a_cancelled_walk_is_not_a_complete_page() {
     );
 }
 
-/// v2 `browser-command-terminal.ts:115-117` asks for live authority only
-/// before a slice that has rows: authority that ends after the last slice was
-/// taken leaves a complete page, and an empty page is never cancelled.
+/// Live authority is asked for only before a slice that has rows: authority
+/// that ends after the last slice was taken leaves a complete page, and an empty
+/// page is never cancelled.
 #[test]
 fn authority_is_asked_only_before_a_slice_that_has_rows() {
     let page = page_for(&request("", 1_000, 300), 1_000, 80, &binding()).expect("bound");

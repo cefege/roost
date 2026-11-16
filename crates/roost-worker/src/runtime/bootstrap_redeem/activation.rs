@@ -17,10 +17,9 @@
 //!
 //! AN `https` COORDINATOR IS DIALLED OVER TLS, NEVER IN THE CLEAR. Both legs —
 //! this Connect client and the `wss` link in `link_dial` — take their TLS from
-//! [`crate::coordinator_tls`], so the two trust the same roots. v2's workers
-//! dial `https://` front doors, and a worker that could not would join nothing
+//! [`crate::coordinator_tls`], so the two trust the same roots. Operators dial
+//! `https://` front doors, and a worker that could not would join nothing
 //! but a coordinator on its own machine.
-//! Ports v2 `apps/worker/src/host/install.ts`.
 
 use anyhow::Context as _;
 use connectrpc::client::{ClientConfig, HttpClient};
@@ -109,7 +108,7 @@ pub(crate) fn coordinator_client(
 mod tests {
     use super::coordinator_client;
 
-    /// v2's workers dial `https://` front doors, and `roost add-machine` only
+    /// Operators dial `https://` front doors, and `roost add-machine` only
     /// hands out HTTPS origins, so an `https` base must build a TLS client. It
     /// used to be refused by name, which left every remote join looping on
     /// "is not a coordinator this worker can dial".

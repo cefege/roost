@@ -3,8 +3,7 @@
 //! grid description and rows) wrapped into the `LocalScrollbackResponse` the
 //! local page expects. The grant's session set is checked here because this
 //! transport authorizes per grant, before the read, between slices and after.
-//! Called by `super::controls`. Ports
-//! `apps/worker/src/local-door/local-terminal-scrollback.ts`.
+//! Called by `super::controls`.
 
 use roost_proto::buffa::Message;
 use roost_proto::{
@@ -69,7 +68,7 @@ struct ReadPage {
     floor: ScrollbackHistoryFloor,
 }
 
-/// v2 `readScrollbackCells` with `admitRow`/`continueRead`: a settled core, the
+/// A settled core, the
 /// epoch fence, the window clamped to the retained floor, and a walk that
 /// charges each row against the direct history budget before keeping it.
 async fn read_page(
@@ -155,7 +154,7 @@ fn describe(sessions: &SessionTable, session_id: &SessionId) -> Result<GridDescr
     }
 }
 
-/// The reader's refusals, worded as v2's reader words them.
+/// The reader's refusals, worded for the local page.
 fn refusal_text(refusal: scrollback_read::Refusal) -> &'static str {
     match refusal {
         scrollback_read::Refusal::StaleEpoch => "grid epoch changed",

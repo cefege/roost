@@ -1,8 +1,6 @@
 //! What this worker's hello tells the coordinator it can be asked for. One
 //! named list, called by `runtime::link_serve` on every dial, and by nothing
-//! else. Ports v2 `apps/worker/src/transport/coord-link-deps.ts:96-100` and the
-//! `additionalCapabilities` of `main.ts:181-185`; the spellings are
-//! `roost_protocol::versioning`'s.
+//! else. The spellings are `roost_protocol::versioning`'s.
 //!
 //! A capability is a PROMISE: a coordinator that reads one routes traffic here
 //! and waits for the answer. Each entry names the collaborator that earns it:
@@ -12,8 +10,8 @@
 //!    answers the coordinator's route claims.
 //!  - `terminal-peer-webrtc-v1` / `attachment-transfer-peer-webrtc-v1` —
 //!    only when that peer owner's native bootstrap was `ready`
-//!    (`peer::DirectPeerSupport`, v2 `boot-local-terminal.ts:173-174`); a
-//!    disabled or unloadable transport is never promised.
+//!    (`peer::DirectPeerSupport`); a disabled or unloadable transport is never
+//!    promised.
 
 use roost_protocol::versioning::{
     CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1, CAPABILITY_TERMINAL_INPUT_ROUTE_V1,
@@ -25,7 +23,7 @@ use crate::peer::DirectPeerSupport;
 /// The capabilities this worker advertises, in the order the coordinator
 /// compares them.
 ///
-/// SORTED, as v2 sorts them: a hello is compared field by field and a
+/// SORTED: a hello is compared field by field and a
 /// reordered list is a different hello.
 #[must_use]
 pub fn advertised(direct: DirectPeerSupport) -> Vec<String> {

@@ -1,7 +1,6 @@
-//! Ports `apps/worker/tests/terminal/terminal-stream-sync-output.test.ts`: the
-//! DEC 2026 hold withholds frames inside a synchronized frame, the 1 s wall and
-//! 2 000-row ceilings each release it exactly once, and a normal close flushes
-//! once. Plus the byte scanner that tracks the mode beside the core.
+//! The DEC 2026 hold withholds frames inside a synchronized frame, the 1 s wall
+//! and 2 000-row ceilings each release it exactly once, and a normal close
+//! flushes once. Plus the byte scanner that tracks the mode beside the core.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 #[path = "cell_support/mod.rs"]

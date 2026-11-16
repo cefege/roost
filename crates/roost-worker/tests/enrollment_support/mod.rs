@@ -62,7 +62,7 @@ impl Coordinator {
             // as "spent by somebody else". Collapsing the two is what made a
             // first redemption of a valid token arrive as a refusal.
             Some(bound) if bound.is_empty() => {}
-            // v2's rule, and the one that makes a redeploy's re-offered token
+            // The rule that makes a redeploy's re-offered token
             // cost one round trip rather than a refusal: a token already spent
             // by THIS key is a success.
             Some(bound) if *bound == fingerprint => {}

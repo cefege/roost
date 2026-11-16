@@ -1,14 +1,12 @@
 //! The cell cadence's window GRID: a rate that does not carry the scheduler's
 //! overshoot.
 //!
-//! `smoke/terminal/terminal-render.spec.ts:30` ("streaming sequence repair
-//! leaves an off-bottom reader fixed") streams 300 lines from a shell loop of
-//! `printf` + `sleep 0.01` and requires the browser's wire-frame counter to
-//! climb by more than 200 while it runs. That burst lasts as long as the
-//! generator takes — 2.99 s is its floor at a perfect 10 ms per iteration,
-//! 3.42 s measured on this tree — so the spec's 200 frames demand a sustained
-//! period of 15.9-17.1 ms, which is the 16 ms coalesce window itself, with no
-//! room for a timer.
+//! A browser watching 300 lines streamed from a shell loop of `printf` +
+//! `sleep 0.01` needs the wire-frame counter to climb by more than 200 while it
+//! runs. That burst lasts as long as the generator takes — 2.99 s is its floor
+//! at a perfect 10 ms per iteration, 3.42 s measured on this tree — so 200 frames
+//! demand a sustained period of 15.9-17.1 ms, which is the 16 ms coalesce window
+//! itself, with no room for a timer.
 //!
 //! The window is a RATE, and a rate is only the window if the deadlines that
 //! produce it are one window apart. A deadline derived from the pass that ran

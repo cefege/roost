@@ -18,7 +18,6 @@
 //! A LISTING IS A FIXED NUMBER OF ENTRIES, DIRS FIRST. The browse page renders
 //! folders as drill-in rows above files, and a cap reached in readdir order
 //! would hide whichever entries the filesystem happened to name last.
-//! Ports v2 `apps/worker/src/browser-commands/browser-command-files.ts`, `apps/worker/src/file-rpcs.ts`, `apps/worker/src/util/path.ts`.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -48,10 +47,9 @@ pub const LIST_DIR_MAX_ENTRIES: usize = 200;
 /// One row of a listing, in the shape the coordinator decodes.
 ///
 /// `isDir` is camelCase between two snake_case neighbours because that is
-/// what this link has always published for it (v2 `file-rpcs.ts:112`) and
-/// what the coordinator reads back (`handlers-attachments.ts:91`). The
-/// mismatch is invisible in one direction only: a proto `bool` whose key
-/// never arrived defaults to FALSE, so publishing `is_dir` turns every
+/// what this link has always published for it and what the coordinator reads
+/// back. The mismatch is invisible in one direction only: a proto `bool` whose
+/// key never arrived defaults to FALSE, so publishing `is_dir` turns every
 /// directory into a file and empties the browse page's folder grid.
 #[derive(serde::Serialize)]
 struct ListEntry {

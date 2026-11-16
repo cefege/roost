@@ -1,9 +1,7 @@
 //! Per-session git branch/remote, pull-request and listening-ports facts: each
 //! reading the folder watcher takes is compared to the record and, on change,
 //! written to it and published as a `git`, `pr` or `ports` session event.
-//! Ports v2 `apps/worker/src/session/session-git-ports.ts` (`_startGitBranch`
-//! `apply`, the `readGitRemote` continuation, `_resolvePr`, `_resolvePorts`,
-//! `_startPorts`). `runtime::heart_owners` attaches it to the manager; the
+//! `runtime::heart_owners` attaches it to the manager; the
 //! polling itself is `host::sampling::HostWatchers`.
 
 use std::sync::{Arc, Weak};
@@ -40,8 +38,7 @@ impl std::fmt::Debug for SessionFolderFacts {
 
 impl SessionFolderFacts {
     /// Build over `manager` and register on it: a session whose folder is
-    /// (re)established starts its watcher, a closed session stops it (v2
-    /// `_dropChannelState` clears the watch and both polls).
+    /// (re)established starts its watcher, a closed session stops it.
     pub fn attach(
         manager: &SessionManager,
         platform: HostPlatform,
@@ -70,7 +67,7 @@ impl SessionFolderFacts {
         facts
     }
 
-    /// v2 `_startGitBranch` + `_startPorts`: (re)start the session's watcher
+    /// (Re)start the session's watcher
     /// over its CURRENT folder and child pid, replacing any prior one.
     pub fn start(self: &Arc<Self>, session_id: &SessionId, channel_id: u16) {
         let Some((folder, root_pid)) = self
@@ -110,7 +107,7 @@ impl SessionFolderFacts {
     }
 
     /// Apply one reading to the record on `channel_id`, if it is still
-    /// `session_id`'s (v2 `sessions.get(rec.channelId) !== rec`), and publish
+    /// `session_id`'s, and publish
     /// the event when it changed what the session shows. `true` on a change.
     ///
     /// Must be called off the runtime's threads (the watcher thread): the
@@ -175,7 +172,7 @@ impl SessionFolderFacts {
                     }
                 }
                 // An unsampled record reads as no ports, so a session nobody
-                // listens in publishes nothing (v2 `portsEq(x, undefined)`).
+                // listens in publishes nothing.
                 FolderReading::Ports(ports) => {
                     if ports_eq(&ports, record.ports.as_deref().unwrap_or_default()) {
                         return false;
@@ -194,7 +191,7 @@ impl SessionFolderFacts {
         true
     }
 
-    /// v2 `_resolvePr`'s guard: the branch to ask about, when the record is
+    /// The branch to ask about for a pull request, when the record is
     /// still this session's and both its branch and its GitHub remote are known.
     pub fn pull_request_branch(&self, session_id: &SessionId, channel_id: u16) -> Option<String> {
         self.table

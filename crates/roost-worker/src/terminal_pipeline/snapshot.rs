@@ -1,9 +1,7 @@
 //! One bounded, content-free pipeline response from facts the owner has already
 //! read: seven stages per known session, one `SESSION_NOT_FOUND` stage per
 //! unknown one, and records dropped deterministically until the response fits.
-//! Ports `terminalPipelineSnapshot` and its stage/reason helpers from
-//! `apps/worker/src/terminal/terminal-pipeline-snapshot.ts`. Called by
-//! `terminal_pipeline::PipelineOwner`; depends on `super::bounds`.
+//! Called by `terminal_pipeline::PipelineOwner`; depends on `super::bounds`.
 
 use roost_proto::{
     DTerminalPipelineSnapshotRequest, TerminalPipelineReason as Reason,
@@ -14,7 +12,7 @@ use super::bounds::{self, StageInput};
 use crate::link_ports::LinkPipelineState;
 use crate::session::cell_sink::StreamDeliveryAggregate;
 
-/// v2 `TerminalStreamState`, as far as the pipeline reads it.
+/// The stream state, as far as the pipeline reads it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StreamPipelineFacts {
     pub generation: u64,
@@ -24,7 +22,7 @@ pub struct StreamPipelineFacts {
 }
 
 /// Both serialization lanes of one channel. Depths count writers QUEUED behind
-/// the holder, as v2's `depth` does; an age is present only while held.
+/// the holder; an age is present only while held.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ControlPipelineFacts {
     pub control_depth: u64,
@@ -33,7 +31,7 @@ pub struct ControlPipelineFacts {
     pub admission_held_age_ms: Option<u64>,
 }
 
-/// In-flight keeper writes for one channel (v2 `KeeperPipelineFacts`).
+/// In-flight keeper writes for one channel.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KeeperPipelineFacts {
     pub input_frames: u64,
@@ -62,9 +60,9 @@ pub struct SessionPipelineFacts {
     pub stream: Option<StreamPipelineFacts>,
     pub cell_dirty: bool,
     pub pending_repair: bool,
-    /// v2 `cellEmissionGates.has`.
+    /// Whether the cell emission gate is held.
     pub cell_gate: bool,
-    /// v2 `syncOutputHolds.has`.
+    /// Whether a synchronized-output hold is held.
     pub sync_output: bool,
     /// How long the current gate suppression has lasted, when there is one.
     pub suppression_age_ms: Option<u64>,
@@ -170,7 +168,7 @@ fn session_stages(
             } else {
                 Reason::None
             },
-            // A live record always holds its core; v2 counts `wtermCore ? 1 : 0`.
+            // A live record always holds its core, so the count is 1.
             StageInput {
                 count: 1,
                 ..base.clone()

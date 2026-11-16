@@ -1,8 +1,7 @@
 //! The heartbeat's reachable address: the live tailnet name wins, the
 //! `ROOST_REACHABLE_ADDR` fallback answers when tailscale does not, a resolved
 //! answer is reused for the five-minute TTL, and an empty answer is never
-//! cached. Ports the `currentReachableAddr` cases of v2
-//! `apps/worker/tests/transport/heartbeat.test.ts`.
+//! cached.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

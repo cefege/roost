@@ -18,7 +18,7 @@ async fn a_listing_excludes_the_workers_own_state_and_sorts_newest_first() {
     std::fs::write(dir.join("older.txt"), b"old").expect("a file");
     std::fs::write(dir.join("newer.txt"), b"new").expect("a file");
     // Two writes in one clock tick share an mtime; the order under test is
-    // v2's `b.mtime_ms - a.mtime_ms`, so the older file is made older.
+    // newest first, so the older file is made older.
     std::fs::File::options()
         .write(true)
         .open(dir.join("older.txt"))
@@ -59,8 +59,8 @@ async fn a_session_with_no_attachment_directory_lists_nothing() {
     );
 }
 
-/// A FILENAME IS A LEAF: v2 browser-command-attachments.ts:84-89 refuses a
-/// separator of either kind, `..` and `.`, and nothing else.
+/// A FILENAME IS A LEAF: a separator of either kind, `..` and `.` are refused,
+/// and nothing else.
 #[tokio::test]
 async fn a_delete_refuses_a_filename_that_is_not_a_leaf() {
     let harness = harness();

@@ -1,7 +1,7 @@
 //! The worker's reply to one `diag-terminal-capture` step: the constructors
 //! every capture path answers with, and the rule for `recent_worker_capture`.
-//! Ports `apps/worker/src/diag/terminal-capture-ack.ts` (the reply type itself
-//! is `roost_protocol::terminal_capture::TerminalCaptureWorkerAck`); called by
+//! The reply type itself is
+//! `roost_protocol::terminal_capture::TerminalCaptureWorkerAck`; called by
 //! `super::recorder` and `super::write`.
 
 use roost_protocol::terminal_capture::{
@@ -21,7 +21,7 @@ pub fn recent_worker_capture_for(
         .cloned()
 }
 
-/// v2 `terminalCaptureFailureAck`.
+/// The acknowledgement for a failed capture step.
 pub fn failure_ack(
     error: TerminalCaptureErrorCode,
     recent: Option<TerminalCaptureFileRef>,

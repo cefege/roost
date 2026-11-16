@@ -1,9 +1,9 @@
 //! The accepted-emission tap: retain the exact frame the worker shipped,
 //! advance the viewport-only fold, sample a fresh core scan at that emission's
-//! own generation and sequence, and compare the two. Ports `apps/worker/src/
-//! diag/terminal-capture-emission.ts`; called only by `super::recorder`, from
-//! the emitter AFTER a full installed or a delta was accepted. It never
-//! advances emission state or clears a dirty row: that would be the defect.
+//! own generation and sequence, and compare the two. Called only by
+//! `super::recorder`, from the emitter AFTER a full installed or a delta was
+//! accepted. It never advances emission state or clears a dirty row: that
+//! would be the defect.
 
 use std::sync::Arc;
 use std::time::Instant;

@@ -2,7 +2,7 @@
 //! only (a healthy full+delta compares equal and stays silent, a dropped delta
 //! invalidates the fold), and the `diag-terminal-capture` frame is answered
 //! rpc-ok with the worker ack for start, capture and stop — a fixed code, never
-//! a message. Ports `apps/worker/tests/terminal/terminal-capture-wire.test.ts`.
+//! a message.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod capture_support;

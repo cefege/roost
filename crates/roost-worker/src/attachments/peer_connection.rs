@@ -1,8 +1,7 @@
 //! One attachment peer's native answerer: it creates only the two attachment
 //! channels and their packet port, verifies the browser's DTLS fingerprint,
 //! and never touches a terminal peer. Built by `peer_owner` over the shared
-//! native driver in `crate::peer::native`. Ports
-//! `apps/worker/src/attachments/attachment-peer-connection.ts`.
+//! native driver in `crate::peer::native`.
 
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};

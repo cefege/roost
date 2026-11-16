@@ -1,8 +1,7 @@
 //! Worker-local terminal-core admission and replacement headroom. Each core is
 //! leased from construction through record teardown, an over-cap survivor set
 //! is refused before any channel is touched, and heartbeat reads the snapshot.
-//! Ports `apps/worker/src/terminal/terminal-core-capacity.ts`; how big the
-//! admission is lives in [`sizing`]. Held by `session::lifecycle::SessionManager`;
+//! How big the admission is lives in [`sizing`]. Held by `session::lifecycle::SessionManager`;
 //! called by `session::{spawn,respawn,resume}` and `runtime::adoption`.
 
 pub mod sizing;
@@ -70,7 +69,7 @@ impl TerminalCoreCapacityError {
     }
 }
 
-/// A lease used outside the one order v2 admits.
+/// A lease used outside the one order the capacity admits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum TerminalCoreLeaseMisuse {
     #[error("terminal core lease cannot activate twice or after release")]
@@ -167,7 +166,7 @@ impl TerminalCoreCapacity {
         })
     }
 
-    /// The content-free heartbeat report (v2 `main.ts:312-324`).
+    /// The content-free heartbeat report.
     pub fn snapshot(&self) -> TerminalCoreCapacityReport {
         report(self, &lock(&self.book))
     }
@@ -260,7 +259,7 @@ impl TerminalCoreCapacity {
         Ok(())
     }
 
-    /// v2 core re-proof: the new core becomes resident, the old one's slot is
+    /// Core re-proof: the new core becomes resident, the old one's slot is
     /// released, and the replacement slot is freed.
     pub fn replace_channel_lease(
         &self,

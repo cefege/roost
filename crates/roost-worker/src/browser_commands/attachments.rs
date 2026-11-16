@@ -1,9 +1,8 @@
 //! A session's media directory as browser commands see it: what is in it,
 //! removing one file from it, and whether bytes the browser is about to upload
-//! are already there. Ports v2
-//! `apps/worker/src/attachments/browser-command-attachments.ts`; the directory
-//! rules and the dedup manifest are `crate::attachments` (`store_paths`,
-//! `media_dirs`, `file_store`), the one owner every upload path shares.
+//! are already there. The directory rules and the dedup manifest are
+//! `crate::attachments` (`store_paths`, `media_dirs`, `file_store`), the one
+//! owner every upload path shares.
 
 use std::path::Path;
 use std::time::UNIX_EPOCH;
@@ -83,13 +82,12 @@ impl SessionAttachments {
     }
 }
 
-/// v2's `rpc-error` for a session id that resolves outside the base.
+/// The `rpc-error` for a session id that resolves outside the base.
 fn invalid_session(kind: &'static str) -> Refusal {
     Refusal::failed(kind, "invalid session_id")
 }
 
-/// v2 `handleDeleteAttachment`: a bare name, never a separator or a directory
-/// reference.
+/// A bare name, never a separator or a directory reference.
 fn check_leaf(filename: &str) -> Result<(), Refusal> {
     if filename.contains(['/', '\\']) || filename == ".." || filename == "." {
         return Err(Refusal::failed("delete-attachment", "invalid filename"));

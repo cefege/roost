@@ -1,8 +1,7 @@
 //! A direct upload over the real loopback door lands a file: a WebSocket on the
 //! attachment subprotocol reaches the direct receiver through the door's
 //! shared pump, the hello is admitted against a dedicated grant, and the final
-//! ack names the committed path. The Rust acceptance proof for
-//! `local-ui-attachment-socket.ts` + `attachment-direct-socket.ts` together.
+//! ack names the committed path.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

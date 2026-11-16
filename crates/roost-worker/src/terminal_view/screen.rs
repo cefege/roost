@@ -2,8 +2,7 @@
 //! answers on, one `CellSink` per LOCAL socket (`local:<socketId>`), and the
 //! watch set deciding which sessions that sink forwards. A coordinator-relayed
 //! socket gets no sink: its cells ride the single `coord` sink and the
-//! coordinator seeds it from its own replica. Ports
-//! `apps/worker/src/terminal/view/terminal-view-owner-screen.ts`.
+//! coordinator seeds it from its own replica.
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
@@ -48,7 +47,7 @@ pub trait LocalViewTransport: Send + Sync + std::fmt::Debug {
     fn on_view_expired(&self);
 }
 
-/// The grant's session scope for a local socket (v2 `allowsSession`).
+/// The grant's session scope for a local socket.
 pub type SessionScope = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
 /// Where one registry socket's view decisions land.
@@ -96,7 +95,7 @@ impl ScreenSockets {
         self.sockets.contains_key(socket_id)
     }
 
-    /// v2's `allowsSession` for this socket: a relayed socket allows every
+    /// Whether this socket allows the session: a relayed socket allows every
     /// session, a local one follows its grant.
     pub(super) fn allows(&self, socket_id: &str, session_id: &str) -> bool {
         match self.sockets.get(socket_id).map(|socket| &socket.transport) {
@@ -137,7 +136,7 @@ impl ScreenSockets {
         ids
     }
 
-    /// v2 `registerSocket`: the cell sink a LOCAL socket paints through, for
+    /// The cell sink a LOCAL socket paints through, for
     /// the caller to register once no owner lock is held.
     pub(super) fn cell_sink(
         &self,
@@ -156,7 +155,7 @@ impl ScreenSockets {
         }))
     }
 
-    /// v2 `unregisterSocket`: forget the socket, returning the local sink id
+    /// Forget the socket, returning the local sink id
     /// the caller must unregister.
     pub(super) fn detach(&mut self, socket_id: &str) -> Option<String> {
         let socket = self.sockets.remove(socket_id)?;

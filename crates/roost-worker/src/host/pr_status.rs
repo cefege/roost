@@ -15,8 +15,8 @@
 //! silicon and `/usr/local/bin` on Intel, and a launchd or systemd unit
 //! carries neither, so a bare spawn ENOENTs and the badge silently never
 //! resolves. The production reader runs `gh` with the tool `PATH` as ITS
-//! `PATH` (v2 `GH_PATH`, `apps/worker/src/host/pr-status.ts`); a test drives a
-//! script by path rather than whatever this machine has installed.
+//! `PATH`; a test drives a script by path rather than whatever this machine
+//! has installed.
 
 use std::path::{Path, PathBuf};
 
@@ -31,8 +31,8 @@ use super::tool_path::{self, TOOL_TIMEOUT};
 /// A check RUN carries `status` and `conclusion`; a legacy commit STATUS
 /// carries `state`. Both appear in the same array, which is why this is one
 /// struct with optional fields rather than an enum. `conclusion` keeps absent
-/// apart from empty because v2 reads `conclusion ?? state`: an absent (or
-/// null) conclusion falls back to the state, an empty one does not.
+/// apart from empty: an absent (or null) conclusion falls back to the state,
+/// an empty one does not.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RollupEntry {
     /// `QUEUED`, `IN_PROGRESS`, `COMPLETED`; empty when absent.
@@ -157,7 +157,7 @@ pub fn pull_request_state(raw: &str, is_draft: bool) -> PullRequestState {
     }
 }
 
-/// The rollup as the protocol's own enum (v2 `rollupChecks`).
+/// The rollup as the protocol's own enum.
 ///
 /// A failure anywhere is `failing` and outranks a pending sibling: a badge that
 /// says "passing" while one required check failed is a lie somebody merges on.

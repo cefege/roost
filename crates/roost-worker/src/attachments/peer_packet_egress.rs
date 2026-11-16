@@ -2,9 +2,7 @@
 //! fragments leave the per-lane queues only while the native channel is open,
 //! a drain-then-close waits for both queues and native buffers, and a send
 //! reports backpressure the way the loopback carrier does. Called by
-//! `direct_sockets` through `AttachmentTransferPort`. Ports `send`, `flush`,
-//! `closeAfterDrain` and `closeIfDrained` of
-//! `apps/worker/src/attachments/attachment-peer-packet-port.ts`.
+//! `direct_sockets` through `AttachmentTransferPort`.
 
 use std::time::Duration;
 

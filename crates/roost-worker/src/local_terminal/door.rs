@@ -3,7 +3,6 @@
 //! coordinator link already shares, and the grant install/revoke the link
 //! routes here. Built by `runtime::owners`; the door's router serves
 //! `sockets()`, the link dispatcher reaches it as `LocalTerminalGrantPort`.
-//! Ports the owner half of `apps/worker/src/boot/boot-local-terminal.ts`.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,8 +18,7 @@ use crate::session::table::SessionTable;
 use crate::terminal_input::{TerminalInputRouteOwner, TerminalInputWorkBudget};
 use crate::terminal_view::TerminalViewOwner;
 
-/// What the door's owners are built over. v2 `LocalTerminalDoorOptions` minus
-/// the server's own configuration.
+/// What the door's owners are built over, without the server's own configuration.
 #[derive(Debug, Clone)]
 pub struct LocalTerminalDoorDeps {
     pub manager: Arc<SessionManager>,
@@ -33,7 +31,7 @@ pub struct LocalTerminalDoorDeps {
     pub runtime: Handle,
 }
 
-/// v2 `LocalTerminalDoor.wiring` for the terminal owners.
+/// The terminal owners behind the loopback door.
 #[derive(Debug)]
 pub struct LocalTerminalDoor {
     grants: LocalTerminalGrantStore,
@@ -85,7 +83,7 @@ impl LocalTerminalDoor {
         &self.worker_epoch
     }
 
-    /// v2 `disposeDirect`: stop taking direct input, route claims and grants,
+    /// Stop taking direct input, route claims and grants,
     /// and close every direct socket. Once; a retire and a shutdown may both
     /// ask.
     pub fn dispose(&self) {
@@ -101,12 +99,12 @@ impl LocalTerminalDoor {
 }
 
 impl LocalTerminalGrantPort for LocalTerminalDoor {
-    /// v2 `onLocalTerminalGrant`: a refused install answers with the reason.
+    /// A refused install answers with the reason.
     fn install_grant(&self, request: &DLocalTerminalGrant) -> Result<(), String> {
         self.grants.install(request).map(|_| ())
     }
 
-    /// v2 `wiring.revokeDevice`: routes first, then grants, whose removal
+    /// Routes first, then grants, whose removal
     /// closes every socket the device held.
     fn revoke_device(&self, device_fingerprint: &str) {
         self.sockets.revoke_device(device_fingerprint);

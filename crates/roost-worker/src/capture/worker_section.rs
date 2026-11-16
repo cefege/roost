@@ -1,6 +1,5 @@
 //! Freezes one armed (or unarmed) session's worker evidence into the immutable
-//! `TerminalWorkerSection` plus its coverage report. Ports `freezeWorkerSection`
-//! of `apps/worker/src/diag/terminal-capture-worker-section.ts`; called by
+//! `TerminalWorkerSection` plus its coverage report. Called by
 //! `super::write` synchronously, under the record and registry locks, before
 //! any await, so the state recorded is the state at the trigger rather than
 //! after the repair. A display-cell snapshot is never a parser checkpoint.
@@ -173,8 +172,8 @@ fn process_identity(process: &WorkerProcessIdentity) -> TerminalCaptureProcessId
         process_id: process.process_id.clone(),
         git_sha: process.git_sha.clone(),
         artifact_version: process.artifact_version.clone(),
-        // v2 stamped its pinned WASM core's digest here. This worker's core is
-        // native (`roost_term`), so there is no WASM artifact to name.
+        // This worker's core is native (`roost_term`), so there is no WASM
+        // artifact to name.
         wasm_identity: None,
         worker_fp: Some(process.worker_fp.clone()),
         viewer_id: None,

@@ -1,5 +1,4 @@
-//! One cell frame: v2 `apps/worker/src/session/session-emit.ts` `emitCellFrame`
-//! and `installTerminalBaseline` — the gate checks, the build (a delta too big
+//! One cell frame: the emit and the baseline install — the gate checks, the build (a delta too big
 //! for one part escalates to a full), the commit that installs a baseline or
 //! fans a delta out, and the stream-wide repair a dropped delta owes. Split from
 //! `session::emit`; called by `session::{cell_scheduler, emit_ingest,
@@ -25,7 +24,7 @@ use super::sync_output::SyncOutputAction;
 use super::types::SessionRecord;
 
 impl CellEmitter {
-    /// v2 `installTerminalBaseline`: `emitCellFrame(force = true)`.
+    /// Install a forced full baseline for this channel.
     pub fn install_terminal_baseline(
         &mut self,
         record: &mut SessionRecord,
@@ -44,7 +43,7 @@ impl CellEmitter {
         self.emit_cell_frame_at(record, true, now_ms, now)
     }
 
-    /// Emit one frame for this channel (v2 `emitCellFrame`).
+    /// Emit one frame for this channel.
     pub fn emit_cell_frame(
         &mut self,
         record: &mut SessionRecord,
@@ -148,7 +147,7 @@ impl CellEmitter {
             let evidence = self.capture.wants_emissions().then(|| frame.clone());
             if let Err(reason) = self.install_baseline(channel_id, frame, wire, timings) {
                 // A core that produced something the wire refuses cannot be
-                // trusted either (v2 `installStreamBaseline` → coreValid=false).
+                // trusted.
                 warn!(%channel_id, %reason, "a full cell frame could not be installed as a baseline");
                 signal::emit(
                     SignalKind::TerminalInvalidFrame,
@@ -201,7 +200,7 @@ impl CellEmitter {
     }
 
     /// Latch the repair, invalidate every active sink's baseline, and build the
-    /// forced full now (v2 `pendingCellRepairs.add` + `installTerminalBaseline`).
+    /// forced full now.
     fn repair_stream(&mut self, record: &mut SessionRecord, now_ms: i64, now: Instant) {
         let channel_id = record.channel_id();
         let active: Vec<String> = self
@@ -220,7 +219,7 @@ impl CellEmitter {
         self.install_terminal_baseline_at(record, now_ms, now);
     }
 
-    /// v2 `pendingCellRepairs.delete`: take the latch.
+    /// Take the repair latch.
     pub(crate) fn take_repair_latch(&mut self, channel_id: ChannelId) -> bool {
         self.streams
             .get_mut(&channel_id)
@@ -287,7 +286,7 @@ struct Built {
 ///
 /// Empty on purpose: the coordinator fills it in from its own channel-to-session
 /// map and explicitly adopts an empty one
-/// (`apps/coord/src/terminal/screen/byte-hub.ts:195`), while a NON-empty value
+/// (the coordinator's terminal screen byte hub), while a NON-empty value
 /// that disagrees is refused. A local sink names the session itself.
 pub(crate) const NO_SESSION_ID: &str = "";
 

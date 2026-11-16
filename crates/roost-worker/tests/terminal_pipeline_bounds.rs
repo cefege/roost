@@ -1,8 +1,6 @@
 //! The fixed bounds pipeline evidence is shaped by: age buckets, the
 //! sixteen-count histogram cap, keeper in-flight accounting, and lane depths
-//! that count only queued writers. Ports the bucket and stage rules of
-//! `apps/worker/src/terminal/terminal-pipeline-snapshot-bounds.ts` and
-//! `sampleKeeperFacts`/lane reads of `terminal-pipeline-snapshot.ts`.
+//! that count only queued writers.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -103,9 +101,8 @@ fn keeper_facts_age_each_pending_input_and_the_ledger_only_raises_the_frame_coun
     assert!(idle.histogram_buckets.is_empty() && idle.oldest_age_ms == 0);
 }
 
-/// v2 `sampleKeeperFacts` counts each pending resize as a resize frame aged
-/// from its start (`terminal-pipeline-snapshot.ts:166-171`), which is what the
-/// `KEEPER_RESIZE_PENDING` reason reads.
+/// Each pending resize counts as a resize frame aged from its start, which is
+/// what the `KEEPER_RESIZE_PENDING` reason reads.
 #[test]
 fn keeper_facts_count_and_age_each_pending_resize() {
     let now = Instant::now();

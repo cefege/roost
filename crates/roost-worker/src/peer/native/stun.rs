@@ -1,9 +1,7 @@
 //! The one STUN exchange the native peer makes itself: a Binding request to an
 //! operator STUN server, and the mapped address its success response carries,
 //! which becomes the server-reflexive candidate (RFC 5389 §6, §15.1, §15.2).
-//! Called by `peer::native::gather`. Stands in for the reflexive gathering
-//! libjuice did inside node-datachannel for v2
-//! `apps/worker/src/terminal/peer/terminal-peer-native.ts`.
+//! Called by `peer::native::gather`.
 
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};

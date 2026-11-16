@@ -1,8 +1,7 @@
 //! The host metrics a heartbeat ships: a real sample at most once a minute
 //! (beats in between reuse it), bandwidth as the rate between the last two real
 //! samples, and a log-only trail of this process's cgroup memory throttle.
-//! Ports v2 `apps/worker/src/transport/heartbeat.ts` `collectHostMetrics` and
-//! `logCgroupPressure`. `runtime::heartbeat_sources` owns one and calls it on a
+//! `runtime::heartbeat_sources` owns one and calls it on a
 //! blocking thread; the counters come from `host::samples`.
 
 use std::sync::Arc;
@@ -14,15 +13,15 @@ use roost_protocol::wire::HostMetrics;
 use crate::host::samples::{CgroupPressure, HostSampler, sample_cgroup_pressure};
 use crate::host::{HostSample, NetCounters};
 
-/// v2 `HOST_METRICS_INTERVAL_MS`: how long one real sample is reused.
+/// How long one real sample is reused.
 pub const HOST_METRICS_INTERVAL_MS: i64 = 60_000;
 
-/// v2 `CGROUP_RELOG_EVERY`: ~10 min of breadcrumbs at the 60 s sample cadence.
+/// ~10 min of breadcrumbs at the 60 s sample cadence.
 const CGROUP_RELOG_EVERY: u32 = 10;
 
-/// One raw host sample (v2 `sampleHost`).
+/// One raw host sample.
 pub type HostSampleSource = Box<dyn FnMut() -> HostSample + Send>;
-/// This process's cgroup throttle counters (v2 `cgroupPressure`).
+/// This process's cgroup throttle counters.
 pub type CgroupSource = Box<dyn FnMut() -> Option<CgroupPressure> + Send>;
 
 /// The cached resampler and its bandwidth and cgroup baselines.
@@ -47,7 +46,7 @@ impl std::fmt::Debug for HostMetricsCollector {
 
 impl HostMetricsCollector {
     /// This host's collector: its platform's sampler, and the cgroup probe on
-    /// Linux only (v2 picks both at module load).
+    /// Linux only.
     pub fn for_host(platform: HostPlatform, clock: Arc<dyn EventClock>) -> Self {
         let mut sampler = HostSampler::new(platform);
         let cgroup: CgroupSource = match platform {
@@ -111,7 +110,7 @@ impl HostMetricsCollector {
         metrics
     }
 
-    /// v2 `logCgroupPressure`: log-only, a line when the unit first goes over
+    /// Log-only: a line when the unit first goes over
     /// its `memory.high`, every tenth sample while it stays over, and one when
     /// it clears.
     fn log_cgroup_pressure(&mut self) {
@@ -144,7 +143,7 @@ impl HostMetricsCollector {
     }
 }
 
-/// Bytes per second over `seconds`, rounded as v2's `Math.round`.
+/// Bytes per second over `seconds`, rounded to the nearest whole byte.
 fn rate(delta: Option<u64>, seconds: f64) -> i64 {
     delta.map_or(0, |bytes| (bytes as f64 / seconds).round() as i64)
 }

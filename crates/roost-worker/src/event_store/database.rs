@@ -25,7 +25,6 @@
 //! single ordered stream, so two events in flight make the two acknowledgements
 //! ambiguous — and an ambiguous acknowledgement is the one state a durable path
 //! cannot recover from on its own.
-//! Ports v2 `apps/worker/src/transport/session-event-store-database.ts`, `apps/worker/src/transport/session-event-store-errors.ts`.
 
 pub mod claims;
 pub mod rows;
@@ -43,7 +42,7 @@ use super::{MAX_PAYLOAD_BYTES, MAX_ROWS};
 use sequence::SequenceWindow;
 
 pub use rows::PendingRow;
-/// The name is v2's, deliberately: an operator reading a support bundle sees
+/// The name is stable on purpose: an operator reading a support bundle sees
 /// one filename, and a worker's durable record should not change shape because
 /// the implementation did.
 pub const DATABASE_FILE_NAME: &str = "session-event-outbox.sqlite";

@@ -39,7 +39,7 @@ impl Scratch {
         Self { root }
     }
 
-    /// `<scratch>/.roost/attachments`, v2's layout beneath a home directory.
+    /// `<scratch>/.roost/attachments`, the layout beneath a home directory.
     pub fn base(&self) -> AttachmentBase {
         AttachmentBase::new(self.root.join(".roost").join("attachments"))
     }

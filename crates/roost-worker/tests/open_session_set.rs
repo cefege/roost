@@ -82,7 +82,7 @@ impl Drop for Scratch {
 /// The read half: a coordinator that did not answer is `None`, never zero. The
 /// decision half — `None` holds an INCOMPATIBLE empty keeper, `Some(0)` replaces
 /// it — is `worker_keeper_admission.rs`'s `decide` table; against a live
-/// COMPATIBLE empty keeper both readings adopt (v2 `boot-keeper.ts:94-141`), so
+/// COMPATIBLE empty keeper both readings adopt, so
 /// no reading of the count can end a keeper this worker can drive.
 #[tokio::test]
 async fn an_unread_open_session_set_is_not_a_licence_to_replace_anything() {

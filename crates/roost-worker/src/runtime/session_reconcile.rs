@@ -1,8 +1,7 @@
 //! One reconcile pass over the coordinator's complete open-session set: every
 //! durable outcome is reserved before the keeper or the session table is
 //! touched, then each session is adopted from its surviving keeper channel or
-//! respawned onto a fresh one, and finally strays are reaped. Ports
-//! `apps/worker/src/boot/boot-session-reconcile.ts` (`reconcileCoordinatorSessions`).
+//! respawned onto a fresh one, and finally strays are reaped.
 //! `runtime::reconcile_gate` serializes the passes; boot, keeper death and
 //! keeper degradation all run through it.
 
@@ -21,12 +20,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-/// v2 `BOOT_SESSION_ADMISSION_TIMEOUT_MS`.
+/// The deadline for admitting one session at boot.
 pub const BOOT_SESSION_ADMISSION_TIMEOUT: Duration = Duration::from_secs(10);
-/// v2 retries a transient respawn failure this many times in all.
+/// A transient respawn failure is retried this many times in all.
 pub const RESPAWN_ATTEMPTS: u32 = 3;
 
-/// What an admitted pass did (v2 `ReconcileAdmissionSuccess`).
+/// What an admitted pass did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ReconcileSummary {
     pub candidates: usize,
@@ -35,8 +34,8 @@ pub struct ReconcileSummary {
     pub strays_reaped: usize,
 }
 
-/// Why a pass was not admitted. `fatal` is v2's durability error, which the
-/// worker must not survive (v2 rethrows it to the uncaught handler).
+/// Why a pass was not admitted. `fatal` marks a durability error, which the
+/// worker must not survive.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{reason}")]
 pub struct ReconcileFailure {
@@ -93,12 +92,12 @@ impl SessionReconciler {
     }
 
     /// One pass. The rows are read here, after the gate saw the durable replay
-    /// drain (v2 reads inside every pass).
+    /// drain.
     pub async fn pass(&self, reason: &'static str) -> Result<ReconcileSummary, ReconcileFailure> {
         let OpenSessionSet { rows } = self.read_rows().await?;
         let admissions = self.admit_all(&rows).await?;
         // Survivor retirement, keeper creation and the survivor-set capacity
-        // check all come after the complete reservation batch (v2 `:172-176`).
+        // check all come after the complete reservation batch.
         let prepared = match self.keeper.prepare(&self.pool, rows.len()).await {
             Ok(admitted_now) => self.admit_survivor_set(
                 self.boot_survivors_unchecked.swap(false, Ordering::AcqRel) || admitted_now,
@@ -149,7 +148,7 @@ impl SessionReconciler {
         Ok(summary)
     }
 
-    /// v2 `handleKeeperSurvivor`'s capacity gate: every channel of a keeper
+    /// The survivor-set capacity gate: every channel of a keeper
     /// this pass just admitted must fit before any is attached, so capacity
     /// never admits a partial set. A keeper this worker already drives holds
     /// channels whose cores are already counted, so it is not re-admitted.
@@ -183,7 +182,7 @@ impl SessionReconciler {
             })
     }
 
-    /// v2 `:178-308`: adopt, or respawn with bounded transient retries.
+    /// Adopt, or respawn with bounded transient retries.
     async fn resume_or_respawn(
         &self,
         admission: Admission,
@@ -292,7 +291,7 @@ impl ReconcilePass for SessionReconciler {
     }
 }
 
-/// Give back every claim of admissions the pass will not reach (v2 `finally`).
+/// Give back every claim of admissions the pass will not reach.
 pub(crate) async fn release_admissions(admissions: Vec<Admission>) {
     for admission in admissions {
         admission.future_close.release().await;
@@ -307,7 +306,8 @@ enum Outcome {
     Unresolved,
 }
 
-/// v2 `/socket closed|not connected|ENOTCONN|not ready|timeout|SpawnErr|keeper/i`.
+/// Whether a failure message names a transient condition: a closed socket, a
+/// keeper not connected or not ready, a timeout, a spawn error, or the keeper.
 pub fn is_transient(error: &str) -> bool {
     let lowered = error.to_ascii_lowercase();
     [

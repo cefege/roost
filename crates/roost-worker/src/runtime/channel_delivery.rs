@@ -3,9 +3,8 @@
 //! meanwhile, and the [`StreamEmission`] a stream transaction mints and traps
 //! through. `session::binding::RecordBinding` calls it on the keeper's dispatch
 //! thread; `session::terminal_txn` and `session::resize` under the same lock.
-//! Ports the lane choice of `apps/worker/src/session/session-emit.ts`
-//! (`emitUpstreamChunk`) and `session-resize-capture.ts`. Depends on
-//! `session::emit`, `session::binding` and `session::ring`.
+//! Chooses the lane of each upstream chunk and runs the resize capture.
+//! Depends on `session::emit`, `session::binding` and `session::ring`.
 //!
 //! WHY IT IS A SEPARATE TYPE FROM [`super::cell_delivery::TableCellDelivery`]
 //! when both drive one emitter. `CellDelivery` is "may this channel deliver" —
@@ -16,8 +15,8 @@
 //! `Arc<Mutex<CellEmitter>>`.
 //!
 //! THREE LANES, ONE DECISION. An open capture retains and buffers; a trapped
-//! core retains only (v2 `appendCapturedScrollback`: those bytes never reach a
-//! core whose parser state is already wrong); everything else parses. The ring
+//! core retains only (those bytes never reach a core whose parser state is
+//! already wrong); everything else parses. The ring
 //! keeps every byte in all three, so a capture's overflow is a REPORT, never a
 //! trim — a PTY stream is contiguous and a hole in it is never re-parsed.
 
@@ -141,9 +140,8 @@ impl ChannelDelivery for TableChannelDelivery {
         });
     }
 
-    /// Withhold this channel's frames and start capturing its bytes (v2
-    /// `installLiveResizeCapture`: the gate, no queued emission, no open
-    /// synchronized-output hold).
+    /// Withhold this channel's frames and start capturing its bytes: the gate,
+    /// no queued emission, no open synchronized-output hold.
     ///
     /// `false` when a capture is already open here, which is a caller bug
     /// rather than a race: two unresolved boundaries would each have to be

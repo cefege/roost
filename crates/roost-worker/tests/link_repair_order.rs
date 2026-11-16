@@ -1,8 +1,7 @@
 //! A dropped cell repair and a queued control reply do not block each other, and
-//! the repair leads the reply: opened → full → RPC. Ports v2
-//! `apps/worker/tests/transport/coord-link-repair-order.test.ts` through a real
-//! link loop, a loopback coordinator and the production cell sink, with an
-//! `on_writable` that sends the repair the way v2's test does.
+//! the repair leads the reply: opened → full → RPC. Runs through a real link
+//! loop, a loopback coordinator and the production cell sink, with an
+//! `on_writable` that sends the repair.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod link_downstream_support;
@@ -66,7 +65,7 @@ fn repair_wire() -> roost_proto::PbCellGridFrame {
     roost_worker::session::emit_frame::frame_wire(&repair(), TIMINGS).unwrap()
 }
 
-/// v2's test `onWritable` (`link.sendCellGrid(7, repair)`), with the sink
+/// The `on_writable` that sends the repair, with the sink
 /// attached at hello-ack as the production cadence attaches it.
 #[derive(Debug)]
 struct RepairOnWritable {

@@ -1,5 +1,5 @@
-//! The cell-frame producer's state: v2 `apps/worker/src/session/session-emit.ts`
-//! (the emitter and `_disposeOutputState`). PTY bytes enter through
+//! The cell-frame producer's state, including per-channel output teardown.
+//! PTY bytes enter through
 //! `session::emit_ingest` from the keeper binding (`runtime::channel_delivery`);
 //! ONE frame per tick leaves through `session::emit_frame`, fanned to every
 //! registered sink. The cadence (`runtime::cell_cadence`) runs the timers; the
@@ -17,7 +17,7 @@ use super::query_reply::QueryReplyLane;
 use super::sync_output::SyncOutputState;
 use super::terminal_metadata::TerminalMetadataStage;
 
-/// v2 `CELL_EMIT_COALESCE_MS`: a burst of chunks collapses into one trailing frame.
+/// A burst of chunks collapses into one trailing frame.
 pub const CELL_EMIT_COALESCE_MS: i64 = 16;
 
 /// One channel's delivery stream. The coordinator owns `enabled` and the
@@ -28,9 +28,9 @@ pub(crate) struct StreamOutput {
     pub(crate) enabled: bool,
     pub(crate) core_valid: bool,
     pub(crate) deliveries: HashMap<String, StreamDelivery>,
-    /// v2 `pendingCellRepairs`: a receiver can no longer reproduce the screen.
+    /// A receiver can no longer reproduce the screen.
     pub(crate) pending_repair: bool,
-    /// v2 `pendingSyncCellSnapshots`: a full came due inside a synchronized frame.
+    /// A full came due inside a synchronized frame.
     pub(crate) pending_sync_snapshot: bool,
 }
 
@@ -84,16 +84,16 @@ pub struct CellEmitter {
     pub(crate) sinks: CellSinkRegistry,
     pub(crate) streams: HashMap<ChannelId, StreamOutput>,
     pub(crate) metadata: TerminalMetadataStage,
-    /// v2 `cellDirty`.
+    /// Channels with output not yet framed.
     pub(crate) dirty: HashSet<ChannelId>,
-    /// v2 `inputSensitiveChannels`, as the instant each channel's echo window
+    /// The instant each channel's echo window
     /// closes (`cell_scheduler::INPUT_ECHO_WINDOW_MS`).
     pub(crate) input_echo: HashMap<ChannelId, i64>,
-    /// v2 `cellGateSuppression`: attribution only.
+    /// Gate attribution only.
     pub(crate) gates: HashMap<ChannelId, GateSuppression>,
-    /// v2 `cellEmissionGates`: the resize hold.
+    /// The resize hold.
     pub(crate) emission_gates: HashSet<ChannelId>,
-    /// v2 `cellEmitSchedules`.
+    /// Queued emissions per channel.
     pub(crate) schedules: HashMap<ChannelId, CellEmissionSchedule>,
     /// Forced fulls a caller without a record owes (register, resume, install).
     pub(crate) baselines_owed: BTreeSet<ChannelId>,
@@ -143,7 +143,7 @@ impl CellEmitter {
         tracing::info!("the cell emitter's cwd event lane was attached");
     }
 
-    /// The terminal incident recorder's tap (v2 `terminal-capture.ts` taps).
+    /// The terminal incident recorder's tap.
     pub fn attach_capture(&mut self, tap: crate::capture::CaptureTap) {
         self.capture = tap;
         tracing::info!("the cell emitter's terminal capture tap was attached");
@@ -155,7 +155,7 @@ impl CellEmitter {
     }
 
     /// Forward probe replies on the same ordered lane (the resize boundary
-    /// answers its captured bytes' probes after the resize, v2 `forwardReplies`).
+    /// answers its captured bytes' probes after the resize).
     pub fn send_query_replies(
         &self,
         session_id: &roost_protocol::wire::brand::SessionId,
@@ -173,14 +173,14 @@ impl CellEmitter {
         self.cadence.notify_one();
     }
 
-    /// v2 `pendingSyncCellSnapshots.has`.
+    /// Whether a full is owed because it came due inside a synchronized frame.
     pub(crate) fn sync_snapshot_owed(&self, channel_id: ChannelId) -> bool {
         self.streams
             .get(&channel_id)
             .is_some_and(|stream| stream.pending_sync_snapshot)
     }
 
-    /// v2 `_disposeOutputState` + `cancelCellEmission`: nothing keyed on a gone
+    /// Drop all per-channel output state and the queued emission: nothing keyed on a gone
     /// channel may outlive it.
     pub fn cancel(&mut self, channel_id: ChannelId) {
         self.metadata.forget_channel(channel_id);

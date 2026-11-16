@@ -1,9 +1,7 @@
 //! The production keeper I/O behind a keeper update: proof, shutdown and exit
 //! watch over this worker's pool connection, falling back to a fresh
-//! connection only when the pool has none. Ports the production dependencies
-//! v2 `apps/worker/src/keeper/update-admission.ts` defaulted to
-//! (`probeKeeperCompatible`, `shutdown*KeeperAuthenticated`, `Bun.sleep`,
-//! `Date.now`). Built by `runtime::owners`; driven by `keeper_pool::update_admission`.
+//! connection only when the pool has none. Built by `runtime::owners`; driven by
+//! `keeper_pool::update_admission`.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};

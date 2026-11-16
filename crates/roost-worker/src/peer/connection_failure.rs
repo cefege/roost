@@ -7,7 +7,7 @@ use super::owner::TerminalPeerOfferFailure;
 use super::packet_lanes::DATA_CHANNEL_CLOSED;
 
 /// Why a terminal peer connection closed. `IceFailed` and
-/// `ConnectionSuperseded` are v2's `TerminalPeerConnectionFailureReason`; the
+/// `ConnectionSuperseded` are reasons the browser already knows; the
 /// rest name the cause a log reader needs and reach the wire as `ice_failed`,
 /// so the browser's vocabulary is unchanged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

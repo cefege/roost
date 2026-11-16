@@ -15,7 +15,6 @@
 //! twice: a restart's unacknowledged rows replay under the sequences they were
 //! written with, and the snapshot draws its own from the outbox
 //! (`super::durable_sync`).
-//! Ports v2 `apps/worker/src/transport/coord-link-replay-barrier.ts`, `apps/worker/src/transport/coord-link-unacked.ts`.
 
 use std::sync::Arc;
 
@@ -58,7 +57,7 @@ impl LinkLoop {
     /// that took a path would be a constructor that can fail before the link
     /// exists. Every row already in the file is offered on the next drain, in
     /// sequence order, which is how a restart's unacknowledged rows reach the
-    /// coordinator (v2 `coord-link-unacked.ts` `oldestDurable`).
+    /// coordinator.
     pub fn attach_durable_outbox(&mut self, outbox: Arc<Journal>, delivery: Arc<DurableDelivery>) {
         self.durable_rows = Some(outbox);
         self.durable_delivery = Some(delivery);

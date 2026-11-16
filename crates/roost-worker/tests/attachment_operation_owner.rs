@@ -1,9 +1,8 @@
 #![cfg(unix)]
 //! The attachment operation's lifecycle: the carrier fence, the committed
 //! receipt that answers a lost direct acknowledgement after a restart, the idle
-//! sweep, and a resumed upload's bytes. Ports v2
-//! `apps/worker/tests/attachments/attachment-operation-owner.test.ts` (its
-//! durability cases are `attachment_operation_recovery`).
+//! sweep, and a resumed upload's bytes. Durability cases are in
+//! `attachment_operation_recovery`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod attachment_support;
@@ -110,8 +109,7 @@ async fn an_exact_direct_duplicate_after_restart_gets_the_durable_final_receipt(
     );
 }
 
-/// The behaviour half of v2's "never blocks the event loop on fsync" case: a
-/// direct chunk's progress is journaled for a fresh owner to read, and a relay
+/// A direct chunk's progress is journaled for a fresh owner to read, and a relay
 /// commit lands every byte in order.
 #[tokio::test]
 async fn direct_progress_is_journaled_and_a_relay_commit_lands_every_byte() {
@@ -236,8 +234,8 @@ async fn the_idle_sweep_fails_a_silent_relay_and_parks_a_silent_direct_upload() 
     assert!(fresh.committed);
 }
 
-/// v2 defect, fixed deliberately: v2 reopened a parked temp `r+` and wrote at
-/// offset 0, so a resumed upload overwrote its own head.
+/// A resumed upload appends after the bytes of its parked temp: reopening it and
+/// writing at offset 0 would overwrite the upload's own head.
 #[tokio::test]
 async fn a_resumed_direct_upload_appends_after_the_bytes_it_already_holds() {
     let scratch = Scratch::new("resume");

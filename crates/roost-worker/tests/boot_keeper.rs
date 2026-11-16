@@ -64,9 +64,9 @@ fn a_healthy_survivor_is_adopted_with_its_channels() {
     );
 }
 
-/// v2 `boot-keeper.ts:94-141`: an authenticated, protocol-compatible keeper is
-/// ADOPTED even when it proves it is empty; only an INCOMPATIBLE keeper that
-/// proves it is empty is the start-fresh (replace) case.
+/// An authenticated, protocol-compatible keeper is ADOPTED even when it proves
+/// it is empty; only an INCOMPATIBLE keeper that proves it is empty is the
+/// start-fresh (replace) case.
 #[test]
 fn an_empty_survivor_is_adopted_when_compatible_and_replaced_only_when_not() {
     assert_eq!(
@@ -199,8 +199,8 @@ fn a_channel_mid_spawn_counts_as_a_channel() {
     );
 }
 
-/// v2 `boot-keeper.ts:190-202`: an incompatible survivor that holds channels
-/// cannot be adopted, and replacing it would end them, so it is BLOCKED.
+/// An incompatible survivor that holds channels cannot be adopted, and replacing
+/// it would end them, so it is BLOCKED.
 #[test]
 fn a_protocol_incompatible_survivor_holding_channels_is_blocked() {
     let probe = ProbeResult {
@@ -216,8 +216,8 @@ fn a_protocol_incompatible_survivor_holding_channels_is_blocked() {
     );
 }
 
-/// v2 adopts a compatible keeper whether or not it is the exact build target
-/// (`keeper_survivor_adopted` logs `exact_target`); refusing it bricked boot
+/// A compatible keeper is adopted whether or not it is the exact build target
+/// (`keeper_survivor_adopted` logs `exact_target`); refusing it would brick boot
 /// on every keeper binary upgrade.
 #[test]
 fn a_compatible_survivor_is_adopted_even_off_the_exact_target() {

@@ -1,9 +1,6 @@
 //! The coordinator link's attachment owner: relayed upload chunks, the direct
 //! grants the coordinator installs and revokes, and the durable status it asks
-//! for on a browser's behalf. Ports the attachment callbacks of v2
-//! `transport/coord-link-deps.ts` (`onAttachmentChunk`, the grant pair),
-//! `coord-link-direct-deps.ts` (`onAttachmentDirectStatusRequest`) and
-//! `boot/boot-local-terminal.ts` (`revokeAttachmentDevice`). Built by `runtime::owners`.
+//! for on a browser's behalf. Built by `runtime::owners`.
 
 use std::sync::Arc;
 
@@ -49,8 +46,8 @@ impl AttachmentLinkPort for AttachmentLink {
         self.grants.install(request).map(|_| ())
     }
 
-    /// v2 `revokeAttachmentDevice`: the device's sockets fail first, then its
-    /// grants go, then its pending peer negotiations.
+    /// Device revocation: the device's sockets fail first, then its grants go,
+    /// then its pending peer negotiations.
     fn revoke_device(&self, device_fingerprint: &str) {
         self.direct.revoke_sockets(device_fingerprint);
         let revoked = self.grants.revoke_device(device_fingerprint);

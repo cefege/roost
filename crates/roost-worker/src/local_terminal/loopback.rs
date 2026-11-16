@@ -2,7 +2,7 @@
 //! owner's side of the door's handler contract. `crate::door::loopback` owns
 //! routing and the socket lifecycle; `LocalTerminalSockets` owns frame
 //! admission; this adapter only maps native send ownership onto the common
-//! port. Ports `apps/worker/src/local-door/local-ui-terminal-socket.ts`.
+//! port.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -14,7 +14,7 @@ use super::sockets::LocalTerminalSockets;
 use crate::door::loopback::LoopbackHandlers;
 use crate::door::{LOCAL_TERMINAL_MAX_BACKPRESSURE_BYTES, LoopbackSend, LoopbackSocket};
 
-/// v2 `LoopbackTerminalPacketPort`: every lane is the one socket, and bytes
+/// The loopback terminal packet port: every lane is the one socket, and bytes
 /// queued behind unflushed ones count against the socket's own bound.
 #[derive(Debug)]
 pub struct LoopbackTerminalPacketPort {
@@ -71,7 +71,7 @@ impl TerminalPacketPort for LoopbackTerminalPacketPort {
     }
 }
 
-/// The terminal route's handlers (v2 `LocalTerminalSocketHandlers`). None of
+/// The terminal route's handlers. None of
 /// them fails: a frame the owner cannot use closes its socket with a reason.
 impl LoopbackHandlers for LocalTerminalSockets {
     type Port = LoopbackTerminalPacketPort;

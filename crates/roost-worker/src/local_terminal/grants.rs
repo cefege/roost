@@ -3,7 +3,7 @@
 //! scope and never a digest or a secret. Expiry is active, so a connected
 //! carrier cannot outlive its authorization while the coordinator is away.
 //! Called by `super::door` (install/revoke from the link), `super::sockets`
-//! and the peer owner. Ports `apps/worker/src/local-door/local-terminal-grants.ts`.
+//! and the peer owner.
 
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
@@ -33,7 +33,7 @@ struct GrantShared {
     state: Mutex<GrantState>,
 }
 
-/// v2 `LocalTerminalGrantStore`. Cheap to clone; clones share one registry.
+/// The registry of installed grants. Cheap to clone; clones share one registry.
 #[derive(Clone)]
 pub struct LocalTerminalGrantStore {
     shared: Arc<GrantShared>,

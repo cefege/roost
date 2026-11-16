@@ -1,8 +1,7 @@
 //! A terminal peer packet port over three fake native channels, its ingress
-//! recorded, and v2's channel helpers (`emitLow`, saturation, framed
-//! control). Included by `terminal_peer_packet_port.rs` and
-//! `terminal_peer_packet_ingress.rs`. Ports the fixture of v2
-//! `apps/worker/tests/terminal/peer/terminal-peer-packet-port.test.ts`.
+//! recorded, and the channel helpers (`emit_low`, saturation, framed control).
+//! Included by `terminal_peer_packet_port.rs` and
+//! `terminal_peer_packet_ingress.rs`.
 #![allow(dead_code)]
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -54,7 +53,7 @@ impl Fixture {
     pub fn emit(&self, event: NativePeerEvent) {
         self.port.on_channel_event(event);
     }
-    /// v2 `channel.emitLow()`.
+    /// The channel's buffer drains below its low-water mark.
     pub fn emit_low(&self, lane: Lane) {
         self.native.set_buffered(lane as usize, 0);
         self.emit(NativePeerEvent::BufferedAmountLow(lane as usize));

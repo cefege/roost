@@ -1,8 +1,7 @@
 //! The local addresses the native peer offers as host candidates, read the way
 //! the kernel reports them without `unsafe`: Linux's procfs routing and
 //! address tables, macOS's `ifconfig`. Called by `peer::native::gather` when no
-//! bind address is configured. Stands in for the interface walk libjuice did
-//! inside node-datachannel for v2 `apps/worker/src/terminal/peer/terminal-peer-native.ts`.
+//! bind address is configured.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 

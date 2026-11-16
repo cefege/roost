@@ -1,8 +1,7 @@
 //! The W-HEART owners, built once over the session stack: the folder-facts
 //! watcher (attached to the manager's folder and closed hooks), the stray
 //! sweeper and the keeper reconciliation stamp (both handed to the reconcile
-//! pass), and the heartbeat loop started after readiness. Composes v2
-//! `apps/worker/src/main.ts:309-325` (`startHeartbeat`) and `:342` (stop).
+//! pass), and the heartbeat loop started after readiness.
 //! Built by `runtime::owners::WorkerOwners::build`; stopped by its `shutdown`.
 
 use std::sync::Arc;
@@ -27,11 +26,11 @@ use crate::session::stray_reap::StraySweeper;
 
 /// Every W-HEART owner, for the life of the link.
 pub struct HeartOwners {
-    /// v2 `reapStrayKeeperChannels` + its timer; the reconcile pass drives it.
+    /// The stray keeper-channel reaper and its timer; the reconcile pass drives it.
     pub strays: Arc<StraySweeper>,
-    /// v2 `keeperReconciledAtMs`; the reconcile pass writes, the heartbeat reads.
+    /// When the keeper was last reconciled; the reconcile pass writes, the heartbeat reads.
     pub reconciliation: KeeperReconciliation,
-    /// v2 `session-git-ports.ts`, keyed by session.
+    /// Per-session git facts, keyed by session.
     pub folder_facts: Arc<SessionFolderFacts>,
     manager: Arc<SessionManager>,
     pool: Arc<KeeperPool>,
@@ -73,7 +72,7 @@ impl HeartOwners {
         }
     }
 
-    /// Start the heartbeat loop (v2 `startHeartbeat`, after readiness). The
+    /// Start the heartbeat loop, after readiness. The
     /// first beat is not awaited: see `heartbeat::spawn_heartbeat`.
     pub fn start_heartbeat(&mut self, boot: &WorkerBoot) -> anyhow::Result<()> {
         if self.heartbeat.is_some() {
@@ -105,7 +104,7 @@ impl HeartOwners {
         Ok(())
     }
 
-    /// v2 shutdown: stop the heartbeat first, then the stray timer and every
+    /// Shutdown: stop the heartbeat first, then the stray timer and every
     /// folder watcher. The keeper and its PTYs are untouched.
     pub fn shutdown(self) {
         if let Some(heartbeat) = &self.heartbeat {

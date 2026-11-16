@@ -1,9 +1,8 @@
 #![cfg(unix)]
-//! The coordinator relay upload: multi-chunk byte fidelity, v2's final naming
+//! The coordinator relay upload: multi-chunk byte fidelity, the final naming
 //! and duplicate suffixes, an empty file, the short-path link, the refusals
-//! that leave no file behind, and the content-dedup manifest. Ports v2
-//! `apps/worker/tests/attachments/attachment-upload.test.ts` (its sanitizer
-//! cases are unit tests of `attachments::naming`).
+//! that leave no file behind, and the content-dedup manifest. Sanitizer cases are
+//! unit tests of `attachments::naming`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod attachment_support;

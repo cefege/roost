@@ -20,7 +20,6 @@
 //! THE BOUND IS CHECKED TWICE, ON PURPOSE. Once where the bytes arrive, so the
 //! buffer cannot grow without limit, and once at the moment of the swap, so a
 //! buffer that overflowed can never be replayed as though it had not.
-//! Ports v2 `apps/worker/src/session/session-constants.ts`, `apps/worker/src/session/session-resume-events.ts`, `apps/worker/src/session/session-terminal-state.ts`.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -59,14 +58,14 @@ pub trait CellDelivery: Send + Sync {
     fn install_stream(&mut self, channel_id: ChannelId, stream_id: &str);
     /// A channel is gone; its delivery state and parked cursors go with it.
     fn forget_channel(&mut self, channel_id: ChannelId);
-    /// v2 `markInputSensitive`: a keystroke was written at `now_ms` (the
+    /// A keystroke was written at `now_ms` (the
     /// session clock the ingest path stamps), so output inside the echo window
     /// leads instead of waiting out the coalesce window. A channel the table
     /// does not hold is ignored.
     fn note_input_echo(&mut self, channel_id: ChannelId, now_ms: i64);
-    /// v2 `cancelCellEmission`: the channel's queued emission only.
+    /// The channel's queued emission only.
     fn cancel_cell_emission(&mut self, channel_id: ChannelId);
-    /// v2 `_releaseSyncOutputHold`: the core the hold is expressed in froze or
+    /// The core the sync-output hold is expressed in froze or
     /// was replaced.
     fn release_sync_output_hold(&mut self, channel_id: ChannelId);
     /// One channel's emitter-owned diagnostic facts. A READ, and a read only:
@@ -100,22 +99,21 @@ pub struct CapturedOutput {
 /// [`RecordBinding`], which is what makes the ordering guarantee total: bytes
 /// for a record that does not exist yet are held, and the trait is what
 /// decides whether they may be parsed.
-/// THREE METHODS, AND TWO OF THE FIVE ARE GONE BECAUSE v2 HAS TWO HANDLERS.
+/// THE EXIT AND ERROR CALLBACKS ARE NOT ON THIS TRAIT, BECAUSE THEIR CONTEXTS DIFFER.
 ///
-/// A port that collapses two v2 paths into one does not fail where the paths
-/// agree — it fails where their CONTEXTS differ, and the context here is a
-/// thread and a lifecycle stage rather than an argument.
+/// Collapsing the live and adoption paths into one handler does not fail where
+/// the paths agree — it fails where their CONTEXTS differ, and the context here
+/// is a thread and a lifecycle stage rather than an argument.
 ///
 /// `ingest_exit` is not on this trait because a child's exit is a SESSION
-/// close, not a cell delivery. v2 says so twice, and the two say different
-/// things: `session-emit.ts:316-322` routes the live `onExit` to
-/// `closedByKeeper`, while `session-resume-events.ts:47-50` does NOT — the
-/// adoption path replays `{kind: "exit"}` through `flushResumeEvents` and the
-/// close happens on the other side, after the record is installed. Welding them
-/// into one `ended` is what made this method look like a delivery's job.
+/// close, not a cell delivery. The two paths differ: the live `on_exit` routes
+/// to the session closer (`closed_by_keeper`), while the adoption path replays
+/// `{kind: "exit"}` through the resume-event flush and the close happens on the
+/// other side, after the record is installed. Welding them into one `ended` is
+/// what made this method look like a delivery's job.
 ///
-/// `ingest_error` is gone for the same reason and a different cause. v2's live
-/// `onError` (`session-emit.ts:324-328`) only LOGS `mux_channel_err` and stops;
+/// `ingest_error` is gone for the same reason and a different cause. The live
+/// `on_error` only LOGS `mux_channel_err` and stops;
 /// it closes nothing and emits nothing to a browser. **A break is not an exit.**
 /// The adoption path's error is already carried by [`Held::Error`], the
 /// pre-record stager, which is disjoint from the capture below.
@@ -159,8 +157,8 @@ pub struct RecordBinding {
     delivery: Arc<Mutex<dyn ChannelDelivery>>,
     clock: Arc<dyn EventClock>,
     mode: Mutex<Mode>,
-    /// The session manager's close and orphan-output routes (v2
-    /// `closedByKeeper`, `emit_no_session`); `None` for a bare binding.
+    /// The session manager's close and orphan-output routes
+    /// (`closed_by_keeper`, `emit_no_session`); `None` for a bare binding.
     closer: Option<SessionCloser>,
 }
 
@@ -220,7 +218,7 @@ impl RecordBinding {
     /// reach the swap with a buffer that was already over the bound.
     ///
     /// A HELD EXIT OR BREAK IS REPORTED, NOT REPLAYED, and that is the whole of
-    /// the v2 split. A survivor that had already exited by the time its record
+    /// the live/adoption split. A survivor that had already exited by the time its record
     /// was installed is closed by the ADOPTION, after the record exists, because
     /// `close_channel` needs a record the table still holds — and calling it from
     /// here would route the same question through two callers whose legality is
@@ -248,7 +246,7 @@ impl RecordBinding {
             match held {
                 Held::Output(chunk) => self.ingest(&chunk),
                 Held::Exit(code) => held_exit = Some(code.unwrap_or(0)),
-                // A break is a LOG, exactly as v2's live `onError` is, and for
+                // A break is a LOG, exactly as the live `on_error` is, and for
                 // the same reason: it says the channel could not be driven, and
                 // the session decides what that means.
                 Held::Error(reason) => {
@@ -265,7 +263,7 @@ impl RecordBinding {
     }
 
     /// Drop what was held, because the record it was for is never coming, and
-    /// deliver live from here: v2's failed-adoption catch re-registers the live
+    /// deliver live from here: a failed adoption re-registers the live
     /// callbacks, so the orphan's tail meets the recently-closed gate.
     pub fn abandon(&self) -> usize {
         let mut mode = self.lock();
@@ -317,7 +315,7 @@ impl RecordBinding {
             .ingest_output(&mut record, chunk, now_ms);
     }
 
-    /// THE LIVE EXIT ONLY: v2 routes it to `closedByKeeper` (`session-emit.ts:316-322`),
+    /// THE LIVE EXIT ONLY: it routes to `closed_by_keeper`,
     /// which closes the session. Nothing is held while it routes: `close_channel`
     /// takes the record and the cell delivery, and neither lock is reentrant.
     fn ended(&self, exit_code: Option<i32>) {
@@ -335,8 +333,7 @@ impl RecordBinding {
         }
     }
 
-    /// A BREAK IS A LOG AND NOTHING ELSE, which is v2's live `onError` exactly
-    /// (`session-emit.ts:324-328`): it records that the channel could not be
+    /// A BREAK IS A LOG AND NOTHING ELSE: it records that the channel could not be
     /// driven and it stops. It does not close the session, does not touch the
     /// core, and emits nothing to a browser — `binding.rs`'s own contract for
     /// `on_error` says the session decides what it means and this binding only

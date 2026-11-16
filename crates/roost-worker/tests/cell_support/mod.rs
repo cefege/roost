@@ -1,7 +1,7 @@
 //! Shared harness for the `cell_*` tests: a scripted sink that records every
-//! frame ATTEMPT (v2's `frameAttempts`), and a record + emitter pair driven on a
-//! synthetic monotonic clock so the 16 ms cadence and the 1 s synchronized-output
-//! ceiling are exact rather than slept.
+//! frame ATTEMPT, and a record + emitter pair driven on a synthetic monotonic
+//! clock so the 16 ms cadence and the 1 s synchronized-output ceiling are exact
+//! rather than slept.
 #![allow(clippy::unwrap_used, clippy::expect_used, dead_code)]
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -169,7 +169,7 @@ impl Harness {
         1_000_000 + offset_ms as i64
     }
 
-    /// v2 `enableStream`: commit the stream and install its baseline.
+    /// Commit the stream and install its baseline.
     pub fn enable_stream(&mut self, index: u32, offset_ms: u64) {
         self.emitter
             .install_stream(&mut self.record, &stream_id(index));

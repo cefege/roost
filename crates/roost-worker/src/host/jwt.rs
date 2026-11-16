@@ -9,7 +9,6 @@
 //! On Unix the key's mode is read with `std::os::unix` and a key any other user
 //! can read is refused rather than signed with. On Windows the key's protection
 //! is the per-user `%LOCALAPPDATA%` ACL it lives under.
-//! Ports v2 `apps/worker/src/host/jwt.ts`.
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -140,9 +139,9 @@ impl WorkerKey {
 
 /// The worker key at `path`, generating one if the file is not there.
 ///
-/// First boot generating the key is the install step v2 owned here too: a
-/// worker that cannot sign does not dial, and a worker that refuses to start on
-/// a machine that has never run is a worker nobody ships. A file that IS there
+/// First boot generating the key is an install step too: a worker that cannot
+/// sign does not dial, and a worker that refuses to start on a machine that
+/// has never run is a worker nobody ships. A file that IS there
 /// and is not a key is a refusal, not a regeneration — see
 /// [`read_existing_worker_key`].
 pub fn load_worker_key(path: &Path) -> Result<WorkerKey, WorkerKeyError> {
@@ -163,8 +162,8 @@ pub fn load_worker_key(path: &Path) -> Result<WorkerKey, WorkerKeyError> {
 /// The repair path reads a key the installer chose, and a damaged service key
 /// has to be refused rather than replaced: a regenerated key is a machine the
 /// coordinator has never seen, and it presents as an unknown `kid` on every
-/// dial with nothing in this worker's own logs to explain it. v2 regenerated on
-/// any parse failure, which turned a recoverable operator error into a
+/// dial with nothing in this worker's own logs to explain it. Regenerating on
+/// any parse failure would turn a recoverable operator error into a
 /// permanently unauthenticated worker.
 pub fn read_existing_worker_key(path: &Path) -> Result<WorkerKey, WorkerKeyError> {
     let text = std::fs::read_to_string(path).map_err(|error| WorkerKeyError::Unreadable {

@@ -1,12 +1,9 @@
-//! Fences keeper-channel creation against keeper replacement. Ports v2
-//! `apps/worker/src/session/session-channel-creation-gate.ts` and the
-//! `SessionManager` half that uses it (`session-manager.ts:44-74`): every spawn
+//! Fences keeper-channel creation against keeper replacement: every spawn
 //! or respawn holds one lease for its whole creation; update preparation closes
 //! admission synchronously, then waits for every lease already in flight.
 //! Called by `session::respawn` (leases) and the keeper-update owner (prepare).
 //!
-//! THE SAME PREPARATION FREEZES TERMINAL WRITES. v2's `keeperUpdatePrepared` is
-//! `gate.blocksTerminalWrites()`; here the gate drives
+//! THE SAME PREPARATION FREEZES TERMINAL WRITES. The gate drives
 //! [`super::control_lanes::ControlLanes::set_keeper_update_prepared`] on each
 //! 0↔1 edge of the preparation count, inside the count's own lock, so the flag
 //! the write lane reads can never disagree with the count.
@@ -20,7 +17,7 @@ use super::control_lanes::ControlLanes;
 use super::lifecycle::SessionManager;
 use crate::browser_commands::Refusal;
 
-/// What a creation refused by an open preparation is answered with (v2).
+/// What a creation refused by an open preparation is answered with.
 pub const CHANNEL_CREATION_REFUSAL: &str =
     "worker keeper update preparation blocks channel creation";
 
@@ -37,7 +34,7 @@ struct GateState {
     lanes: Arc<ControlLanes>,
 }
 
-/// v2 `SessionChannelCreationGate`.
+/// Admission state for keeper-channel creation: open leases and the preparation count.
 #[derive(Debug, Clone)]
 pub struct ChannelCreationGate {
     state: Arc<GateState>,
@@ -132,7 +129,7 @@ impl Drop for CreationLease {
 
 /// Reopens admission for ONE preparation attempt. Explicit, never on drop: a
 /// preparation that succeeded keeps creation closed until the keeper it fenced
-/// is gone (v2's gate stays closed on success).
+/// is gone.
 #[derive(Debug)]
 pub struct PreparationRollback {
     state: Arc<GateState>,
@@ -157,8 +154,7 @@ impl PreparationRollback {
 }
 
 impl SessionManager {
-    /// Keeper replacement preparation: creation and terminal writes fail closed
-    /// (v2 `keeperUpdatePrepared`).
+    /// Keeper replacement preparation: creation and terminal writes fail closed.
     pub fn keeper_update_prepared(&self) -> bool {
         self.creation_gate.blocks_terminal_writes()
     }
@@ -171,8 +167,7 @@ impl SessionManager {
         self.creation_gate.begin_preparation()
     }
 
-    /// The lease a spawn or respawn holds for its whole creation (v2
-    /// `#executeAdmittedChannelCreation`), or the refusal while a keeper
+    /// The lease a spawn or respawn holds for its whole creation, or the refusal while a keeper
     /// update is being prepared.
     pub(super) fn admit_channel_creation(&self) -> Result<CreationLease, Refusal> {
         self.creation_gate.try_acquire().ok_or_else(|| {

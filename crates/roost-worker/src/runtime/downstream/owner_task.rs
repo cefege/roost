@@ -1,9 +1,7 @@
 //! How a downstream owner's work runs beside the link loop: the synchronous
 //! half now, in receive order, the future on its own task, and exactly ONE
 //! completion either way — a panic in either half, or a task dropped before it
-//! answered, completes too. Called by `runtime::downstream::terminal`. Ports the
-//! `void (async () => deps.onX(..))().catch(..).finally(..)` shape of v2
-//! `apps/worker/src/transport/coord-link-downstream.ts`.
+//! answered, completes too. Called by `runtime::downstream::terminal`.
 
 use std::any::Any;
 use std::panic::AssertUnwindSafe;
@@ -45,8 +43,8 @@ impl<T> Drop for PendingCompletion<T> {
 }
 
 /// Call `start` NOW — so an owner's synchronous reservation happens before the
-/// next frame is read, which is v2's "invoke synchronously" rule — then await
-/// its future on a task and hand the outcome to `finish`.
+/// next frame is read — then await its future on a task and hand the outcome
+/// to `finish`.
 pub(super) fn run_owner<T: Send + 'static>(
     start: impl FnOnce() -> OwnerFuture<T>,
     finish: Completion<T>,
@@ -76,7 +74,7 @@ pub(super) fn run_owner<T: Send + 'static>(
     });
 }
 
-/// A panic's own message where it has one, as v2 answers with `error.message`.
+/// A panic's own message where it has one.
 fn panic_message(payload: &(dyn Any + Send)) -> String {
     if let Some(message) = payload.downcast_ref::<&str>() {
         return (*message).to_owned();
@@ -99,8 +97,8 @@ fn report_owner_panic(message: &str) {
     );
 }
 
-/// One admitted request against a bounded in-flight count. Dropping it is v2's
-/// `.finally(() => inFlight -= 1)`, so a panic or a dropped task frees it too.
+/// One admitted request against a bounded in-flight count. Dropping it frees
+/// the slot, so a panic or a dropped task frees it too.
 #[derive(Debug)]
 pub(super) struct InFlightSlot {
     counter: Arc<AtomicUsize>,

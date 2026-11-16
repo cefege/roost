@@ -2,8 +2,8 @@
 //! first byte, the real data path retains every chunk as an unbroken offset
 //! chain, a keeper-acknowledged resize lands a real boundary offset, and a
 //! fresh core fed the retained bytes alone rebuilds the same screen — one
-//! footer, not two. Ports `apps/worker/tests/terminal/terminal-capture-replay.test.ts`
-//! (the replay script itself is not the worker's; its core replay is inlined).
+//! footer, not two (the replay script itself is not the worker's; its core
+//! replay is inlined).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod capture_support;

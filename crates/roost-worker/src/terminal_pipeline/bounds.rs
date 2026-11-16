@@ -1,6 +1,5 @@
 //! Deterministic admission, numeric normalization, fixed age buckets and exact
-//! response-size fencing for worker terminal-pipeline evidence. Ports
-//! `apps/worker/src/terminal/terminal-pipeline-snapshot-bounds.ts`. Called by
+//! response-size fencing for worker terminal-pipeline evidence. Called by
 //! `terminal_pipeline::snapshot`; depends only on the generated wire messages.
 //! It holds no terminal, keeper or generic diagnostic content.
 
@@ -23,7 +22,8 @@ const TERMINAL_PIPELINE_MAX_ENVELOPE_BYTES: usize = 8;
 /// Target ids are echoed into every record, so they are capped before encoding.
 pub const TERMINAL_PIPELINE_MAX_IDENTIFIER_BYTES: usize = 512;
 pub const TERMINAL_PIPELINE_MAX_REQUEST_ID_BYTES: usize = 256;
-/// v2 numbers are JavaScript numbers: every count is held to an exact integer.
+/// A JSON number consumer holds integers exactly only to 2^53 - 1, so every
+/// count is held to that bound.
 pub const TERMINAL_PIPELINE_MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
 /// Inclusive upper bounds of the first fifteen buckets; the sixteenth is +Inf.
 const HISTOGRAM_UPPER_BOUND_MS: [u64; TERMINAL_PIPELINE_MAX_HISTOGRAM_BUCKETS - 1] = [
@@ -52,7 +52,8 @@ pub struct StageInput {
 }
 
 /// The first sixty-four targets, ordered by session id, view id, then request
-/// position. Ids compare by UTF-16 code unit, as v2's `<` does.
+/// position. Ids compare by UTF-16 code unit, the order a JavaScript string
+/// comparison gives.
 pub fn admit_targets(request: &DTerminalPipelineSnapshotRequest) -> Vec<OrderedTarget<'_>> {
     let mut admitted: Vec<OrderedTarget<'_>> = request
         .targets

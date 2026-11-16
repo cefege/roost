@@ -1,8 +1,7 @@
 //! Cell-emission gate attribution: which gate withholds a channel's cell frames
 //! (resize capture, baseline, synchronized output), since when, and how many
-//! emits it swallowed. Split from `session::cell_scheduler` (v2
-//! `apps/worker/src/session/session-cell-scheduler.ts` `noteCellGateSuppression`
-//! and `session-emit.ts` `cellEmissionGates`); called by `session::emit`,
+//! emits it swallowed. Split from `session::cell_scheduler`;
+//! called by `session::emit`,
 //! `session::cell_scheduler`, `session::sync_output` and `runtime::channel_delivery`.
 
 use roost_observability::{LogFields, SignalKind, signal};
@@ -10,7 +9,7 @@ use roost_protocol::wire::brand::ChannelId;
 
 use super::emit::CellEmitter;
 
-/// v2 `CELL_GATE_BUDGET_MS`: past the keeper's own per-command budget a
+/// Past the keeper's own per-command budget a
 /// resize/baseline gate is corruption, not latency.
 pub const CELL_GATE_BUDGET_MS: i64 = 2_500;
 
@@ -35,7 +34,7 @@ impl CellGate {
     }
 }
 
-/// v2 `CellGateSuppression`: which gate is withholding a channel, since when
+/// Which gate is withholding a channel, since when
 /// (wall epoch ms, the clock every `now_ms` carries), and how many emits it ate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GateSuppression {
@@ -48,7 +47,7 @@ pub struct GateSuppression {
 }
 
 impl CellEmitter {
-    /// Hold a channel's emission gate (v2 `cellEmissionGates.add`) and attribute it.
+    /// Hold a channel's emission gate and attribute it.
     pub fn hold_frames(&mut self, channel_id: ChannelId, gate: CellGate, now_ms: i64) {
         if self.emission_gates.insert(channel_id) {
             tracing::info!(%channel_id, gate = gate.as_str(), "a cell-emission gate was set");
@@ -97,7 +96,7 @@ impl CellEmitter {
         }
     }
 
-    /// v2 `noteCellGateSuppression`: count one swallowed emit, and flag a
+    /// Count one swallowed emit, and flag a
     /// resize/baseline gate past [`CELL_GATE_BUDGET_MS`] once.
     pub(crate) fn note_gate_suppression(
         &mut self,

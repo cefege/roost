@@ -3,7 +3,6 @@
 //! mid-transaction the answer is AMBIGUOUS rather than guessed. Called from
 //! `session::terminal_control` through the per-channel control lane; the
 //! keeper resize is `session::resize`, the history repairs `session::core_reprove`.
-//! Ports `apps/worker/src/session/session-terminal-txn.ts`.
 //!
 //! THE KEEPER IS SYNCHRONOUS HERE, so every keeper step runs on a blocking
 //! thread and the admission ticket is released once the keeper has answered
@@ -25,7 +24,7 @@ use super::lifecycle::SessionManager;
 use super::resize::{ResizeOutcome, lock};
 use super::terminal_state::{FailedStatus, StreamFacts, StreamRequestBudget, WorkerStreamResult};
 
-/// The generation a transaction settles: what v2 closed over as `state`.
+/// The generation a transaction settles.
 #[derive(Debug, Clone)]
 pub(super) struct TxnGeneration {
     pub stream_id: String,
@@ -46,7 +45,7 @@ impl TxnGeneration {
     }
 }
 
-/// v2 `applyTerminalStreamNow`. The control lane serialises calls; a newer
+/// Apply one stream state to the core now. The control lane serialises calls; a newer
 /// generation supersedes this one's cell work at once, while a keeper mutation
 /// already written is still reconciled and reported.
 pub(super) async fn apply_terminal_stream_now(
@@ -291,7 +290,7 @@ fn commit_with_baseline(
     WorkerStreamResult::committed(generation.facts(), seq, resized)
 }
 
-/// v2 `installTerminalBaseline` under record → delivery lock order; `None`
+/// Install a baseline under record → delivery lock order; `None`
 /// when the session or its emitter is gone.
 pub(super) fn install_baseline(manager: &SessionManager, channel_id: ChannelId) -> Option<bool> {
     let entry = manager.sessions.entry(channel_id.as_u32() as u16)?;
@@ -317,8 +316,7 @@ fn current_geometry(manager: &SessionManager, raw: u16) -> Option<(u16, u16)> {
     Some((record.terminal_core.cols(), record.terminal_core.rows()))
 }
 
-/// The keeper's wire names (`protocol-terminal.ts:50-60`), which v2's reason
-/// strings carry verbatim.
+/// The keeper's wire names, which the reason strings carry verbatim.
 fn reject_name(reason: ResizeRejectReason) -> &'static str {
     match reason {
         ResizeRejectReason::ChannelMissing => "channel_missing",

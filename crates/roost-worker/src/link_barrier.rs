@@ -16,7 +16,6 @@
 //! `open` is NOT application-ready. The only forced first write is the hello.
 //! Everything after that is gated on the coordinator acknowledging the previous
 //! step, because each step establishes something the next one relies on.
-//! Ports v2 `apps/worker/src/transport/coord-link-replay-barrier.ts`, `apps/worker/src/transport/coord-link-unacked.ts`.
 
 use std::collections::VecDeque;
 
@@ -222,7 +221,7 @@ impl Pump {
         self.advance()
     }
 
-    /// v2 `hasBlockingSessionEventReservation`, as the outbox last answered it.
+    /// Whether the outbox last reported a blocking session-event reservation.
     /// A claim that appears while the snapshot is in flight is a durable event
     /// appearing, so the snapshot is retaken; one that clears lets replay end.
     pub fn set_snapshot_blocked(&mut self, blocked: bool) -> Action {
@@ -244,8 +243,7 @@ impl Pump {
     }
 
     /// Put the in-flight snapshot under the sequence the durable outbox drew
-    /// for it (v2 `store.nextClientSeq()`), so it can never share a number
-    /// with a row the outbox allocates.
+    /// for it, so it can never share a number with a row the outbox allocates.
     pub fn reassign_snapshot_sequence(&mut self, seq: u64) {
         if self.barrier == Barrier::Snapshot && self.snapshot_seq.is_some() {
             self.snapshot_seq = Some(seq);

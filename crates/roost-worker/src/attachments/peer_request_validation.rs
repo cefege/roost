@@ -1,8 +1,7 @@
 //! Bounded identity validation of an attachment peer offer before any native
 //! allocation. The coordinator already authenticated the request; this refuses
 //! malformed opaque fields without logging SDP, grant material or attachment
-//! metadata. Called by `peer_owner`. Ports
-//! `apps/worker/src/attachments/attachment-peer-request-validation.ts`.
+//! metadata. Called by `peer_owner`.
 
 use roost_proto::DLocalAttachmentPeerOffer;
 
@@ -17,7 +16,7 @@ pub fn valid_attachment_peer_offer_identity(request: &DLocalAttachmentPeerOffer)
         && valid_opaque_id(&request.tab_id)
 }
 
-/// v2's `/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu`.
+/// A canonical UUID, version 1 to 5, RFC 4122 variant, in either case.
 fn is_uuid(value: &str) -> bool {
     let bytes = value.as_bytes();
     if bytes.len() != 36 {

@@ -2,8 +2,6 @@
 //! Terminal-core admission over deterministic memory seams: steady-cap math,
 //! the heartbeat report, refusal, replacement serialization, the survivor-set
 //! gate, the operator cap parse, the cgroup ceiling, and a spawn's lease.
-//! Ports `apps/worker/tests/terminal/terminal-core-capacity.test.ts` and the
-//! `ROOST_WORKER_TERMINAL_CAP` cases of `apps/worker/tests/host/config.test.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

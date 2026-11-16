@@ -1,10 +1,9 @@
 //! The cell cadence's frame-RATE contract, which the browser oracle measures
 //! from the other end of the wire.
 //!
-//! `smoke/terminal/terminal-render.spec.ts` "streaming sequence repair leaves an
-//! off-bottom reader fixed" drives a paced `printf`/`sleep` loop and requires the
-//! wire to carry more than 200 new cell frames. A frame is only built when a
-//! scheduled emission comes due, so the number of frames a paced stream earns is
+//! A browser watching a paced `printf`/`sleep` loop needs the wire to carry more
+//! than 200 new cell frames. A frame is only built when a scheduled emission
+//! comes due, so the number of frames a paced stream earns is
 //! the cadence's own coalesce window: one frame per `CELL_EMIT_COALESCE_MS`
 //! while bytes keep arriving, and never more. Both bounds are load-bearing — a
 //! cadence that stops rearming starves the browser's counter, and one that
@@ -67,10 +66,10 @@ struct Paced {
 /// `runtime::cell_cadence` drives it: a pass per wake, then a wait bounded by
 /// whichever comes first, the next chunk or the cadence's own deadline.
 ///
-/// `snapshot_every` re-arms the coordinator's repair path (v2
-/// `requestTerminalSnapshot`: retire the stream's delivery, then install a
-/// fresh baseline) on every Nth chunk, because a client that cannot fold a
-/// delta asks for one on a timer, and a repair that costs the stream its
+/// `snapshot_every` re-arms the coordinator's repair path (retire the stream's
+/// delivery, then install a fresh baseline) on every Nth chunk, because a client
+/// that cannot fold a delta asks for one on a timer, and a repair that costs the
+/// stream its
 /// delivery is the obvious way to turn that timer into a stall.
 fn paced(snapshot_every: Option<u64>, lines: u64) -> Paced {
     let (_fixture, mut record, sink, mut emitter) = armed();

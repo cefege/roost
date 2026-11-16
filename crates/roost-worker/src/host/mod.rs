@@ -5,12 +5,10 @@
 //! on `roost_protocol` for the PR projection's own vocabulary — and on nothing
 //! that depends on it back.
 //!
-//! THE WATCHERS LIVE HERE, NOT ON THE RECORD. v2 hung a `.git/HEAD` watcher
-//! and a PR poller on each session as optional closures. Here they are keyed by
-//! session id and owned by this module, so a session that has closed cannot
-//! leave a file handle open and a record stays plain data. A caller that wants
-//! a watcher stopped asks here.
-//! Ports v2 `apps/worker/src/host/host-sample-types.ts`.
+//! THE WATCHERS LIVE HERE, NOT ON THE RECORD. A `.git/HEAD` watcher and a PR
+//! poller per session are keyed by session id and owned by this module, so a
+//! session that has closed cannot leave a file handle open and a record stays
+//! plain data. A caller that wants a watcher stopped asks here.
 
 pub mod git_branch;
 pub mod identity;

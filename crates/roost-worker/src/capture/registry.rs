@@ -1,8 +1,8 @@
 //! The armed recorders of this worker process, plus the one-shot ledgers an
-//! unarmed manual capture needs for idempotency. Ports `apps/worker/src/diag/
-//! terminal-capture-registry.ts`; held behind `super::recorder`'s lock. Lease
-//! expiry is decided on SERVER time and disarms the recorder the moment it is
-//! observed: an expired lease is never silently renewed.
+//! unarmed manual capture needs for idempotency. Held behind
+//! `super::recorder`'s lock. Lease expiry is decided on SERVER time and
+//! disarms the recorder the moment it is observed: an expired lease is never
+//! silently renewed.
 
 use std::collections::HashMap;
 

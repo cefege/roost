@@ -1,11 +1,10 @@
 #![cfg(unix)]
-//! Ports v2 `apps/worker/tests/keeper-stray-reap.test.ts` and the stray-timer
-//! pins of `tests/boot/boot-reconcile-admission.test.ts`: the reverse-reap kills
+//! The reverse-reap kills
 //! a keeper channel the worker does not track on its second consecutive
 //! sighting, never a tracked one, a later sweep is a no-op, a keeper that cannot
 //! be listed reaps nothing, and the periodic sweep starts once and runs every
-//! interval. The keeper is the scripted one (v2 drove a real keeper; the kill
-//! frame itself is `keeper_pool`'s, pinned by its own suite).
+//! interval. The keeper is the scripted one (the kill frame itself is
+//! `keeper_pool`'s, pinned by its own suite).
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

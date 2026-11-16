@@ -2,8 +2,7 @@
 //! sends what str0m transmits from the socket of the matching local address,
 //! and wakes on str0m's own deadline or on a send. Spawned by
 //! `peer::native::peer_handle` once the answer is written; ends when the peer
-//! closes or fails. Stands in for node-datachannel's native thread under v2
-//! `apps/worker/src/terminal/peer/terminal-peer-native.ts`.
+//! closes or fails.
 
 use std::sync::Arc;
 

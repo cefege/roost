@@ -1,6 +1,7 @@
 //! The reply lane's core half against a real core: replies leave in the order
 //! the probes appeared, a probe split across chunks is answered exactly once,
-//! the native set is v2's (a cursor report, nothing else), and a replay never
+//! a replayed probe never produces a reply, and the probes the core would answer
+//! itself are withheld or forwarded as pinned below.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_term::{RioCore, TerminalCore};
@@ -189,8 +190,8 @@ fn a_kitty_graphics_query_is_forwarded() {
     assert!(reply.starts_with("\x1b_Gi=31;"), "{reply:?}");
 }
 
-/// Probes v2's core left unanswered: the application must see exactly what it
-/// saw under v2. Each is withheld, and counted.
+/// Probes the core leaves unanswered: the application must see only the worker's
+/// own reply. Each is withheld, and counted.
 fn assert_withheld(probe: &[u8], expected: &str) {
     let reply = answer_fresh(probe);
     assert_eq!(reply.bytes, expected, "{probe:?}");

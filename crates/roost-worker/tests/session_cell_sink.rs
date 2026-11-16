@@ -13,8 +13,8 @@ use roost_worker::session::emit::{CellEmitter, FrameOutcome};
 
 use support::{Answer, RecordFixture, RecordingSink, channel, numbered_lines, stream_id};
 
-/// The sink ids are wire-visible: they appear in diagnostics next to v2's own
-/// lines, and `local:` is what tells a local socket's frames from the
+/// The sink ids are wire-visible: they appear in diagnostics, and `local:` is
+/// what tells a local socket's frames from the
 /// coordinator's in a log a human has to read.
 #[test]
 fn sink_ids_name_the_coordinator_and_the_local_socket() {
@@ -112,8 +112,8 @@ fn a_sink_that_refuses_a_frame_keeps_its_registration_and_owes_a_full() {
         emitter.sinks().contains(&local_cell_sink_id("4")),
         "a refused frame dropped the sink, which is the overflow policy's job and not this one's"
     );
-    // v2 `emitCellFrame`: the repair is ONE stream-wide forced full built in the
-    // same emit, and the refusing sink takes it (it refuses deltas only).
+    // The repair is ONE stream-wide forced full built in the same emit, and the
+    // refusing sink takes it (it refuses deltas only).
     assert_eq!(healthy.frames().len(), 3);
     assert!(
         healthy.frames()[2].full,
@@ -186,7 +186,7 @@ fn output_kept_while_no_sink_can_take_it_is_still_in_the_core() {
         record.cell_emit.seq, 0,
         "a withheld frame consumed a sequence"
     );
-    // v2: a stream nobody delivers to records nothing, and the next sink to
+    // A stream nobody delivers to records nothing, and the next sink to
     // register is owed a forced full that carries this output.
     let late = RecordingSink::new("coord", Answer::Sent);
     emitter.register_cell_sink(late.clone());

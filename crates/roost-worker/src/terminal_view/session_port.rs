@@ -1,8 +1,7 @@
 //! The session-layer operations the terminal view owner drives, and their
 //! production binding over `SessionManager`, the session table and the cell
-//! cadence. v2 injects `sessions(): SessionManager` into
-//! `apps/worker/src/terminal/view/terminal-view-owner*.ts`; the owner here takes
-//! this port so a test can script stream outcomes. The lead builds
+//! cadence. The owner takes this port so a test can script stream outcomes.
+//! The lead builds
 //! [`SessionViewPort`] in `runtime/owners.rs`.
 
 use std::sync::{Arc, Weak};
@@ -24,11 +23,11 @@ use super::TerminalViewOwner;
 /// its own table, record and emitter locks, and the local cell sink it calls
 /// back into takes only the socket's watch set.
 pub trait ViewSessionPort: Send + Sync + std::fmt::Debug {
-    /// v2 `SessionManager.applyTerminalStreamState`: install `stream_id` at
+    /// Install `stream_id` at
     /// this geometry (or disable the stream), resolving to the one outcome.
     fn apply_stream_state(&self, intent: StreamIntent) -> OwnerFuture<WorkerStreamResult>;
 
-    /// v2 `requestTerminalSnapshot`: retire every sink's cursor for this
+    /// Retire every sink's cursor for this
     /// stream and rebuild one authoritative full.
     fn request_snapshot(&self, session_id: &SessionId, stream_id: &str);
 
@@ -40,10 +39,10 @@ pub trait ViewSessionPort: Send + Sync + std::fmt::Debug {
     /// lock, because the local cell sink asks it from inside a fanout.
     fn channel_of(&self, session_id: &SessionId) -> Option<ChannelId>;
 
-    /// v2 `registerCellSink`: replaces a sink of the same id and forces a full.
+    /// Replaces a sink of the same id and forces a full.
     fn register_cell_sink(&self, sink: Arc<dyn CellSink>);
 
-    /// v2 `unregisterCellSink`: an ordinary removal, never an overflow.
+    /// An ordinary removal, never an overflow.
     fn unregister_cell_sink(&self, sink_id: &str);
 }
 
@@ -99,7 +98,7 @@ impl ViewSessionPort for SessionViewPort {
     }
 }
 
-/// v2's `TerminalViewStreams.budget`: the worker is both requester and
+/// The request budget: the worker is both requester and
 /// executor, so the budget is the ordinary terminal-control ceiling, and the
 /// request stays current while its desire still owns the session's stream.
 #[derive(Debug)]

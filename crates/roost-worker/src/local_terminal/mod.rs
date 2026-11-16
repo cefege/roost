@@ -3,7 +3,6 @@
 //! input, route-claim, probe and history controls those carriers reach the
 //! PTYs through. Built by `runtime::owners` (`door::LocalTerminalDoor`); the
 //! door's router and the peer owner drive `sockets::LocalTerminalSockets`.
-//! Ports `apps/worker/src/local-door/local-terminal-*.ts`.
 
 mod authority;
 mod controls;

@@ -161,8 +161,8 @@ fn an_ended_link_and_a_failed_frame_are_distinguishable() {
 }
 
 /// Closing a link is idempotent and reports whether THIS call closed it, which
-/// is what feeds the backoff exactly one event per dial. The v2 bug was cleanup
-/// running twice for one dial.
+/// is what feeds the backoff exactly one event per dial. Cleanup running twice
+/// for one dial would feed it two.
 #[test]
 fn closing_a_link_happens_exactly_once() {
     // A link needs a socket, so the phase machine is exercised on its own

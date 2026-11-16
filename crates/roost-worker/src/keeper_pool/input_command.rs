@@ -2,9 +2,7 @@
 //! sequence per channel, the table of written batches awaiting their result
 //! frame, the per-channel caps, and the bounded wait. `pool::KeeperPool` writes
 //! through it, `dispatch` settles it from the keeper's result frames, and a lost
-//! keeper settles every pending batch as ambiguous. Ports `channelInputCommand`
-//! and `settlePendingInput` of v2 `apps/worker/src/keeper/keeper-pool-io.ts`
-//! and `beginInput` of `apps/worker/src/keeper/multiplexed-client.ts`.
+//! keeper settles every pending batch as ambiguous.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -17,15 +15,14 @@ use tokio::sync::oneshot;
 use crate::session::keeper_channels::{InputNotWritten, KeeperInputCommand, KeeperInputResult};
 
 /// How long a written batch waits for its result before it is ambiguous.
-/// v2 keeper-pool-io.ts `COMMAND_RESULT_TIMEOUT_MS`.
 pub const COMMAND_RESULT_TIMEOUT: Duration = Duration::from_millis(2_500);
-/// Written-and-unanswered batches one channel may hold (v2 `MAX_PENDING_INPUT_COMMANDS`).
+/// Written-and-unanswered batches one channel may hold.
 pub const MAX_PENDING_INPUT_COMMANDS: u32 = 200;
-/// Their bytes (v2 `MAX_PENDING_INPUT_BYTES`).
+/// Their bytes.
 pub const MAX_PENDING_INPUT_BYTES: u64 = 256 * 1024;
 
 /// What one channel has written and not yet heard back about, for pipeline
-/// evidence (v2 `pendingInputs` / `_pendingInputUsage`).
+/// evidence.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PendingInputUsage {
     pub started: Vec<Instant>,
@@ -163,7 +160,7 @@ impl PendingInputs {
     }
 
     /// Hand one batch its result. A count the request cannot have produced is
-    /// ambiguous rather than believed (v2 `settlePendingInput`).
+    /// ambiguous rather than believed.
     fn settle(&self, channel_id: u16, input_seq: u64, received: KeeperInputResult) -> bool {
         let Some(waiter) = self.lock().waiters.remove(&(channel_id, input_seq)) else {
             return false;
@@ -218,7 +215,7 @@ impl PendingInputs {
         }
     }
 
-    /// A closed channel's sequence starts over (v2 `forgetInputSequence`).
+    /// A closed channel's sequence starts over.
     pub(crate) fn forget_channel(&self, channel_id: u16) {
         self.lock().last_seq.remove(&channel_id);
     }
@@ -268,7 +265,7 @@ fn ambiguous(reason: &str) -> KeeperInputResult {
     }
 }
 
-/// The keeper's refusal reason as v2 spells it on the result.
+/// The keeper's refusal reason as spelled on the result.
 fn wire_reason(reason: PtyInRejectReason) -> &'static str {
     match reason {
         PtyInRejectReason::NoSuchChannel => "channel_missing",

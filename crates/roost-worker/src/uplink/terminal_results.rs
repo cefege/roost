@@ -2,10 +2,8 @@
 //! `input-result`, and the reason bound. Called by `runtime::downstream` for the
 //! answers it gives itself and by the input and stream owners for
 //! theirs.
-//! Ports v2 `apps/worker/src/transport/coord-link-terminal-results.ts`
-//! (`sendTerminalInputResult`, `boundedTerminalReason`). v2's
-//! `terminalStreamFailureKind` has no port: the worker's stream outcome already
-//! carries the wire enum, and `None` is the wire's UNSPECIFIED.
+//! The worker's stream outcome already carries the wire failure-kind enum, and
+//! `None` is the wire's UNSPECIFIED.
 
 use roost_proto::DInputRequest;
 use roost_protocol::ProtocolError;

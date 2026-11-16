@@ -1,7 +1,5 @@
 //! The stubbed carrier the `local_terminal_*` suites hand the socket owner,
-//! and the frame-case helpers that read what it recorded. Mirrors v2's
-//! `StubSocket` / `frameCases` in
-//! `apps/worker/tests/local-door/local-terminal-socket.test.ts`.
+//! and the frame-case helpers that read what it recorded.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -15,7 +13,7 @@ use roost_worker::local_terminal::{LocalTerminalSockets, PacketSendResult, Termi
 use super::super::terminal_stream_support::held;
 use super::case;
 
-/// A carrier that records every frame it was handed (v2 `StubSocket`).
+/// A carrier that records every frame it was handed.
 #[derive(Debug)]
 pub struct StubPort {
     socket_id: String,
@@ -45,7 +43,7 @@ impl StubPort {
         held(&self.frames).clone()
     }
 
-    /// The oneof case names, in order, as v2's `frameCases`.
+    /// The oneof case names, in order.
     pub fn cases(&self) -> Vec<&'static str> {
         self.frames().iter().map(case).collect()
     }

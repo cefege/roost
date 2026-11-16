@@ -1,10 +1,9 @@
 #![cfg(unix)]
 //! The coordinator link's attachment arms against the real attachment owner:
-//! relayed chunks land one file under v2's name and manifest and are answered
-//! `rpc-ok { abs_path }` only once complete, a refusal is v2's `rpc-error`
+//! relayed chunks land one file under its final name and manifest and are
+//! answered `rpc-ok { abs_path }` only once complete, a refusal is an `rpc-error`
 //! message, a grant is installed and revoked, and a direct status reads the
-//! durable operation. Ports the attachment cases of v2
-//! `transport/coord-link-downstream.ts`, `coord-link-deps.ts` and `coord-link-direct-terminal.ts`.
+//! durable operation.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod attachment_support;
@@ -133,8 +132,8 @@ async fn relayed_chunks_land_one_file_under_v2s_name_and_only_the_last_is_answer
     let Up::RpcOk { data, .. } = next_uplink(&mut harness.receiver).await else {
         panic!("the second upload answers rpc-ok");
     };
-    // v2 attachment-file-store.ts:129-132: Node's `extname` of `x.tar.gz` is
-    // `.gz`, so the counter lands before the last extension only.
+    // The counter lands before the last extension only: the extension of
+    // `x.tar.gz` is `.gz`.
     let second = data["abs_path"].as_str().unwrap();
     assert!(second.ends_with("/notes (draft).tar (2).gz"), "{second}");
 }

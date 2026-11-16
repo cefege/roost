@@ -1,10 +1,8 @@
 //! The direct terminal path as the coordinator link drives it, over the real
 //! door and grant store: one coordinator generation is adopted per link and
 //! released on detach, a transport probe answers only this process's epoch, a
-//! direct retire honours only v2's two reasons for this epoch and disposes the
-//! grants and the peer owner once, and a device revoke reaches the door. Ports
-//! v2 `apps/worker/src/transport/coord-link-direct-deps.ts` (terminal half) and
-//! `boot/boot-local-terminal.ts` (`useCoordinatorGeneration`, `disposeDirect`).
+//! direct retire honours only the two reasons for this epoch and disposes the
+//! grants and the peer owner once, and a device revoke reaches the door.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 #[path = "peer_support/fake_native.rs"]
@@ -71,7 +69,7 @@ async fn offer_outcome(direct: &DirectTerminal, generation: &str) -> TerminalPee
 async fn one_coordinator_generation_is_adopted_per_link_and_released_on_detach() {
     let fixture = Fixture::new();
     let direct = direct(&fixture, &FakeNative::new());
-    // v2: a cancel adopts the generation exactly as an offer does.
+    // A cancel adopts the generation exactly as an offer does.
     direct.peer_cancel(&DLocalTerminalPeerCancel {
         request_id: "cancel-a".to_owned(),
         connection_generation: "generation-a".to_owned(),

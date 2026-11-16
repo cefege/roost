@@ -1,7 +1,6 @@
 //! Rebuilding the CORE a survivor is adopted as: the cold core at the
 //! history's base geometry, the ordered replay that fills it, and the rule
-//! that the geometry the keeper reports is the only acceptable result. Ports
-//! the core half of `apps/worker/src/session/session-resume.ts:130-260`.
+//! that the geometry the keeper reports is the only acceptable result.
 //! `session::resume::SessionManager::adopt_survivor` calls the one entry point
 //! here. Depends on `roost_keeper` for the history vocabulary and `roost_term`
 //! for the core.
@@ -59,7 +58,6 @@ impl SessionManager {
         }
         replay_ordered(&mut core, history).map_err(refuse)?;
         if core.cols() != applied.cols || core.rows() != applied.rows {
-            // v2 session-resume.ts:212-217, word for word.
             return Err(refuse(
                 "ordered keeper history did not converge to reported terminal geometry".to_owned(),
             ));

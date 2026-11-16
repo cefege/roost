@@ -1,9 +1,7 @@
 //! Getting the pool a keeper again between reconcile passes, and restarting a
 //! degraded one. A connected pool needs nothing; after a keeper death the same
 //! admission boot runs (adopt a survivor, retire an empty incompatible one, or
-//! start a fresh keeper) and the pool reconnects to it. Ports v2's
-//! `prepareKeeper` (`main.ts` → `handleKeeperSurvivor`), `pool.ensure()` and
-//! `restartKeeper()` (`keeper/multiplexed-client.ts`). Built at boot; used by
+//! start a fresh keeper) and the pool reconnects to it. Built at boot; used by
 //! `runtime::session_reconcile` and `runtime::reconcile_gate`.
 
 use std::sync::{Arc, Mutex, PoisonError};
@@ -15,8 +13,8 @@ use super::session_reconcile::ReconcileFailure;
 use crate::keeper_pool::KeeperPool;
 use crate::session::lifecycle::SessionManager;
 
-/// The keeper process this worker spawned, if any: v2 `_keeperProc`. An
-/// adopted keeper has none, so a restart of it is a no-op, exactly as in v2.
+/// The keeper process this worker spawned, if any. An
+/// adopted keeper has none, so a restart of it is a no-op.
 #[derive(Debug, Clone, Default)]
 pub struct KeeperProcess(Arc<Mutex<Option<u32>>>);
 
@@ -108,14 +106,14 @@ impl KeeperPreparer {
         Ok(true)
     }
 
-    /// v2 `restartKeeper`.
+    /// Restart the keeper this worker spawned.
     pub fn restart(&self) -> bool {
         self.process.terminate()
     }
 }
 
-/// The production remediation: the session layer's keeper-update flag (v2
-/// `sessionMgr.keeperUpdatePrepared`) and this worker's keeper restart.
+/// The production remediation: the session layer's keeper-update flag and
+/// this worker's keeper restart.
 pub struct WorkerKeeperRemediation {
     manager: Arc<SessionManager>,
     preparer: KeeperPreparer,

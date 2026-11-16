@@ -212,10 +212,9 @@ async fn a_fast_child_with_no_output_is_stillborn_and_one_with_output_is_not() {
     );
 }
 
-/// v2 `_dropChannelState` → `onSessionClosed` (`session-lifecycle.ts:245`,
-/// wired at `main.ts:228-236`): every registered owner hears a held session's
-/// close once, in registration order, after the record left the table and with
-/// no table lock held; a repeated close and an orphan's tombstone reach nobody.
+/// Every registered owner hears a held session's close once, in registration
+/// order, after the record left the table and with no table lock held; a repeated
+/// close and an orphan's tombstone reach nobody.
 #[tokio::test]
 async fn a_held_session_close_tells_every_registered_owner_once() {
     let harness = Harness::new();

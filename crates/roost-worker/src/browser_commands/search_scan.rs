@@ -3,11 +3,9 @@
 //! installs one over the worker's `SessionTable`; `browser_commands::search`
 //! owns admission, cancellation and the two identities.
 //!
-//! This is v2's `apps/worker/src/terminal/search/terminal-search.ts` and
-//! `terminal-search-batch.ts` with the awaits replaced. v2 scanned
-//! asynchronously so a slice could let every OTHER session's PTY run; here the
-//! same bound is reached by taking and releasing the session record once per
-//! slice, which is the same thing without an `await` held across a lock.
+//! The scan is sliced so every OTHER session's PTY can run between slices: the
+//! session record is taken and released once per slice, with no `await` held
+//! across a lock.
 //!
 //! FOUR THINGS ARE NOT NEGOTIABLE, and each is a specific bug when dropped.
 //!
@@ -59,13 +57,12 @@ use crate::session::retained_grid::describe_grid;
 /// Rows one slice may read before the session record lock is handed back.
 ///
 /// Every other session's PTY output is stalled for the duration, so this stays
-/// well under a frame — the same reason `crate::scrollback_read` has one, and
-/// the same number v2 used.
+/// well under a frame — the same reason `crate::scrollback_read` has one.
 pub const SEARCH_SLICE_ROWS: u32 = 500;
 
 /// The work budget one single-session scan gets.
 ///
-/// v2 reserved the last half second of the eight-second RPC deadline for
+/// The last half second of the eight-second RPC deadline is reserved for
 /// building the result and getting it back; the scan is what the other seven
 /// and a half seconds are for.
 const RETURN_RESERVE_MS: u32 = 500;

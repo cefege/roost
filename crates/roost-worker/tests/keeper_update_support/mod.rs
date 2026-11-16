@@ -53,8 +53,8 @@ pub fn contract(implementation_digest: &str, build_sha_char: char) -> KeeperCont
     }
 }
 
-/// v2 `update(requiredAction)`: a preserve keeps the source implementation, a
-/// replace-empty moves to the target one.
+/// A preserve keeps the source implementation, a replace-empty moves to the
+/// target one.
 pub fn update(preserve: bool, active: &[KeeperBinding]) -> JournaledKeeperUpdateV1 {
     let source = contract(SOURCE_DIGEST, 'a');
     let target = if preserve {

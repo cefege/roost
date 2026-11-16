@@ -2,8 +2,7 @@
 //! identity-fenced shutdown, a keeper holding live channels is refused unless
 //! the operator authorizes the destruction, an unproven identity is refused
 //! either way, and an exit that takes real work still counts as a completed
-//! shutdown. Ports `apps/worker/tests/keeper-maintenance-admission.test.ts`
-//! (its log-line assertion is not ported: this crate has no log capture).
+//! shutdown. The log line is not asserted: this crate has no log capture.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 #[path = "keeper_update_support/mod.rs"]

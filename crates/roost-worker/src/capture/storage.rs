@@ -1,8 +1,8 @@
 //! The ONE owner of terminal-capture files on a worker host: the owner-only
 //! log directory, exclusive `0600` writes named by capture UUID, and the
 //! COMBINED retention sweep over legacy `bytecap-*.bin` dumps and incident
-//! bundles. Ports `apps/worker/src/diag/capture-storage.ts`; called by
-//! `super::bundle_writer` (write) and `super::recorder` (retention start/stop).
+//! bundles. Called by `super::bundle_writer` (write) and `super::recorder`
+//! (retention start/stop).
 //! Only a capture id and a fixed code leave here: an errno can carry a path.
 
 use std::fs;
@@ -52,7 +52,7 @@ pub struct CaptureStorage {
 }
 
 impl CaptureStorage {
-    /// Storage under the worker's log directory, which is where v2 keeps it.
+    /// Storage under the worker's log directory.
     pub fn new(dir: PathBuf, runtime: Handle) -> Self {
         Self {
             dir,
@@ -223,7 +223,7 @@ pub fn sweep_capture_retention(dir: &Path, reserve: SweepReserve) {
 }
 
 /// Every recognized file with its mtime and size, or `None` when the
-/// directory cannot be read or a stat fails (v2 abandons the sweep then).
+/// directory cannot be read or a stat fails (the sweep is abandoned then).
 fn stored_capture_files(dir: &Path) -> Option<Vec<(SystemTime, PathBuf, u64)>> {
     let mut stored = Vec::new();
     for entry in fs::read_dir(dir).ok()? {

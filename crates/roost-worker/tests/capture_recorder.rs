@@ -2,8 +2,7 @@
 //! (and no second one for a fresh epoch inside the automatic floor), a
 //! healthy stream stays silent, a dropped delta invalidates the fold, lease
 //! expiry and session close free everything, and eviction makes replay
-//! explicitly partial. Ports `apps/worker/tests/terminal/
-//! terminal-capture-recorder.test.ts`.
+//! explicitly partial.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod capture_support;
@@ -220,7 +219,7 @@ async fn session_close_frees_the_recorder() {
             .recorder
             ._with_terminal_recorder(SESSION, |recorder| recorder.is_some())
     );
-    // v2 `_dropChannelState`: the close notifies the session-closed hooks.
+    // The close notifies the session-closed hooks.
     let _ = harness.stream.manager.close_channel(CHANNEL, Some(0)).await;
     assert!(
         harness

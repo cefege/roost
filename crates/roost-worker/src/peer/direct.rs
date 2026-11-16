@@ -3,8 +3,7 @@
 //! generation both peer owners share, and the peer offer, cancel, transport
 //! probe, direct retire, device revoke and link-detach controls. Built by
 //! `runtime::owners`; called by `runtime::downstream::direct` and the link
-//! lifecycle. Ports v2 `apps/worker/src/transport/coord-link-direct-deps.ts`
-//! and the peer half of `apps/worker/src/boot/boot-local-terminal.ts`.
+//! lifecycle.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -26,20 +25,19 @@ use crate::link_ports::{DirectTerminalPort, LinkLifecyclePort, LocalTerminalGran
 use crate::local_terminal::{ExpectedPeer, LocalTerminalDoor, PeerTerminalPacketPort};
 use crate::uplink::{LinkFence, OwnerFuture, RequestBudget};
 
-/// v2's only retire reasons (`coord-link-direct-deps.ts` `onTerminalDirectRetire`).
+/// The only retire reasons.
 const RETIRE_REASONS: [&str; 2] = ["worker_deleted", "worker_revoked"];
 
 /// Another direct carrier retired with the terminal one: the attachment peer
-/// bundle (v2 `attachmentPeerOwner`, `attachmentSockets`, `attachmentGrants`).
+/// owner, its sockets and its grants.
 pub trait DirectCarrier: Send + Sync + std::fmt::Debug {
-    /// v2 `cancelPendingForCoordinator` on link detach.
+    /// Cancel pending signaling on link detach.
     fn cancel_pending_for_coordinator(&self);
-    /// v2 `disposeDirect`.
+    /// Dispose the carrier and the grants it reads.
     fn dispose(&self);
 }
 
-/// What the hello may advertise about the direct carriers (v2 main.ts
-/// `peerSupported` / `attachmentPeerSupported`).
+/// What the hello may advertise about the direct carriers.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DirectPeerSupport {
     pub terminal: bool,
@@ -64,7 +62,7 @@ impl std::fmt::Debug for DirectTerminalDeps {
     }
 }
 
-/// v2 `LocalTerminalWiring`'s peer half plus `makeCoordLinkDirectTerminalHandlers`.
+/// The peer half of the local terminal wiring and its coordinator-link handlers.
 #[derive(Debug)]
 pub struct DirectTerminal {
     door: Arc<LocalTerminalDoor>,
@@ -131,7 +129,7 @@ impl DirectTerminal {
         lock(&self.carriers).push(carrier);
     }
 
-    /// v2 `onDetach`'s direct half: only unsettled signaling is fenced by
+    /// The direct half of link detach: only unsettled signaling is fenced by
     /// coordinator loss; established peers keep their grant lifetime.
     pub fn coordinator_detached(&self) {
         self.generation.clear();
@@ -141,7 +139,7 @@ impl DirectTerminal {
         }
     }
 
-    /// v2 `disposeDirect`, once: stop every direct carrier, grant and route.
+    /// Dispose the direct side, once: stop every direct carrier, grant and route.
     pub fn dispose_direct(&self) {
         if self.disposed.swap(true, Ordering::AcqRel) {
             return;
@@ -161,8 +159,7 @@ impl DirectTerminal {
 }
 
 impl DirectTerminalPort for DirectTerminal {
-    /// v2 `onLocalTerminalPeerOffer`: the offer's generation must be the one
-    /// this link adopted.
+    /// The offer's generation must be the one this link adopted.
     fn peer_offer(
         &self,
         request: DLocalTerminalPeerOffer,
@@ -187,7 +184,7 @@ impl DirectTerminalPort for DirectTerminal {
         }
     }
 
-    /// v2 `onTerminalTransportProbe`: answered for this process's epoch only.
+    /// Answered for this process's epoch only.
     fn transport_probe(
         &self,
         request: &DTerminalTransportProbe,
@@ -199,8 +196,7 @@ impl DirectTerminalPort for DirectTerminal {
         })
     }
 
-    /// v2 `onTerminalDirectRetire`: a deleted or revoked worker retires every
-    /// direct carrier.
+    /// A deleted or revoked worker retires every direct carrier.
     fn direct_retire(&self, request: &DTerminalDirectRetire) {
         if request.worker_epoch != self.process_epoch
             || !RETIRE_REASONS.contains(&request.reason.as_str())
@@ -217,15 +213,15 @@ impl LocalTerminalGrantPort for DirectTerminal {
         self.door.install_grant(request)
     }
 
-    /// v2 `wiring.revokeDevice`: routes, grants, then this device's peers.
+    /// Routes, grants, then this device's peers.
     fn revoke_device(&self, device_fingerprint: &str) {
         self.door.revoke_device(device_fingerprint);
         self.peer_owner.revoke_device(device_fingerprint);
     }
 }
 
-/// The link lifecycle with the direct half of v2 `onDetach` in front of the
-/// session half, in v2's order. Wraps the session lifecycle in `runtime::owners`.
+/// The link lifecycle with the direct half of detach in front of the session
+/// half. Wraps the session lifecycle in `runtime::owners`.
 #[derive(Debug)]
 pub struct DirectLinkLifecycle {
     direct: Arc<DirectTerminal>,

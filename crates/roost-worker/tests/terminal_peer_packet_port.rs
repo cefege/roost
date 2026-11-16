@@ -1,8 +1,7 @@
 //! Terminal peer packet port egress over fake native channels: ownership at
 //! the native false-send boundary, the control reservation that keeps
 //! history from blocking control, lane priority, the per-turn flush bound,
-//! history drain and pre-read reservation, and pressure retirement. Ports v2
-//! `apps/worker/tests/terminal/peer/terminal-peer-packet-port.test.ts`.
+//! history drain and pre-read reservation, and pressure retirement.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 #[path = "peer_support/fake_native.rs"]
@@ -179,7 +178,7 @@ async fn transfers_a_pre_read_history_ceiling_into_exact_queue_ownership() {
     assert_eq!(outgoing(&orphan), 0);
 }
 
-/// v2 `terminal-peer-history-reservation.ts:47-57`: a read that ends without
+/// A read that ends without
 /// transferring (it failed or was cancelled) returns its whole ceiling to the
 /// quota of a port that stays open, so the next read can reserve it again.
 /// The closed-port case above cannot show this: disposal returns everything.

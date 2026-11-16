@@ -1,5 +1,4 @@
-//! The native half of an upgraded loopback socket: v2's `nativeSocket` over
-//! Bun's `ServerWebSocket` (`local-door/local-ui-server.ts`), the value the
+//! The native half of an upgraded loopback socket, the value the
 //! terminal and attachment port adapters wrap. `door::loopback` builds one per
 //! socket and drains its outbound queue into the WebSocket; the ports call
 //! `send`/`close` from any thread without ever blocking or re-entering them.
@@ -12,21 +11,18 @@ use axum::extract::ws::{CloseFrame, Message};
 use futures_util::{Sink, SinkExt as _};
 use tokio::sync::mpsc;
 
-/// Bun's `ServerWebSocket` default `backpressureLimit`, which v2 ran with:
-/// once this much is buffered, a further send is dropped rather than queued.
+/// Once this much is buffered, a further send is dropped rather than queued.
 const BACKPRESSURE_LIMIT_BYTES: usize = 16 * 1024 * 1024;
 
-/// What one send did, in the three outcomes Bun's `ws.send` reports.
+/// What one send did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoopbackSend {
-    /// Nothing was queued ahead of it, so it went straight to the wire
-    /// (Bun: a positive byte count).
+    /// Nothing was queued ahead of it, so it went straight to the wire.
     Written,
-    /// It is queued behind earlier bytes the socket has not flushed yet
-    /// (Bun: `-1`, enqueued under backpressure).
+    /// It is queued behind earlier bytes the socket has not flushed yet.
     Queued,
     /// It was not taken: the socket is closing or closed, or its backlog is
-    /// already past the backpressure limit (Bun: `0`).
+    /// already past the backpressure limit.
     Dropped,
 }
 
@@ -74,7 +70,7 @@ impl LoopbackSocket {
         (Self { outbound, state }, queue)
     }
 
-    /// Queue one binary frame (v2 `ws.send(bytes)`).
+    /// Queue one binary frame.
     pub fn send(&self, bytes: Vec<u8>) -> LoopbackSend {
         if !self.is_open() {
             return LoopbackSend::Dropped;
@@ -93,9 +89,8 @@ impl LoopbackSocket {
         }
     }
 
-    /// Close with `code` and `reason` after the frames already queued (v2
-    /// `ws.close(code, reason)`). A second close is a no-op, as on a socket
-    /// that is already closing.
+    /// Close with `code` and `reason` after the frames already queued. A second
+    /// close is a no-op, as on a socket that is already closing.
     pub fn close(&self, code: u16, reason: &str) {
         if self.state.open.swap(false, Ordering::SeqCst) {
             let reason = reason.to_owned();
@@ -104,7 +99,7 @@ impl LoopbackSocket {
         }
     }
 
-    /// Whether the socket still takes frames (v2 `readyState === OPEN`).
+    /// Whether the socket still takes frames.
     pub fn is_open(&self) -> bool {
         self.state.open.load(Ordering::SeqCst)
     }

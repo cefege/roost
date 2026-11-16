@@ -1,8 +1,7 @@
 //! Attachment peer ownership stays isolated from terminal peer ownership even
 //! when both borrow one native runtime: a failed attachment connection retires
-//! only attachment transport state, never a terminal connection. Ported from
-//! `apps/worker/tests/attachments/attachment-peer-owner.test.ts` over the shared
-//! fake native (`peer_support/fake_native.rs`, v2 `createFakeNativeFixture`).
+//! only attachment transport state, never a terminal connection, over the shared
+//! fake native (`peer_support/fake_native.rs`).
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

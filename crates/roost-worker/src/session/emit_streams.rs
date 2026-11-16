@@ -3,9 +3,7 @@
 //! one is intact. `session::emit` asks it on every ingest and every tick,
 //! `session::lifecycle` drives it as a channel is adopted and forgotten, and
 //! `runtime::channel_delivery` mints and traps generations for the stream
-//! transaction. Ports the stream-state halves of
-//! `apps/worker/src/session/session-terminal-control.ts` and
-//! `session-resize-capture.ts`. Depends on `roost_protocol` and `super::types`.
+//! transaction. Depends on `roost_protocol` and `super::types`.
 
 use roost_protocol::wire::brand::ChannelId;
 
@@ -63,8 +61,7 @@ impl CellEmitter {
         self.cancel(channel_id);
     }
 
-    /// Mint the coordinator's next generation over this channel (v2
-    /// `applyTerminalStreamState`, `session-terminal-control.ts:266-338`).
+    /// Mint the coordinator's next generation over this channel.
     ///
     /// The old generation's queued work and every sink's baseline go at once,
     /// and the new one starts with NO delivery records: every sink owes a
@@ -120,14 +117,14 @@ impl CellEmitter {
     }
 
     /// Whether a minted generation exists and its core was latched invalid:
-    /// the one case v2 routes a chunk to the retain-only lane.
+    /// the one case a chunk goes to the retain-only lane.
     pub fn stream_core_trapped(&self, channel_id: ChannelId) -> bool {
         self.streams
             .get(&channel_id)
             .is_some_and(|stream| !stream.core_valid)
     }
 
-    /// Latch a core fail-closed (v2 `failCore`): no sink may build on a frame
+    /// Latch a core fail-closed: no sink may build on a frame
     /// it produced, and nothing queued for it may run.
     pub fn trap_stream_core(&mut self, channel_id: ChannelId) {
         self.retire_stream_delivery(channel_id);
@@ -136,7 +133,7 @@ impl CellEmitter {
         tracing::warn!(%channel_id, "a terminal core was latched fail-closed");
     }
 
-    /// The core was resized at a proven boundary (v2 `resetEmissionEpoch`):
+    /// The core was resized at a proven boundary:
     /// every sink's baseline describes a grid that no longer exists.
     pub fn reset_stream_delivery(&mut self, channel_id: ChannelId) {
         self.retire_stream_delivery(channel_id);

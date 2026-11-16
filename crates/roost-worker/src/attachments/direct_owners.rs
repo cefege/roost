@@ -3,8 +3,6 @@
 //! the coordinator-link entry points for peer offers and cancels. Built by
 //! `runtime::owners`; used by the door's attachment route, the attachment
 //! grant-revoke arm, the peer offer/cancel arms and the direct-carrier detach.
-//! Ports the attachment half of `apps/worker/src/boot/boot-local-terminal.ts`
-//! and of `apps/worker/src/transport/coord-link-direct-deps.ts`.
 
 use std::fmt;
 use std::sync::Arc;
@@ -107,12 +105,12 @@ impl AttachmentDirect {
         self.peer_owner.bootstrap().await
     }
 
-    /// First of v2 `revokeAttachmentDevice`: admitted ports, even past expiry.
+    /// First step of device revocation: admitted ports, even past expiry.
     pub fn revoke_sockets(&self, device_fingerprint: &str) {
         self.sockets.revoke_device(device_fingerprint);
     }
 
-    /// Last of v2 `revokeAttachmentDevice`: pending and established peers.
+    /// Last step of device revocation: pending and established peers.
     pub fn revoke_peers(&self, device_fingerprint: &str) {
         self.peer_owner.revoke_device(device_fingerprint);
     }
@@ -151,7 +149,7 @@ impl DirectCarrier for AttachmentDirect {
         self.peer_owner.cancel_pending_for_coordinator();
     }
 
-    /// v2 `disposeDirect` order: sockets, peers, then the grants they read.
+    /// Disposal order: sockets, peers, then the grants they read.
     fn dispose(&self) {
         self.sockets.dispose();
         self.peer_owner.dispose();

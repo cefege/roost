@@ -2,8 +2,7 @@
 //! one whole server frame, the input-result frames, and the view transport the
 //! terminal view owner paints a local socket through. `super::sockets` chooses
 //! the lane and the close policy; carrier queue ownership counts as a cell
-//! delivery ACK. Ports `apps/worker/src/local-door/local-terminal-socket-delivery.ts`
-//! and the `transport()` half of `local-terminal-socket.ts`.
+//! delivery ACK.
 
 use std::sync::{Arc, Weak};
 
@@ -39,8 +38,8 @@ pub(super) fn send_local_terminal_frame(
     port.send(envelope.encode_to_vec(), lane)
 }
 
-/// v2 `sendLocalTerminalInputResult`: the one frame a direct input is answered
-/// with, stamped with the socket generation.
+/// The one frame a direct input is answered with, stamped with the socket
+/// generation.
 pub(super) fn input_result_frame(
     generation: u64,
     command: &InputCommand,
@@ -77,7 +76,7 @@ pub(super) fn input_result_frame(
     }
 }
 
-/// v2 `localTerminalCellDelivery`: a carrier that owns the frame (now or
+/// A carrier that owns the frame (now or
 /// queued) is a delivery; one that refuses it cannot drain, so the socket is
 /// closed and the sink registry drops the sink.
 pub(super) fn local_terminal_cell_delivery(
@@ -99,7 +98,7 @@ fn stamp(frame: &mut PbCellGridFrame, session_id: &str, timings: FrameTimings) {
     frame.worker_emit_ms = measured_at(timings.worker_emit_ms);
 }
 
-/// The view transport of one authenticated port (v2 `transport(session)`).
+/// The view transport of one authenticated port.
 /// Called with a view-owner or emitter lock held, so every close it causes is
 /// deferred: the port is fenced at once, the teardown runs on its own task.
 #[derive(Debug)]

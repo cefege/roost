@@ -1,9 +1,7 @@
 #![cfg(unix)]
 //! Keeper-update preparation against a keeper spawn already in flight: the
 //! preparer waits the admitted creation out before it touches the reconcile
-//! boundary or the update action. Ports tests 1 and 2 of v2
-//! `apps/worker/tests/session/session-channel-creation-gate.test.ts` at the
-//! handler seam (`transport/coord-link-keeper-update.ts`); the gate-only halves
+//! boundary or the update action, at the handler seam; the gate-only halves
 //! are `channel_creation_gate.rs`'s.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -22,9 +20,9 @@ use roost_worker::link_ports::KeeperUpdatePort;
 use roost_worker::session::channel_creation_gate::CHANNEL_CREATION_REFUSAL;
 use session_support::{SESSION, session_id};
 
-/// v2 session-channel-creation-gate test 1: an admitted spawn is waited out
-/// before the reconcile boundary or the action is touched, a new spawn is
-/// refused at once, and success leaves creation closed.
+/// An admitted spawn is waited out before the reconcile boundary or the action
+/// is touched, a new spawn is refused at once, and success leaves creation
+/// closed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_preparation_waits_out_an_admitted_spawn_before_the_boundary_and_the_action() {
     let (fixture, answer, entered) = holding_spawn(Actions::default());
@@ -80,8 +78,8 @@ async fn a_preparation_waits_out_an_admitted_spawn_before_the_boundary_and_the_a
     );
 }
 
-/// v2 session-channel-creation-gate test 2: a failed admitted respawn drains
-/// first, then the failed action releases the boundary and reopens admission.
+/// A failed admitted respawn drains first, then the failed action releases the
+/// boundary and reopens admission.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_failed_admitted_respawn_drains_then_the_failed_action_releases_everything() {
     let (fixture, answer, entered) = holding_spawn(Actions {

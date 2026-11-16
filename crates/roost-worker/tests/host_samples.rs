@@ -1,12 +1,10 @@
-//! The host samplers against v2 `apps/worker/src/host/host-sample-linux.ts`
-//! and `host-sample-darwin.ts` (v2 ships no tests for them): the Linux reader
-//! finds ANY interface row of `/proc/net/dev`, and the macOS parsers read
-//! `top`'s idle share and `netstat -ibn`'s byte columns the way v2's regexes
-//! and column indices do.
+//! The host samplers: the Linux reader finds ANY interface row of
+//! `/proc/net/dev`, and the macOS parsers read `top`'s idle share and
+//! `netstat -ibn`'s byte columns.
 
 use roost_worker::host::samples_darwin::{parse_netstat_bytes, top_idle_pct};
 
-/// v2 loops every `/proc/net/dev` line: the gateway interface is rarely the
+/// Every `/proc/net/dev` line is read: the gateway interface is rarely the
 /// first row (that is usually `lo`), and a reader that only looked at the first
 /// row reported no bandwidth on every real host.
 #[test]

@@ -3,7 +3,7 @@
 //! 256 KiB and reports absolute bounds, its tail survives into a written
 //! bundle, captures are 0600 in a 0700 directory (tightening one that existed
 //! looser), a duplicate id is refused, and retention is COMBINED over legacy
-//! `bytecap-*.bin` and incident bundles. Ports `apps/worker/tests/byte-capture.test.ts`.
+//! `bytecap-*.bin` and incident bundles.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod capture_support;

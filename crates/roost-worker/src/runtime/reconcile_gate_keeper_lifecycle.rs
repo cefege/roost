@@ -1,9 +1,7 @@
 //! The keeper-lifecycle half of the reconcile gate: a keeper death drives a
 //! pass at once, and a degraded keeper is restarted within a grace window and a
 //! bounded budget once a pass has landed. Owned by `runtime::reconcile_gate`,
-//! which serializes the passes; v2's `apps/worker/src/boot/boot-reconcile.ts`
-//! `setOnKeeperDeath` / `setOnKeeperDegraded` / `remediateDegradedKeeper` are
-//! the authority.
+//! which serializes the passes.
 
 use std::sync::{Arc, Weak};
 
@@ -14,7 +12,7 @@ use super::reconcile_gate::{
 use roost_observability::{LogFields, SignalKind, signal};
 
 impl ReconcileGate {
-    /// v2 `setOnKeeperDeath` body.
+    /// Handle a keeper death.
     pub fn on_keeper_death(&self) {
         if self.inner.remediation.keeper_update_prepared() {
             tracing::info!("worker: keeper_death_reconcile_suppressed");
@@ -24,7 +22,7 @@ impl ReconcileGate {
         drop(self.reconcile_open_sessions("keeper_death"));
     }
 
-    /// v2 `setOnKeeperDegraded` body. A degradation that lands mid-pass waits
+    /// Handle a keeper degradation. A degradation that lands mid-pass waits
     /// for it: the restart is the pass's own conclusion, not a parallel one.
     pub fn on_keeper_degraded(&self) {
         let mut state = self.inner.lock();
@@ -66,7 +64,7 @@ impl ReconcileGate {
         }
     }
 
-    /// v2 `remediateDegradedKeeper`: outside the grace window and within the
+    /// Outside the grace window and within the
     /// budget, restart the keeper.
     fn remediate_degraded_keeper(&self) {
         if self.inner.remediation.keeper_update_prepared() {

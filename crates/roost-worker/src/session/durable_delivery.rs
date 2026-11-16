@@ -3,9 +3,7 @@
 //! held or given back) and "every durable row has reached the coordinator".
 //! Raised by `session::journal_sink::JournalSink`; drained by the link loop
 //! (`runtime::link_loop::durable_sync`); awaited by the boot reconcile before it
-//! reads recovery metadata. Ports the `link.send` / `snapshotStateChanged`
-//! edges of v2 `apps/worker/src/transport/event-sink.ts` and
-//! `apps/worker/src/transport/coord-link-replay-barrier.ts`.
+//! reads recovery metadata.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -18,10 +16,10 @@ pub struct DurableDelivery {
     /// has not yet read.
     changed: AtomicBool,
     wake: Notify,
-    /// v2 `DurableSessionEventReplayBarrier`: `true` once nothing durable is
+    /// `true` once nothing durable is
     /// left to replay and no claim blocks the snapshot.
     drained: watch::Sender<bool>,
-    /// The link that drains this has stopped for good (v2 `dispose`).
+    /// The link that drains this has stopped for good.
     disposed: AtomicBool,
 }
 
@@ -47,7 +45,7 @@ impl DurableDelivery {
     }
 
     /// The store changed. The replay is pending again until the link has read
-    /// the change and found nothing left to deliver: v2 marks the barrier
+    /// the change and found nothing left to deliver: the barrier is marked
     /// pending synchronously with the append, so a waiter can never read
     /// "drained" over a row it was not told about.
     pub fn note_store_changed(&self) {
@@ -87,7 +85,7 @@ impl DurableDelivery {
         *self.drained.borrow()
     }
 
-    /// v2 `waitForDurableSessionEventReplay`: returns once the link has replayed
+    /// Returns once the link has replayed
     /// every durable row and no claim blocks the snapshot. Survives a
     /// disconnect while pending; fails only once the link is disposed.
     pub async fn wait_for_replay(&self) -> Result<(), LinkDisposed> {
@@ -103,7 +101,7 @@ impl DurableDelivery {
         Ok(())
     }
 
-    /// v2 `dispose`: the link's run ended, so nothing will drain the replay
+    /// The link's run ended, so nothing will drain the replay
     /// again; every waiter, present and future, is refused. Called by
     /// `LinkLoop::run` on its way out.
     pub fn dispose(&self) {
