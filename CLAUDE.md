@@ -360,6 +360,12 @@ configuration and autolaunch, the `roost skill` command, bundled executables,
 and TUI/HTML parity packaging. User-installed programs and their configuration
 are not removed. Existing keeper-owned terminal PTYs remain ordinary terminals.
 
+`CoordBoot::from_env` is dropped: the CLI resolves its configuration through
+`roost_host::load_coord_config` and hands `serve` a finished `CoordBoot`.
+`serve` and `prepare_coordinator_database` return a typed `ServeError`, the
+cluster loop a `ClusterError`, and `roost-coord` and `roost-cli` no longer
+depend on `anyhow`.
+
 The sidebar holds terminal folders only. Folder order is static until a user
 drags it, and the saved order synchronizes across that account's devices.
 There is no agent Recent view. The custom `ui::Surface`/`SurfaceLevel` skin

@@ -24,8 +24,8 @@
 
 use axum::http::HeaderMap;
 
-use super::agent_table::first_case_insensitive;
-pub use super::agent_table::{UserAgentDescription, describe_user_agent};
+use super::user_agent_table::first_case_insensitive;
+pub use super::user_agent_table::{UserAgentDescription, describe_user_agent};
 
 use crate::coord_core::ListenerTrust;
 use crate::events::persistence_input::truncate_persisted_utf8;

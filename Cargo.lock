@@ -4941,7 +4941,6 @@ dependencies = [
 name = "roost-cli"
 version = "3.0.0"
 dependencies = [
- "anyhow",
  "axum",
  "base64 0.23.1",
  "clap",
@@ -4987,7 +4986,6 @@ dependencies = [
 name = "roost-coord"
 version = "3.0.0"
 dependencies = [
- "anyhow",
  "async-compression",
  "async-trait",
  "axum",

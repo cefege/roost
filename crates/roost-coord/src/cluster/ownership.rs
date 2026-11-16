@@ -10,8 +10,10 @@ use std::time::Duration;
 
 use tokio::sync::watch;
 
+use crate::cluster::error::ClusterError;
+use crate::cluster::lease::{LeaseRow, lease_expiry, next_lease_epoch};
 use crate::cluster::notify::{CLUSTER_CHANNEL, ClusterNotifier};
-use crate::db::{CoordDb, DbBackend, LeaseRow, lease_expiry, next_lease_epoch};
+use crate::db::{CoordDb, DbBackend};
 
 /// The link-owner lease name shared by every replica.
 pub const LINK_LEASE_NAME: &str = "cluster:links";
@@ -84,7 +86,7 @@ pub async fn run(
     notifier: Arc<ClusterNotifier>,
     state: Arc<OwnershipState>,
     mut shutdown: watch::Receiver<bool>,
-) -> anyhow::Result<()> {
+) -> Result<(), ClusterError> {
     let mut notices = notifier.subscribe();
     let mut interval = tokio::time::interval(CLUSTER_TICK);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -116,7 +118,7 @@ pub async fn run(
             Ok(Tick::Lost) => {
                 state.set_owner(false);
                 tracing::error!(instance_id, "coordinator link-owner lease lost");
-                anyhow::bail!("coordinator link-owner lease lost for {instance_id}");
+                return Err(ClusterError::LeaseLost { instance_id });
             }
             Err(error) => {
                 tracing::warn!(instance_id, %error, "coordinator cluster tick failed");
@@ -124,9 +126,9 @@ pub async fn run(
                     .saturating_add(i64::try_from(LINK_LEASE_TTL_MS).unwrap_or(i64::MAX));
                 if state.is_owner() && now >= deadline {
                     state.set_owner(false);
-                    anyhow::bail!(
-                        "coordinator link-owner lease could not be renewed before it expired: {error}"
-                    );
+                    return Err(ClusterError::RenewalDeadlinePassed {
+                        cause: Box::new(error),
+                    });
                 }
             }
         }
@@ -147,7 +149,7 @@ async fn tick(
     internal_url: &str,
     state: &OwnershipState,
     now: i64,
-) -> anyhow::Result<Tick> {
+) -> Result<Tick, ClusterError> {
     crate::cluster::heartbeat::write(db, instance_id, internal_url, now, state).await?;
     state.set_owner_url(read_owner_url(db, now).await?);
     if db.backend() == DbBackend::Sqlite {
@@ -167,7 +169,7 @@ async fn tick(
     Ok(Tick::Following)
 }
 
-async fn acquire(db: &CoordDb, instance_id: &str, now: i64) -> anyhow::Result<bool> {
+async fn acquire(db: &CoordDb, instance_id: &str, now: i64) -> Result<bool, ClusterError> {
     let mut tx = db.begin_write().await?;
     let row = sqlx::query_as::<_, (String, i64, i64)>(
         "SELECT owner_instance,epoch,expires_ms FROM coord_leases WHERE name=$1",
@@ -190,7 +192,7 @@ async fn acquire(db: &CoordDb, instance_id: &str, now: i64) -> anyhow::Result<bo
     Ok(true)
 }
 
-async fn renew(db: &CoordDb, instance_id: &str, now: i64) -> anyhow::Result<bool> {
+async fn renew(db: &CoordDb, instance_id: &str, now: i64) -> Result<bool, ClusterError> {
     let result = sqlx::query("UPDATE coord_leases SET expires_ms=$1 WHERE name=$2 AND owner_instance=$3 AND expires_ms>$4")
         .bind(lease_expiry(now, LINK_LEASE_TTL_MS)).bind(LINK_LEASE_NAME).bind(instance_id).bind(now).execute(db.pool()).await?;
     Ok(result.rows_affected() == 1)
@@ -201,7 +203,7 @@ pub async fn release_for_shutdown(
     instance_id: &str,
     state: &OwnershipState,
     notifier: &ClusterNotifier,
-) -> anyhow::Result<()> {
+) -> Result<(), ClusterError> {
     if state.is_owner() {
         if db.backend() == DbBackend::Postgres {
             sqlx::query("UPDATE coord_leases SET expires_ms=0 WHERE name=$1 AND owner_instance=$2")
@@ -217,7 +219,7 @@ pub async fn release_for_shutdown(
     Ok(())
 }
 
-async fn read_owner_url(db: &CoordDb, now: i64) -> anyhow::Result<Option<String>> {
+async fn read_owner_url(db: &CoordDb, now: i64) -> Result<Option<String>, ClusterError> {
     let live_owner: Option<String> = sqlx::query_scalar("SELECT i.internal_url FROM coord_leases l JOIN coord_instances i ON i.instance_id=l.owner_instance WHERE l.name=$1 AND l.expires_ms>$2 AND i.heartbeat_ms >= $3")
         .bind(LINK_LEASE_NAME).bind(now).bind(now.saturating_sub(INSTANCE_STALE_MS))
         .fetch_optional(db.pool()).await?;

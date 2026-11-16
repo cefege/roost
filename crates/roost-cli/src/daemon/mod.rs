@@ -68,9 +68,17 @@ pub async fn run_worker(args: &WorkerArgs) -> Result<ExitCode, CommandFailure> {
     // "serve owns its runtime" and the worker never boots — which a supervisor
     // sees as a worker that starts, prints one line and exits. `roost_coord::serve`
     // above is async for exactly the same reason.
-    let stop = roost_worker::runtime::stop::stop_requests_from_signals()?;
-    roost_worker::serve_until(boot, stop).await?;
+    let stop = roost_worker::runtime::stop::stop_requests_from_signals().map_err(worker_failure)?;
+    roost_worker::serve_until(boot, stop)
+        .await
+        .map_err(worker_failure)?;
     Ok(ExitCode::SUCCESS)
+}
+
+/// The roost-worker entry points report an error chain; `{:#}` prints the whole
+/// chain on the one failure line.
+fn worker_failure(error: impl std::fmt::Display) -> CommandFailure {
+    CommandFailure::generic(format!("{error:#}"))
 }
 
 /// The keeper is a SEPARATE BINARY in v3 (`roost-keeper`), shipped apart from

@@ -6,11 +6,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Context as _;
 use axum::Router;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
+use crate::cluster::error::ClusterError;
 use crate::cluster::ownership::OwnershipState;
 use crate::http::listener::MountedListener;
 
@@ -23,7 +23,7 @@ pub async fn serve(
     mounted: MountedListener,
     ownership: Arc<OwnershipState>,
     mut shutdown: watch::Receiver<bool>,
-) -> anyhow::Result<()> {
+) -> Result<(), ClusterError> {
     mounted.publish_bound_port(listener.local_addr()?.port());
     let mut role_check = tokio::time::interval(ROLE_CHECK);
     while !ownership.is_owner() {
@@ -55,5 +55,5 @@ pub async fn serve(
         let _ = shutdown.wait_for(|stop| *stop).await;
     })
     .await
-    .context("coordinator listener")
+    .map_err(ClusterError::Listener)
 }

@@ -17,7 +17,6 @@
 use connectrpc::{ConnectError, ErrorCode};
 
 pub mod account;
-pub mod agent_table;
 pub mod authority;
 pub mod confirm_row;
 pub mod confirmation;
@@ -28,6 +27,7 @@ pub mod rows_read;
 pub mod rpc_support;
 pub mod secrets;
 pub mod status;
+pub mod user_agent_table;
 
 pub use retention::{RetentionSweep, spawn_pair_request_retention, sweep_pair_requests};
 

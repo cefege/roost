@@ -4,9 +4,9 @@
 
 use std::sync::Arc;
 
-use anyhow::Context as _;
 use tokio::net::TcpListener;
 
+use super::error::ClusterError;
 use crate::http::listener::MountedListener;
 use crate::services::CoordServices;
 use crate::shutdown::{SHUTDOWN_DRAIN_TIMEOUT, ShutdownDrain, shutdown_signal};
@@ -18,7 +18,7 @@ pub async fn serve(
     services: Arc<CoordServices>,
     internal_url: String,
     draining: Arc<std::sync::atomic::AtomicBool>,
-) -> anyhow::Result<()> {
+) -> Result<(), ClusterError> {
     let notifier = Arc::clone(&services.cluster);
     let ownership = Arc::clone(&services.ownership);
     tokio::spawn(Arc::clone(&notifier).listen());
@@ -68,19 +68,23 @@ pub async fn serve(
             tokio::select! {
                 outcome = &mut ownership_task => {
                     ownership_joined = true;
-                    outcome.context("coordinator ownership task")?
-                        .context("coordinator ownership")?;
+                    outcome.map_err(|source| ClusterError::TaskJoin {
+                        task: "ownership",
+                        source,
+                    })??;
                     let outcome = (&mut listener_task).await;
                     listener_joined = true;
-                    outcome
-                        .context("coordinator listener task")?
-                        .context("coordinator listener")
+                    outcome.map_err(|source| ClusterError::TaskJoin {
+                        task: "listener",
+                        source,
+                    })?
                 },
                 outcome = &mut listener_task => {
                     listener_joined = true;
-                    outcome
-                        .context("coordinator listener task")?
-                        .context("coordinator listener")
+                    outcome.map_err(|source| ClusterError::TaskJoin {
+                        task: "listener",
+                        source,
+                    })?
                 },
             }
         })

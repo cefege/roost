@@ -8,9 +8,8 @@
 //!
 //! CONFIGURATION IS THE CALLER'S. `CoordBoot` carries an already-resolved,
 //! already-validated [`roost_host::CoordConfig`]. The CLI owns resolving it from
-//! argv and the environment and refuses before starting anything; the convenience
-//! constructor [`CoordBoot::from_env`] exists so `roost coord` can delegate to
-//! `roost_host::load_coord_config` rather than re-deriving a single path.
+//! argv and the environment, through `roost_host::load_coord_config`, and
+//! refuses before starting anything.
 //!
 //! THE BOOT ORDER IS THE CONTRACT (`docs/phase3-coord-contract.md` §1.1), and
 //! three of its steps are load-bearing rather than cosmetic: the pre-migration
@@ -27,7 +26,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use anyhow::Context as _;
 use roost_host::CoordConfig;
 use roost_platform::HostPlatform;
 
@@ -43,6 +41,7 @@ use crate::http::spa::SpaMount;
 use crate::push::PushRuntime;
 use crate::push::transport::WebPushTransport;
 use crate::rpc::service::CoordinatorServiceImpl;
+use crate::serve_error::ServeError;
 use crate::services::CoordServices;
 
 /// The resolved, validated configuration a coordinator daemon boots from.
@@ -64,20 +63,6 @@ impl CoordBoot {
     pub fn new(config: CoordConfig, platform: HostPlatform) -> Self {
         Self { config, platform }
     }
-
-    /// Resolve the configuration from an environment, through the one loader.
-    ///
-    /// `roost coord` may use this; anything that has already resolved its config
-    /// should use [`CoordBoot::new`] instead, so the refusal happens in the CLI
-    /// where the operator sees it.
-    pub fn from_env(
-        env: &dyn roost_host::EnvSource,
-        platform: HostPlatform,
-    ) -> anyhow::Result<Self> {
-        let config = roost_host::load_coord_config(env, platform)
-            .map_err(|error| anyhow::anyhow!("coordinator configuration: {error}"))?;
-        Ok(Self::new(config, platform))
-    }
 }
 
 /// Run the coordinator until the process is asked to stop.
@@ -86,12 +71,15 @@ impl CoordBoot {
 /// exit code. A bind that cannot be resolved, a database that cannot be opened,
 /// or a migration that fails all return an error **before** anything is bound --
 /// which is the behaviour the tenancy invariant depends on.
-pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
+pub async fn serve(boot: CoordBoot) -> Result<(), ServeError> {
     let boot_ms = now_ms();
     let process_epoch = process_epoch();
 
-    let bind = crate::http::bind::resolve_bind(&boot.config.bind)
-        .with_context(|| format!("coordinator bind {}", boot.config.bind))?;
+    let bind =
+        crate::http::bind::resolve_bind(&boot.config.bind).map_err(|source| ServeError::Bind {
+            bind: boot.config.bind.clone(),
+            source,
+        })?;
     let (database, tenant) = prepare_coordinator_database(&boot.config, boot_ms).await?;
 
     // The boot facts are filled from what boot already established -- the
@@ -126,7 +114,7 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
     );
     let web_push: Arc<dyn crate::push::transport::PushNotificationTransport> = Arc::new(
         WebPushTransport::new(services.db.clone(), push.vapid_keys().clone())
-            .context("web push client")?,
+            .map_err(ServeError::WebPushClient)?,
     );
     // Long shell commands, programs' own notifications and pairing requests
     // reach a phone the same way. Held for the life of `serve`.
@@ -175,22 +163,27 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
     let mounted = build_router(Arc::clone(&state));
     let probe_listener = match boot.config.probe_bind.as_deref() {
         Some(probe_bind) => {
-            let address = crate::http::bind::resolve_bind(probe_bind)
-                .with_context(|| format!("coordinator probe bind {probe_bind}"))?;
+            let address = crate::http::bind::resolve_bind(probe_bind).map_err(|source| {
+                ServeError::ProbeBind {
+                    bind: probe_bind.to_owned(),
+                    source,
+                }
+            })?;
             Some(
                 tokio::net::TcpListener::bind(address)
                     .await
-                    .with_context(|| format!("coordinator probe listen on {address}"))?,
+                    .map_err(|source| ServeError::ProbeListen { address, source })?,
             )
         }
         None => None,
     };
     let listener = tokio::net::TcpListener::bind(bind)
         .await
-        .with_context(|| format!("coordinator listen on {bind}"))?;
-    let local = listener
-        .local_addr()
-        .with_context(|| "coordinator local address".to_string())?;
+        .map_err(|source| ServeError::Listen {
+            address: bind,
+            source,
+        })?;
+    let local = listener.local_addr().map_err(ServeError::LocalAddress)?;
     // The admission gate's allowlist names the RESOLVED port, so it cannot be
     // built until the OS has reported which port this bind got. Between the
     // bind and this line the gate answers `503 listener unavailable` to every
@@ -264,7 +257,7 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
 
     drop(pair_shutdown);
     pair_retention.stop().await;
-    served
+    served.map_err(ServeError::from)
 }
 
 /// Boot steps 2-7 (contract §1.1): everything that must hold before a listener
@@ -278,10 +271,14 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
 pub async fn prepare_coordinator_database(
     config: &CoordConfig,
     now_ms: i64,
-) -> anyhow::Result<(CoordDb, SelfHostedTenant)> {
-    let database = crate::db::open(&config.database)
-        .await
-        .with_context(|| format!("coordinator database {:?}", config.database))?;
+) -> Result<(CoordDb, SelfHostedTenant), ServeError> {
+    let database =
+        crate::db::open(&config.database)
+            .await
+            .map_err(|source| ServeError::Database {
+                location: format!("{:?}", config.database),
+                source,
+            })?;
 
     // Step 5, BEFORE the tenancy invariant, so the invariant sees the keys the
     // operator's file just added (`main.ts:73-83`).
@@ -291,7 +288,7 @@ pub async fn prepare_coordinator_database(
     // the correct outcome rather than a late failure.
     let tenant = crate::auth::self_hosted_tenant::ensure_self_hosted_tenant(&database, now_ms)
         .await
-        .with_context(|| "self-hosted tenant invariant")?;
+        .map_err(ServeError::TenantInvariant)?;
     tracing::info!(
         backend = database.backend().label(),
         account_id = %tenant.account_id,

@@ -38,6 +38,7 @@ pub mod push;
 pub mod rpc;
 pub mod search;
 pub mod serve;
+pub mod serve_error;
 pub mod services;
 pub mod sessions;
 pub mod shutdown;
@@ -53,3 +54,4 @@ pub mod workers;
 pub mod write_gate;
 
 pub use serve::{CoordBoot, serve};
+pub use serve_error::ServeError;

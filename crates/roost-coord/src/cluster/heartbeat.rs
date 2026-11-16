@@ -3,6 +3,7 @@
 //! Each replica refreshes its own row on the election cadence and removes rows
 //! whose heartbeat is too old to route traffic safely.
 
+use crate::cluster::error::ClusterError;
 use crate::cluster::ownership::{INSTANCE_STALE_MS, OwnershipState};
 use crate::db::CoordDb;
 
@@ -13,7 +14,7 @@ pub async fn write(
     internal_url: &str,
     now_ms: i64,
     state: &OwnershipState,
-) -> anyhow::Result<()> {
+) -> Result<(), ClusterError> {
     sqlx::query("INSERT INTO coord_instances (instance_id,internal_url,heartbeat_ms) VALUES ($1,$2,$3) ON CONFLICT(instance_id) DO UPDATE SET internal_url=excluded.internal_url,heartbeat_ms=excluded.heartbeat_ms")
         .bind(instance_id).bind(internal_url).bind(now_ms).execute(db.pool()).await?;
     sqlx::query("DELETE FROM coord_instances WHERE heartbeat_ms < $1")

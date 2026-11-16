@@ -64,9 +64,9 @@ impl std::error::Error for CommandFailure {}
 /// `macro_rules!`, and `cargo xtask lint` does not check for it, so a macro
 /// here is a rule violation no gate would ever report. This was the only one
 /// in the crate.
-impl From<anyhow::Error> for CommandFailure {
-    fn from(error: anyhow::Error) -> Self {
-        CommandFailure::generic(format!("{error:#}"))
+impl From<roost_coord::ServeError> for CommandFailure {
+    fn from(error: roost_coord::ServeError) -> Self {
+        CommandFailure::generic(error.to_string())
     }
 }
 
