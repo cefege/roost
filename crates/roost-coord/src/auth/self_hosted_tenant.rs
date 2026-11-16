@@ -28,8 +28,8 @@
 // ONE MORE BRANCH IS A SETTING'S SCOPE, and it is the only one that is a live
 // path. `app_settings` holds one coordinator-global key at the NULL scope and
 // every other key at a dashboard's, and no SQL constraint can say which is
-// which — so `require_valid_setting_scopes` says it, and `roost import-v2` is
-// how a row the previous product wrote arrives carrying the wrong one.
+// which — so `require_valid_setting_scopes` says it, and a row written by
+// anything else arrives carrying the wrong one.
 
 use roost_protocol::{ProtocolError, ProtocolResult};
 use sqlx::{Any, Transaction};
@@ -270,8 +270,8 @@ const GLOBAL_SETTING_KEYS: &[&str] = &[crate::push::vapid::VAPID_SETTING_KEY];
 ///
 /// v2 refused both at boot and that refusal is the fail-safe; without it a
 /// mis-scoped row is admitted and the next occurrence is a support ticket.
-/// `roost import-v2` is how one reaches a v3 database, because it carries
-/// `app_settings` across verbatim.
+/// A row written outside this coordinator is the way one reaches a v3 database
+/// carrying the wrong scope.
 ///
 /// "outside this dashboard" is defence-in-depth and not a live path, for the
 /// reason the module header gives for the organization check: `db::open`

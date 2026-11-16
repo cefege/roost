@@ -12,12 +12,6 @@
 //! **THE COORDINATOR NEVER OPENS A v2 DATABASE.** It has its own data
 //! directory, its own database name, and its own squashed migration, and there
 //! is no code path by which it could read a file the previous product wrote.
-//! The one exception is deliberate and lives in another crate: `roost
-//! import-v2` ATTACHes a v2 database read-only, once, before this install's
-//! first boot, to carry paired browsers across a cutover. It is an operator
-//! command, not a boot path, and a coordinator that has started has nothing
-//! left to import — which is why `roost import-v2` refuses to run while one is
-//! running.
 //!
 //! ONE CONNECTION, NOT A POOL, ON EITHER BACKEND. v2 opens a single
 //! `bun:sqlite` handle and Kysely reads and writes through it
@@ -122,8 +116,7 @@ pub enum DbError {
     #[error(
         "migration history names version {version}, which this build neither \
          embeds nor declares retired; the file was written by another build, so \
-         refuse it rather than guess -- a v2 database lives in a different data \
-         directory and `roost import-v2` is how an identity crosses over"
+         refuse it rather than guess -- restore a database from a matching release"
     )]
     UnknownMigration { version: i64 },
     /// A file-level operation was asked of a database that is not a file.
@@ -271,8 +264,7 @@ pub async fn open(location: &DatabaseLocation) -> Result<CoordDb, DbError> {
     }
     // Every open, not only after a migration as v2 gates it (`migrate.ts:343`):
     // with one squashed migration that gate would only ever check a file that
-    // was empty a moment ago, while `roost import-v2` writes rows into an
-    // already-migrated one.
+    // was empty a moment ago.
     migration_validation::validate_foreign_keys(&database).await?;
     Ok(database)
 }

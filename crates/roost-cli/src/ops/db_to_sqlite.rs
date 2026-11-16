@@ -13,8 +13,9 @@ use roost_host::coord_config_loader::{ENV_COORDINATOR_DATABASE_URL, ENV_COORDINA
 use roost_host::{EnvSource, HostPlatform, ProcessEnv, coord_service_label};
 
 use crate::command_error::CommandFailure;
-use crate::import_v2::{CoordinatorState, coordinator_database, coordinator_state};
+use crate::ops::coordinator_state::{CoordinatorState, coordinator_state};
 use crate::ops::db_to_postgres::{installed_sqlite_file, same_file, target_url};
+use crate::ops::reset::coordinator_database;
 
 /// `roost db-to-sqlite`.
 #[derive(Debug, Args)]

@@ -70,9 +70,15 @@ fn every_subcommand_is_specified_in_the_contract_document() {
         );
     }
 
-    // The two deliberate drops are named as drops rather than quietly absent,
+    // The deliberate drops are named as drops rather than quietly absent,
     // because a missing subcommand is a usage error and someone will hit it.
-    for dropped in ["roost cutover", "roost __windows-updater-broker"] {
+    for dropped in [
+        "roost cutover",
+        "roost __windows-updater-broker",
+        "roost state",
+        "roost test",
+        "roost import-v2",
+    ] {
         assert!(
             contract.contains(dropped),
             "{dropped} was in v2 and is not in v3; the contract must say so"

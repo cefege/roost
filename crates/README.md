@@ -24,8 +24,8 @@ registry, `Session` is the user-facing row, `Channel` is a PTY connection,
 | `roost-vcs` | Git-linked worktree creation: reflink staging, clean target reconciliation, safe plain-checkout fallback, and captured checkout hooks. | — |
 | `roost-web-terminal` | The imperative `web-sys` terminal renderer and its input, IME, mouse, selection and link controllers. | — |
 | `roost-web` | The Dioxus 0.8 alpha.3 web application: routes, components, static assets. | — |
-| `roost-cli` | The `roost` binary: `coord`, `worker`, `quickstart`, `join`, `add-machine`, `add-browser`, `status`, `doctor`, `update`, `deploy`, `push`, `api` (headless terminal and administration verbs), `worktree add`, `db-to-postgres`, `db-to-sqlite`, `import-v2`. | `roost` |
-| `roost-bench` | The v2-vs-v3 speed benchmark: boots each stack in isolation, drives one headless Chromium over CDP, samples `/proc` CPU/RSS, writes `target/bench/runs/<id>/report.md`. A developer tool, never shipped. | `roost-bench` |
+| `roost-cli` | The `roost` binary: `coord`, `worker`, `quickstart`, `join`, `add-machine`, `add-browser`, `status`, `doctor`, `update`, `deploy`, `push`, `api` (headless terminal and administration verbs), `worktree add`, `db-to-postgres`, `db-to-sqlite`. | `roost` |
+| `roost-bench` | The v3 stack latency and footprint benchmark: boots the stack in isolation, drives one headless Chromium over CDP, samples `/proc` CPU/RSS, writes `target/bench/runs/<id>/report.md`. A developer tool, never shipped. | `roost-bench` |
 
 ## Dependency DAG
 

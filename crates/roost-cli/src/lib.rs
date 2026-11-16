@@ -22,7 +22,6 @@ pub mod daemon;
 pub mod deploy;
 pub mod dev;
 pub mod doctor;
-pub mod import_v2;
 pub mod log_file;
 pub mod ops;
 pub mod overlay_env;
@@ -49,14 +48,11 @@ use crate::deploy::remote_commands::{
 use crate::deploy::{DeployArgs, KeeperRefreshArgs};
 use crate::dev::DevArgs;
 use crate::doctor::DoctorArgs;
-use crate::import_v2::ImportV2Args;
 use crate::ops::db_to_postgres::DbToPostgresArgs;
 use crate::ops::db_to_sqlite::DbToSqliteArgs;
 use crate::ops::keeper_contract::KeeperContractArgs;
 use crate::ops::logs::LogsArgs;
 use crate::ops::reset::ResetArgs;
-use crate::ops::state::StateArgs;
-use crate::ops::test::TestArgs;
 use crate::ops::version::VersionArgs;
 use crate::push::PushArgs;
 use crate::quickstart::QuickstartArgs;
@@ -93,8 +89,6 @@ pub enum Command {
     Update(UpdateArgs),
     /// Health readout: local services, coordinator, front door, workers.
     Status(StatusArgs),
-    /// Carry a v2 coordinator's account, devices and keys into this install.
-    ImportV2(ImportV2Args),
     /// Copy a SQLite coordinator database into Postgres.
     DbToPostgres(DbToPostgresArgs),
     /// Copy a Postgres coordinator database into a SQLite file.
@@ -133,12 +127,8 @@ pub enum Command {
     RemoteTransaction(RemoteTransactionArgs),
     #[command(name = "__remote-apply", hide = true)]
     RemoteApply(RemoteApplyArgs),
-    /// Print a STATE.md snapshot of this checkout.
-    State(StateArgs),
     /// Stop the local services and delete the coordinator database.
     Reset(ResetArgs),
-    /// Run a test profile.
-    Test(TestArgs),
     #[command(name = "__keeper-contract", hide = true)]
     KeeperContract(KeeperContractArgs),
     #[command(name = "__self-update", hide = true)]
@@ -158,7 +148,6 @@ impl Command {
             Command::Update(_) => "update",
             Command::Status(_) => "status",
             Command::Doctor(_) => "doctor",
-            Command::ImportV2(_) => "import-v2",
             Command::DbToPostgres(_) => "db-to-postgres",
             Command::DbToSqlite(_) => "db-to-sqlite",
             Command::Version(_) => "version",
@@ -177,9 +166,7 @@ impl Command {
             Command::RemoteEvidence(_) => "__remote-evidence",
             Command::RemoteTransaction(_) => "__remote-transaction",
             Command::RemoteApply(_) => "__remote-apply",
-            Command::State(_) => "state",
             Command::Reset(_) => "reset",
-            Command::Test(_) => "test",
             Command::KeeperContract(_) => "__keeper-contract",
             Command::SelfUpdate(_) => "__self-update",
             Command::Worktree(_) => "worktree",
@@ -210,15 +197,12 @@ pub async fn dispatch(cli: Cli) -> Result<ExitCode, CommandFailure> {
         Command::Update(args) => update::run(&args).await,
         Command::SelfLink => quickstart::self_link::run(),
         Command::RemoteFacts(args) => deploy::remote_commands::facts(&args),
-        Command::ImportV2(args) => import_v2::run(&args).await,
         Command::DbToPostgres(args) => ops::db_to_postgres::run(&args).await,
         Command::DbToSqlite(args) => ops::db_to_sqlite::run(&args).await,
         Command::RemoteEvidence(args) => deploy::remote_commands::evidence(&args),
         Command::RemoteTransaction(args) => deploy::remote_commands::transaction(&args).await,
         Command::RemoteApply(args) => deploy::remote_commands::apply(&args).await,
-        Command::State(args) => ops::state::run(&args),
         Command::Reset(args) => ops::reset::run(&args),
-        Command::Test(args) => ops::test::run(&args),
         Command::KeeperContract(args) => ops::keeper_contract::run(&args),
         Command::SelfUpdate(args) => self_update::run(&args).await,
         Command::Worktree(args) => worktree::run(&args),

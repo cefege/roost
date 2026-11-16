@@ -128,9 +128,8 @@ async fn a_history_row_no_build_declared_is_refused_and_says_which_version() {
     assert_eq!(version, 2_017);
     let reason = refusal.to_string();
     assert!(
-        reason.contains("2017") && reason.contains("import-v2"),
-        "the message has to give the operator both the version and the \
-         supported way to carry an identity across, got: {reason}"
+        reason.contains("2017"),
+        "the message has to give the operator the version, got: {reason}"
     );
 }
 

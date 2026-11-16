@@ -15,7 +15,8 @@ use roost_host::coord_config_loader::{ENV_COORDINATOR_DATABASE_URL, ENV_COORDINA
 use roost_host::{DatabaseLocation, EnvSource, HostPlatform, ProcessEnv, coord_service_label};
 
 use crate::command_error::CommandFailure;
-use crate::import_v2::{CoordinatorState, coordinator_database, coordinator_state};
+use crate::ops::coordinator_state::{CoordinatorState, coordinator_state};
+use crate::ops::reset::coordinator_database;
 use crate::quickstart::add_machine::installed_coordinator;
 use crate::status::service_definition::declared_value;
 

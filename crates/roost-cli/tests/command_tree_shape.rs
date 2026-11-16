@@ -48,12 +48,6 @@ fn every_documented_subcommand_parses_with_no_arguments() {
                 "--platform".to_string(),
                 "linux".to_string(),
             ],
-            "import-v2" => vec![
-                "roost".to_string(),
-                name.to_string(),
-                "--from".to_string(),
-                "/tmp/coordinator_v2.db".to_string(),
-            ],
             "__remote-transaction" => vec![
                 "roost".to_string(),
                 name.to_string(),
@@ -70,11 +64,15 @@ fn every_documented_subcommand_parses_with_no_arguments() {
 
 #[test]
 fn an_unknown_subcommand_is_refused_rather_than_guessed() {
-    // The v2 spellings that are deliberately gone: a command that silently
-    // became something else would be worse than one that says it does not
-    // exist. `quickstart`, `push`, `api` and `dev` were on this list once and
-    // L2–L6 landed all four, so this is now the two real drops and no more.
-    for gone in ["cutover", "__windows-updater-broker"] {
+    // The spellings that are deliberately gone: a command that silently became
+    // something else would be worse than one that says it does not exist.
+    for gone in [
+        "cutover",
+        "__windows-updater-broker",
+        "state",
+        "test",
+        "import-v2",
+    ] {
         let error = Cli::try_parse_from(["roost", gone])
             .err()
             .unwrap_or_else(|| panic!("{gone} parsed: it is in the tree"));
@@ -173,19 +171,6 @@ fn version_build_is_a_flag_and_not_a_positional() {
     // v2 accepted `roost version --build` and refused a stray argument; keeping
     // the flag explicit keeps `roost version extra` a usage error.
     assert!(Cli::try_parse_from(["roost", "version", "extra"]).is_err());
-}
-
-#[test]
-fn test_profiles_are_the_documented_set() {
-    for profile in ["lint", "unit", "terminal", "upgrade", "live-api", "all"] {
-        assert!(
-            Cli::try_parse_from(["roost", "test", profile]).is_ok(),
-            "{profile} did not parse"
-        );
-    }
-    // `worker` was a v2 profile for isolating the JavaScript worker suite, and
-    // there is no JavaScript worker suite in v3 to isolate.
-    assert!(Cli::try_parse_from(["roost", "test", "worker"]).is_err());
 }
 
 #[test]

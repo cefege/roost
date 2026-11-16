@@ -406,40 +406,6 @@ test install resets its own database.
 Every path is printed before it is removed. `--dry-run` prints all of it and
 removes nothing.
 
-## `roost state`
-
-```
-roost state [--repo DIR]     # default: the working directory
-```
-
-Prints a STATE.md snapshot: the branch, the last 5 commits, the first 30 lines
-of `git status`, and a timestamp. It reads git and nothing else.
-
-The `--repo` flag is new: v2 resolved the repository root from its own source
-path (`new URL("../../../", import.meta.url)`), which a compiled binary does not
-have.
-
-## `roost test`
-
-```
-roost test [lint|unit|terminal|upgrade|live-api|all]     # default: all
-```
-
-Runs real tools with inherited stdio, printing `>> <name>` before each, and
-fails on the first non-zero exit. It composes gates; it reimplements none.
-
-| Profile | Runs |
-| --- | --- |
-| `lint` | `cargo xtask lint` — the size cap, the crate DAG, the stdout rule, the design ratchet |
-| `unit` | `cargo test --workspace` |
-| `terminal` | the Playwright real-flow tier (still TypeScript until Phase 7) |
-| `upgrade` | the only gate that proves an EXISTING install survives a new release |
-| `live-api` | an optional monitor; **refuses** without `ROOST_COORD_URL`. Never a merge blocker. |
-| `all` | `lint`, `unit`, `terminal`, `upgrade`, in that order |
-
-v2's `worker` profile is **gone**: it existed to isolate a per-file JavaScript
-worker suite, and v3 has no such suite.
-
 ## `roost __keeper-contract`
 
 ```
@@ -1006,92 +972,6 @@ interleaved into a web dev server's build log helps nobody. Its own state
 transitions are `tracing` events. **Exit code 0** on a clean stop, whatever
 signal asked for it; 1 when the stack could not be started at all.
 
-## `roost import-v2`
-
-```
-roost import-v2 --from PATH [--dry-run]
-```
-
-Carries a v2 coordinator's account, paired devices and browser keys into this
-install, **once**, and is the only code in the tree that opens a v2 database.
-The coordinator never does: that is the invariant which keeps a v3 install from
-growing a migration path it would have to support forever.
-
-**It exists because browser keys are origin-bound.** A paired browser cannot
-be handed to another origin and expected to work, so the only way a browser
-survives the cutover is for its key to already be in the v3 database. This
-command puts it there, and the Stage 4 proof that a paired browser keeps
-working is the proof that it did.
-
-**It must run before anything creates the v3 database.**
-`ensure_self_hosted_tenant` creates a fresh account in an empty database, and a
-later import could not reconcile that — the account it carried across would be
-a second one, and the coordinator refuses two. The refusal below enforces the
-half an operator can get wrong.
-
-**What is copied**, from the v2 schema, and the column lists are column for
-column identical: `accounts`, `account_identities`, `organizations`,
-`organization_memberships`, `dashboards`, `dashboard_memberships`,
-`account_devices`, `app_settings`, and `authorized_key_revocations` in full.
-`authorized_keys` is copied **only where the fingerprint is one an account
-paired** — 26 of the 31 rows on the database this was written for. The other
-five are machine keys whose fingerprint is a `workers.fp`; importing them would
-enrol five authenticators that no human paired and no browser can present.
-
-**What is not copied, and the reason each is not:** `sessions` (terminal
-sessions bound to v2 workers, not authentication), `events` and `audit_log`
-(~1.5 M rows of the product being replaced), `workers`, `bootstrap_tokens`,
-`tasks`, `pair_requests`, `email_outbox`, `mcp_relays`, `workspaces`,
-`workspace_sessions`, `push_subscriptions`, the token and redemption tables,
-`feature_flags`, and `_migrations` — v3's own migrations have already run by
-the time any of this executes.
-
-**Mechanics, each of which is load-bearing.**
-
-- The source is ATTACHed **read-only** (`mode=ro` in the filename, not left to
-  file permissions) and read inside the same transaction that writes, so the
-  import sees one consistent snapshot of a file the v2 coordinator is still
-  writing to. A device paired during the read is either wholly in the snapshot
-  or wholly out of it.
-- Each table is copied by a single `INSERT … SELECT`, so SQLite performs the
-  copy rather than a reader and a writer marshalling values between two
-  representations of the same row.
-- The target is opened with **roost-coord's own** `db::open`, so v3's
-  migrations run and the file is the one the coordinator will read.
-- The column list is read from the **target's** `PRAGMA table_info`, so a
-  column v3 has and v2 lacks fails loudly inside a transaction that rolls back,
-  rather than a row that quietly loses a field.
-- After the commit, the coordinator's own `ensure_self_hosted_tenant` runs
-  against the target and must return the account the import carried. That call
-  is the validator, and it is why the order above is not negotiable.
-
-**A re-run is a refresh, not a merge.** A target holding exactly one account
-that is not the one being imported is **refused by name** — two accounts in
-one coordinator is a state v3 does not have, and the repair is for the
-operator to say which install the machine is. Otherwise new
-`account_devices`/`authorized_keys` rows are added, new revocations are
-applied, the rows a revocation covers are deleted, and `app_settings` is left
-alone where v3 already has a row — so an operator who has already changed the
-Deepgram key or the VAPID pair in v3 does not have it reverted by re-running an
-import. This is how the production flip picks up devices paired on v2 during
-the cutover window.
-
-**stdout** is one line per table, `<table>: <n> copied, <m> already present`,
-under a first line saying whether this was a first import or a refresh. Those
-are the numbers a real run produced, not an estimate: a run inserts exactly the
-rows the target did not have. **stderr** is nothing; every failure is the one
-JSON failure line described under [The failure line](#the-failure-line).
-
-**Exit codes.**
-
-| Situation | Code |
-| --- | --- |
-| imported, or dry-run reported | 0 |
-| `--from` is not a file; the coordinator is running; the target belongs to another install; the target is not a single-account install | 2 |
-| the source has no account, or more than one; the source could not be attached; a statement failed; the imported topology is not a valid self-hosted install | 1 |
-
----
-
 ## `roost db-to-postgres`
 
 ```
@@ -1267,35 +1147,16 @@ refused by name. **2** for a usage error.
 
 ---
 
-## The subcommand count is 26, and three numbers are each correct
+## The command set
 
-`crates/roost-cli/src/lib.rs`'s `Command` enum has **26 variants**, and both
-`name()` and `dispatch()` answer all 26 — checked arm by arm, so there is no
-orphan variant and no arm without one. 21 are visible; 5 are hidden
-(`__keeper-contract` and the four `__remote-*`).
-
-- **21** is v2's operator-and-daemon surface: v2's `main.ts` carried 23
-  subcommand keys, minus 2 deliberately dropped (`cutover`,
-  `__windows-updater-broker`). v3 adds 4 v2 did not have — the `__remote-*`.
-- **26** is what the v3 dispatcher actually answers, and it is what
-  `tests/command_tree_shape.rs` asserts, because that file's own doc says its
-  list is *"every subcommand the crate's dispatcher answers"* and it exists
-  precisely because a deploy's journal addresses `__keeper-contract` by string
-  and a deploy addresses the `__remote-*` over ssh. **Asserting 21 would drop
-  exactly the five commands the file exists to protect** — and it dropped one:
-  `roost update` had a complete implementation and no `Command` variant, so the
-  shape test reported a full surface while nothing could invoke the command.
-- **26** is also the number of subcommands *this document* names under its own
-  `` ## `roost …` `` headings, in 24 sections — the three server modes share
-  one because they share an output contract, and a heading may carry its
-  argument (`roost deploy <host>`). The same test asserts the mapping is total
-  in both directions against `SUBCOMMANDS`: every command named by exactly one
-  section, and every section naming at least one command. A command in the tree
-  with no section, or a section for a command this build does not answer, is a
-  contract that has drifted from the product.
-
-Three correct numbers about three different objects, which is why the count
-disagreed across briefs, the test, and this contract. **26 is the answer.**
+The commands this build answers are `crates/roost-cli/tests/command_fixture/mod.rs`'s
+`SUBCOMMANDS`, which `tests/command_tree_shape.rs` holds the `Command` enum to
+and `tests/command_contract_coverage.rs` holds this document to: every command
+is named by exactly one `` ## `roost …` `` heading, and every heading names at
+least one command. A command in the tree with no section, or a section for a
+command this build does not answer, is a contract that has drifted from the
+product. The hidden commands are `__keeper-contract`, `__self-update` and the
+four `__remote-*`.
 
 ---
 
@@ -1312,13 +1173,16 @@ that exists to make it safe.
 
 ## Deliberately dropped from v2
 
-Two of v2's 23 command keys are **not** in v3, and their absence is a decision
+Some of v2's command keys are **not** in v3, and their absence is a decision
 rather than an omission. A missing subcommand is a usage error, not a stub.
 
 | Command | v2 arguments | v2 exit codes | Why v3 does not have it |
 | --- | --- | --- | --- |
 | `roost cutover` | `--force` | 2, 3 | It migrated `coordinator.db` → `coordinator_v2.db`. v3 is a fresh install with a new data directory (`RoostCoordinatorV3`) and its own database name, so there is no v1 database to migrate and no code path that could open one. |
 | `roost __windows-updater-broker` | none | — | v3 ships Linux and macOS only. The broker existed to service a Windows self-update request from a privileged helper; with no Windows host install there is nothing to broker. |
+| `roost state` | `--repo DIR` | 0, 1 | It printed a STATE.md snapshot of a checkout; nothing in v3 reads that file. |
+| `roost test` | `lint\|unit\|terminal\|upgrade\|live-api\|all` | 0, 1, 2 | It composed the repository gates; `cargo xtask` and CI run them directly. |
+| `roost import-v2` | `--from PATH [--dry-run]` | 0, 1, 2 | It carried a v2 coordinator's account, devices and keys into a v3 database. No v2 coordinator remains to import from, and the coordinator never opened a v2 database. |
 
 ---
 

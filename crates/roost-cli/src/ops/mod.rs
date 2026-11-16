@@ -1,6 +1,6 @@
 //! The operator commands that read a repository, a service definition or a
-//! database and print the result: `version`, `logs`, `state`, `reset`,
-//! `test`, `db-to-postgres`, and the hidden `__keeper-contract` probe.
+//! database and print the result: `version`, `logs`, `reset`,
+//! `db-to-postgres`, `db-to-sqlite`, and the hidden `__keeper-contract` probe.
 //! Each is its own file and owns its own argument parsing and output; this
 //! module only names them.
 //!
@@ -11,11 +11,10 @@
 //! the screen, and a line about what the fleet did overnight belongs in the
 //! log `roost doctor` reads.
 
+pub mod coordinator_state;
 pub mod db_to_postgres;
 pub mod db_to_sqlite;
 pub mod keeper_contract;
 pub mod logs;
 pub mod reset;
-pub mod state;
-pub mod test;
 pub mod version;

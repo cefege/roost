@@ -11,13 +11,12 @@
 /// prints them. The list is the contract `docs/phase6-cli-contract.md`
 /// documents; a command added here must be documented there in the same change.
 ///
-pub const SUBCOMMANDS: [&str; 29] = [
+pub const SUBCOMMANDS: [&str; 26] = [
     "coord",
     "worker",
     "keeper",
     "update",
     "status",
-    "import-v2",
     "db-to-postgres",
     "db-to-sqlite",
     "doctor",
@@ -37,8 +36,6 @@ pub const SUBCOMMANDS: [&str; 29] = [
     "__remote-evidence",
     "__remote-transaction",
     "__remote-apply",
-    "state",
     "reset",
-    "test",
     "__keeper-contract",
 ];

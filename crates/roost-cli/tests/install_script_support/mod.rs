@@ -18,13 +18,13 @@ pub fn install_script() -> PathBuf {
         .expect("install.sh exists at the repository root")
 }
 
-/// A stand-in for a `roost` binary. `v3` advertises `import-v2` in its help, a
-/// subcommand the previous generation has never had; `v2` does not, which is
-/// exactly how `install.sh` tells them apart.
+/// A stand-in for a `roost` binary. `v3` advertises `db-to-postgres` in its help,
+/// a subcommand an older binary does not have; the other help line does not,
+/// which is how `install.sh` tells them apart.
 pub fn write_fake_roost(path: &Path, is_v3: bool) {
     std::fs::create_dir_all(path.parent().expect("a parent")).expect("the directory is created");
     let help = if is_v3 {
-        "  import-v2  Carry a v2 coordinator's account, devices and keys"
+        "  db-to-postgres  Copy this install's SQLite coordinator database into Postgres"
     } else {
         "  status      Health readout"
     };

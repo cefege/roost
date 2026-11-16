@@ -46,10 +46,6 @@ mod dev_fan_out;
 mod dev_stack_plan;
 #[path = "doctor_digest_shape.rs"]
 mod doctor_digest_shape;
-#[path = "import_v2_copy.rs"]
-mod import_v2_copy;
-#[path = "import_v2_plan.rs"]
-mod import_v2_plan;
 #[path = "install_powershell_channel.rs"]
 mod install_powershell_channel;
 #[path = "install_script.rs"]
@@ -62,6 +58,8 @@ mod install_script_modes;
 mod join_enrollment;
 #[path = "local_programs_keeper.rs"]
 mod local_programs_keeper;
+#[path = "ops_coordinator_state.rs"]
+mod ops_coordinator_state;
 #[path = "push_fleet_plan.rs"]
 mod push_fleet_plan;
 #[path = "push_fleet_rollback.rs"]

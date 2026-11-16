@@ -275,11 +275,11 @@ fetch_roost() {
   printf '%s' "${tmp}/roost"
 }
 
-# `import-v2` is a v3 subcommand. The previous generation has no such verb, so
-# its absence from --help identifies a pre-v3 binary without parsing a version
+# `db-to-postgres` is a v3 subcommand. The previous generation has no such verb,
+# so its absence from --help identifies a pre-v3 binary without parsing a version
 # string whose format has already changed once.
 is_v3() {
-  [ -x "$1" ] && "$1" --help 2>&1 | grep -q 'import-v2'
+  [ -x "$1" ] && "$1" --help 2>&1 | grep -q 'db-to-postgres'
 }
 
 install_roost() {

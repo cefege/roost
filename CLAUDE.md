@@ -371,6 +371,14 @@ depend on `anyhow`.
 `KeepChangesAtOtherCommit` refusal, and the `CloneMode` selector, are dropped.
 `worktree add` always tries a reflink clone and falls back to a plain checkout.
 
+The CLI verbs `roost state` (a STATE.md snapshot of a checkout), `roost test`
+(the repository test profiles) and `roost import-v2` (carrying a v2
+coordinator's account, devices and keys into a v3 database) are dropped, with
+the `import_v2` plan and copy modules and their fixtures; each now fails as an
+unrecognised subcommand. `install.sh` recognises a v3 binary by
+`db-to-postgres` in its `--help`, and the `.gitignore` entries for `STATE.md`
+and `coordinator_v2.db*` went with the verbs.
+
 The sidebar holds terminal folders only. Folder order is static until a user
 drags it, and the saved order synchronizes across that account's devices.
 There is no agent Recent view. The custom `ui::Surface`/`SurfaceLevel` skin
