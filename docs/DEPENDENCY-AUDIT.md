@@ -141,6 +141,8 @@ macOS CI and both macOS release builds use `macos-15-intel`; Apple's SDK
 cross-links the Apple Silicon target. This keeps both release architectures
 without depending on the ARM64 hosted pool that
 [failed to allocate a runner](https://github.com/cefege/roost/actions/runs/43957626879).
+The Rust job has a 90-minute budget so cold native/wasm verification and cache
+archiving both fit.
 
 Quickstart consumes the self-link command's exit status, as Rust 1.100 requires,
 and returns a non-success status before printing completion or pairing a browser.
