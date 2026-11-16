@@ -10,7 +10,6 @@ mod connection;
 mod connection_failure;
 mod coordinator_generation;
 mod direct;
-mod faults;
 mod history_reservation;
 pub mod native;
 mod owner;
@@ -19,7 +18,6 @@ mod packet_budget;
 mod packet_lanes;
 mod packet_port;
 mod packet_port_history;
-mod packet_test_faults;
 mod peer_budget;
 mod request_validation;
 
@@ -36,7 +34,6 @@ pub use coordinator_generation::CoordinatorGeneration;
 pub use direct::{
     DirectCarrier, DirectLinkLifecycle, DirectPeerSupport, DirectTerminal, DirectTerminalDeps,
 };
-pub use faults::{MalformedPacket, OfferFault, OfferFaultSlot, PeerTestFaults};
 pub use owner::{
     PeerBootstrapState, TerminalPeerOfferFailure, TerminalPeerOwner, TerminalPeerOwnerDeps,
 };

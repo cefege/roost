@@ -1,7 +1,7 @@
-//! The offer path of the terminal peer owner: the smoke fault's injection
-//! site, admission (epoch, identity, coordinator generation, budget, grant,
-//! SDP, capacity) decided synchronously in receive order, then bootstrap, one
-//! connection and its answer, re-checked against cancellation at every step.
+//! The offer path of the terminal peer owner: admission (epoch, identity,
+//! coordinator generation, budget, grant, SDP, capacity) decided synchronously
+//! in receive order, then bootstrap, one connection and its answer, re-checked
+//! against cancellation at every step.
 //! Called by `peer::direct` for each `localTerminalPeerOffer`. Ports
 //! `offer`/`admissionFailure`/`assertCurrent` of v2
 //! `apps/worker/src/terminal/peer/terminal-peer-owner.ts`.
@@ -21,7 +21,6 @@ use super::connection::{
     TerminalPeerConnection, TerminalPeerConnectionConfig, TerminalPeerConnectionDeps,
 };
 use super::connection_failure::ConnectionFailure;
-use super::faults::OfferFault;
 use super::owner::{
     ActivePeer, PeerBootstrapState, PendingPeer, TerminalPeerOfferFailure, TerminalPeerOwner,
 };
@@ -52,24 +51,10 @@ impl TerminalPeerOwner {
 
     fn admit(
         &self,
-        mut request: DLocalTerminalPeerOffer,
+        request: DLocalTerminalPeerOffer,
         budget: RequestBudget,
         fence: LinkFence,
     ) -> Result<Admitted, TerminalPeerOfferFailure> {
-        let fault = self
-            .deps
-            .test_faults
-            .as_ref()
-            .and_then(|faults| faults.offer().consume());
-        if let Some(fault) = fault {
-            tracing::info!(fault = fault.as_str(), "terminal peer offer fault applied");
-            match fault {
-                OfferFault::InvalidSdp => request.offer_sdp = "smoke-invalid-sdp".to_owned(),
-                OfferFault::MissingGrant => request.grant_id = "smoke-missing-grant".to_owned(),
-                OfferFault::ExpiredGrant => (self.deps.expire_grant)(&request.grant_id),
-                OfferFault::IdentityMismatch => {}
-            }
-        }
         if let Some(failure) = self.admission_failure(&request, &budget, &fence) {
             return Err(failure);
         }
@@ -97,17 +82,12 @@ impl TerminalPeerOwner {
         {
             return Err(TerminalPeerOfferFailure::Capacity);
         }
-        let worker_epoch = if fault == Some(OfferFault::IdentityMismatch) {
-            format!("{}-smoke-mismatch", request.worker_epoch)
-        } else {
-            request.worker_epoch.clone()
-        };
         let expected = ExpectedPeer {
             peer_id: request.peer_id.clone(),
             grant_id: request.grant_id.clone(),
             device_fingerprint: request.device_fingerprint.clone(),
             tab_id: request.tab_id.clone(),
-            worker_epoch,
+            worker_epoch: request.worker_epoch.clone(),
         };
         state.next_token += 1;
         let token = state.next_token;
@@ -207,7 +187,6 @@ impl TerminalPeerOwner {
                 }
             }),
             socket_id,
-            test_faults: self.deps.test_faults.clone(),
             runtime: self.deps.runtime.clone(),
         })?;
         *connection_slot = Some(Arc::clone(&connection));

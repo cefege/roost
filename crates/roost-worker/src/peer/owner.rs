@@ -18,7 +18,6 @@ use super::config::PeerTransportConfig;
 use super::connection::{
     OpenTerminalPeerPort, TerminalPeerConnection, TerminalPeerConnectionConfig,
 };
-use super::faults::PeerTestFaults;
 use super::native::{NativeLoader, NativePeerFactory};
 use super::packet_budget::{TerminalPeerPacketBudget, lock};
 use crate::local_terminal::{ExpectedPeer, PeerGrantAuthorization, TerminalPacketPort};
@@ -73,10 +72,6 @@ pub struct TerminalPeerOwnerDeps {
     pub open_peer_port: OpenTerminalPeerPort,
     pub native_loader: NativeLoader,
     pub packet_budget: TerminalPeerPacketBudget,
-    /// Smoke-only; `None` for every ordinary worker.
-    pub test_faults: Option<Arc<PeerTestFaults>>,
-    /// Removes a grant as expired, for the `expired_grant` fault.
-    pub expire_grant: Arc<dyn Fn(&str) + Send + Sync>,
     pub runtime: Handle,
 }
 

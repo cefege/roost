@@ -21,7 +21,6 @@ use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 use tokio::task::AbortHandle;
 
-use super::faults::PeerTestFaults;
 use super::history_reservation::{HistoryQueueQuota, HistoryReservations};
 use super::native::NativePeer;
 use super::packet_budget::{HistoryPressure, PacketDirection, TerminalPeerPacketBudget, lock};
@@ -64,8 +63,6 @@ pub struct PacketPortDeps {
     pub on_closed: Option<PortHook>,
     /// The port failed, before it closes (v2 `onFatal`).
     pub on_fatal: Option<PortHook>,
-    /// Smoke-only; `None` for every ordinary worker.
-    pub test_faults: Option<Arc<PeerTestFaults>>,
     pub runtime: Handle,
 }
 
@@ -112,8 +109,6 @@ pub(super) struct PortCore {
     pub(super) closed: bool,
     pub(super) flushing: bool,
     pub(super) flush_scheduled: bool,
-    /// Smoke-only: the history lane is skipped by the flush while set.
-    pub(super) history_paused: bool,
     pub(super) backpressured: [bool; 3],
     pub(super) drain_waiters: [Vec<oneshot::Sender<()>>; 3],
     pub(super) setup_timer: Option<AbortHandle>,
@@ -128,7 +123,6 @@ pub struct TerminalPeerPacketPort {
     pub(super) peer_budget: TerminalPeerPacketPeerBudget,
     pub(super) on_closed: Option<PortHook>,
     pub(super) on_fatal: Option<PortHook>,
-    pub(super) test_faults: Option<Arc<PeerTestFaults>>,
     pub(super) runtime: Handle,
     pub(super) origin: Instant,
     pub(super) this: Weak<TerminalPeerPacketPort>,
@@ -174,7 +168,6 @@ impl TerminalPeerPacketPort {
             peer_budget: deps.peer_budget.clone(),
             on_closed: deps.on_closed,
             on_fatal: deps.on_fatal,
-            test_faults: deps.test_faults,
             runtime: deps.runtime,
             origin: Instant::now(),
             this: this.clone(),
@@ -188,7 +181,6 @@ impl TerminalPeerPacketPort {
                 closed: false,
                 flushing: false,
                 flush_scheduled: false,
-                history_paused: false,
                 backpressured: [false; 3],
                 drain_waiters: [Vec::new(), Vec::new(), Vec::new()],
                 setup_timer: None,

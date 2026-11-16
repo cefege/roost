@@ -171,7 +171,6 @@ impl WorkerOwners {
             process_epoch: process_epoch.to_owned(),
             transport,
             native_loader: native_loader.clone(),
-            test_faults: None,
             runtime: tokio::runtime::Handle::current(),
         });
         let attachments = AttachmentOwners::start(AttachmentOwnersDeps {

@@ -82,8 +82,6 @@ async fn an_in_process_str0m_pair_carries_a_terminal_frame_both_ways() {
         ),
         native_loader: str0m_loader(),
         packet_budget: TerminalPeerPacketBudget::new(),
-        test_faults: None,
-        expire_grant: Arc::new(|_: &str| {}),
         runtime: tokio::runtime::Handle::current(),
     });
     assert_eq!(owner.bootstrap().await, PeerBootstrapState::Ready);
@@ -211,7 +209,6 @@ async fn close_reason_for(how: BrowserClose) -> ConnectionFailure {
             let _ = closed_in.send(reason);
         }),
         socket_id: "socket-close-reason".into(),
-        test_faults: None,
         runtime: tokio::runtime::Handle::current(),
     })
     .unwrap();

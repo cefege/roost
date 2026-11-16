@@ -1,6 +1,6 @@
 //! The terminal peer owner over the deterministic native fake, and the
-//! records its injected grant, expiry and port dependencies keep. Included by
-//! `terminal_peer_owner.rs` and `terminal_peer_offer_faults.rs`. Ports v2
+//! records its injected port dependency keeps. Included by
+//! `terminal_peer_owner.rs`. Ports v2
 //! `apps/worker/tests/terminal/peer/terminal-peer-owner-fixture.ts` (owner half).
 #![allow(dead_code)]
 
@@ -11,9 +11,8 @@ use roost_proto::DLocalTerminalPeerOffer;
 use roost_worker::local_terminal::{ExpectedPeer, PeerGrantAuthorization};
 use roost_worker::peer::native::NativeLoader;
 use roost_worker::peer::{
-    PeerTestFaults, PeerTransportConfig, TerminalPeerOfferFailure, TerminalPeerOwner,
-    TerminalPeerOwnerDeps, TerminalPeerPacketBudget, TerminalPeerPacketIngress,
-    TerminalPeerPacketPort,
+    PeerTransportConfig, TerminalPeerOfferFailure, TerminalPeerOwner, TerminalPeerOwnerDeps,
+    TerminalPeerPacketBudget, TerminalPeerPacketIngress, TerminalPeerPacketPort,
 };
 use roost_worker::uplink::{RequestBudget, Uplink};
 
@@ -56,18 +55,15 @@ pub fn peer_offer(serial: u32) -> DLocalTerminalPeerOffer {
 #[derive(Default)]
 pub struct Seen {
     pub tuples: Mutex<Vec<ExpectedPeer>>,
-    pub expired: Mutex<Vec<String>>,
 }
 
 pub fn owner_with(
     fake: &Arc<FakeNative>,
     loader: NativeLoader,
     enabled: bool,
-    faults: Option<Arc<PeerTestFaults>>,
     seen: &Arc<Seen>,
 ) -> Arc<TerminalPeerOwner> {
-    let (tuples, expired, grants) = (Arc::clone(seen), Arc::clone(seen), Arc::clone(seen));
-    let events = Arc::clone(fake);
+    let (tuples, events) = (Arc::clone(seen), Arc::clone(fake));
     TerminalPeerOwner::new(TerminalPeerOwnerDeps {
         process_epoch: WORKER_EPOCH.into(),
         transport: PeerTransportConfig {
@@ -76,11 +72,9 @@ pub fn owner_with(
             port_range: Some((41000, 41001)),
         },
         is_current_coordinator: Arc::new(|_: &str| true),
-        // v2 `grants.authorizePeer`: an unknown id is unavailable, a removed-as-expired one expired.
-        authorize_grant: Arc::new(move |request: &DLocalTerminalPeerOffer| {
-            if lock(&grants.expired).contains(&request.grant_id) {
-                PeerGrantAuthorization::Expired
-            } else if request.grant_id.starts_with("grant-") {
+        // v2 `grants.authorizePeer`: an unknown id is unavailable.
+        authorize_grant: Arc::new(|request: &DLocalTerminalPeerOffer| {
+            if request.grant_id.starts_with("grant-") {
                 PeerGrantAuthorization::Authorized
             } else {
                 PeerGrantAuthorization::GrantUnavailable
@@ -95,10 +89,6 @@ pub fn owner_with(
         ),
         native_loader: loader,
         packet_budget: TerminalPeerPacketBudget::new(),
-        test_faults: faults,
-        expire_grant: Arc::new(move |grant_id: &str| {
-            lock(&expired.expired).push(grant_id.to_owned())
-        }),
         runtime: tokio::runtime::Handle::current(),
     })
 }

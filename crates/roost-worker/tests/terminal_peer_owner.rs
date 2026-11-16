@@ -30,7 +30,7 @@ use tokio::sync::Semaphore;
 async fn binds_the_expected_tuple_before_native_sdp_creates_fixed_channels_and_checks_dtls() {
     let fake = FakeNative::new();
     let seen = Arc::new(Seen::default());
-    let owner = owner_with(&fake, fake.loader(), true, None, &seen);
+    let owner = owner_with(&fake, fake.loader(), true, &seen);
     let request = peer_offer(1);
     let answer = offer(&owner, request.clone()).await.unwrap();
     assert_eq!(
@@ -134,27 +134,15 @@ async fn reports_bootstrap_states_and_bounds_pending_offers() {
     let fake = FakeNative::new();
     let seen = Arc::new(Seen::default());
     let loads = Arc::new(Semaphore::new(0));
-    let disabled = owner_with(
-        &fake,
-        fake.gated_loader(Arc::clone(&loads)),
-        false,
-        None,
-        &seen,
-    );
+    let disabled = owner_with(&fake, fake.gated_loader(Arc::clone(&loads)), false, &seen);
     assert_eq!(disabled.bootstrap().await, PeerBootstrapState::Disabled);
-    let unavailable = owner_with(&fake, FakeNative::failing_loader(), true, None, &seen);
+    let unavailable = owner_with(&fake, FakeNative::failing_loader(), true, &seen);
     assert_eq!(
         unavailable.bootstrap().await,
         PeerBootstrapState::NativeUnavailable
     );
     let gate = Arc::new(Semaphore::new(0));
-    let owner = owner_with(
-        &fake,
-        fake.gated_loader(Arc::clone(&gate)),
-        true,
-        None,
-        &seen,
-    );
+    let owner = owner_with(&fake, fake.gated_loader(Arc::clone(&gate)), true, &seen);
     let stale = DLocalTerminalPeerOffer {
         worker_epoch: uuid(99),
         ..peer_offer(9)
@@ -205,7 +193,7 @@ async fn reports_bootstrap_states_and_bounds_pending_offers() {
 #[tokio::test]
 async fn reserves_the_final_established_slot_while_an_answer_is_still_pending() {
     let fake = FakeNative::new();
-    let owner = owner_with(&fake, fake.loader(), true, None, &Arc::default());
+    let owner = owner_with(&fake, fake.loader(), true, &Arc::default());
     for serial in 1..=31 {
         offer(&owner, peer_offer(serial)).await.unwrap();
     }
@@ -228,7 +216,7 @@ async fn reserves_the_final_established_slot_while_an_answer_is_still_pending() 
 async fn does_not_promote_an_answer_whose_peer_closes_before_the_offer_continuation() {
     let fake = FakeNative::new();
     fake.set_fail_after_answer(true);
-    let owner = owner_with(&fake, fake.loader(), true, None, &Arc::default());
+    let owner = owner_with(&fake, fake.loader(), true, &Arc::default());
     assert_eq!(
         offer(&owner, peer_offer(1)).await,
         Err(TerminalPeerOfferFailure::IceFailed)
@@ -264,8 +252,6 @@ async fn retires_one_peer_for_an_injected_port_close_or_native_callback() {
             ),
             native_loader: fake.loader(),
             packet_budget: TerminalPeerPacketBudget::new(),
-            test_faults: None,
-            expire_grant: Arc::new(|_: &str| {}),
             runtime: tokio::runtime::Handle::current(),
         })
     };

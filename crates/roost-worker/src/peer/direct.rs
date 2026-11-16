@@ -18,15 +18,12 @@ use tokio::runtime::Handle;
 use super::config::PeerTransportConfig;
 use super::connection::OpenTerminalPeerPort;
 use super::coordinator_generation::CoordinatorGeneration;
-use super::faults::PeerTestFaults;
 use super::native::NativeLoader;
 use super::owner::{TerminalPeerOfferFailure, TerminalPeerOwner, TerminalPeerOwnerDeps};
 use super::packet_budget::{TerminalPeerPacketBudget, lock};
 use super::packet_port::{TerminalPeerPacketIngress, TerminalPeerPacketPort};
 use crate::link_ports::{DirectTerminalPort, LinkLifecyclePort, LocalTerminalGrantPort};
-use crate::local_terminal::{
-    ExpectedPeer, GrantRemovalReason, LocalTerminalDoor, PeerTerminalPacketPort,
-};
+use crate::local_terminal::{ExpectedPeer, LocalTerminalDoor, PeerTerminalPacketPort};
 use crate::uplink::{LinkFence, OwnerFuture, RequestBudget};
 
 /// v2's only retire reasons (`coord-link-direct-deps.ts` `onTerminalDirectRetire`).
@@ -55,8 +52,6 @@ pub struct DirectTerminalDeps {
     pub process_epoch: String,
     pub transport: PeerTransportConfig,
     pub native_loader: NativeLoader,
-    /// Smoke-only; `None` for every ordinary worker.
-    pub test_faults: Option<Arc<PeerTestFaults>>,
     pub runtime: Handle,
 }
 
@@ -78,8 +73,6 @@ pub struct DirectTerminal {
     carriers: Mutex<Vec<Arc<dyn DirectCarrier>>>,
     process_epoch: String,
     disposed: AtomicBool,
-    /// Smoke-only; `None` for every ordinary worker.
-    test_faults: Option<Arc<PeerTestFaults>>,
 }
 
 impl DirectTerminal {
@@ -87,7 +80,6 @@ impl DirectTerminal {
         let generation = CoordinatorGeneration::new();
         let current = generation.clone();
         let grants = deps.door.grants();
-        let expiring = grants.clone();
         let sockets = deps.door.sockets();
         let open_peer_port: OpenTerminalPeerPort = Arc::new(
             move |port: Arc<TerminalPeerPacketPort>, expected: ExpectedPeer| {
@@ -114,10 +106,6 @@ impl DirectTerminal {
             open_peer_port,
             native_loader: deps.native_loader,
             packet_budget: TerminalPeerPacketBudget::new(),
-            test_faults: deps.test_faults.clone(),
-            expire_grant: Arc::new(move |grant_id: &str| {
-                expiring.remove(grant_id, GrantRemovalReason::Expired);
-            }),
             runtime: deps.runtime,
         });
         Arc::new(Self {
@@ -127,7 +115,6 @@ impl DirectTerminal {
             carriers: Mutex::new(Vec::new()),
             process_epoch: deps.process_epoch,
             disposed: AtomicBool::new(false),
-            test_faults: deps.test_faults,
         })
     }
 
@@ -218,14 +205,6 @@ impl DirectTerminalPort for DirectTerminal {
         if request.worker_epoch != self.process_epoch
             || !RETIRE_REASONS.contains(&request.reason.as_str())
         {
-            return;
-        }
-        if self
-            .test_faults
-            .as_ref()
-            .is_some_and(|faults| faults.consume_direct_retire_drop())
-        {
-            tracing::info!(reason = %request.reason, "a direct retirement was ignored by the smoke harness");
             return;
         }
         tracing::info!(reason = %request.reason, "the direct terminal path was retired");

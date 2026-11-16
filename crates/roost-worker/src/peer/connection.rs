@@ -18,7 +18,6 @@ use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 
 use super::connection_failure::ConnectionFailure;
-use super::faults::PeerTestFaults;
 use super::native::{
     NativeChannelSpec, NativePeer, NativePeerConfig, NativePeerEvent, NativePeerEvents,
     NativePeerFactory, remote_fingerprint_matches,
@@ -56,8 +55,6 @@ pub struct TerminalPeerConnectionDeps {
     pub open_peer_port: OpenTerminalPeerPort,
     pub on_closed: Arc<dyn Fn(ConnectionFailure) + Send + Sync>,
     pub socket_id: String,
-    /// Smoke-only; `None` for every ordinary worker.
-    pub test_faults: Option<Arc<PeerTestFaults>>,
     pub runtime: Handle,
 }
 
@@ -157,7 +154,6 @@ impl TerminalPeerConnection {
                             connection.close(ConnectionFailure::from_port_failure(reason));
                         }
                     })),
-                    test_faults: deps.test_faults,
                     runtime: deps.runtime.clone(),
                 }),
                 native,

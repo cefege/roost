@@ -330,6 +330,13 @@ binary counts and the `transport.raw_metadata_drop` doctor signal. Terminal
 titles and activity travel only as compact terminal metadata, and a hello is
 acknowledged with `terminal-view-owner-v1` alone.
 
+The worker's peer smoke fault injection is dropped: the `PeerTestFaults`
+state with its one-shot offer faults (`invalid_sdp`, `missing_grant`,
+`expired_grant`, `identity_mismatch`), the outgoing-packet blackhole, the
+ignored direct retirement, the malformed control and packet injection and the
+history-delivery pause, together with the `test_faults` and `expire_grant`
+dependencies that carried them. No ordinary worker ever armed any of it.
+
 The dedicated OMP integration is retired too: managed ACP processes, HTML chat,
 agent RPCs and Sync frames, status detection/reporting, fenced prompts, agent
 configuration and autolaunch, the `roost skill` command, bundled executables,

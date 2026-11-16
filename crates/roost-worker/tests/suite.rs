@@ -292,12 +292,8 @@ mod terminal_metadata;
 mod terminal_metadata_clipboard;
 #[path = "terminal_metadata_signals.rs"]
 mod terminal_metadata_signals;
-#[path = "terminal_peer_offer_faults.rs"]
-mod terminal_peer_offer_faults;
 #[path = "terminal_peer_owner.rs"]
 mod terminal_peer_owner;
-#[path = "terminal_peer_packet_faults.rs"]
-mod terminal_peer_packet_faults;
 #[path = "terminal_peer_packet_ingress.rs"]
 mod terminal_peer_packet_ingress;
 #[path = "terminal_peer_packet_port.rs"]
