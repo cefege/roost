@@ -6,13 +6,8 @@
 //! `nbf` and no `jti`, because a coordinator that checked an absent `iss` would
 //! refuse a token every other Roost version accepts.
 //!
-//! The two literals that make the token are restated here rather than shared,
-//! and that is a KNOWN divergence with a named remedy: `roost-coord/src/auth/
-//! jwt_claims.rs` owns the verifier's copies of `ALGORITHM` and `AUDIENCE`, and
-//! the client cannot reach the coordinator crate (the DAG allowlist in
-//! `xtask/src/crate_dag.rs` forbids the edge). They belong in `roost-protocol`,
-//! which both ends already depend on; that move is reported as an integrator
-//! edit rather than faked with a second definition that drifts.
+//! The header literals, the claims and the lifetime are `roost-protocol`'s
+//! `coordinator_jwt`, which the coordinator's verifier shares.
 //!
 //! **A signing failure dispatches the request unauthenticated; it never drops
 //! the request.** A device that cannot sign is a device whose bootstrap calls
@@ -21,34 +16,18 @@
 //! place that rule is expressed, so the Connect client cannot re-derive it.
 
 use base64::prelude::{BASE64_STANDARD, BASE64_URL_SAFE_NO_PAD, Engine as _};
+use roost_protocol::coordinator_jwt::{
+    COORDINATOR_JWT_LIFETIME_SECS, coordinator_jwt_claims, coordinator_jwt_header,
+};
 
 use crate::client::auth::keystore::KeyStoreError;
 
-/// How long a minted token claims to be valid, in seconds.
-///
-/// The spec's `JWT_LIFETIME_SECS` (`protocol/spec/auth-and-pairing.md:36`).
-/// Short on purpose: a browser holds a private key that never leaves it, so
-/// there is nothing a longer lifetime buys except a wider replay window.
-pub const JWT_LIFETIME_SECS: u64 = 300;
-
 /// How long a minted token is reused before a new one is signed, in ms.
 ///
-/// Below [`JWT_LIFETIME_SECS`] by a minute, and that margin is the point: a
+/// Below [`COORDINATOR_JWT_LIFETIME_SECS`] by a minute, and that margin is the point: a
 /// token handed to a socket at the end of its cache window still has a minute of
 /// life left, so the reuse never races the expiry the coordinator checks.
 pub const JWT_CACHE_TTL_MS: u64 = 240_000;
-
-/// The `alg` header value. `EdDSA`, not `Ed25519` and not the RFC spelling:
-/// it is the literal every Roost end puts in the header, and a different
-/// spelling is a 401.
-pub const JWT_ALGORITHM: &str = "EdDSA";
-
-/// The `typ` header value. Parsed but not enforced by the coordinator, and
-/// emitted here because v2 emits it and a token without it is a second shape.
-pub const JWT_TYPE: &str = "JWT";
-
-/// The audience claim, and the only one the coordinator bounds.
-pub const JWT_AUDIENCE: &str = "roost-coordinator";
 
 /// A signed coordinator credential.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,14 +71,15 @@ impl CoordinatorJwt {
     /// Assemble a signed token from the store's signature over `unsigned`.
     ///
     /// The one place a `CoordinatorJwt` is built, so `expires_at_ms` cannot be
-    /// derived two ways — once from [`JWT_LIFETIME_SECS`] and once from a
+    /// derived two ways — once from [`COORDINATOR_JWT_LIFETIME_SECS`] and once from a
     /// hand-written constant that a later edit would let drift.
     pub fn mint(unsigned: &UnsignedJwt, signature: &[u8], issued_at_ms: u64) -> Self {
         Self {
             token: unsigned.assemble(signature),
             kid: unsigned.kid.clone(),
             issued_at_ms,
-            expires_at_ms: issued_at_ms.saturating_add(JWT_LIFETIME_SECS.saturating_mul(1_000)),
+            expires_at_ms: issued_at_ms
+                .saturating_add(COORDINATOR_JWT_LIFETIME_SECS.saturating_mul(1_000)),
         }
     }
 }
@@ -137,17 +117,10 @@ impl UnsignedJwt {
 /// to catch a lifetime that silently became 30 days.
 pub fn build_unsigned_jwt(kid: &str, now_ms: u64) -> UnsignedJwt {
     let issued_at_secs = i64::try_from(now_ms / 1_000).unwrap_or(i64::MAX);
-    let header = serde_json::json!({
-        "alg": JWT_ALGORITHM,
-        "typ": JWT_TYPE,
-        "kid": kid,
-    });
-    let payload = serde_json::json!({
-        "sub": kid,
-        "aud": JWT_AUDIENCE,
-        "iat": issued_at_secs,
-        "exp": issued_at_secs.saturating_add(i64::try_from(JWT_LIFETIME_SECS).unwrap_or(i64::MAX)),
-    });
+    let header = coordinator_jwt_header(kid);
+    let expires_at_secs = issued_at_secs
+        .saturating_add(i64::try_from(COORDINATOR_JWT_LIFETIME_SECS).unwrap_or(i64::MAX));
+    let payload = coordinator_jwt_claims(kid, issued_at_secs, expires_at_secs);
     let header_segment =
         BASE64_URL_SAFE_NO_PAD.encode(serde_json::to_string(&header).unwrap_or_default());
     let payload_segment =

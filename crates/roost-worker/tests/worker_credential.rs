@@ -20,10 +20,8 @@ use std::os::unix::fs::PermissionsExt as _;
 use credential_fixture::source_in;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use roost_host::jwt_base::{b64url_decode, b64url_decode_to_utf8};
-use roost_worker::host::jwt::{
-    COORDINATOR_AUDIENCE, CREDENTIAL_LIFETIME, JOSE_ALGORITHM, load_worker_key,
-    read_existing_worker_key,
-};
+use roost_protocol::coordinator_jwt::{COORDINATOR_JWT_ALGORITHM, COORDINATOR_JWT_AUDIENCE};
+use roost_worker::host::jwt::{CREDENTIAL_LIFETIME, load_worker_key, read_existing_worker_key};
 use roost_worker::runtime::credential::{CredentialSource, WorkerKeyCredential};
 use scratch::Scratch;
 use serde_json::Value;
@@ -88,11 +86,14 @@ fn the_credential_names_the_coordinator_and_nobody_else() {
     let claims = claims_of(&token);
     assert_eq!(
         claims["aud"],
-        Value::String(COORDINATOR_AUDIENCE.to_string()),
+        Value::String(COORDINATOR_JWT_AUDIENCE.to_string()),
         "the coordinator refuses a wrong audience as strictly as a missing one"
     );
     let header = header_of(&token);
-    assert_eq!(header["alg"], Value::String(JOSE_ALGORITHM.to_string()));
+    assert_eq!(
+        header["alg"],
+        Value::String(COORDINATOR_JWT_ALGORITHM.to_string())
+    );
     assert_eq!(
         claims["sub"], header["kid"],
         "the subject must be the key the kid selected: that equality IS the \
@@ -151,7 +152,7 @@ fn a_credential_whose_bytes_were_touched_does_not_verify() {
     );
     assert_eq!(
         claims_of(&token)["aud"],
-        Value::String(COORDINATOR_AUDIENCE.to_string()),
+        Value::String(COORDINATOR_JWT_AUDIENCE.to_string()),
         "the rewrite changed the claims and the token in hand did not, so the \
          rejection above was about the mismatch and not about a broken fixture"
     );

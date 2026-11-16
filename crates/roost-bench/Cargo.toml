@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 roost-observability.workspace = true
 roost-proto.workspace = true
+roost-protocol.workspace = true
 # `client` for the same reason roost-cli asks for it itself: the workspace pin
 # stays buildable for `wasm32-unknown-unknown`, and only native dialers opt in.
 connectrpc = { workspace = true, features = ["client"] }

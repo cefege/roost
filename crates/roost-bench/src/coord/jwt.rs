@@ -1,18 +1,16 @@
 //! The harness's own device key and the coordinator credential it signs. The
-//! token shape is the one both coordinators accept, copied from
-//! `crates/roost-coord/tests/ws_credential_support/mod.rs` and matching v2's
-//! `apps/coord/src/auth/jwt.ts`.
+//! token shape is `roost_protocol::coordinator_jwt`, the one the coordinator
+//! verifies.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ed25519_dalek::{Signer as _, SigningKey};
+use roost_protocol::coordinator_jwt::{
+    COORDINATOR_JWT_LIFETIME_SECS, coordinator_jwt_claims, coordinator_jwt_header,
+};
 use sha2::Digest as _;
 
 use crate::error::BenchError;
-
-const AUDIENCE: &str = "roost-coordinator";
-/// Inside both coordinators' 300 s maximum token age.
-const TOKEN_LIFETIME_SECS: i64 = 240;
 
 /// An Ed25519 key the harness enrolls directly in the coordinator database.
 pub struct BenchDevice {
@@ -50,13 +48,13 @@ impl BenchDevice {
 
     /// A compact EdDSA JWS: `kid` and `sub` are the fingerprint.
     pub fn mint(&self, now_secs: i64) -> String {
-        let header = serde_json::json!({ "alg": "EdDSA", "typ": "JWT", "kid": self.fingerprint });
-        let claims = serde_json::json!({
-            "sub": self.fingerprint,
-            "aud": AUDIENCE,
-            "iat": now_secs,
-            "exp": now_secs + TOKEN_LIFETIME_SECS,
-        });
+        let header = coordinator_jwt_header(&self.fingerprint);
+        let lifetime_secs = i64::try_from(COORDINATOR_JWT_LIFETIME_SECS).unwrap_or(i64::MAX);
+        let claims = coordinator_jwt_claims(
+            &self.fingerprint,
+            now_secs,
+            now_secs.saturating_add(lifetime_secs),
+        );
         let signing_input = format!(
             "{}.{}",
             URL_SAFE_NO_PAD.encode(header.to_string()),

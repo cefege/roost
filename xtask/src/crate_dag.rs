@@ -147,7 +147,10 @@ const ALLOWED: &[(&str, &[&str])] = &[
     // dials the coordinator through the generated Connect client and reuses
     // the workspace tracing setup; it boots the products as child processes,
     // never as libraries, so the same code measures the Bun stack too.
-    ("roost-bench", &["roost-proto", "roost-observability"]),
+    (
+        "roost-bench",
+        &["roost-proto", "roost-protocol", "roost-observability"],
+    ),
     // The gate runner itself: tooling, not product. It reads workspace
     // metadata rather than being depended upon.
     ("xtask", &[]),

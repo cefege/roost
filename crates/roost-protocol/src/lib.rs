@@ -17,6 +17,7 @@
 
 pub mod cell;
 pub mod client_state;
+pub mod coordinator_jwt;
 pub mod error;
 pub mod json;
 pub mod validate;

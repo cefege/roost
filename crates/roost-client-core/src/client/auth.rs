@@ -47,8 +47,8 @@ pub use ceremony::{
 pub use ceremony_store::{CeremonyStore, PAIR_APPROVAL_STORAGE_KEY, PAIRING_CEREMONY_STORAGE_KEY};
 pub use device_key::{CurrentKeyInfo, DeviceKeyManager};
 pub use jwt::{
-    CoordinatorJwt, JWT_ALGORITHM, JWT_AUDIENCE, JWT_CACHE_TTL_MS, JWT_LIFETIME_SECS, JWT_TYPE,
-    UnsignedJwt, bearer_for_signing, build_unsigned_jwt, public_key_b64,
+    CoordinatorJwt, JWT_CACHE_TTL_MS, UnsignedJwt, bearer_for_signing, build_unsigned_jwt,
+    public_key_b64,
 };
 pub use key_rotation::{
     DeviceKeyProbe, DeviceKeyRotator, ResetOutcome, RotationError, RotationOutcome,

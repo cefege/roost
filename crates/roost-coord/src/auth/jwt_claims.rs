@@ -5,34 +5,24 @@
 //! This file is the *shape* of a token and nothing else, so the three halves
 //! can be tested apart.
 //!
-//! WHY FOUR CLAIMS AND NO MORE. v2 emits `{sub, aud, iat, exp}` with no `iss`,
-//! no `nbf` and no `jti` (`apps/coord/src/auth/jwt.ts:199-202`). `sub` must
-//! equal `kid` and that is the ENTIRE issuer check -- "The subject is the
+//! WHY FOUR CLAIMS AND NO MORE. Every signer mints `{sub, aud, iat, exp}` with
+//! no `iss`, no `nbf` and no `jti` (`roost_protocol::coordinator_jwt`). `sub`
+//! must equal `kid` and that is the ENTIRE issuer check -- "The subject is the
 //! authorized key selected by `kid`". Adding an `iss` check here would reject a
-//! token v2 accepts, and reading an absent `iss` as "unverified" would be a
-//! second opinion about a field the wire does not carry.
+//! token the browser, worker and CLI mint, and reading an absent `iss` as
+//! "unverified" would be a second opinion about a field the wire does not
+//! carry.
 //!
-//! WHY `typ` IS PARSED BUT NOT ENFORCED. v2 emits `typ: "JWT"` and never
-//! checks it (`apps/coord/src/auth/jwt.ts:159` checks `alg` alone). Enforcing
-//! it would refuse a token v2 accepts, which is a fleet-visible difference in
-//! the direction of "more secure" and still wrong: the two ends must agree.
+//! WHY `typ` IS PARSED BUT NOT ENFORCED. Signers emit `typ: "JWT"` and the
+//! verifier checks `alg` alone. Enforcing it would refuse a token every signer
+//! mints, which is a fleet-visible difference in the direction of "more
+//! secure" and still wrong: the two ends must agree.
 
 use roost_host::b64url_decode_to_utf8;
+use roost_protocol::coordinator_jwt::{COORDINATOR_JWT_ALGORITHM, COORDINATOR_JWT_AUDIENCE};
 use roost_protocol::fingerprint::is_fingerprint_hex;
 use roost_protocol::{ProtocolError, ProtocolResult};
 use serde_json::Value;
-
-/// The audience every coordinator token carries, on the wire as a bare string.
-pub const AUDIENCE: &str = "roost-coordinator";
-
-/// The only algorithm this coordinator accepts.
-///
-/// The name is `EdDSA`, not `Ed25519` and not the RFC spelling: it is the
-/// literal the browser, the worker and the CLI all put in the header
-/// (`apps/web/src/client/auth/web-key.ts:111`,
-/// `apps/worker/src/host/jwt.ts:242-243`, `apps/coord/src/auth/jwt.ts:244`).
-/// A different spelling is a different string and a 401.
-pub const ALGORITHM: &str = "EdDSA";
 
 /// How far into the future an `iat` may be before the token is refused.
 ///
@@ -111,7 +101,7 @@ impl JwtParts {
 
     /// Decode and validate the header.
     ///
-    /// Rejects any `alg` but [`ALGORITHM`] and any `kid` that is not 64
+    /// Rejects any `alg` but [`COORDINATOR_JWT_ALGORITHM`] and any `kid` that is not 64
     /// lowercase hex. The shape check is here rather than at the database
     /// lookup because a malformed `kid` can name no `authorized_keys` row, and
     /// searching for one anyway turns a typo into a query on the
@@ -119,7 +109,7 @@ impl JwtParts {
     pub fn header(&self) -> ProtocolResult<JwtHeader> {
         let object = decode_object(&self.header_segment, "jwt.header", "bad jwt header")?;
         match object.get("alg").and_then(Value::as_str) {
-            Some(ALGORITHM) => {}
+            Some(COORDINATOR_JWT_ALGORITHM) => {}
             _ => return Err(ProtocolError::new("jwt.alg", "wrong alg")),
         }
         let Some(kid) = object.get("kid").and_then(Value::as_str) else {
@@ -205,12 +195,13 @@ fn seconds(
 
 /// Whether the `aud` claim contains the coordinator's audience.
 ///
-/// A non-string audience member compares false rather than panicking, matching
-/// v2's array comparison over a coerced one-element array.
+/// A non-string audience member compares false rather than panicking.
 fn audience_matches(audience: Option<&Value>) -> bool {
     match audience {
-        Some(Value::String(one)) => one == AUDIENCE,
-        Some(Value::Array(many)) => many.iter().any(|entry| entry.as_str() == Some(AUDIENCE)),
+        Some(Value::String(one)) => one == COORDINATOR_JWT_AUDIENCE,
+        Some(Value::Array(many)) => many
+            .iter()
+            .any(|entry| entry.as_str() == Some(COORDINATOR_JWT_AUDIENCE)),
         _ => false,
     }
 }

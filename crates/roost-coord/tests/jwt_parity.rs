@@ -19,12 +19,13 @@
 // code -- a panic there is a fleet-visible outage -- and why it is allowed here.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use roost_coord::auth::jwt_claims::{ALGORITHM, AUDIENCE, JwtParts};
+use roost_coord::auth::jwt_claims::JwtParts;
 use roost_coord::auth::jwt_crypto::{
     PublicKey, SPKI_ED25519_PREFIX, spki_document, verify_signature, verify_token_signature,
 };
 use roost_coord::auth::jwt_key_cache::JwtKeyCache;
 use roost_coord::auth::jwt_verify::{VerifyClock, VerifyContext, verify_token};
+use roost_protocol::coordinator_jwt::{COORDINATOR_JWT_ALGORITHM, COORDINATOR_JWT_AUDIENCE};
 use serde::Deserialize;
 
 const VECTORS: &str = include_str!("fixtures/v2_jwt_vectors.json");
@@ -206,8 +207,8 @@ fn the_wrong_audience_is_refused_even_though_the_signature_is_good() {
 
 #[test]
 fn the_audience_and_algorithm_are_the_literals_the_fleet_uses() {
-    assert_eq!(AUDIENCE, "roost-coordinator");
-    assert_eq!(ALGORITHM, "EdDSA");
+    assert_eq!(COORDINATOR_JWT_AUDIENCE, "roost-coordinator");
+    assert_eq!(COORDINATOR_JWT_ALGORITHM, "EdDSA");
 }
 
 #[test]

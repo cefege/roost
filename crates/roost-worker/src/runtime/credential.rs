@@ -16,9 +16,7 @@ use std::path::{Path, PathBuf};
 
 use roost_protocol::wire::WorkerFp;
 
-use crate::host::jwt::{
-    COORDINATOR_AUDIENCE, CREDENTIAL_LIFETIME, WorkerKeyError, load_worker_key,
-};
+use crate::host::jwt::{CREDENTIAL_LIFETIME, WorkerKeyError, load_worker_key};
 
 /// Why a credential could not be produced, or could not be spelled as a header.
 ///
@@ -105,7 +103,7 @@ impl CredentialSource for WorkerKeyCredential {
             fingerprint = %key.fingerprint(),
             "link: signing a coordinator credential for this dial"
         );
-        key.mint_credential(COORDINATOR_AUDIENCE, CREDENTIAL_LIFETIME)
+        key.mint_credential(CREDENTIAL_LIFETIME)
             .map_err(CredentialError::from)
     }
 }

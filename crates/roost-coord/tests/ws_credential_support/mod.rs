@@ -13,7 +13,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ed25519_dalek::{Signer as _, SigningKey};
 
 use roost_coord::auth::authorized_keys::fingerprint_of_raw_public_key;
-use roost_coord::auth::jwt_claims::{ALGORITHM, AUDIENCE};
+use roost_protocol::coordinator_jwt::{coordinator_jwt_claims, coordinator_jwt_header};
 
 /// Mint a token for the key derived from `seed`.
 ///
@@ -28,13 +28,8 @@ pub fn mint_coordinator_jwt(
     let signing = SigningKey::from_bytes(&seed);
     let public_key = signing.verifying_key().to_bytes();
     let fingerprint = fingerprint_of_raw_public_key(&public_key);
-    let header = serde_json::json!({ "alg": ALGORITHM, "typ": "JWT", "kid": fingerprint });
-    let claims = serde_json::json!({
-        "sub": fingerprint,
-        "aud": AUDIENCE,
-        "iat": iat_secs,
-        "exp": exp_secs,
-    });
+    let header = coordinator_jwt_header(&fingerprint);
+    let claims = coordinator_jwt_claims(&fingerprint, iat_secs, exp_secs);
     let signing_input = format!(
         "{}.{}",
         URL_SAFE_NO_PAD.encode(header.to_string()),

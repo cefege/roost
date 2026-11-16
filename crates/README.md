@@ -48,7 +48,7 @@ roost-client-core    → protocol, proto, observability
 roost-web-terminal   → client-core, protocol
 roost-web            → web-terminal, client-core, protocol, platform
 roost-cli            → coord, worker, keeper, client-core, host, proto, protocol, platform, observability, vcs
-roost-bench          → proto, observability
+roost-bench          → proto, protocol, observability
 ```
 
 Dev-dependency allowlist: `roost-client-core` → coord, worker, keeper (the

@@ -16,33 +16,21 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ed25519_dalek::{Signature, Signer, SigningKey};
 use roost_host::jwt_base::b64url_encode;
+use roost_protocol::coordinator_jwt::{
+    COORDINATOR_JWT_LIFETIME_SECS, coordinator_jwt_claims, coordinator_jwt_header,
+};
 use roost_protocol::fingerprint::fingerprint_hex;
 use roost_protocol::wire::WorkerFp;
-use serde_json::json;
 use sha2::Digest as _;
 
 use super::openssh_key::{encode_openssh_ed25519, parse_openssh_ed25519};
 
-/// The audience every coordinator token carries.
-///
-/// `roost_coord::auth::jwt_claims::AUDIENCE` is the same string and cannot be
-/// imported from here: the worker does not depend on the coordinator, and a
-/// token minted for any other audience is a 401 this side of the wire cannot
-/// explain.
-pub const COORDINATOR_AUDIENCE: &str = "roost-coordinator";
-
-/// The JOSE algorithm name, which is `EdDSA` and not `Ed25519`: it is the
-/// literal `roost_coord::auth::jwt_claims::ALGORITHM` compares against, and a
-/// different spelling is a different string and a refused token.
-pub const JOSE_ALGORITHM: &str = "EdDSA";
-
 /// How long a minted token is good for.
 ///
 /// Short enough that a token lifted off a machine is useless an hour later, and
-/// long enough to cover a coordinator's clock skew plus one slow dial. v2 used
-/// the same five minutes and refreshed in band on a schedule; a token minted
-/// per dial has nothing to refresh.
-pub const CREDENTIAL_LIFETIME: Duration = Duration::from_secs(300);
+/// long enough to cover a coordinator's clock skew plus one slow dial. A token
+/// minted per dial has nothing to refresh.
+pub const CREDENTIAL_LIFETIME: Duration = Duration::from_secs(COORDINATOR_JWT_LIFETIME_SECS);
 
 /// The only mode a private key is written at, and the only one read under.
 #[cfg(unix)]
@@ -121,35 +109,22 @@ impl WorkerKey {
         })
     }
 
-    /// Sign one short-lived EdDSA token for `audience`.
+    /// Sign one short-lived EdDSA token for the coordinator.
     ///
     /// The header's `kid` and the claims' `sub` are this key's fingerprint, and
     /// together they are the entire issuer check: the coordinator refuses a
     /// token whose subject is not the key its `kid` selected. No `iss` and no
-    /// `jti` are minted, because v2 minted none and a verifier that required one
-    /// would refuse every token this fleet sends.
-    pub fn mint_credential(
-        &self,
-        audience: &str,
-        lifetime: Duration,
-    ) -> Result<String, WorkerKeyError> {
+    /// `jti` are minted, because a verifier that required one would refuse
+    /// every token this fleet sends.
+    pub fn mint_credential(&self, lifetime: Duration) -> Result<String, WorkerKeyError> {
         let issued_at = unix_seconds()?;
         let expires_at = issued_at
             .checked_add(i64::try_from(lifetime.as_secs()).unwrap_or(i64::MAX))
             .ok_or_else(|| {
                 WorkerKeyError::Signing("the expiry is past the year 292 billion".into())
             })?;
-        let header = json!({
-            "alg": JOSE_ALGORITHM,
-            "typ": "JWT",
-            "kid": self.fingerprint.as_str(),
-        });
-        let claims = json!({
-            "sub": self.fingerprint.as_str(),
-            "iat": issued_at,
-            "exp": expires_at,
-            "aud": audience,
-        });
+        let header = coordinator_jwt_header(self.fingerprint.as_str());
+        let claims = coordinator_jwt_claims(self.fingerprint.as_str(), issued_at, expires_at);
         let signing_input = format!(
             "{}.{}",
             b64url_encode(header.to_string().as_bytes()),
