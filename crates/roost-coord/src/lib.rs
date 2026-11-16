@@ -1,6 +1,6 @@
-//! The coordinator service: SQLite state, auth, Connect RPC handlers, the Sync
-//! and worker WebSocket links, terminal hubs, and web push. Speaks the wire,
-//! never the terminal.
+//! The coordinator service: SQLite or Postgres state, auth, Connect RPC handlers,
+//! the Sync and worker WebSocket links, terminal hubs, and web push. Speaks the
+//! wire, never the terminal.
 //!
 //! Owned here; [`serve`] is the entry point a process calls and it blocks until
 //! the process is asked to stop. The contract every surface in this crate upholds

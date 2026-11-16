@@ -67,8 +67,8 @@ Operating doctrine for how Claude writes/parses artifacts in this repo. Extracte
       rules (L0, L1-L4, L6-L11, plus any future L12+ per L9.5
       append-only) live in this tier. Appended rules join automatically
       — no edit to L5 required.
-   4. Rest of this CLAUDE.md, per-app READMEs, and any other in-repo
-      doc (`apps/*/README.md`, `MIGRATION.md`, plan files, etc.).
+   4. Rest of this CLAUDE.md, per-crate READMEs (`crates/*/README.md`), and
+      any other in-repo doc (plan files, specs).
    5. User memory (`~/.claude/`, project memory, prior-turn
       preferences) when applied inside this repo.
    6. Default Claude Code system-prompt behavior and general training

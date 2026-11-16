@@ -1,8 +1,7 @@
 //! The outermost error fence around the router tree: on a render failure it
 //! shows the message, "Copy diagnostic" and "Reload", and recovers on the next
-//! Back/Forward. Ports `apps/web/src/components/AppErrorBoundary.tsx`; mounted
-//! once by `App`. `data-testid="error-boundary"` exists ONLY while an error is
-//! caught — the Playwright fixture asserts zero of them on a healthy boot.
+//! Back/Forward. Mounted once by `App`. `data-testid="error-boundary"` exists
+//! ONLY while an error is caught — a healthy boot renders none.
 
 use dioxus::prelude::*;
 

@@ -826,8 +826,8 @@ coordinator the grant was enrolled against.
 **Exit codes.** 0 on a minted grant. 1 for a refusal: no declared door, a
 declared loopback or non-HTTPS door, no installed coordinator database to
 mint the grant against, or a `--label` carrying a control character. 2 for a
-usage error, including `windows` as the platform — v3 ships no Windows host
-install to enroll, and the refusal says so.
+usage error, including a `--platform` other than `macos`, `linux` or `windows`;
+the refusal names the accepted values.
 
 ---
 
@@ -1179,7 +1179,7 @@ rather than an omission. A missing subcommand is a usage error, not a stub.
 | Command | v2 arguments | v2 exit codes | Why v3 does not have it |
 | --- | --- | --- | --- |
 | `roost cutover` | `--force` | 2, 3 | It migrated `coordinator.db` → `coordinator_v2.db`. v3 is a fresh install with a new data directory (`RoostCoordinatorV3`) and its own database name, so there is no v1 database to migrate and no code path that could open one. |
-| `roost __windows-updater-broker` | none | — | v3 ships Linux and macOS only. The broker existed to service a Windows self-update request from a privileged helper; with no Windows host install there is nothing to broker. |
+| `roost __windows-updater-broker` | none | — | Windows workers update through the Scheduled Task service path and the coordinator-following updater; there is no privileged broker to service. |
 | `roost state` | `--repo DIR` | 0, 1 | It printed a STATE.md snapshot of a checkout; nothing in v3 reads that file. |
 | `roost test` | `lint\|unit\|terminal\|upgrade\|live-api\|all` | 0, 1, 2 | It composed the repository gates; `cargo xtask` and CI run them directly. |
 | `roost import-v2` | `--from PATH [--dry-run]` | 0, 1, 2 | It carried a v2 coordinator's account, devices and keys into a v3 database. No v2 coordinator remains to import from, and the coordinator never opened a v2 database. |
