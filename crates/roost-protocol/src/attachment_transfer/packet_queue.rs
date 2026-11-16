@@ -1,8 +1,7 @@
 //! FIFO packet ownership for one ordered attachment channel direction. It
 //! retains each source buffer until the transport accepts its last fragment
 //! and releases each quota reservation once, so a buffered native send can
-//! never duplicate a fragment. Ports
-//! `packages/protocol/src/attachment-transfer-packet-queue.ts`; used by the
+//! never duplicate a fragment. Used by the
 //! worker's attachment peer packet port.
 
 use std::cmp::min;

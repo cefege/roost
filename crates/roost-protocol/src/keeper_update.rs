@@ -31,7 +31,7 @@ pub const KEEPER_EMPTY_BINDING_DIGEST: &str =
 pub const KEEPER_BINDING_DIGEST_PREAMBLE: &str = "keeper-bindings-v1\n";
 /// The runtime family a v3 keeper reports as `bun_abi`. Two Rust keepers agree,
 /// a Bun keeper and a Rust keeper never do, so a restart handoff across
-/// runtimes is refused exactly as v2 refuses a Bun-version change; the binary
+/// runtimes is refused; the binary
 /// itself is pinned by `implementation_digest`. It is a FIXED family name and
 /// never a version string: `keeper_contracts_same_implementation` compares it
 /// for equality, so a per-release value would refuse every worker-only upgrade.

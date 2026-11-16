@@ -162,8 +162,8 @@ pub fn parse_layout_document_v1(input: &Value) -> ProtocolResult<LayoutDocumentV
 
 /// Whether a value is a layout document this build accepts.
 ///
-/// The TypeScript original is a plain success flag that never told a malformed
-/// document from an oversized one, and so is this; a caller that needs that
+/// A plain success flag that never tells a malformed document from an
+/// oversized one; a caller that needs that
 /// distinction reads `ProtocolError::reason` from the parse.
 pub fn is_layout_document_v1(input: &Value) -> bool {
     parse_layout_document_v1(input).is_ok()

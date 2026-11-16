@@ -9,8 +9,7 @@
 //! defect `docs/FAILURE-INDEX.md` records and this crate's existence prevents.
 //!
 //! What this crate must never do: read a clock, touch the filesystem, spawn a
-//! socket, or name a platform. Where the TypeScript original defaulted to
-//! `Date.now()` or `performance.now()`, the port takes the timestamp as a
+//! socket, or name a platform. Wherever a timestamp is needed it is a
 //! parameter, so the caller owns time and the tests are deterministic.
 
 #![forbid(unsafe_code)]

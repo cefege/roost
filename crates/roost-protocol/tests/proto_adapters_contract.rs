@@ -66,7 +66,7 @@ fn capacity() -> TerminalCoreCapacityReport {
     }
 }
 
-/// v2 `wire.proto` field 5, `keeper-update.ts:22`: `bun_abi` crosses both ways.
+/// `wire.proto` field 5: `bun_abi` crosses both ways.
 #[test]
 fn a_keeper_contract_carries_its_runtime_abi_across_the_boundary() {
     let proto = keeper_contract_to_proto(&contract()).expect("the contract encodes");

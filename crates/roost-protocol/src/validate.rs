@@ -1,14 +1,11 @@
-//! The explicit validators that replace Zod's `superRefine` chains.
+//! The explicit validators every wire limit is written as.
 //!
-//! Zod does not exist in Rust, so every limit the TypeScript package enforced
-//! in a schema becomes a function here that returns `ProtocolResult`. They
-//! are deliberately small and single-purpose so a ported validator reads like
-//! the `.refine()` it replaces, and so a caller can compose them the way the
-//! schema composed them.
+//! Every limit is a function that returns `ProtocolResult`, deliberately small
+//! and single-purpose so a caller can compose them in order.
 
 use crate::error::{ProtocolError, ProtocolResult};
 
-/// A `z.string().uuid()` check: 8-4-4-4-12 lowercase-or-uppercase hex.
+/// A UUID check: 8-4-4-4-12 lowercase-or-uppercase hex.
 pub fn uuid(field: &str, value: &str) -> ProtocolResult<()> {
     let bytes = value.as_bytes();
     let shape = matches!(bytes.len(), 36)
@@ -23,7 +20,7 @@ pub fn uuid(field: &str, value: &str) -> ProtocolResult<()> {
     }
 }
 
-/// A `z.string().regex(/^[0-9a-f]{64}$/)` check: the worker fingerprint.
+/// A fixed-length hex check, the shape of the worker fingerprint.
 pub fn hex_of_len(field: &str, value: &str, len: usize) -> ProtocolResult<()> {
     if value.len() == len && value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         Ok(())
@@ -35,8 +32,8 @@ pub fn hex_of_len(field: &str, value: &str, len: usize) -> ProtocolResult<()> {
     }
 }
 
-/// An integer within an inclusive range, the shape of every
-/// `z.number().int().min(n).max(n)` in the contract.
+/// An integer within an inclusive range, the shape of every bounded integer in
+/// the contract.
 pub fn integer_in_range(field: &str, value: i64, low: i64, high: i64) -> ProtocolResult<()> {
     if (low..=high).contains(&value) {
         Ok(())
@@ -53,7 +50,7 @@ pub fn nonnegative(field: &str, value: i64) -> ProtocolResult<()> {
     integer_in_range(field, value, 0, i64::MAX)
 }
 
-/// A required non-empty string, the shape of every `z.string().min(1)`.
+/// A required non-empty string.
 pub fn non_empty(field: &str, value: &str) -> ProtocolResult<()> {
     if value.is_empty() {
         Err(ProtocolError::new(field, "must not be empty"))
@@ -63,9 +60,9 @@ pub fn non_empty(field: &str, value: &str) -> ProtocolResult<()> {
 }
 
 /// A maximum length counted in **UTF-8 bytes**, which is how every
-/// transport-level cap in the contract is defined. A Zod `.max(n)` counted
-/// UTF-16 code units, so a port that switches units silently changes the cap
-/// for any non-ASCII payload — the byte count is the one the wire enforces.
+/// transport-level cap in the contract is defined. A JavaScript length counts
+/// UTF-16 code units, so a validator that switches units silently changes the
+/// cap for any non-ASCII payload — the byte count is the one the wire enforces.
 pub fn max_utf8_bytes(field: &str, value: &str, max: usize) -> ProtocolResult<()> {
     let actual = value.len();
     if actual <= max {

@@ -1,8 +1,7 @@
 //! The capture request's wire validation: which request becomes a command, and
-//! the code and field every other one is refused with. The bounds are
-//! v2 `validateTerminalCaptureRequest` (`packages/protocol/src/terminal-capture.ts`);
-//! a control call that could carry evidence or a non-manual reason would slip
-//! a payload past the CAPTURE size gate.
+//! the code and field every other one is refused with. A control call that
+//! could carry evidence or a non-manual reason would slip a payload past the
+//! CAPTURE size gate.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_proto::{TerminalCaptureAction, TerminalCaptureRequest};

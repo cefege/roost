@@ -55,8 +55,8 @@ fn a_contract_is_refused_for_a_shape_the_schema_would_have_refused() {
         "an unknown field must be refused"
     );
 
-    // v2 `packages/protocol/src/keeper-update.ts:22` declares `bun_abi` a
-    // required field of the strict schema: a contract without it is no proof.
+    // `bun_abi` is a required field of the strict schema: a contract without it
+    // is no proof.
     let mut no_runtime = serde_json::to_value(contract()).expect("a contract serializes");
     no_runtime
         .as_object_mut()
@@ -86,9 +86,8 @@ fn a_contract_is_refused_for_a_shape_the_schema_would_have_refused() {
     );
 }
 
-/// v2 `packages/protocol/src/keeper-update.ts:22`: `bun_abi` is
-/// `z.string().min(1).max(128)`. An empty runtime would compare equal to every
-/// other empty runtime, so it must not be a contract at all.
+/// `bun_abi` is a string of 1 to 128 bytes. An empty runtime would compare
+/// equal to every other empty runtime, so it must not be a contract at all.
 #[test]
 fn a_contract_whose_runtime_abi_is_empty_or_oversized_is_refused() {
     let empty = KeeperContractV1 {
@@ -120,10 +119,9 @@ fn a_contract_whose_runtime_abi_is_empty_or_oversized_is_refused() {
     );
 }
 
-/// The exact object v2's keeper builds (`apps/worker/src/keeper/keeper-stamp.ts:40-50`:
-/// protocol 3, the sorted `protocol-io.ts` feature lists, `bun_abi: Bun.version`,
-/// `arch: process.arch`), in `JSON.stringify`'s key order. A TS worker still in
-/// the fleet reports this, and it must decode and re-encode byte for byte.
+/// A keeper stamp whose `bun_abi` is a Bun version string (protocol 3, sorted
+/// feature lists, `arch` as the Node-style name), in `JSON.stringify`'s key
+/// order. It must decode and re-encode byte for byte.
 #[test]
 fn a_v2_keeper_stamp_decodes_and_reencodes_unchanged() {
     let stamp = concat!(

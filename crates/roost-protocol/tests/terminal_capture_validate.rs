@@ -1,8 +1,7 @@
 //! The incident-bundle validator is the gate between a corrupt or truncated
 //! capture and an attribution claim, so these pin what it must REFUSE: a bundle
 //! that would let a replay fold onto a state nobody shipped, or read an offset
-//! that rounded — and every refusal names a field, never the value. Ports
-//! `packages/protocol/tests/terminal-capture-validate.test.ts`.
+//! that rounded — and every refusal names a field, never the value.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_protocol::terminal_capture::TERMINAL_CAPTURE_LIMITS;

@@ -1,9 +1,7 @@
 //! The validated capture command and the result a DiagSnapshot answers with:
-//! the `TerminalCaptureRequest` wire validation v2 runs before any cache
+//! the `TerminalCaptureRequest` wire validation run before any cache
 //! lookup, lease allocation or worker dispatch, and the `terminal_capture`
-//! member of the response. Ports `TerminalCaptureActionName`,
-//! `TerminalCaptureCommand`, `TerminalCaptureResult` and
-//! `validateTerminalCaptureRequest` of `packages/protocol/src/terminal-capture.ts`.
+//! member of the response.
 //! Consumed by the coordinator's capture bridge (`roost_coord::terminal_capture`).
 
 use roost_proto::{TerminalCaptureAction, TerminalCaptureRequest};

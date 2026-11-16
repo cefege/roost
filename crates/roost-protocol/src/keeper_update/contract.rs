@@ -3,9 +3,8 @@
 //! Split from the admission logic because the two answer different questions:
 //! this file decides whether a value is a well-formed contract, observation or
 //! journal entry, and the parent module decides what those values permit. Each
-//! `parse` is the `…Schema.parse` it replaces: the derived `Deserialize` with
-//! `deny_unknown_fields` is this contract's `.strict()`, and the checks after
-//! it are the refinements Zod ran as `.refine` and `.superRefine`.
+//! `parse` is the derived `Deserialize` with `deny_unknown_fields` (a strict
+//! shape), followed by the checks that refine it.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -39,8 +38,8 @@ pub struct KeeperContractV1 {
     /// SHA-256 of the keeper binary. Null means the binary cannot prove what it
     /// is, and no restart may be admitted against it.
     pub implementation_digest: Option<String>,
-    /// The keeper's runtime family (`KEEPER_RUNTIME_ABI` for a v3 keeper,
-    /// `Bun.version` for a v2 one). A restart never crosses it.
+    /// The keeper's runtime family (`KEEPER_RUNTIME_ABI`). A restart never
+    /// crosses it.
     pub bun_abi: String,
     pub platform: String,
     pub arch: String,

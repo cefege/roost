@@ -1,6 +1,6 @@
 //! Envelope validation for a terminal incident bundle before anything replays
-//! it, run by the worker's bundle writer as a WRITE-SIDE GATE. Ports
-//! `packages/protocol/src/terminal-capture-validate.ts`; field primitives live
+//! it, run by the worker's bundle writer as a WRITE-SIDE GATE. Field
+//! primitives live
 //! in `super::validate_fields`, per-layer sections in `super::validate_layers`.
 //! A rejection is a fixed code plus a field path, never a message quoting the
 //! value: every value validated here is terminal content.

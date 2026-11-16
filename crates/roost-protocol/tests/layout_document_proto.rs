@@ -2,10 +2,8 @@
 //! the null-selection encoding, every malformed message it must refuse, and
 //! the iterative resource preflight that runs before any recursion.
 //!
-//! Ports `packages/protocol/tests/layout-document-proto.test.ts` and the
-//! protobuf half of `layout-document-bounds.test.ts`. The bounds test's cyclic
-//! message has no Rust form: a protobuf tree here is owned, so a node cannot
-//! be its own child.
+//! A cyclic message has no Rust form: a protobuf tree here is owned, so a node
+//! cannot be its own child.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod layout_proto_support;

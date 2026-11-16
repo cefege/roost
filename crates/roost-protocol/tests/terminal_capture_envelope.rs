@@ -1,8 +1,7 @@
 //! Evidence payloads between the three capture layers: an envelope PLUS the
 //! layer's section nested under a member named for that layer. A flattened
 //! payload once validated as an envelope, failed as a section, and silently
-//! cost every capture its browser evidence. Ports `packages/protocol/tests/
-//! terminal-capture-envelope.test.ts`.
+//! cost every capture its browser evidence.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_protocol::terminal_capture::TerminalCaptureErrorCode as Code;

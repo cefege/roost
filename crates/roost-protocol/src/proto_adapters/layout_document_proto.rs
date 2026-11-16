@@ -1,8 +1,8 @@
 //! The portable layout document between its validated shape and the protobuf
 //! `roost.v1.LayoutDocumentV1` the Sync and coordinator wires carry.
 //!
-//! Ports `packages/protocol/src/layout-document-proto.ts`: the browser, the
-//! CLI and the coordinator share this one adapter. Both directions go through
+//! The browser, the CLI and the coordinator share this one adapter. Both
+//! directions go through
 //! `parse_layout_document_v1`, so the wire shape is validated by one parser,
 //! and the protobuf side runs an ITERATIVE bounds walk before anything recurses
 //! into a tree an untrusted peer built.
@@ -77,7 +77,7 @@ pub fn layout_document_from_proto(
 ///
 /// The copy is rebuilt field by field, so unknown fields a caller appended are
 /// dropped rather than relayed; the coordinator retains, publishes and forwards
-/// this copy (v2 `apps/coord/src/ui-state/handlers-ui.ts:66,120`).
+/// this copy.
 pub fn canonical_layout_document(
     document: &proto::LayoutDocumentV1,
 ) -> ProtocolResult<proto::LayoutDocumentV1> {

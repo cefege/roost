@@ -1,6 +1,6 @@
 //! Terminal view membership shared by every view owner: the socket registry,
-//! leases, park grace, retained claims and the one geometry predicate. Ported
-//! from `packages/protocol/src/terminal-view/*`; used by the coordinator's
+//! leases, park grace, retained claims and the one geometry predicate. Used by
+//! the coordinator's
 //! `TerminalViewHub` and the worker's `terminal_view` owner, which is why it is
 //! here and not in either — one registry, two hosts, never two registries.
 

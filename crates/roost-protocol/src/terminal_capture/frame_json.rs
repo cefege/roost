@@ -1,5 +1,5 @@
-//! The JSON projection of a cell frame, row and span exactly as v2's
-//! `JSON.stringify` spelled them inside an incident bundle: camelCase members,
+//! The JSON projection of a cell frame, row and span exactly as
+//! `JSON.stringify` spells them inside an incident bundle: camelCase members,
 //! `mouseTracking` as its wire integer, and the optional colour and link
 //! members omitted when absent. Used by [`super::bundle`]'s serializers; the
 //! bundle validator in [`super::validate`] reads back this same shape.

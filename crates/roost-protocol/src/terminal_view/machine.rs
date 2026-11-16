@@ -64,15 +64,11 @@ impl Machine<'_> {
     /// callback can remove a record re-entrantly, and a second removal must not
     /// resurrect a tombstone the first one already wrote.
     ///
-    /// `claim` overrides the revision and intent the tombstone is written with,
-    /// and it is a parameter the port DROPPED. v2's
-    /// `terminal-view-registry-operations.ts:81-95` is
-    /// `remove(view, save, revision = view.revision, intent = view.intent)`, and
-    /// **BOTH release sites pass the command's values explicitly**
-    /// (`terminal-view-registry-commands.ts:114` reclaim and `:194` update)
-    /// while the sweep and revocation sites rely on the default.
+    /// `claim` overrides the revision and intent the tombstone is written with.
+    /// A release passes the command's values explicitly, while the sweep and
+    /// revocation sites pass `None` and take the record's own.
     ///
-    /// Collapsing that distinction wrote the tombstone with the PRE-release
+    /// Collapsing that distinction writes the tombstone with the PRE-release
     /// revision and the PRE-release ACTIVE intent, which made the admission
     /// guard `command.revision == old.revision && !intents_equal(..)`
     /// unreachable for a release-created claim -- so a same-revision ACTIVE

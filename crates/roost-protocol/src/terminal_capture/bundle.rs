@@ -1,9 +1,8 @@
 //! The JSON shape of one terminal incident bundle — the owner-only
 //! `terminal-incident-<capture-id>.json.gz` a worker writes — its closed
-//! literal sets, and the file naming its storage owner may delete by. Ports
-//! `packages/protocol/src/terminal-capture-bundle.ts` and the reason list and
-//! file names of `terminal-capture.ts`. Built by `roost_worker::capture`,
-//! checked by [`super::validate`]; uint64 offsets are decimal STRINGS.
+//! literal sets, and the file naming its storage owner may delete by. Built by
+//! `roost_worker::capture`, checked by [`super::validate`]; uint64 offsets are
+//! decimal STRINGS.
 
 use std::sync::Arc;
 
@@ -49,7 +48,7 @@ pub enum TerminalCaptureReason {
     PreRepair,
 }
 
-/// v2 `TERMINAL_CAPTURE_REASONS`, in its order.
+/// The capture reasons, in their canonical order.
 pub const TERMINAL_CAPTURE_REASONS: [TerminalCaptureReason; 5] = [
     TerminalCaptureReason::Manual,
     TerminalCaptureReason::HistoryIdentity,
@@ -69,7 +68,7 @@ impl TerminalCaptureReason {
         }
     }
 
-    /// v2 `isTerminalCaptureReason`: the reason a literal names, if any.
+    /// The reason a literal names, if any.
     pub fn parse(value: &str) -> Option<Self> {
         TERMINAL_CAPTURE_REASONS
             .into_iter()

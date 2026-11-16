@@ -53,9 +53,8 @@ pub fn cell_row_to_proto(row: &CellRow) -> PbCellRow {
 ///
 /// `max_columns == 0` skips the width bound, because a retained scrollback line
 /// keeps its write-time width and no current-grid bound applies to it. The
-/// TypeScript adapter returned the decoded row object itself; the two shapes
-/// are distinct types here, so the transfer is a conversion and validation
-/// rides along with it.
+/// wire row and the value model are distinct types, so the transfer is a
+/// conversion and validation rides along with it.
 pub fn cell_row_from_proto_bounded(row: &PbCellRow, max_columns: u32) -> ProtocolResult<CellRow> {
     let mut spans = Vec::with_capacity(row.spans.len());
     for (position, span) in row.spans.iter().enumerate() {

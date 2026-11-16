@@ -1,7 +1,6 @@
 //! The direct-attachment carrier contract browser, coordinator and worker all
 //! read: the loopback route, chunk and packet bounds, deadlines, the two peer
-//! data channels, and both refusal vocabularies. Ports
-//! `packages/protocol/src/attachment-transfer.ts`; the peer framing is in
+//! data channels, and both refusal vocabularies. The peer framing is in
 //! `packets` and its send queue in `packet_queue`. Called by the worker's
 //! `attachments` carriers and `door`.
 

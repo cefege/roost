@@ -1,7 +1,7 @@
 //! The coordinator-worker link codec: every arm of both oneofs survives a
-//! round trip byte for byte, the bytes are the ones the TypeScript stack
+//! round trip byte for byte, the bytes are the ones an independent encoder
 //! produced, and a frame this build cannot name is refused rather than
-//! skipped. The fixtures and the TypeScript byte constants are in
+//! skipped. The fixtures and the byte constants are in
 //! `coord_worker_link/`; the per-arm field numbers the proto
 //! declares are asserted by `coord_worker_proto_fields.rs`.
 //!
@@ -218,10 +218,10 @@ fn a_pong_stamped_before_the_epoch_is_refused_rather_than_wrapped() {
 
 #[test]
 fn a_committed_stream_result_carries_v2s_unspecified_failure_kind() {
-    // v2 sends `UNSPECIFIED` (zero) as the failure kind of a COMMITTED result
-    // (`coord-link-terminal-results.ts` `terminalStreamFailureKind(undefined)`),
-    // so zero must decode as "no failure" rather than refuse the frame: a
-    // refused committed result is a resize the coordinator never learns landed.
+    // The wire spells the failure kind of a COMMITTED result as `UNSPECIFIED`
+    // (zero), so zero must decode as "no failure" rather than refuse the frame:
+    // a refused committed result is a resize the coordinator never learns
+    // landed.
     use roost_protocol::wire::coord_worker::{
         TerminalStreamResult, TerminalStreamStatus, TerminalWritePhase,
     };

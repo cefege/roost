@@ -1,10 +1,10 @@
 //! The conformance oracle: every JSON vector under `protocol/conformance/` is
 //! an independent case, and this runner is the only thing that decides whether
-//! the Rust contract agrees with the outcomes the TypeScript contract recorded.
+//! the Rust contract agrees with the recorded outcomes.
 //!
-//! The vectors are language-neutral on purpose. They were generated from the
-//! TypeScript implementation, so a vector passing here proves the port
-//! reproduces the behaviour the fleet is running, not merely that the port
+//! The vectors are language-neutral on purpose and were recorded from an
+//! independent implementation, so a vector passing here proves the contract
+//! reproduces the behaviour the fleet runs, not merely that it
 //! agrees with itself. A vector that fails here is a behaviour change, and the
 //! right response is to understand why the recorded outcome changed — not to
 //! regenerate the vector.
@@ -128,8 +128,8 @@ fn check_session_fold(vector: &SessionFoldVector) -> Result<(), String> {
 
 /// Compare only the keys the vector names.
 ///
-/// The TypeScript runner used `toEqual`, which ignores a property that is
-/// `undefined` on either side. That matters: after an `opened` event the
+/// The vectors are compared as a `toEqual` would: a property that is
+/// `undefined` on either side is ignored. That matters: after an `opened` event the
 /// projection has no `git_branch` key at all, and the recorded vector does not
 /// name one. Checking the named keys in both directions — a named key missing
 /// from the projection fails, a projection key the vector does not name is not

@@ -1,7 +1,6 @@
 //! Exact canonical-view comparison: the ONE implementation of "are these two
 //! terminal states the same state", which the worker runs between a fresh core
-//! scan and its emitted-frame fold. Ports the comparison half of
-//! `packages/protocol/src/terminal-capture-view.ts`; delivery representation
+//! scan and its emitted-frame fold. Delivery representation
 //! (full/baseSeq, history pages, appends) is excluded on purpose, so a sparse
 //! delta and a full meaning the same screen compare equal.
 
@@ -93,7 +92,7 @@ pub fn canonical_view_of_frame(frame: &CellGridFrame) -> Option<TerminalCanonica
     dense.then_some(TerminalCanonicalView { frame })
 }
 
-/// The state fields, in v2's comparison order, as the strings a difference
+/// The state fields, in comparison order, as the strings a difference
 /// reports them with.
 fn state_fields(frame: &CellGridFrame) -> [(TerminalCanonicalField, String); 13] {
     use TerminalCanonicalField as Field;
@@ -264,7 +263,7 @@ fn first_cell_field_difference(
 
 /// Bounded, CONTENT-FREE description: a difference is quoted into logs and
 /// replay reports, so `text` and `linkUri` report only a length (in UTF-16
-/// code units, as v2 measured it) and never the characters.
+/// code units, as a browser measures it) and never the characters.
 fn describe_cell_field(cell: &ExpandedCell<'_>, field: TerminalCellField) -> String {
     let span = cell.span;
     match field {

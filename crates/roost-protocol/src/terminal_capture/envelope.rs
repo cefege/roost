@@ -1,8 +1,7 @@
 //! The shallow envelope check a bridge or the worker runs on one layer's
 //! untrusted evidence JSON: size, schema, layer, the capture identity it must
 //! belong to, and the layer's section NESTED under a member named for it.
-//! Ports `checkTerminalCaptureEnvelope` of `packages/protocol/src/
-//! terminal-capture.ts`; the worker's `capture::evidence` calls it. Deep row
+//! The worker's `capture::evidence` calls it. Deep row
 //! validation is `super::validate`'s job, not this one's.
 
 use serde_json::{Map, Value};

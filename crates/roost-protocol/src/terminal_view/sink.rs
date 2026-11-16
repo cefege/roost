@@ -1,10 +1,6 @@
 //! The delivery surface a terminal view host must provide, and the two value
 //! types the membership machine hands back instead of calling out.
-//!
-//! Ported from `packages/protocol/src/terminal-view/screen-port.ts` and the
-//! `TerminalViewStateSink` half of `terminal-view-protocol.ts`, plus the three
-//! `TerminalScreenHub` methods the owner relay drives. The Sync socket driver
-//! implements it.
+//! The Sync socket driver implements it.
 //!
 //! WHY THE MACHINE RETURNS EFFECTS INSTEAD OF CALLING THEM. The recompute hook
 //! is the obvious case: it reads the registry to recompute, so a registry that

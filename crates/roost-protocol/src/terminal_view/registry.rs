@@ -1,8 +1,6 @@
 //! Terminal view membership: which socket watches which session's terminal,
 //! lease renewal, parking on socket loss, and the sweep that reaps both.
-//!
-//! Ported from `packages/protocol/src/terminal-view/terminal-view-registry.ts`
-//! and its operations sibling. The command state machine is in `commands.rs`;
+//! The command state machine is in `commands.rs`;
 //! this file owns the maps, the socket lifecycle and the lease sweep.
 //!
 //! WHY THE MACHINE NEVER CALLS OUT. Every effect is returned as a
@@ -317,7 +315,7 @@ impl ViewRegistry {
             }
             self.machine().drop_record(&key, true, now_ms, None);
             if let Some(session_id) = session_of(&record) {
-                // v2's sweep `syncWatching`: a socket that is still registered
+                // A socket that is still registered
                 // and just lost its last view of this session stops being fed it.
                 if self.sockets.contains_key(&record.socket_id) {
                     let watch = self.machine().sync_watching(&record.socket_id, &session_id);

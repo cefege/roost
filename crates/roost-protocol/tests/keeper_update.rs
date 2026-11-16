@@ -180,9 +180,9 @@ fn a_feature_or_protocol_difference_is_a_different_implementation() {
     ));
 }
 
-/// Ports v2 `keeper-update.test.ts` "journal envelope rejects a classification
-/// inconsistent with full contracts", which varies only `bun_abi`
-/// (`keeper-update.ts:207`): same digest, different runtime, different keeper.
+/// A journal envelope rejects a classification inconsistent with full
+/// contracts, which varies only `bun_abi`: same digest, different runtime,
+/// different keeper.
 #[test]
 fn a_runtime_abi_difference_is_a_different_implementation() {
     let mut bun_keeper = contract();

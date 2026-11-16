@@ -1,7 +1,7 @@
 // The UI state bounds, and the one place they are declared.
 //
-// v2 declares these in `packages/protocol/src/ui-state.ts:9` and BOTH the
-// coordinator and the web client read them. A copy inside `roost-coord` would
+// The coordinator and the web client both read them. A copy inside
+// `roost-coord` would
 // be a second answer to "how many tabs may one fingerprint hold", and the web
 // client validating against a different number than the coordinator enforces is
 // exactly the split the other bounds in this crate exist to prevent.

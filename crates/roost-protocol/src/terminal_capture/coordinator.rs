@@ -1,14 +1,12 @@
 //! The coordinator layer's evidence shapes: one record per accepted full or
 //! folded delta, the section a capture freezes them into, and the envelope
-//! that nests the section under its layer name, serialized as v2's
-//! `JSON.stringify` spells them. Ports `TerminalCoordinatorRecord` and
-//! `TerminalCoordinatorSection` of `packages/protocol/src/terminal-capture-bundle.ts`
-//! and `TerminalCaptureCoordinatorPayload` of `terminal-capture.ts`. Produced
+//! that nests the section under its layer name, serialized as `JSON.stringify`
+//! spells them. Produced
 //! by the coordinator's capture recorder (`roost_coord::terminal_capture`);
 //! checked on the way into a bundle by `validate`.
 //!
-//! The state enums carry only the values the coordinator records: v2's wider
-//! unions (`installing`, `dropped`, `invalidated`, ...) have no producer.
+//! The state enums carry only the values the coordinator records; wider unions
+//! (`installing`, `dropped`, `invalidated`, ...) have no producer.
 
 use std::sync::Arc;
 

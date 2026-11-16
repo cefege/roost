@@ -2,8 +2,8 @@
 //! assert against. Included by `coord_worker_proto.rs` and
 //! `coord_worker_proto_fields.rs` through `#[path]`, so the two binaries share
 //! one set of fixtures instead of restating them. The byte constants are the
-//! TypeScript encoder's own output, and the wire contract is byte-exact for the
-//! whole port, so they are the authority rather than a re-derivation.
+//! TypeScript encoder's own output, and the wire contract is byte-exact, so
+//! they are the authority rather than a re-derivation.
 #![allow(dead_code, clippy::unwrap_used, clippy::expect_used)]
 
 use roost_protocol::wire::brand::{ChannelId, SessionId, TraceId, WorkerFp};
@@ -13,14 +13,14 @@ pub const FINGERPRINT: &str = "ababababababababababababababababababababababababa
 pub const SESSION: &str = "00000000-0000-4000-8000-0000000000ff";
 pub const STREAM: &str = "0f9a5c1e-3b2d-4a7f-9c11-5d6e7f801122";
 
-/// `bun /tmp/cwfix/fixture_all.ts` over the v2 tree's generated
-/// `worker_transport_pb.ts`, hex-printed.
+/// A hello frame encoded by an independent (TypeScript) protobuf
+/// implementation, hex-printed.
 pub const TS_HELLO: &str = "0a790a40616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261621205332e302e301a167465726d696e616c2d766965772d6f776e65722d76311a1063656c6c2d7368697070696e672d7632220465702d31";
 
-/// The same script, `WPongSchema`, `ts: 1700000000001n`.
+/// A pong from the same encoder, `ts: 1700000000001n`.
 pub const TS_PONG: &str = "12070881d095ffbc31";
 
-/// The same script, `DHelloAckSchema`, those two capabilities.
+/// A hello-ack from the same encoder, those two capabilities.
 pub const TS_HELLO_ACK: &str = "0a1d1a096576656e74732d76311a1063656c6c2d7368697070696e672d7632";
 
 /// The same script, `DEventAckSchema`, `clientSeq: 42n`.

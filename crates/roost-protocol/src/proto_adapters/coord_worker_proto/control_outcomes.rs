@@ -116,7 +116,7 @@ fn failure_kind_to_proto(kind: Option<TerminalStreamFailureKind>) -> PbTerminalS
     }
 }
 
-/// Zero is v2's `UNSPECIFIED`, which a committed result carries: `None`.
+/// Zero is the unspecified kind, which a committed result carries: `None`.
 fn failure_kind_from_proto(
     field: &str,
     value: i32,

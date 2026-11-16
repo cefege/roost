@@ -21,9 +21,9 @@ pub fn safe_json_parse(text: Option<&str>, fallback: Value) -> Value {
 
 /// Encode a value for a field whose producer must survive a hostile payload.
 ///
-/// The TypeScript original also replaced `bigint` with its decimal string,
-/// because a `uint64` field held real information that `JSON.stringify`
-/// refuses outright. That hazard does not exist here: `serde_json::Value`
+/// A `uint64` field can hold real information that a JavaScript
+/// `JSON.stringify` refuses outright (`bigint`). That hazard does not exist
+/// here: `serde_json::Value`
 /// keeps an integer as a `u64` and round-trips it at full precision, so
 /// `input_seq` and a frame `seq` past 2^53 serialize exactly. What can still
 /// fail is a non-finite float, which is why this returns the fallback rather

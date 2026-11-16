@@ -1,6 +1,5 @@
 //! Per-layer section validation for an incident bundle: worker, coordinator and
-//! browser. Ports `packages/protocol/src/terminal-capture-validate-layers.ts`;
-//! called only by `super::validate` after the envelope and the layer header
+//! browser. Called only by `super::validate` after the envelope and the layer header
 //! passed. It proves shape, bounds and per-segment sequence continuity so a
 //! replay conclusion rests on an orderable record set, and reads no text.
 
@@ -30,7 +29,7 @@ const BROWSER_STATES: [&str; 4] = [
     "current_state",
 ];
 
-/// An array member, or the empty slice for one v2 already proved is an array.
+/// An array member, or the empty slice for one already proved to be an array.
 fn entries<'a>(section: &'a Map<String, Value>, name: &str) -> &'a [Value] {
     section
         .get(name)

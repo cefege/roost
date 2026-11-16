@@ -2,9 +2,9 @@
 //! type from a string, so a session id can never be passed where a worker
 //! fingerprint belongs.
 //!
-//! TypeScript made these nominal with Zod's `.brand()`. Rust makes them nominal
-//! with a private field and a shape-checking `TryFrom`, so the two types do not
-//! convert into each other at all. Each one also deserializes through its own
+//! These types are nominal: a private field and a shape-checking `TryFrom`
+//! mean the two types do not convert into each other at all. Each one also
+//! deserializes through its own
 //! check, because a brand a decoder can mint from an arbitrary string is not a
 //! brand. Depends on `validate` for the UUID shape and on `fingerprint`, which
 //! owns the one definition of what a rendered fingerprint looks like.

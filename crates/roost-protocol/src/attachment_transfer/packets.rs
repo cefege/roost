@@ -1,7 +1,6 @@
 //! The attachment-only outer framing on the two attachment data channels:
 //! magic, version, message id, total bytes, offset, then payload. It shares no
-//! magic, lane or state with the terminal peer's framing. Ports
-//! `packages/protocol/src/attachment-transfer-packets.ts`; used by
+//! magic, lane or state with the terminal peer's framing. Used by
 //! `packet_queue` and the worker's attachment peer packet port.
 
 use std::fmt;

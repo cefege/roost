@@ -259,9 +259,8 @@ pub struct TerminalStreamResult {
     pub resized: bool,
     pub reason: String,
     pub phase: TerminalWritePhase,
-    /// `None` on a committed result: v2 sends `UNSPECIFIED` there
-    /// (`coord-link-terminal-results.ts` `terminalStreamFailureKind(undefined)`),
-    /// and a committed stream has no failure to name.
+    /// `None` on a committed result: a committed stream has no failure to name,
+    /// and the wire spells that as the unspecified kind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure_kind: Option<TerminalStreamFailureKind>,
 }

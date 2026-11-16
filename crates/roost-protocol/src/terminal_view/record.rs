@@ -1,8 +1,6 @@
 //! Pure projection math over terminal view records: what a record asked for,
 //! and the ONE predicate that decides which records still bind the PTY.
-//!
-//! Ported from `packages/protocol/src/terminal-view/terminal-view-registry-state.ts`
-//! and the wire guards of `terminal-view-protocol.ts`. No I/O, no socket access,
+//! No I/O, no socket access,
 //! no clock of its own: every function is handed `now_ms`.
 //!
 //! WHY THE PREDICATE LIVES ALONE. `docs/FAILURE-INDEX.md`, "A session stays

@@ -1,7 +1,6 @@
-//! Attachment peer framing, retained-byte ownership and order, ported from
-//! `packages/protocol/tests/attachment-transfer-packets.test.ts` (and the bounds
-//! case of `attachment-transfer.test.ts`). v2's "absent, non-finite, negative
-//! clock" case has no Rust counterpart: `now_ms` is a `u64` the caller owns.
+//! Attachment peer framing, retained-byte ownership and order. There is no
+//! "absent, non-finite, negative clock" case: `now_ms` is a `u64` the caller
+//! owns.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -23,7 +22,7 @@ struct Recording {
     releases: Vec<(Direction, usize)>,
 }
 
-/// One quota shared by an assembler and a queue, as the v2 test shares one.
+/// One quota shared by an assembler and a queue.
 #[derive(Clone)]
 struct RecordingQuota {
     limit: usize,

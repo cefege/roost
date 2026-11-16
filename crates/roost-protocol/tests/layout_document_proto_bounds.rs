@@ -1,8 +1,6 @@
 //! The layout adapter's resource bounds on the protobuf side: exact depth,
 //! string, slot, binding and node-count boundaries round-trip, and one past
 //! each is refused by the iterative preflight before anything recurses.
-//!
-//! Ports the protobuf half of `packages/protocol/tests/layout-document-bounds.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod layout_proto_support;

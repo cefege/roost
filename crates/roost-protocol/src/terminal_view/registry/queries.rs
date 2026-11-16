@@ -2,9 +2,8 @@
 //! machine: one record by key, the session-wide view broadcast, and a socket's
 //! per-session allowance.
 //!
-//! Ported from `packages/protocol/src/terminal-view/terminal-view-registry.ts`
-//! (`broadcast`, and the `allowsSession` predicate `registerSocket` takes). A
-//! child of `registry` so it reads the maps without widening their visibility;
+//! A child of `registry` so it reads the maps without widening their
+//! visibility;
 //! the worker's `crates/roost-worker/src/terminal_view` owner is the caller.
 
 use roost_proto::TerminalViewStatus;
@@ -19,7 +18,7 @@ impl ViewRegistry {
     /// One record by its composite [`super::super::record::view_key`].
     ///
     /// A host that mints streams reads this BEFORE handing a command to the
-    /// machine: v2's admit, reclaim and same- or new-revision update paths each
+    /// machine: the admit, reclaim and same- or new-revision update paths each
     /// finish differently once the geometry is recomputed, and the outcome
     /// alone does not say which path ran.
     #[must_use]
@@ -30,7 +29,7 @@ impl ViewRegistry {
     /// One `View` answer per live record of the session, in the session
     /// index's order. Parked records are skipped: their socket is gone.
     ///
-    /// v2's `broadcast`: a stream owner tells every live view about a new
+    /// A stream owner tells every live view about a new
     /// stream, or that the stream is unavailable, through this.
     #[must_use]
     pub fn broadcast(
@@ -58,11 +57,11 @@ impl ViewRegistry {
 
     /// Admit or withdraw one session for one registered socket.
     ///
-    /// v2 registers a socket with an `allowsSession(sessionId)` PREDICATE: a
+    /// The allowance is a per-session answer, not a registered predicate: a
     /// coordinator-relayed socket allows every session the coordinator already
     /// authorized, and a local socket follows its grant's live scope. The
     /// machine only ever asks about the session a command names, so a host that
-    /// sets that one answer right before the command reproduces the predicate.
+    /// sets that one answer right before the command gets the same effect.
     pub fn set_session_allowed(&mut self, socket_id: &str, session_id: &str, allowed: bool) {
         let Some(socket) = self.sockets.get_mut(socket_id) else {
             return;

@@ -23,8 +23,7 @@ use crate::wire::control::{
 };
 use crate::{ProtocolError, ProtocolResult};
 
-/// `z.number().int().positive()`: a positive integer, whose ceiling here is the
-/// widest integer a browser can name at all.
+/// A positive integer, whose ceiling here is `i64::MAX`.
 fn positive(field: &str, value: i64) -> ProtocolResult<()> {
     integer_in_range(field, value, 1, i64::MAX)
 }

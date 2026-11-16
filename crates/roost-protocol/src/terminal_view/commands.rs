@@ -2,9 +2,6 @@
 //! to membership. Accept, reject, reclaim, release, and the two capacity
 //! refusals, then name the sessions whose effective geometry moved.
 //!
-//! Ported from `packages/protocol/src/terminal-view/terminal-view-registry-commands.ts`
-//! and `terminal-view-registry-operations.ts`.
-//!
 //! EVERY PATH ENDS IN A RE-MINIMIZE OR AN ANSWER. A declaration that changes
 //! membership names its session as changed; one that does not owes the socket a
 //! reply: a path that did neither would leave the client waiting and the PTY at
@@ -270,8 +267,8 @@ impl Machine<'_> {
         outcome: &mut MembershipOutcome,
     ) {
         let session_id = self.views.get(key).and_then(session_of);
-        // v2: `remove(current, true, command.revision, intent)` -- the RELEASE's
-        // revision and intent, not the record's. See `machine::drop_record`.
+        // The tombstone carries the RELEASE's revision and intent, not the
+        // record's. See `machine::drop_record`.
         self.drop_record(
             key,
             true,

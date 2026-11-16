@@ -1,7 +1,6 @@
 //! Field-level checks shared by the incident-bundle validator: JS number
 //! semantics over `serde_json::Value`, decimal uint64 offsets, stream
-//! identities, frames and rows. Ports `packages/protocol/src/
-//! terminal-capture-fields.ts`; called by `super::validate` and
+//! identities, frames and rows. Called by `super::validate` and
 //! `super::validate_layers`. Every rejection is a fixed code plus a field PATH,
 //! never the value, because the values here are terminal content.
 
@@ -18,7 +17,7 @@ pub struct CaptureFieldRefusal {
 
 pub(crate) type FieldCheck = Result<(), CaptureFieldRefusal>;
 
-/// JavaScript's `Number.MAX_SAFE_INTEGER`: the bound v2's `isSafeInteger`
+/// JavaScript's `Number.MAX_SAFE_INTEGER`: the bound `safe_integer`
 /// checks every count against.
 const MAX_SAFE_INTEGER: i64 = (1_i64 << 53) - 1;
 const MAX_DIMENSION: i64 = 4096;
@@ -37,12 +36,12 @@ pub(crate) fn fail(code: TerminalCaptureErrorCode, field: impl Into<String>) -> 
     Err(refuse(code, field))
 }
 
-/// v2 `asRecord`: a plain object, or nothing.
+/// A plain object, or nothing.
 pub(crate) fn as_record(value: Option<&Value>) -> Option<&Map<String, Value>> {
     value.and_then(Value::as_object)
 }
 
-/// v2 `Number.isSafeInteger`: an integral JSON number within ±(2^53 − 1).
+/// `Number.isSafeInteger` semantics: an integral JSON number within ±(2^53 − 1).
 pub(crate) fn safe_integer(value: Option<&Value>) -> Option<i64> {
     let number = value?.as_number()?;
     let integral = if let Some(signed) = number.as_i64() {
@@ -73,8 +72,8 @@ pub(crate) fn is_dimension(value: Option<&Value>) -> bool {
     safe_integer(value).is_some_and(|number| (1..=MAX_DIMENSION).contains(&number))
 }
 
-/// A present `null` or a string. A MISSING member is neither, as in v2, where
-/// `undefined` fails both halves.
+/// A present `null` or a string. A MISSING member is neither: an absent member
+/// fails both halves.
 pub(crate) fn is_nullable_string(value: Option<&Value>) -> bool {
     matches!(value, Some(Value::Null | Value::String(_)))
 }

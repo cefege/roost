@@ -10,8 +10,7 @@
 ///
 /// Loopback only. This door upgrades terminal sockets for the PTYs on the
 /// worker's own machine, so any non-loopback interface would hand them to the
-/// network. v3 uses 4114 so a v2 worker on 4104 and a v3 worker can both run
-/// on one machine during the port.
+/// network.
 pub const DEFAULT_WORKER_LOCAL_UI_BIND: &str = "127.0.0.1:4114";
 
 /// The origin a browser reaches the door at.

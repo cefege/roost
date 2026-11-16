@@ -1,8 +1,8 @@
 //! Canonical terminal-state comparison. The whole attribution chain rests on
 //! "are these two layers holding the same screen?": a false equal exonerates
 //! the layer that broke, a false different blames one that merely re-encoded
-//! the same cells. Ports `packages/protocol/tests/terminal-capture-view.test.ts`
-//! (the painted-row fingerprint cases stay with the browser, which owns them).
+//! the same cells. The painted-row fingerprint cases stay with the browser,
+//! which owns them.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_protocol::cell::{
@@ -160,7 +160,7 @@ fn a_wide_glyph_is_aligned_by_column_not_by_code_unit() {
     );
 }
 
-/// v2 `terminal-capture-view.ts` treats `columns !== text.length` as atomic: a
+/// A cell is compared atomically when `columns !== text.length`: a
 /// combining cluster holds its column whole, so a dropped accent is a divergence
 /// even though the first character of both cells is the same.
 #[test]
