@@ -304,7 +304,6 @@ impl PaneMount {
             let mut state = shared.state.borrow_mut();
             std::mem::replace(&mut state.flags, flags)
         };
-        shared.panes.set_pane_flags(&shared.session_id, flags);
         actions::flags_changed(shared, previous, flags);
     }
 

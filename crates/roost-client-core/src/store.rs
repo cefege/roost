@@ -33,7 +33,6 @@ pub mod shell_intent;
 pub mod sidebar;
 pub mod spotlight;
 pub mod sync_feeds;
-pub mod sync_smoke;
 pub mod terminal_bells;
 pub mod terminal_nav_pad;
 mod terminal_replicas;
@@ -229,8 +228,6 @@ pub struct Store {
     pub pending_transport_probes: BTreeMap<String, PendingTransportProbe>,
     /// Pairings already announced, oldest first, so one pairing toasts once.
     pub announced_pairings: VecDeque<String>,
-    /// Smoke-armed frame faults; empty unless a smoke build armed one.
-    pub terminal_smoke_faults: crate::terminal::smoke_faults::TerminalSmokeFaults,
 
     /// The next Connect call id, so a result is correlated with its call.
     next_call_id: u64,

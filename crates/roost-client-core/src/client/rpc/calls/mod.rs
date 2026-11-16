@@ -9,7 +9,6 @@ pub mod attachments;
 pub mod browse;
 pub mod clipboard;
 pub mod diag_debug_log_batch;
-pub mod diagnostics;
 pub mod files;
 pub mod find;
 pub mod pairing;

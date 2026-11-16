@@ -1,5 +1,5 @@
-//! When the next Sync dial happens: capped backoff, hidden-page parking, the
-//! stale-link watchdog decision, and the smoke transport pause.
+//! When the next Sync dial happens: capped backoff, hidden-page parking, and
+//! the stale-link watchdog decision.
 //!
 //! Owned by `SyncState`; driven by `handle_sync::lifecycle` from link closes,
 //! frames, visibility changes and the sweep.
@@ -86,7 +86,6 @@ pub struct SyncRedial {
     delay_ms: u64,
     hidden_parked: bool,
     resume_requested: bool,
-    smoke_paused: bool,
     visible: bool,
     /// When the pending redial is due, or `None` with no redial pending.
     due_ms: Option<u64>,
@@ -102,7 +101,6 @@ impl Default for SyncRedial {
             delay_ms: SYNC_REDIAL_BASE_MS,
             hidden_parked: false,
             resume_requested: false,
-            smoke_paused: false,
             visible: true,
             due_ms: None,
             pending_abort_reason: None,
@@ -205,20 +203,9 @@ impl SyncRedial {
         self.visible
     }
 
-    /// Pause or release the smoke transport gate.
-    pub fn set_smoke_paused(&mut self, paused: bool) {
-        self.smoke_paused = paused;
-    }
-
-    /// Pre-arm the highest floor production can reach (smoke only).
-    pub fn arm_floor(&mut self) {
-        self.failures = SYNC_HIDDEN_PARK_FAILURES - 1;
-        self.delay_ms = next_redial_delay_ms(SYNC_HIDDEN_PARK_FAILURES);
-    }
-
     /// Whether the pending redial may dial now; consumes it when it may.
     pub fn take_due(&mut self, now_ms: u64) -> bool {
-        if self.hidden_parked || self.smoke_paused {
+        if self.hidden_parked {
             return false;
         }
         match self.due_ms {
@@ -295,8 +282,9 @@ mod tests {
     fn a_hidden_park_waits_for_a_resume_and_a_frame_resets_the_count() {
         let mut redial = SyncRedial::default();
         redial.set_visible(false);
-        redial.arm_floor();
-        redial.schedule_after_close(0);
+        for _ in 0..SYNC_HIDDEN_PARK_FAILURES {
+            redial.schedule_after_close(0);
+        }
         assert!(redial.status().hidden_parked);
         assert!(!redial.take_due(u64::MAX));
         assert!(redial.take_lifecycle_wake(10, true).is_some());
@@ -317,17 +305,6 @@ mod tests {
         redial.schedule_after_close(5_000);
         assert_eq!(redial.status().next_delay_ms, 1_000);
         assert!(redial.take_due(6_000));
-    }
-
-    #[test]
-    fn a_smoke_pause_holds_the_dial_until_released() {
-        let mut redial = SyncRedial::default();
-        redial.set_smoke_paused(true);
-        redial.note_abort_reason("manual");
-        redial.schedule_after_close(0);
-        assert!(!redial.take_due(0));
-        redial.set_smoke_paused(false);
-        assert!(redial.take_due(0));
     }
 
     #[test]

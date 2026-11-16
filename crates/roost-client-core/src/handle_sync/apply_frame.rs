@@ -15,7 +15,6 @@ use crate::store::Store;
 use crate::store::frames_revision::PaintedMark;
 use crate::sync::{SyncDomain, SyncFrame};
 use crate::terminal::session::Admission;
-use crate::terminal::smoke_faults::FaultedFrameKind;
 use crate::terminal::token::TerminalTransport;
 
 use super::fold_controls::{fold_audit_row, fold_pair_request, fold_ui_command};
@@ -142,16 +141,6 @@ pub(super) fn apply_frame(
             if elected_direct_owns(store, session_id) {
                 return;
             }
-            let (full, seq) = (cell.full, Some(cell.seq));
-            if store.terminal_smoke_faults.consume(
-                session_id,
-                &token,
-                FaultedFrameKind::Frame,
-                full,
-                seq,
-            ) {
-                return;
-            }
             let Some(replica) = store.terminal_mut_if_present(session_id) else {
                 return;
             };
@@ -173,18 +162,6 @@ pub(super) fn apply_frame(
                 return;
             };
             if elected_direct_owns(store, session_id) {
-                return;
-            }
-            let full = chunk.part.as_option().map(|part| part.full);
-            if let Some(full) = full
-                && store.terminal_smoke_faults.consume(
-                    session_id,
-                    &token,
-                    FaultedFrameKind::Chunk,
-                    full,
-                    None,
-                )
-            {
                 return;
             }
             let Some(replica) = store.terminal_mut_if_present(session_id) else {

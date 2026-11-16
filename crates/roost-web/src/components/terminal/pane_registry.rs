@@ -1,51 +1,17 @@
 //! The session-keyed registry of mounted terminal panes: the one place a
-//! reader outside a pane (the smoke backdoor, a preview) resolves a session to
-//! the renderer that paints it. Provided once in `App` via context; every
-//! `CellTerminal` registers on mount and unregisters on drop, and the latest
-//! mount wins.
+//! reader outside a pane (dictation context, a tab-grid preview, the clipboard
+//! sheet's paste) resolves a session to the renderer that paints it. Provided
+//! once in `App` via context; every `CellTerminal` registers on mount and
+//! unregisters on drop, and the latest mount wins.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::rc::Rc;
 
 use dioxus::prelude::*;
-use roost_web_terminal::{
-    BackfillAnchor, PaintedRowText, ReaderIntent, ReconcileBlockReason, RendererEpochSeq,
-    RendererPaintPresentation, RendererPresentationSnapshot,
-};
 
-pub use super::pane_surface::{PaintedLine, PaintedMarkerHit, PaneSurface, find_marker};
-
-/// Per-session counters that outlive any one mount.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct PaneCounters {
-    /// Epoch-addressed history reads the session's scrollback pagers issued.
-    pub backfill_requests: u64,
-    /// History pages an elected direct carrier served to those pagers.
-    pub direct_history_responses: u64,
-}
-
-/// One render probe: watermarks and reader state of the mounted renderer.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PaneRenderProbe {
-    /// How far canonical has advanced.
-    pub canonical: RendererEpochSeq,
-    /// How far the painted DOM has reconciled.
-    pub reconciled: RendererEpochSeq,
-    /// Live tail or parked reader.
-    pub reader_intent: ReaderIntent,
-    /// Whether the scroll box sits at its exact bottom.
-    pub at_bottom: bool,
-    /// Immutable history rows painted.
-    pub painted_scrollback_rows: usize,
-    /// Viewport row elements in the DOM.
-    pub dom_rows: usize,
-    /// Why the DOM is behind canonical, or `None` when it is not.
-    pub reconcile_block_reason: ReconcileBlockReason,
-    /// The painted history range and the epoch a history page must match.
-    pub backfill_anchor: Option<BackfillAnchor>,
-}
+pub use super::pane_surface::PaneSurface;
 
 /// The registry, cheap to clone: every clone is the same registry.
 #[derive(Clone, Default)]
@@ -57,17 +23,11 @@ pub struct PaneRegistry {
 struct RegistryState {
     next_mount_id: u64,
     panes: BTreeMap<String, MountedPane>,
-    counters: BTreeMap<String, PaneCounters>,
 }
 
 struct MountedPane {
     mount_id: u64,
     surface: Rc<dyn PaneSurface>,
-    /// The deck's last word about this pane. The browser snapshot reads it
-    /// from here rather than parsing display CSS: "is this pane in the
-    /// layout" and "is its surface the active one" are DECK facts, and a
-    /// computed style is a report about the renderer, not the authority.
-    flags: Cell<super::pane_state::PaneFlags>,
     /// The pane's own paste path, so a surface outside the pane (the clipboard
     /// history sheet) pastes through the same multiline guard a Mod+Shift+V
     /// paste does instead of writing raw bytes past it.
@@ -108,34 +68,12 @@ impl PaneRegistry {
                 MountedPane {
                     mount_id,
                     surface,
-                    flags: Cell::new(super::pane_state::PaneFlags::default()),
                     paste: RefCell::new(None),
                 },
             )
             .is_some();
         tracing::debug!(target: "terminal", session_id, mount_id, replaced, "pane registered");
         mount_id
-    }
-
-    /// Record the deck's current flags for this pane.
-    ///
-    /// Written from `PaneMount::set_flags`, which is the ONE place the deck's
-    /// decision arrives: a mount that is not registered yet has no reader, and
-    /// the first `set_flags` after registration seeds it.
-    pub fn set_pane_flags(&self, session_id: &str, flags: super::pane_state::PaneFlags) {
-        if let Some(pane) = self.inner.borrow_mut().panes.get_mut(session_id) {
-            pane.flags.set(flags);
-        }
-    }
-
-    /// The deck's last recorded flags for this pane, or `None` with no mount.
-    #[must_use]
-    pub fn pane_flags(&self, session_id: &str) -> Option<super::pane_state::PaneFlags> {
-        self.inner
-            .borrow()
-            .panes
-            .get(session_id)
-            .map(|pane| pane.flags.get())
     }
 
     /// Unregister one mount. A stale mount (already replaced) removes nothing,
@@ -183,20 +121,6 @@ impl PaneRegistry {
         })
     }
 
-    /// The current mount's id, for a caller detecting a remount.
-    pub fn mount_id(&self, session_id: &str) -> Option<u64> {
-        self.inner
-            .borrow()
-            .panes
-            .get(session_id)
-            .map(|pane| pane.mount_id)
-    }
-
-    /// Every session with a mounted pane.
-    pub fn sessions(&self) -> Vec<String> {
-        self.inner.borrow().panes.keys().cloned().collect()
-    }
-
     /// The canonical viewport as text.
     pub fn viewport_text(&self, session_id: &str) -> Option<String> {
         self.surface(session_id)?.viewport_text()
@@ -207,92 +131,11 @@ impl PaneRegistry {
         self.surface(session_id)?.scrollback_text(max_rows)
     }
 
-    /// The first painted row containing `marker`.
-    pub fn find_painted_marker(&self, session_id: &str, marker: &str) -> Option<PaintedMarkerHit> {
-        find_marker(&self.surface(session_id)?.painted_lines()?, marker)
-    }
-
-    /// Watermarks and reader state of the mounted renderer.
-    pub fn render_probe(&self, session_id: &str) -> Option<PaneRenderProbe> {
-        let probe = self.surface(session_id)?.probe()?;
-        Some(PaneRenderProbe {
-            canonical: probe.canonical,
-            reconciled: probe.reconciled,
-            reader_intent: probe.reader_intent,
-            at_bottom: probe.at_bottom,
-            painted_scrollback_rows: probe.painted_scrollback_rows,
-            dom_rows: probe.dom_rows,
-            reconcile_block_reason: probe.reconcile_block_reason,
-            backfill_anchor: probe.backfill_anchor,
-        })
-    }
-
-    /// The painted window around the reader.
-    pub fn paint_presentation(
-        &self,
-        session_id: &str,
-        row_limit: Option<usize>,
-    ) -> Option<RendererPaintPresentation> {
-        self.surface(session_id)?.paint_presentation(row_limit)
-    }
-
-    /// Whether every row of `[start, end)` is painted.
-    pub fn has_painted_scrollback_range(&self, session_id: &str, start: u32, end: u32) -> bool {
-        self.surface(session_id)
-            .is_some_and(|surface| surface.has_painted_scrollback_range(start, end))
-    }
-
-    /// The painted text of `[start, end)`.
-    pub fn painted_scrollback_range(
-        &self,
-        session_id: &str,
-        start: u32,
-        end: u32,
-    ) -> Option<Vec<PaintedRowText>> {
-        self.surface(session_id)?
-            .painted_scrollback_range(start, end)
-    }
-
-    /// The presentation snapshot.
-    pub fn presentation_snapshot(&self, session_id: &str) -> Option<RendererPresentationSnapshot> {
-        self.surface(session_id)?.presentation_snapshot()
-    }
-
     /// The newest non-blank painted rows, for a tab-grid preview. `None` when
     /// no pane for the session is mounted: a session never warmed has no
     /// preview.
     pub fn preview_rows(&self, session_id: &str) -> Option<Vec<roost_protocol::cell::CellRow>> {
         self.surface(session_id)?.preview_rows()
-    }
-
-    /// The session's counters, zero when it never had a pane.
-    pub fn counters(&self, session_id: &str) -> PaneCounters {
-        self.inner
-            .borrow()
-            .counters
-            .get(session_id)
-            .copied()
-            .unwrap_or_default()
-    }
-
-    /// One history read issued by the session's pager.
-    pub fn note_backfill_request(&self, session_id: &str) {
-        self.inner
-            .borrow_mut()
-            .counters
-            .entry(session_id.to_owned())
-            .or_default()
-            .backfill_requests += 1;
-    }
-
-    /// One history page served by the session's elected direct carrier.
-    pub fn note_direct_history_response(&self, session_id: &str) {
-        self.inner
-            .borrow_mut()
-            .counters
-            .entry(session_id.to_owned())
-            .or_default()
-            .direct_history_responses += 1;
     }
 
     /// The surface, cloned out so the registry is not borrowed while it runs:

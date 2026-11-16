@@ -14,7 +14,6 @@ use super::PaneShared;
 use crate::components::terminal::pane_echo_feedback::{
     EchoFeedback, admission_echo_feedback, outcome_echo_feedback,
 };
-use crate::platform::browser::perf_counters::with_perf_counters;
 
 /// The quiet period after one `input.drop_burst` warning in a pane.
 const DROP_BURST_WARN_INTERVAL_MS: f64 = 60_000.0;
@@ -59,7 +58,6 @@ pub(super) fn detach(shared: &PaneShared) {
     if let Some(echo) = shared.echo.borrow_mut().take() {
         echo.host.dispose();
     }
-    with_perf_counters(|counters| counters.forget_session(&shared.session_id));
     if let Ok(mut core) = shared.pump.core().try_borrow_mut() {
         core.store_mut()
             .input

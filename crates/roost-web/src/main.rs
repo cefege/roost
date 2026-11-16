@@ -20,12 +20,12 @@ fn main() {
     let queue = roost_web::install_tracing();
     mark_phase(PhaseName::ModuleStart, &[]);
     #[cfg(target_arch = "wasm32")]
-    roost_web::platform::browser::perf_counters::install_long_task_watch();
+    roost_web::platform::browser::long_task_watch::install_long_task_watch();
     #[cfg(target_arch = "wasm32")]
     roost_web::platform::browser::phase_marks::install_phase_timeline_member();
     // A wasm panic surfaces as `RuntimeError: unreachable` with no message; the
-    // hook puts the message and location in the console, where the Playwright
-    // oracle's page log and a user's bug report both read it.
+    // hook puts the message and location in the console, where a user's bug
+    // report reads it.
     std::panic::set_hook(Box::new(|panic| {
         tracing::error!(target: "panic", %panic, kind = "panic", "spa.uncaught");
     }));

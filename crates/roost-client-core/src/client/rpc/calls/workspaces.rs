@@ -1,16 +1,10 @@
-//! Workspace mutations a surface asks for directly: create, update, delete,
-//! set sessions, and the list a cleanup re-reads versions from.
+//! Workspace mutations the rename dialog asks for directly: create and update.
 //!
-//! Called by the smoke backdoor (`createWorkspace`, `cleanupCreated`) and the
-//! sidebar/workspace surfaces through `CoordRpc::call`. Rows convert through the
-//! shared `codec::wire_rows::workspace_from_proto`.
-
-use std::collections::BTreeMap;
+//! Called through `CoordRpc::call`. Rows convert through the shared
+//! `codec::wire_rows::workspace_from_proto`.
 
 use roost_proto::{
-    WorkspacesCreateRequest, WorkspacesCreateResponse, WorkspacesDeleteRequest,
-    WorkspacesDeleteResponse, WorkspacesListRequest, WorkspacesListResponse,
-    WorkspacesSetSessionsRequest, WorkspacesSetSessionsResponse, WorkspacesUpdateRequest,
+    WorkspacesCreateRequest, WorkspacesCreateResponse, WorkspacesUpdateRequest,
     WorkspacesUpdateResponse,
 };
 use roost_protocol::wire::Workspace;
@@ -97,94 +91,6 @@ impl UnaryMethod for UpdateWorkspace {
     fn decode_response(body: &[u8]) -> Result<Workspace, RpcCodecError> {
         let response: WorkspacesUpdateResponse = decode_message(Self::METHOD, body)?;
         workspace_answer(Self::METHOD, response.workspace.as_option())
-    }
-}
-
-/// `WorkspacesDelete`, conditioned on the version the caller last saw.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DeleteWorkspace {
-    /// The workspace.
-    pub id: String,
-    /// The `If-Match` version.
-    pub if_version: u64,
-}
-
-impl UnaryMethod for DeleteWorkspace {
-    const METHOD: &'static str = "WorkspacesDelete";
-    /// Whether the delete was applied.
-    type Response = bool;
-
-    fn encode_request(&self) -> Result<Vec<u8>, RpcCodecError> {
-        encode_message(
-            Self::METHOD,
-            &WorkspacesDeleteRequest {
-                id: self.id.clone(),
-                if_version: self.if_version,
-                ..Default::default()
-            },
-        )
-    }
-
-    fn decode_response(body: &[u8]) -> Result<bool, RpcCodecError> {
-        let response: WorkspacesDeleteResponse = decode_message(Self::METHOD, body)?;
-        Ok(response.ok)
-    }
-}
-
-/// `WorkspacesSetSessions`: replace a workspace's session list.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SetWorkspaceSessions {
-    /// The workspace.
-    pub id: String,
-    /// The `If-Match` version.
-    pub if_version: u64,
-    /// The full new list.
-    pub session_ids: Vec<String>,
-}
-
-impl UnaryMethod for SetWorkspaceSessions {
-    const METHOD: &'static str = "WorkspacesSetSessions";
-    type Response = Workspace;
-
-    fn encode_request(&self) -> Result<Vec<u8>, RpcCodecError> {
-        encode_message(
-            Self::METHOD,
-            &WorkspacesSetSessionsRequest {
-                id: self.id.clone(),
-                if_version: self.if_version,
-                session_ids: self.session_ids.clone(),
-                ..Default::default()
-            },
-        )
-    }
-
-    fn decode_response(body: &[u8]) -> Result<Workspace, RpcCodecError> {
-        let response: WorkspacesSetSessionsResponse = decode_message(Self::METHOD, body)?;
-        workspace_answer(Self::METHOD, response.workspace.as_option())
-    }
-}
-
-/// `WorkspacesList`, read directly (a cleanup re-reads versions this way).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct ListWorkspaces;
-
-impl UnaryMethod for ListWorkspaces {
-    const METHOD: &'static str = "WorkspacesList";
-    /// The rows that converted, by id; a row that does not is dropped.
-    type Response = BTreeMap<String, Workspace>;
-
-    fn encode_request(&self) -> Result<Vec<u8>, RpcCodecError> {
-        encode_message(Self::METHOD, &WorkspacesListRequest::default())
-    }
-
-    fn decode_response(body: &[u8]) -> Result<BTreeMap<String, Workspace>, RpcCodecError> {
-        let response: WorkspacesListResponse = decode_message(Self::METHOD, body)?;
-        Ok(response
-            .workspaces
-            .iter()
-            .filter_map(|row| workspace_from_proto(row).ok())
-            .map(|workspace| (workspace.id.to_string(), workspace))
-            .collect())
     }
 }
 

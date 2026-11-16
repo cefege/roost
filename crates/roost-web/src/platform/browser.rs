@@ -1,10 +1,10 @@
-//! The document's own instrumentation: the phase-mark ring and the
-//! performance counters. Both are always on and document-scoped, because the
-//! questions they answer ("how long did this cold navigation take to paint?",
-//! "how much of that window was main-thread jank?") cannot be asked after the
-//! fact. Read by the smoke members.
+//! The document's own instrumentation: the phase-mark ring and the long-task
+//! stall watch. Both are always on and document-scoped, because the questions
+//! they answer ("how long did this cold navigation take to paint?", "did the
+//! main thread freeze?") cannot be asked after the fact. The phase ring is
+//! read through `window.__roostPhaseTimeline()`; stalls go to the log.
 
-pub mod perf_counters;
+pub mod long_task_watch;
 pub mod phase_marks;
 pub mod sync_marks;
 

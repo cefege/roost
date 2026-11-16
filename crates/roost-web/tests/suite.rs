@@ -38,6 +38,8 @@ mod global_search_page;
 mod index_page;
 #[path = "keyboard_shortcuts.rs"]
 mod keyboard_shortcuts;
+#[path = "long_task_watch.rs"]
+mod long_task_watch;
 #[path = "machine_actions.rs"]
 mod machine_actions;
 #[path = "mic_unmount_lifecycle.rs"]
@@ -70,8 +72,6 @@ mod palette_overlay_lifecycle;
 mod pane_drawer_mount;
 #[path = "peer_carrier_attempts.rs"]
 mod peer_carrier_attempts;
-#[path = "perf_counters.rs"]
-mod perf_counters;
 #[path = "phase_marks.rs"]
 mod phase_marks;
 #[path = "pump_carrier_environment.rs"]

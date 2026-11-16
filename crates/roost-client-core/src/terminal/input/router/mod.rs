@@ -33,8 +33,6 @@ pub struct InputRouter {
     next_input_seq: u64,
     /// How many route claims this document has minted, for their request ids.
     next_claim_id: u64,
-    /// The smoke backdoor's observer; `None` unless a smoke build armed it.
-    pub smoke_observer: Option<crate::terminal::input::smoke_observer::SmokeInputObserver>,
     /// Per-view admission answers and outcomes, drained by the terminal pane.
     pub outcome_feed: crate::terminal::input::outcome_feed::InputOutcomeFeed,
 }
@@ -277,9 +275,6 @@ impl InputRouter {
     fn observe_settled(&mut self, outcomes: &[InputOutcome]) {
         for outcome in outcomes {
             self.outcome_feed.observe_outcome(outcome);
-            if let Some(observer) = &mut self.smoke_observer {
-                observer.observe_outcome(outcome);
-            }
         }
     }
 

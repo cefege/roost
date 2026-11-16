@@ -62,7 +62,6 @@ impl Store {
             transport_probes: BTreeMap::new(),
             pending_transport_probes: BTreeMap::new(),
             announced_pairings: VecDeque::new(),
-            terminal_smoke_faults: crate::terminal::smoke_faults::TerminalSmokeFaults::default(),
         }
     }
 }

@@ -38,9 +38,6 @@ pub fn handle_terminal_input(
         now_ms,
     );
     store.input.outcome_feed.note_admission(view_id, &admission);
-    if let Some(observer) = &mut store.input.smoke_observer {
-        observer.observe_admission(session_id, &admission);
-    }
     let admitted = match admission {
         Ok(admitted) => admitted,
         Err(refusal) => {

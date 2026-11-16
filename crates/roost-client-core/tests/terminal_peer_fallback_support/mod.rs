@@ -43,10 +43,9 @@ pub fn usable_sdp() -> String {
     .join("\r\n")
 }
 
-/// An offer the worker cannot read: exactly what the smoke fault `invalid_sdp`
-/// injects by replacing the SDP before the worker ever sees it.
+/// An offer the worker cannot parse as SDP.
 pub fn unreadable_sdp() -> String {
-    "smoke-invalid-sdp".to_string()
+    "unreadable-sdp".to_string()
 }
 
 pub fn grant() -> DirectGrant {

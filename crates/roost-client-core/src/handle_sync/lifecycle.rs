@@ -23,12 +23,6 @@ use super::hydration::{request_link_replacement, start_bootstrap_probe, sweep_hy
 pub enum TransportControl {
     /// Replace the live socket now.
     Reconnect,
-    /// Drop the socket with the redial pre-armed to its highest floor.
-    ArmMaxBackoff,
-    /// Close the socket and hold the redial.
-    Pause,
-    /// Release the hold and redial now.
-    Resume,
 }
 
 /// Open a Sync socket, unless the credential was refused.
@@ -219,19 +213,6 @@ pub(crate) fn on_transport_control(
         TransportControl::Reconnect => {
             store.sync.redial.resume_now(now_ms);
             request_link_replacement(store, "manual", out);
-        }
-        TransportControl::ArmMaxBackoff => {
-            store.sync.redial.arm_floor();
-            // Dropped the way a network failure drops it: no immediate reason.
-            request_link_replacement(store, "network", out);
-        }
-        TransportControl::Pause => {
-            store.sync.redial.set_smoke_paused(true);
-            request_link_replacement(store, "manual", out);
-        }
-        TransportControl::Resume => {
-            store.sync.redial.set_smoke_paused(false);
-            store.sync.redial.resume_now(now_ms);
         }
     }
 }

@@ -17,7 +17,6 @@
 //! `docs/phase4-client-contract.md` §6, §8 and §9.
 
 pub mod admission;
-pub mod frame_counts;
 pub mod frame_fold;
 pub mod history;
 pub mod history_backfill;
@@ -32,7 +31,6 @@ pub mod session;
 pub mod session_liveness;
 pub mod session_views;
 pub mod session_wire;
-pub mod smoke_faults;
 pub mod token;
 pub mod view;
 

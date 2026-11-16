@@ -279,7 +279,7 @@ impl Pump {
         revision.set(now);
     }
 
-    /// The client core, for a read during render or a smoke probe.
+    /// The client core, for a read during render.
     pub fn core(&self) -> Rc<RefCell<ClientCore>> {
         Rc::clone(&self.inner.core)
     }
@@ -320,11 +320,6 @@ impl Pump {
     #[cfg(target_arch = "wasm32")]
     pub(crate) fn hold_browser_listener(&self, listener: Box<dyn std::any::Any>) {
         self.inner.listeners.borrow_mut().push(listener);
-    }
-
-    /// How many Sync sockets this document has dialled.
-    pub fn sync_dial_count(&self) -> u64 {
-        self.inner.core.borrow().store().sync.dial_count()
     }
 
     /// Ask a session's pane to find `literal` in its own retained history.

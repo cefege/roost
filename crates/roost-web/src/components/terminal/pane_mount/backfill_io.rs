@@ -94,7 +94,6 @@ fn fetch_history(
     wave: u64,
     request: roost_web_terminal::backfill::ScrollbackPageRequest,
 ) {
-    shared.panes.note_backfill_request(&shared.session_id);
     let call = ScrollbackCells {
         session_id: request.session_id,
         end_row: u64::from(request.end_row),
@@ -115,12 +114,7 @@ fn fetch_history(
                 return;
             };
             match answer {
-                DirectHistoryAnswer::Page(page) => {
-                    shared
-                        .panes
-                        .note_direct_history_response(&shared.session_id);
-                    settle_page(&shared, wave, Ok(page));
-                }
+                DirectHistoryAnswer::Page(page) => settle_page(&shared, wave, Ok(page)),
                 DirectHistoryAnswer::Overlimit => fetch_from_coordinator(&shared, wave, retry),
                 DirectHistoryAnswer::Lost(reason) => {
                     let still_elected = shared

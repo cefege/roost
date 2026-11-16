@@ -22,7 +22,6 @@ use crate::components::terminal::pane_state::set_if_changed;
 use crate::components::terminal::pane_status::{
     LoadingGate, PaneViewStatus, loading_notice, view_handle_status,
 };
-use crate::platform::browser::perf_counters::with_perf_counters;
 use crate::platform::browser::phase_marks::{PhaseName, mark_phase_once, phase_marked_once};
 
 /// What one store read found for this pane.
@@ -180,11 +179,8 @@ fn paint_owed(shared: &PaneShared, now: u64) {
     after_renderer_write(shared, now);
 }
 
-/// A painted frame closes the pane's input round trip, and the first one is
-/// the session's first applied cell.
+/// The first painted frame is the session's first applied cell.
 fn mark_painted_frame(shared: &PaneShared, canonical: &CellGridFrame, full: bool) {
-    let now = now_ms() as f64;
-    with_perf_counters(|counters| counters.note_frame_painted(&shared.session_id, now));
     if phase_marked_once(PhaseName::FirstCellApply, &shared.session_id) {
         return;
     }

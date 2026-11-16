@@ -18,7 +18,6 @@
 
 pub mod outcome_feed;
 pub mod router;
-pub mod smoke_observer;
 
 pub use router::InputRouter;
 

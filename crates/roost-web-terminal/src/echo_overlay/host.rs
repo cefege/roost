@@ -9,7 +9,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use roost_client_core::client::predictive_echo::PredictiveEcho;
-use roost_client_core::client::predictive_echo::report::EchoDebug;
 use roost_client_core::store::prefs::PredictMode;
 use roost_protocol::cell::CellGridFrame;
 use wasm_bindgen::JsCast;
@@ -148,12 +147,6 @@ impl PredictiveEchoHost {
     /// Adopt a route's measured round trip while no echo has measured one.
     pub fn seed_rtt(&self, rtt_ms: f64) {
         self.change(|echo, _| echo.seed_rtt(rtt_ms));
-    }
-
-    /// The burst's internal state, for the smoke tier's reset accounting.
-    pub fn debug(&self) -> Option<EchoDebug> {
-        let mut state = self.state.try_borrow_mut().ok()?;
-        Some(state.echo.debug())
     }
 
     /// Cancel the frame and the timer, detach the overlay, drop the burst.

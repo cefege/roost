@@ -18,7 +18,6 @@ use crate::components::terminal::pane_input::{
     terminal_text_bytes,
 };
 use crate::components::terminal::pane_state::{PaneFlags, set_if_changed};
-use crate::platform::browser::perf_counters::with_perf_counters;
 
 /// Selectors that own focus themselves; the pane never steals it from them.
 const FOCUS_OWNERS: &str =
@@ -36,8 +35,6 @@ pub(super) fn send_bytes(shared: &PaneShared, bytes: Vec<u8>, predicts: bool) {
         view_id: Some(shared.view_id.clone()),
         bytes: bytes.clone(),
     });
-    let sent_at = super::browser::now_ms() as f64;
-    with_perf_counters(|counters| counters.note_input_sent(&shared.session_id, sent_at));
     super::echo::after_dispatch(shared, &bytes, predicts);
 }
 

@@ -122,8 +122,6 @@ mod predictive_echo_reset;
 mod predictive_echo_seed;
 #[path = "prefs_persistence.rs"]
 mod prefs_persistence;
-#[path = "replica_frame_counts.rs"]
-mod replica_frame_counts;
 #[path = "rpc_codec_identity.rs"]
 mod rpc_codec_identity;
 #[path = "rpc_codec_requests.rs"]
@@ -136,8 +134,6 @@ mod rpc_codec_rows;
 mod shell_intent;
 #[path = "sidebar_intent.rs"]
 mod sidebar_intent;
-#[path = "smoke_input_observer.rs"]
-mod smoke_input_observer;
 #[path = "store_close_kill.rs"]
 mod store_close_kill;
 #[path = "store_revision.rs"]
@@ -228,8 +224,6 @@ mod terminal_peer_trait;
 mod terminal_renderer_deliveries;
 #[path = "terminal_repair_on_refusal.rs"]
 mod terminal_repair_on_refusal;
-#[path = "terminal_smoke_faults.rs"]
-mod terminal_smoke_faults;
 #[path = "terminal_transport_indicator.rs"]
 mod terminal_transport_indicator;
 #[path = "terminal_view_answer.rs"]

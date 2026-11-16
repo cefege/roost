@@ -44,8 +44,6 @@ pub struct TerminalSession {
     pub wire_grid_epoch: Option<String>,
     /// The last sequence seen on the wire.
     pub wire_seq: Option<u64>,
-    /// Decoded wire frames by kind, for the smoke counters.
-    pub frame_counts: crate::terminal::frame_counts::FrameCounts,
     /// The revision every renderer repaints on, and the deltas since the last
     /// full a renderer folds so their appended history is painted.
     deliveries: RendererDeliveries,
@@ -69,7 +67,6 @@ impl TerminalSession {
             wire_stream_id: None,
             wire_grid_epoch: None,
             wire_seq: None,
-            frame_counts: crate::terminal::frame_counts::FrameCounts::default(),
             deliveries: RendererDeliveries::default(),
         }
     }
@@ -227,7 +224,6 @@ impl TerminalSession {
         token: &TerminalToken,
         now_ms: u64,
     ) -> Admission {
-        self.frame_counts.note_decoded(&decoded);
         // Read the assembler's own answer rather than tracking it separately: a
         // second source for "is something in flight" is a second thing to keep
         // correct, and the fold's refusal depends on it.
