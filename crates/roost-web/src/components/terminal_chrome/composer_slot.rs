@@ -22,6 +22,13 @@ use dioxus::web::WebEventExt as _;
 
 use super::{ClaimRelease, ComposerClaim, publish_measured};
 
+/// The resize observer watching the dock, and the callback it holds.
+#[cfg(target_arch = "wasm32")]
+type ResizeWatch = (
+    web_sys::ResizeObserver,
+    wasm_bindgen::closure::Closure<dyn FnMut()>,
+);
+
 /// A dock's hold on the shell's composer slot.
 #[derive(Debug)]
 pub struct ComposerSlot {
@@ -29,12 +36,7 @@ pub struct ComposerSlot {
     release: RefCell<Option<Rc<ClaimRelease>>>,
     element: RefCell<Option<Rc<MountedData>>>,
     #[cfg(target_arch = "wasm32")]
-    observer: RefCell<
-        Option<(
-            web_sys::ResizeObserver,
-            wasm_bindgen::closure::Closure<dyn FnMut()>,
-        )>,
-    >,
+    observer: RefCell<Option<ResizeWatch>>,
     /// What the dock's element reports, where there is no browser to ask.
     ///
     /// The real measurement is `getBoundingClientRect`, which cannot run

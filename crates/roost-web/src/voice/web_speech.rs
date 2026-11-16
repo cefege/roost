@@ -48,13 +48,16 @@ impl SpeechState {
     }
 }
 
+/// A handler closure the recognizer holds a reference to.
+type SpeechHandler = Rc<Closure<dyn FnMut(JsValue)>>;
+
 /// One recording's recognizer.
 pub struct WebSpeech {
     recognizer: Object,
     state: Rc<SpeechState>,
     /// The handler closures, owned here so the recognizer cannot outlive them: a
     /// dropped handler property is a dropped callback.
-    handlers: RefCell<Vec<Rc<Closure<dyn FnMut(JsValue)>>>>,
+    handlers: RefCell<Vec<SpeechHandler>>,
 }
 
 impl std::fmt::Debug for WebSpeech {

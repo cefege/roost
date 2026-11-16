@@ -101,7 +101,7 @@ impl Deepgram {
         keyterms: KeytermSource,
         sink: EngineSink,
     ) -> Rc<Self> {
-        let engine = Rc::new_cyclic(|weak| {
+        Rc::new_cyclic(|weak| {
             let owner = weak.clone();
             Self {
                 language,
@@ -122,8 +122,7 @@ impl Deepgram {
                     }
                 }),
             }
-        });
-        engine
+        })
     }
 
     /// The verdict handler, cloned per open so a repair does not need the

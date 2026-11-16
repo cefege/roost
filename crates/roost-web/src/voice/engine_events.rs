@@ -64,9 +64,9 @@ fn live(weak: &Option<Weak<Deepgram>>, run: u64) -> Option<Rc<Deepgram>> {
 }
 
 /// Run `visit` once, on a timer.
-pub(super) fn after<F: FnMut() + 'static>(millis: i32, mut visit: F) {
+pub(super) fn after<F: FnOnce() + 'static>(millis: i32, visit: F) {
     if let Some(window) = web_sys::window() {
-        let closure = Closure::once(move || visit());
+        let closure = Closure::once(visit);
         let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
             closure.as_ref().unchecked_ref(),
             millis,
@@ -201,10 +201,10 @@ impl Deepgram {
                 return;
             };
             let socket = engine.session.borrow().socket.clone();
-            if let Some(socket) = socket {
-                if socket.ready_state() == WebSocket::OPEN {
-                    let _ = socket.send_with_str("{\"type\":\"KeepAlive\"}");
-                }
+            if let Some(socket) = socket
+                && socket.ready_state() == WebSocket::OPEN
+            {
+                let _ = socket.send_with_str("{\"type\":\"KeepAlive\"}");
             }
         }) as Box<dyn FnMut()>);
         *self.keepalive.borrow_mut() = interval(tick, KEEPALIVE_MS);

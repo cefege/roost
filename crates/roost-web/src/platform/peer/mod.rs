@@ -52,7 +52,7 @@ use interop::unavailable;
 /// The three lanes, in the order the protocol numbers them. The order IS the
 /// stream id: two ends that number their channels differently do not pair them.
 #[cfg(target_arch = "wasm32")]
-const LANES: [(PeerLane, &'static str); 3] = [
+const LANES: [(PeerLane, &str); 3] = [
     (PeerLane::Control, CHANNEL_TERMINAL_CONTROL_V1),
     (PeerLane::Data, CHANNEL_TERMINAL_DATA_V1),
     (PeerLane::History, CHANNEL_TERMINAL_HISTORY_V1),

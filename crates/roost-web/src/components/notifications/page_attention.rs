@@ -46,6 +46,11 @@ fn window_focused() -> bool {
     true
 }
 
+/// One installed listener: its target, its event name, and the closure the
+/// browser holds a reference to.
+#[cfg(target_arch = "wasm32")]
+type AttentionListener = (EventTarget, &'static str, Closure<dyn FnMut(Event)>);
+
 /// The attention signal plus the listeners that move it.
 ///
 /// Visibility and focus are EDGES, not values: what is owed is owed on the way
@@ -55,7 +60,7 @@ fn window_focused() -> bool {
 struct PageAttention {
     read: Signal<bool>,
     #[cfg(target_arch = "wasm32")]
-    listeners: Vec<(EventTarget, &'static str, Closure<dyn FnMut(Event)>)>,
+    listeners: Vec<AttentionListener>,
 }
 
 impl Drop for PageAttention {

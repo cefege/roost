@@ -135,8 +135,7 @@ fn report_entries(report: &JsValue) -> Vec<JsValue> {
     if for_each.apply(report, &arguments).is_err() {
         return Vec::new();
     }
-    let entries = collected.borrow().clone();
-    entries
+    collected.borrow().clone()
 }
 
 /// The kind of address the pair's far end was reached at.

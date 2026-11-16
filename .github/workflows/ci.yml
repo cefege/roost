@@ -62,6 +62,10 @@ jobs:
       # gate that is green because it is absent is not a gate.
       - name: wasm32 build
         run: cargo build -p roost-client-core -p roost-protocol -p roost-web -p roost-web-terminal --target wasm32-unknown-unknown
+      # The browser-only `cfg(target_arch = "wasm32")` code is invisible to the
+      # host clippy above.
+      - name: wasm32 clippy
+        run: cargo clippy -p roost-client-core -p roost-protocol -p roost-web -p roost-web-terminal --target wasm32-unknown-unknown -- -D warnings
 
   # The coordinator suite again, against a real Postgres server: every
   # behaviour test opens its database through `db_support`, which gives each

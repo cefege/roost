@@ -49,10 +49,10 @@ pub(super) fn left_folder_row(event: &DragEvent) -> bool {
         else {
             return false;
         };
-        return !native
+        !native
             .related_target()
             .and_then(|target| target.dyn_into::<web_sys::Node>().ok())
-            .is_some_and(|target| row.contains(Some(&target)));
+            .is_some_and(|target| row.contains(Some(&target)))
     }
     #[cfg(not(target_arch = "wasm32"))]
     {

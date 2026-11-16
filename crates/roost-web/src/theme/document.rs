@@ -62,10 +62,9 @@ impl ThemeDocument for BrowserThemeDocument {
             .properties
             .iter()
             .find_map(|(property, value)| (*property == "--background").then_some(value.as_str()))
+            && let Ok(Some(theme_color)) = document.query_selector("meta[name='theme-color']")
         {
-            if let Ok(Some(theme_color)) = document.query_selector("meta[name='theme-color']") {
-                let _ = theme_color.set_attribute("content", background);
-            }
+            let _ = theme_color.set_attribute("content", background);
         }
         super::terminal_palette::apply_stored_palette();
     }

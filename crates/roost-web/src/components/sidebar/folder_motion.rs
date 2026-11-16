@@ -13,10 +13,10 @@ pub(super) fn use_folder_motion(keys: Rc<Vec<String>>) -> EventHandler<()> {
     let pending = Rc::clone(&slots);
     use_effect(use_reactive((&keys,), move |_| {
         let previous = std::mem::take(&mut *pending.borrow_mut());
-        if !previous.is_empty() {
-            if let Some(container) = folder_container() {
-                flip_grid(&container, &previous);
-            }
+        if !previous.is_empty()
+            && let Some(container) = folder_container()
+        {
+            flip_grid(&container, &previous);
         }
     }));
     EventHandler::new(move |()| {

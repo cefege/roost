@@ -36,7 +36,7 @@ impl RandomSource for BrowserRandomSource {
                     detail: "crypto.getRandomValues is unavailable in this document".to_owned(),
                 });
             }
-            return Ok(());
+            Ok(())
         }
         #[cfg(not(target_arch = "wasm32"))]
         {

@@ -91,7 +91,7 @@ fn worklet_url() -> Result<String, JsValue> {
     let bag = BlobPropertyBag::new();
     bag.set_type("application/javascript");
     let blob = Blob::new_with_str_sequence_and_options(&parts, &bag)?;
-    Ok(web_sys::Url::create_object_url_with_blob(&blob)?)
+    web_sys::Url::create_object_url_with_blob(&blob)
 }
 
 #[cfg(test)]
