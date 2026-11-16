@@ -42,6 +42,8 @@ mod keyboard_shortcuts;
 mod long_task_watch;
 #[path = "machine_actions.rs"]
 mod machine_actions;
+#[path = "menu_focus_keys.rs"]
+mod menu_focus_keys;
 #[path = "mic_unmount_lifecycle.rs"]
 mod mic_unmount_lifecycle;
 #[path = "notification_dock_lift.rs"]
