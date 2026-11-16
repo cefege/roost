@@ -11,6 +11,7 @@
 use std::sync::Arc;
 
 use connectrpc::{ConnectError, ErrorCode, Response, ServiceResult};
+use roost_observability::{LogFields, SignalKind, signal};
 use roost_proto::{
     SessionsAttachRequest, SessionsAttachResponse, SessionsKillRequest, SessionsKillResponse,
     SessionsListRequest, SessionsListResponse, SessionsRenameRequest, SessionsRenameResponse,
@@ -270,6 +271,10 @@ pub(super) async fn append_coordinator_event(
         .await
         .map_err(|error| {
             tracing::error!(%error, "sessions: a coordinator-side append failed");
+            signal::emit(
+                SignalKind::EventAppendFailed,
+                LogFields::new().set("error", error.to_string()),
+            );
             ConnectError::new(ErrorCode::Internal, error.to_string())
         })
 }

@@ -12,6 +12,7 @@
 
 use std::sync::Arc;
 
+use roost_observability::{LogFields, SignalKind, signal};
 use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 use roost_protocol::wire::{ChannelId, SessionEvent, SessionId, WorkerFp};
 use tokio::time::Instant;
@@ -80,6 +81,16 @@ pub(super) fn invalidate_screen_on_drop(
         tracing::info!(%worker_fp, channel_id = drop.channel_id, session_id = %drop.session_id,
             reason = %drop.reason, phase = ?drop.phase, cell_frames = drop.cell_frames,
             metadata_frames = drop.metadata_frames, "worker link: announced channel dropped");
+        signal::emit(
+            SignalKind::CellAnnounceBarrierDrop,
+            LogFields::new()
+                .set("sid", &drop.session_id)
+                .set("worker_fp", worker_fp.as_str())
+                .set("channel_id", drop.channel_id)
+                .set("reason", drop.reason.to_string())
+                .set("cell_frames", drop.cell_frames)
+                .set("metadata_frames", drop.metadata_frames),
+        );
         let Ok(session_id) = SessionId::try_from(drop.session_id.as_str()) else {
             tracing::warn!(%worker_fp, session_id = %drop.session_id,
                 "worker link: a dropped announcement names no addressable session");

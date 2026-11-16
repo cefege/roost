@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 
+use roost_observability::{LogFields, SignalKind, signal};
 use roost_protocol::wire::{ChannelId, WorkerFp};
 
 /// A single drop is the benign open-race; a sustained burst means real loss.
@@ -65,6 +66,17 @@ impl UnmappedDropDetector {
                 drops = entry.count,
                 window_ms = UNMAPPED_DROP_WINDOW_MS,
                 "terminal bytes are dropping on an unbound channel"
+            );
+            signal::emit(
+                SignalKind::BytesDropUnmapped,
+                LogFields::new()
+                    .set("worker_fp", worker_fp.as_str())
+                    .set("channel_id", channel_id.as_u32())
+                    .set("drops", entry.count)
+                    .set(
+                        "cooldownKey",
+                        format!("{worker_fp}:{}", channel_id.as_u32()),
+                    ),
             );
         }
     }

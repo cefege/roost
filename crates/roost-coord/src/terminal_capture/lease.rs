@@ -20,6 +20,7 @@ use roost_protocol::terminal_capture::command::{TerminalCaptureCommand, Terminal
 use roost_protocol::terminal_capture::{TerminalCaptureFileRef, TerminalCaptureStatus};
 
 use crate::terminal_capture::TerminalCaptureRuntime;
+use crate::terminal_capture::capture_signals;
 use crate::terminal_capture::recorder::ReleasedRecords;
 use crate::terminal_direct::grant_rpc::capture_failure;
 
@@ -253,6 +254,7 @@ impl TerminalCaptureRuntime {
             coordinator_bytes = freed.bytes,
             "terminal.capture_expired"
         );
+        capture_signals::capture_expired(&recording.session_id, recording_id, reason);
         self.leases()
             .recordings
             .insert(recording_id.to_owned(), recording);

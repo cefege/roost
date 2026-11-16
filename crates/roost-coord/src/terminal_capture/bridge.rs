@@ -23,6 +23,7 @@ use roost_protocol::wire::WorkerFp;
 use crate::auth::principal::{Principal, device_refusal};
 use crate::services::CoordServices;
 use crate::terminal_capture::TerminalCaptureRuntime;
+use crate::terminal_capture::capture_signals;
 use crate::terminal_capture::freeze::FreezeContext;
 use crate::terminal_capture::lease::{
     CaptureRecording, CaptureResultFields, RecordingState, capture_result,
@@ -162,6 +163,11 @@ impl Admitted<'_> {
             }
             tracing::warn!(session_id = self.command.session_id, recording_id = self.command.recording_id,
                 error = ?error, "terminal.capture_failed");
+            capture_signals::capture_failed(
+                &self.command.session_id,
+                &self.command.recording_id,
+                &error,
+            );
             let expires_at_ms = renewed.then_some(expires_at_ms);
             return Ok(self.result(
                 Status::Error,
@@ -174,6 +180,13 @@ impl Admitted<'_> {
         }
         tracing::info!(session_id = self.command.session_id, recording_id = self.command.recording_id,
             worker_fp = %self.worker_fp, expires_at_ms, renewed, "terminal.capture_started");
+        capture_signals::capture_started(
+            &self.command.session_id,
+            &self.command.recording_id,
+            self.worker_fp.as_str(),
+            expires_at_ms,
+            renewed,
+        );
         let recent_worker_capture = outcome.ok().and_then(|ack| ack.recent_worker_capture);
         Ok(self.result(
             Status::Recording,
@@ -195,6 +208,11 @@ impl Admitted<'_> {
                 coordinator_bytes = freed.bytes,
                 lease_ms = self.now_ms.saturating_sub(active.started_at_ms),
                 "terminal.capture_stopped"
+            );
+            capture_signals::capture_stopped(
+                &self.command.session_id,
+                &active.recording_id,
+                self.now_ms.saturating_sub(active.started_at_ms),
             );
         }
         // Forwarded even with no lease here: a repeat by the owner is harmless,
@@ -300,6 +318,7 @@ impl Admitted<'_> {
                 tracing::warn!(session_id = command.session_id, capture_id = command.capture_id, error = ?error,
                     coordinator_records = evidence.records, coordinator_available = evidence.available,
                     "terminal.capture_failed");
+                capture_signals::capture_failed(&command.session_id, &command.capture_id, &error);
                 let recent_worker_capture = outcome.ok().and_then(|ack| ack.recent_worker_capture);
                 return Ok(self.result(
                     Status::Error,

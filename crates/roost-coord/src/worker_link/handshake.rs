@@ -19,6 +19,7 @@ use crate::services::CoordServices;
 use crate::worker_link::dispatch::FrameClass;
 use crate::worker_link::upgrade_admission::VerifiedWorkerCaller;
 use crate::worker_link::upstream_frame::{HelloFrame, LinkFrame, decode_link_frame, message_bytes};
+use crate::worker_link::worker_signals;
 
 /// How long an admitted socket may stay silent before its hello.
 ///
@@ -69,6 +70,7 @@ pub(super) async fn read_hello(
             Ok(frame) => frame,
             Err(error) => {
                 tracing::warn!(worker_fp, %error, "worker link: decode_failed; the frame is ignored");
+                worker_signals::protocol_violation(worker_fp, "decode_failed");
                 continue;
             }
         };
@@ -81,6 +83,7 @@ pub(super) async fn read_hello(
                     got = %hello.worker_fp,
                     "worker link: hello_fp_mismatch; closing"
                 );
+                worker_signals::protocol_violation(worker_fp, "hello_fp_mismatch");
                 return None;
             }
             LinkFrame::RefreshJwt { jwt } => {
@@ -90,6 +93,7 @@ pub(super) async fn read_hello(
             }
             LinkFrame::Dispatch(frame) if frame.class == FrameClass::Durable => {
                 tracing::warn!(worker_fp, "worker link: event_before_hello; closing");
+                worker_signals::protocol_violation(worker_fp, "event_before_hello");
                 return None;
             }
             LinkFrame::Pong { .. } | LinkFrame::Dispatch(_) => {

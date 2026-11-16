@@ -9,6 +9,7 @@
 //! per-method answer.
 
 use connectrpc::{ConnectError, ErrorCode, RequestContext};
+use roost_observability::{LogFields, SignalKind, signal};
 
 use super::confirmation::PairConfirmation;
 use super::provenance::PairRequestProvenance;
@@ -107,6 +108,10 @@ pub(crate) async fn front_door_identity(
     .await
     .map_err(|rejection| {
         tracing::info!(reason = %rejection, "a pairing request carried no front-door identity");
+        signal::emit(
+            SignalKind::CfAccessRejected,
+            LogFields::new().set("reason", rejection.to_string()),
+        );
         ConnectError::new(
             ErrorCode::Unauthenticated,
             PairingRefusal::FrontDoorSignInRequired.to_string(),

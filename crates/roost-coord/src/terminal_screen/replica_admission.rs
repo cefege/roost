@@ -8,6 +8,7 @@
 
 use std::sync::Arc;
 
+use roost_observability::{LogFields, SignalKind, signal};
 use roost_proto::PbCellGridFrame;
 use roost_protocol::cell::frame_chunk_validation::CELL_GRID_COORD_FANOUT_STAMP_MAX_ENCODED_BYTES;
 use roost_protocol::cell::frame_chunk_validation::assert_cell_grid_snapshot;
@@ -135,6 +136,7 @@ impl ScreenHub {
                 residency.drop_cache(&mut screen.charge);
                 screen.source = None;
                 tracing::error!(session_id = %session_id, rows, spans, "terminal.screen_capacity: a baseline exceeded the residency budget");
+                signal_screen_capacity(session_id, rows, spans);
                 effects.push(ScreenEffect::Unavailable {
                     session_id: session_id.clone(),
                     reason: CAPACITY_EXCEEDED.to_owned(),
@@ -145,6 +147,7 @@ impl ScreenHub {
                 // Unsignalled, a budget refusal makes an accepted full silently
                 // vanish.
                 tracing::error!(session_id = %session_id, rows, spans, "terminal.screen_capacity: the pool refused an accepted baseline");
+                signal_screen_capacity(session_id, rows, spans);
                 return;
             }
         }
@@ -319,4 +322,16 @@ fn viewport_spans(frame: &CellGridFrame) -> u64 {
         .iter()
         .map(|row| u64::try_from(row.spans.len()).unwrap_or(u64::MAX))
         .fold(0_u64, u64::saturating_add)
+}
+
+/// A baseline was refused by the residency budget; the session's screen is
+/// blank or unchanged until a fresh baseline fits.
+fn signal_screen_capacity(session_id: &SessionId, rows: u64, spans: u64) {
+    signal::emit(
+        SignalKind::TerminalScreenCapacity,
+        LogFields::new()
+            .set("sid", session_id.to_string())
+            .set("rows", rows)
+            .set("spans", spans),
+    );
 }

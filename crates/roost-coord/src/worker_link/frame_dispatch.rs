@@ -258,6 +258,7 @@ impl WorkerFrameDispatcher {
         match appended {
             Err(error) => {
                 tracing::error!(worker_fp, client_seq, %error, "a durable append failed");
+                super::worker_signals::event_append_failed(worker_fp, client_seq, &error);
                 DispatchOutcome::Close(close_for_append_error(&error))
             }
             Ok(result) => self.after_append(worker_fp, client_seq, result),

@@ -16,6 +16,7 @@
 
 use std::sync::Arc;
 
+use roost_observability::{LogFields, SignalKind, signal};
 use roost_proto::SyncDomain;
 use roost_protocol::wire::sync_ws::SYNC_RESET_CURSOR_AHEAD_OF_LOG;
 use sqlx::AnyPool;
@@ -118,6 +119,10 @@ async fn backfill_since(link: &SyncLink, pool: &AnyPool, since: u64) {
                 returned = count,
                 "the v1 backfill returned a full page; older clients re-list to recover the rest"
             );
+            signal::emit(
+                SignalKind::SyncBackfillTruncated,
+                LogFields::new().set("since", since).set("returned", count),
+            );
         }
         Ok(count) => {
             tracing::info!(
@@ -130,6 +135,7 @@ async fn backfill_since(link: &SyncLink, pool: &AnyPool, since: u64) {
         }
         Err(error) => {
             tracing::warn!(event = "sync-ws", action = "backfill_failed", since, error = %error, "the v1 backfill could not be read");
+            signal_backfill_failed(since, &error, "v1");
         }
     }
     link.lock().replay.finish_backfill();
@@ -255,10 +261,22 @@ fn deliver_recovered(state: &mut LinkState, row: &StoredEvent) {
 /// v2 sends whatever the recovery's state (`sync-feed.ts:346-353`).
 fn fail_recovery(link: &SyncLink, since: u64, error: &EventQueryError) {
     tracing::warn!(event = "sync-ws", action = "backfill_failed", since, error = %error, "the v2 recovery could not be read");
+    signal_backfill_failed(since, error, "v2");
     link.deliver_with(|state| {
         abort_recovery(state, "recovery_failed");
         None
     });
+}
+
+/// A reconnect backfill read failed while the live stream continued.
+fn signal_backfill_failed(since: u64, error: &dyn std::fmt::Display, protocol: &'static str) {
+    signal::emit(
+        SignalKind::SyncBackfillFailed,
+        LogFields::new()
+            .set("since", since)
+            .set("error", error.to_string())
+            .set("protocol", protocol),
+    );
 }
 
 /// End a recovery a live event has not already abandoned (`sync-feed.ts:305`).

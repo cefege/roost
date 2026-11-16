@@ -19,8 +19,8 @@
 //! outcome, so a second layer writing the same request writes nothing.
 
 use connectrpc::RequestContext;
-use roost_observability::LogFields;
 use roost_observability::log::error as log_error;
+use roost_observability::{LogFields, SignalKind, signal};
 use sqlx::Row;
 
 use crate::coord_core::{Caller, CoordCore, ListenerTrust};
@@ -33,9 +33,6 @@ use crate::write_gate::{method_never_persists_audit, should_persist_method_audit
 
 /// The log target the audit write path reports under.
 const AUDIT_TARGET: &str = "middleware.audit";
-
-/// The event name an operator greps when the audit log has a hole in it.
-const WRITE_FAILED: &str = "audit.write_failed";
 
 /// The event name for a row written with no tenancy scope.
 const SCOPE_MISSING: &str = "audit.scope_missing";
@@ -235,10 +232,13 @@ pub async fn record_request(core: &CoordCore, record: &mut AuditRecord) -> Audit
             },
         },
         Err(error) => {
-            let fields = LogFields::new()
-                .set("error", error.to_string())
-                .set("path", path);
-            log_error(AUDIT_TARGET, WRITE_FAILED, fields);
+            signal::emit(
+                SignalKind::AuditWriteFailed,
+                LogFields::new()
+                    .set("error", error.to_string())
+                    .set("path", path)
+                    .set("cooldownKey", "audit"),
+            );
             AuditOutcome::WriteFailed {
                 error: error.to_string(),
             }

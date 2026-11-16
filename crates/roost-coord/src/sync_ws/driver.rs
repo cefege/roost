@@ -22,6 +22,7 @@
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
+use roost_observability::{LogFields, SignalKind, signal};
 use roost_proto::FirehoseFrame;
 use roost_proto::buffa::Message;
 use tokio::sync::Notify;
@@ -231,6 +232,12 @@ impl LinkState {
             // never get, which v2 treats as an ambiguous delivery.
             Err(error) => {
                 tracing::warn!(event = "sync-ws", action = "control_send_failed", frame = kind, error = %error);
+                signal::emit(
+                    SignalKind::SyncWsFrameDropped,
+                    LogFields::new()
+                        .set("frame", kind)
+                        .set("error", error.to_string()),
+                );
                 self.decide_close(LinkClose::BACKPRESSURE, "frame_dropped", kind, now_ms);
             }
         }
@@ -342,6 +349,14 @@ impl LinkState {
 
     fn close_for_backpressure(&mut self, reason: BackpressureReason, frame: &str, now_ms: u64) {
         self.decide_close(LinkClose::BACKPRESSURE, &reason.to_string(), frame, now_ms);
+        signal::emit(
+            SignalKind::SyncQueueOverflow,
+            LogFields::new()
+                .set("socket_id", &self.socket_id)
+                .set("reason", reason.to_string())
+                .set("frame", frame)
+                .set("cooldownKey", &self.socket_id),
+        );
     }
 }
 

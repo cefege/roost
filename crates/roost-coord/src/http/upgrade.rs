@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 use axum::extract::{Request, State};
 use axum::response::{IntoResponse, Response};
+use roost_observability::{LogFields, SignalKind, signal};
 
 use crate::http::listener::ListenerState;
 use crate::worker_link::upgrade_admission::WORKER_WS_PATH_PREFIX;
@@ -84,16 +85,24 @@ pub async fn worker_upgrade(
         caller.as_ref().map(|caller| caller.key_generation),
     );
     match decision {
-        crate::worker_link::upgrade_admission::UpgradeDecision::Refused(refusal) => (
-            axum::http::StatusCode::from_u16(refusal.status())
-                .unwrap_or(axum::http::StatusCode::UNAUTHORIZED),
-            [(
-                axum::http::header::CONTENT_TYPE,
-                "text/plain; charset=utf-8",
-            )],
-            refusal.body(),
-        )
-            .into_response(),
+        crate::worker_link::upgrade_admission::UpgradeDecision::Refused(refusal) => {
+            signal::emit(
+                SignalKind::WorkerAuthRejected,
+                LogFields::new()
+                    .set("reason", refusal.to_string())
+                    .set("cooldownKey", &fingerprint),
+            );
+            (
+                axum::http::StatusCode::from_u16(refusal.status())
+                    .unwrap_or(axum::http::StatusCode::UNAUTHORIZED),
+                [(
+                    axum::http::header::CONTENT_TYPE,
+                    "text/plain; charset=utf-8",
+                )],
+                refusal.body(),
+            )
+                .into_response()
+        }
         decision @ crate::worker_link::upgrade_admission::UpgradeDecision::Admitted { .. } => {
             upgrade_worker_socket(request, decision, Arc::clone(&state.services)).await
         }
@@ -210,16 +219,22 @@ pub async fn sync_upgrade(State(state): State<Arc<ListenerState>>, request: Requ
         },
     );
     match decision {
-        crate::sync_ws::upgrade_admission::SyncUpgradeDecision::Refused(refusal) => (
-            axum::http::StatusCode::from_u16(refusal.status())
-                .unwrap_or(axum::http::StatusCode::BAD_REQUEST),
-            [(
-                axum::http::header::CONTENT_TYPE,
-                "text/plain; charset=utf-8",
-            )],
-            refusal.body(),
-        )
-            .into_response(),
+        crate::sync_ws::upgrade_admission::SyncUpgradeDecision::Refused(refusal) => {
+            signal::emit(
+                SignalKind::SyncAuthRejected,
+                LogFields::new().set("reason", refusal.to_string()),
+            );
+            (
+                axum::http::StatusCode::from_u16(refusal.status())
+                    .unwrap_or(axum::http::StatusCode::BAD_REQUEST),
+                [(
+                    axum::http::header::CONTENT_TYPE,
+                    "text/plain; charset=utf-8",
+                )],
+                refusal.body(),
+            )
+                .into_response()
+        }
         crate::sync_ws::upgrade_admission::SyncUpgradeDecision::Admitted { caller, scope } => {
             upgrade_sync_socket(&state, request, caller, scope).await
         }

@@ -9,6 +9,7 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use connectrpc::{ConnectError, ErrorCode};
+use roost_observability::{LogFields, SignalKind, signal};
 use tokio::time::Instant;
 
 use crate::terminal_screen::pending_rpcs::PendingRpc;
@@ -127,6 +128,14 @@ impl<T: TypedResult> TerminalWorkerRequest<T> {
                     timeout_ms,
                     kind = T::KIND,
                     "a worker did not reply before the terminal hop deadline"
+                );
+                signal::emit(
+                    SignalKind::RpcWorkerTimeout,
+                    LogFields::new()
+                        .set("worker_fp", pending.worker_fp())
+                        .set("request_id", pending.request_id())
+                        .set("timeout_ms", timeout_ms)
+                        .set("kind", T::KIND),
                 );
                 Err(ConnectError::new(
                     ErrorCode::DeadlineExceeded,

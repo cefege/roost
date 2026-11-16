@@ -13,6 +13,7 @@
 //! screen hub's accepted-frame hook (`TerminalCaptureRuntime::recorder`).
 
 pub mod bridge;
+mod capture_signals;
 pub mod freeze;
 pub mod lease;
 pub mod recorder;

@@ -36,6 +36,7 @@ use crate::worker_link::rate_window::DurableEventWindow;
 use crate::worker_link::reap_outbox::ReapOutbox;
 use crate::worker_link::result_lane::ResultLane;
 use crate::worker_link::upstream_frame::{HelloFrame, LinkFrame, decode_link_frame};
+use crate::worker_link::worker_signals;
 use crate::workers::registry::{claim_generation, publish_routable};
 
 /// Where a message's bytes came from: read off the socket now, or drained from
@@ -225,6 +226,7 @@ impl LinkSession {
             Ok(frame) => frame,
             Err(error) => {
                 tracing::warn!(%worker_fp, %error, "worker link: decode_failed; the frame is ignored");
+                worker_signals::protocol_violation(worker_fp.as_str(), "decode_failed");
                 return LinkStep::Continue;
             }
         };
@@ -236,6 +238,7 @@ impl LinkSession {
         match frame {
             LinkFrame::Hello(_) => {
                 tracing::warn!(%worker_fp, "worker link: duplicate_hello; closing");
+                worker_signals::protocol_violation(worker_fp.as_str(), "duplicate_hello");
                 LinkStep::Close(SocketClose::Default)
             }
             LinkFrame::Pong { ts } => {
@@ -278,6 +281,7 @@ impl LinkSession {
             if let Err(breach) = self.event_window.admit(now_ms) {
                 tracing::warn!(%worker_fp, limit = breach.limit, window_ms = breach.window_ms,
                     "worker link: event_rate_exceeded; closing");
+                worker_signals::event_rate_exceeded(&worker_fp, breach.limit, breach.window_ms);
                 return LinkStep::Close(SocketClose::EventRateExceeded);
             }
             let announcement = Announcement::of(&frame, &worker_fp);

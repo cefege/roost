@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose;
+use roost_observability::{LogFields, SignalKind, signal};
 use serde_json::Value;
 
 use crate::db::CoordDb;
@@ -191,6 +192,14 @@ pub(crate) async fn settle_within(
                 worker_fp = pending.worker_fp(),
                 timeout_ms = deadline_ms,
                 "a worker did not reply before the RPC deadline"
+            );
+            signal::emit(
+                SignalKind::RpcWorkerTimeout,
+                LogFields::new()
+                    .set("worker_fp", pending.worker_fp())
+                    .set("request_id", pending.request_id())
+                    .set("timeout_ms", deadline_ms)
+                    .set("kind", "file_rpc"),
             );
             Err(ConnectError::new(
                 ErrorCode::DeadlineExceeded,

@@ -9,6 +9,7 @@
 
 use std::sync::Arc;
 
+use roost_observability::{LogFields, SignalKind, signal};
 use roost_protocol::cell::frame_chunk_validation::CELL_GRID_CHUNK_STALL_MS;
 use roost_protocol::wire::SessionId;
 
@@ -73,6 +74,12 @@ impl ScreenHub {
             }
             Err(reason) => {
                 tracing::error!(session_id = %session_id, reason = %reason, "terminal.snapshot_encode_failed");
+                signal::emit(
+                    SignalKind::TerminalSnapshotEncodeFailed,
+                    LogFields::new()
+                        .set("sid", session_id.to_string())
+                        .set("reason", &reason),
+                );
                 effects.push(ScreenEffect::Unavailable {
                     session_id: session_id.clone(),
                     reason,

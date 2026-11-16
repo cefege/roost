@@ -22,6 +22,7 @@ use connectrpc::interceptor::{
     UnaryResponse,
 };
 use connectrpc::{ConnectError, ErrorCode, RequestContext};
+use roost_observability::{LogFields, SignalKind, signal};
 
 use crate::auth::principal::{AUTH_LAYER_DEVICE, AUTH_LAYER_HEADER};
 use crate::coord_core::{Caller, CoordCore, ListenerTrust};
@@ -108,12 +109,21 @@ impl AuthGate {
         // A public method still gets a caller when a valid credential rides
         // along, so a handler can personalise its answer; it is not required to
         // present one.
-        let authenticated = self.resolve(context).await.ok();
-        let Some(authenticated) = authenticated else {
-            if matches!(requirement, AuthRequirement::Public) {
-                return Ok(());
+        let authenticated = match self.resolve(context).await {
+            Ok(authenticated) => authenticated,
+            Err(failure) => {
+                if matches!(requirement, AuthRequirement::Public) {
+                    return Ok(());
+                }
+                signal::emit(
+                    SignalKind::AuthRpcRejected,
+                    LogFields::new()
+                        .set("path", method)
+                        .set("reason", failure.to_string())
+                        .set("cooldownKey", method),
+                );
+                return Err(credential_refusal(method, requirement));
             }
-            return Err(credential_refusal(method, requirement));
         };
 
         if !principal_satisfies(Some(&authenticated.principal), requirement) {

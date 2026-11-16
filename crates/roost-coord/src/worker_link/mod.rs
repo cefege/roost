@@ -44,3 +44,4 @@ mod result_lane;
 pub mod retained_budget;
 pub mod upgrade_admission;
 pub mod upstream_frame;
+mod worker_signals;

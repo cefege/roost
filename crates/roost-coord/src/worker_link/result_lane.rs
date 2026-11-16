@@ -18,6 +18,7 @@ use crate::worker_link::frame_dispatch::WorkerFrameDispatcher;
 use crate::worker_link::frame_queue::{FrameQueue, Queued, QueuedFrame};
 use crate::worker_link::retained_budget::RetainOutcome;
 use crate::worker_link::upstream_frame::{LinkFrame, decode_link_frame, message_bytes};
+use crate::worker_link::worker_signals;
 
 /// Whether a frame may overtake a durable append still in flight.
 ///
@@ -189,6 +190,10 @@ impl ResultLane {
             Err(error) => {
                 tracing::warn!(worker_fp = %self.dispatcher.handle.worker_fp, %error,
                     "worker link: decode_failed; the frame is ignored");
+                worker_signals::protocol_violation(
+                    self.dispatcher.handle.worker_fp.as_str(),
+                    "decode_failed",
+                );
                 return true;
             }
         };
@@ -222,6 +227,11 @@ impl ResultLane {
                 tracing::warn!(worker_fp = %self.dispatcher.handle.worker_fp,
                     depth = self.backlog.depth(), charged_bytes = self.backlog.charged_bytes(),
                     "worker link: queue_overflow; closing");
+                worker_signals::queue_overflow(
+                    self.dispatcher.handle.worker_fp.as_str(),
+                    self.backlog.depth(),
+                    self.backlog.charged_bytes(),
+                );
                 self.close.get_or_insert(SocketClose::QueueOverflow);
                 false
             }
@@ -244,6 +254,11 @@ impl ResultLane {
         tracing::warn!(worker_fp = %self.dispatcher.handle.worker_fp, frames = overflow.frames,
             bytes = overflow.bytes, rejected_bytes = overflow.rejected_bytes,
             announced = ?self.announced.stats(), "worker link: queue_overflow; closing");
+        worker_signals::queue_overflow(
+            self.dispatcher.handle.worker_fp.as_str(),
+            overflow.frames,
+            overflow.bytes,
+        );
         self.close = Some(SocketClose::QueueOverflow);
     }
 
