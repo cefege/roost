@@ -13,7 +13,8 @@ use roost_client_core::store::{
 use roost_web::app::{ServedSurface, Surface, surface_for};
 use roost_web::platform::worker_paths::BrowserWorkerPaths;
 use roost_web::route_session::{
-    active_open_session_for_route, active_session_for_path, is_terminal_route, sibling_or_home_href,
+    active_open_session_for_route, active_session_for_path, is_terminal_path, is_terminal_route,
+    sibling_or_home_href,
 };
 use roost_web::routes::{Route, session_href};
 use roost_web::terminal_href::{
@@ -137,6 +138,14 @@ fn non_terminal_routes_and_a_retired_workspace_url_resolve_to_nothing() {
         assert_eq!(resolved(&core, path), None, "{path}");
         assert!(!is_terminal_route(&Route::parse(path)), "{path}");
     }
+}
+
+#[test]
+fn a_terminal_path_is_one_the_route_grammar_parses_as_a_terminal_route() {
+    assert!(is_terminal_path("/s/x"));
+    assert!(is_terminal_path("/t/fp/src"));
+    assert!(!is_terminal_path("/t/fp"));
+    assert!(!is_terminal_path("/settings"));
 }
 
 #[test]

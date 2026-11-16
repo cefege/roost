@@ -20,6 +20,12 @@ pub fn is_terminal_route(route: &Route) -> bool {
     matches!(route, Route::Session { .. } | Route::Terminal { .. })
 }
 
+/// Whether a path is a terminal route: a parse of the path, never the store, so
+/// a route whose session has not resolved yet still counts.
+pub fn is_terminal_path(path: &str) -> bool {
+    is_terminal_route(&Route::parse(path))
+}
+
 /// The session a route addresses, open or not; `None` off a terminal route.
 pub fn active_session_for_route<'store>(
     store: &'store Store,

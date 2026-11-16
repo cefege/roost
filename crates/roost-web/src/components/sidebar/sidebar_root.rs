@@ -21,6 +21,7 @@ use crate::components::ui::{
 
 use crate::platform::browser_platform::{PlatformShortcut, platform_shortcut_label};
 use crate::pump::use_store;
+use crate::route_session::is_terminal_path;
 use crate::router_state::use_navigate;
 use crate::routes::Route;
 /// How long the filter waits after the last keystroke before re-projecting.
@@ -34,10 +35,7 @@ pub fn SidebarRoot() -> Element {
     let navigate = use_navigate();
     let compact = use_is_compact();
     let location = crate::router_state::use_location();
-    let terminal_route = matches!(
-        Route::parse(&location()),
-        Route::Session { .. } | Route::Terminal { .. }
-    );
+    let terminal_route = is_terminal_path(&location());
     let mut query = use_signal(String::new);
     let mut debounced = use_signal(String::new);
     let mut debounce_generation = use_signal(|| 0_u64);

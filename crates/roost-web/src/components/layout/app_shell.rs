@@ -13,7 +13,7 @@ use super::mobile_bar::MobileTopBar;
 use super::mobile_sidebar_drawer::MobileSidebarDrawer;
 use super::shell_metrics::Destination;
 use super::shell_style::{
-    ComposerGeometry, drawer_intent_for_route, editor_style, is_terminal_path, keyboard_shift,
+    ComposerGeometry, drawer_intent_for_route, editor_style, keyboard_shift,
     reserves_terminal_composer, shell_style, shows_mobile_top_bar,
 };
 use super::sidebar_region::SidebarRegion;
@@ -23,7 +23,7 @@ use crate::components::sidebar::sidebar_root::SidebarRoot;
 use crate::components::terminal_chrome::composer_geometry::published_geometry;
 use crate::platform::worker_paths::{BrowserWorkerPaths, worker_path_basename};
 use crate::pump::use_store;
-use crate::route_session::active_session_for_path;
+use crate::route_session::{active_session_for_path, is_terminal_path};
 use crate::router_state::use_location;
 use crate::terminal_href::worker_os;
 

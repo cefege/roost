@@ -14,6 +14,7 @@ use crate::components::ui::{
     ButtonSize, Icon, SidenavFooter, SidenavGroup, SidenavInner, SidenavMenu, SidenavMenuButton,
     SidenavMenuItem, Tooltip, TooltipContent, TooltipPosition,
 };
+use crate::route_session::is_terminal_path;
 use crate::router_state::{use_location, use_navigate};
 use crate::routes::Route;
 
@@ -40,10 +41,7 @@ pub fn ActivityBar(on_toggle_sidebar: EventHandler<()>) -> Element {
     let home_path = Route::Home.to_path();
     let mut home_tooltip_open = use_signal(|| false);
     let active = active_destination(&path());
-    let terminal_route = matches!(
-        crate::routes::Route::parse(&path()),
-        crate::routes::Route::Session { .. } | crate::routes::Route::Terminal { .. }
-    );
+    let terminal_route = is_terminal_path(&path());
     let top = [
         Destination::Folders,
         Destination::Search,

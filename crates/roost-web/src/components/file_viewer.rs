@@ -34,12 +34,12 @@ use roost_client_core::store::root::captured_generation_is_current;
 
 use crate::components::download::DownloadButton;
 use crate::components::hooks::use_copy_clipboard::use_copy_clipboard;
-use crate::components::layout::shell_style::is_terminal_path;
 use crate::components::ui::{
     AutoFocusRequest, ButtonSize, Dialog, DialogContent, DialogHeader, DialogTitle,
 };
 use crate::platform::location::current_location;
 use crate::pump::{Pump, use_store};
+use crate::route_session::is_terminal_path;
 use crate::router_state::use_navigate;
 use crate::routes::{Route, browse_href};
 use crate::terminal_href::{file_target, worker_os};

@@ -12,6 +12,7 @@
 
 use roost_client_core::store::sidebar::SidebarIntent;
 
+use crate::route_session::is_terminal_path;
 use crate::routes::Route;
 
 /// What the composer is doing, when a composer is mounted.
@@ -132,12 +133,6 @@ pub fn shows_mobile_top_bar(compact: bool, pathname: &str, terminal_route: bool)
         && !pathname.starts_with("/browse")
         && !pathname.starts_with("/settings")
         && !terminal_route
-}
-
-/// The shell's terminal-route test: a prefix, so a terminal route that has not
-/// resolved yet still shifts for the keyboard.
-pub fn is_terminal_path(pathname: &str) -> bool {
-    pathname.starts_with("/s/") || pathname.starts_with("/t/")
 }
 
 /// Where the drawer stands when the route or the size class changes.

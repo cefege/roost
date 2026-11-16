@@ -12,6 +12,7 @@
 use roost_client_core::sync::redial::SYNC_STALE_TIMEOUT_MS;
 
 use crate::components::ui::IconType;
+use crate::route_session::is_terminal_path;
 
 /// Whether the shell is the compact (phone) one: a phone-sized window
 /// (`hooks::use_is_mobile`) that is not a television. A TV browser commonly
@@ -108,7 +109,7 @@ impl Destination {
     /// Terminal routes share the folders destination.
     pub fn is_active(self, pathname: &str) -> bool {
         match self {
-            Self::Folders => pathname == "/" || super::shell_style::is_terminal_path(pathname),
+            Self::Folders => pathname == "/" || is_terminal_path(pathname),
             Self::Search => pathname.starts_with("/search"),
             Self::Files => pathname.starts_with("/file/") || pathname.starts_with("/browse"),
             Self::Settings => pathname.starts_with("/settings"),
@@ -155,7 +156,7 @@ pub fn workbench_title(
     // `activeSessionForPath` returns null for both — and the port has to make the
     // same exclusion explicit, because here the session arrives as an argument
     // rather than as something the path looked up.
-    let is_terminal = super::shell_style::is_terminal_path(pathname);
+    let is_terminal = is_terminal_path(pathname);
     if is_terminal && (session_title.is_some() || session_folder.is_some()) {
         let title = session_title
             .map(str::trim)
