@@ -82,9 +82,12 @@ async fn workers_reaches_the_generated_workers_list_method_and_reports_routabili
     let api = link_to(&origin).await;
     let mut out = Captured::default();
 
-    workers::list(&api, &invocation("workers", &[]), &mut out)
-        .await
-        .expect("the coordinator answered");
+    assert_eq!(
+        workers::list(&api, &invocation("workers", &[]), &mut out)
+            .await
+            .expect("the coordinator answered"),
+        ExitCode::SUCCESS
+    );
 
     assert_eq!(out.answers[0], "fp\tlabel\tstate\tos");
     assert!(
@@ -111,9 +114,12 @@ async fn a_worker_the_coordinator_cannot_route_reads_offline_rather_than_online(
     let api = link_to(&origin).await;
     let mut out = Captured::default();
 
-    workers::list(&api, &invocation("workers", &[]), &mut out)
-        .await
-        .expect("the coordinator answered");
+    assert_eq!(
+        workers::list(&api, &invocation("workers", &[]), &mut out)
+            .await
+            .expect("the coordinator answered"),
+        ExitCode::SUCCESS
+    );
 
     assert!(
         out.answers[1].ends_with("\tasleep\toffline\tdarwin"),
@@ -141,9 +147,12 @@ async fn sessions_reaches_the_generated_sessions_list_method() {
     let api = link_to(&origin).await;
     let mut out = Captured::default();
 
-    sessions::list(&api, &invocation("sessions", &[]), &mut out)
-        .await
-        .expect("the coordinator answered");
+    assert_eq!(
+        sessions::list(&api, &invocation("sessions", &[]), &mut out)
+            .await
+            .expect("the coordinator answered"),
+        ExitCode::SUCCESS
+    );
 
     assert_eq!(out.answers[0], "id\tworker\tkind\tcwd\ttitle");
     assert_eq!(
@@ -221,9 +230,12 @@ async fn cells_without_an_end_row_reads_the_newest_rows() {
     let api = link_to(&origin).await;
     let mut out = Captured::default();
 
-    scrollback::cells(&api, &invocation("cells", &[SESSION_ID]), &mut out)
-        .await
-        .expect("the coordinator answered the newest rows");
+    assert_eq!(
+        scrollback::cells(&api, &invocation("cells", &[SESSION_ID]), &mut out)
+            .await
+            .expect("the coordinator answered the newest rows"),
+        ExitCode::SUCCESS
+    );
 
     assert_eq!(out.answers, ["alpha", "beta"]);
     assert_eq!(out.progress, ["rows 0..2 of 2 (cols 80)"]);

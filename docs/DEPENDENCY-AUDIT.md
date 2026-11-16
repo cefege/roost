@@ -137,6 +137,9 @@ cargo-zigbuild update to 0.17.1/0.24.1; the glibc 2.28 floor and binary-import
 checks remain. Existing moving major refs for rust-cache, install-action,
 setup-zig and setup-nasm continue selecting their maintained major releases.
 
+Quickstart consumes the self-link command's exit status, as Rust 1.100 requires,
+and returns a non-success status before printing completion or pairing a browser.
+
 PostgreSQL remains on the supported 17 major. Moving production to 18 is a
 database upgrade with backup/restore implications, not a library bump.
 
@@ -185,3 +188,5 @@ not inferred from the static review.
   1024×850. Gallery and attachment surfaces had no page-level horizontal
   overflow at 320px. These are Chromium viewport checks, not physical iOS or
   Android device tests.
+- CLI clippy and 19 existing quickstart, self-link and real-coordinator API
+  cases passed after adapting to Rust 1.100's must-use exit statuses.

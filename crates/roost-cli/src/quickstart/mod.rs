@@ -264,7 +264,10 @@ async fn install_everything(
         report_rotation(role, env, platform);
     }
 
-    self_link::run()?;
+    let self_link_status = self_link::run()?;
+    if self_link_status != ExitCode::SUCCESS {
+        return Ok(self_link_status);
+    }
     print_completion(env, platform, &endpoint);
 
     let collected = collect::collect(&collect::StatusContext {
