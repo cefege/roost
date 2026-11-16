@@ -38,7 +38,7 @@ use std::rc::Rc;
 use dioxus::core::NoOpMutations;
 use dioxus::prelude::*;
 use roost_client_core::ClientCore;
-use roost_web::components::mobile_voice_input::MobileVoiceInput;
+use roost_web::components::mobile_voice::input::MobileVoiceInput;
 use roost_web::platform::connect::CoordRpc;
 use roost_web::pump::Pump;
 use roost_web::voice::ownership::with_slot;

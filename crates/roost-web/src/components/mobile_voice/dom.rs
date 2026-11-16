@@ -1,7 +1,7 @@
 //! The mic control's presentation: the words on it, and the browser calls that
 //! make a tap reach a microphone.
 //!
-//! Split out of `super::mobile_voice_input` so the component reads as the state
+//! Split out of `super::input` so the component reads as the state
 //! machine's only owner and the vocabulary of its own surface — glyph names,
 //! captions, the watchdog — sits apart from the effects it performs. Ports the
 //! icon/label maps and the iOS-safe open order of

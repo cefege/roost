@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use super::mobile_voice_context::ComposerContext;
+use super::context::ComposerContext;
 use crate::voice::shell_controls::{self, VoiceControls};
 
 /// Publish `context`'s dictation commands and hand back its activation.

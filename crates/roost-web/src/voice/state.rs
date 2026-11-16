@@ -4,7 +4,7 @@
 //! Every rule the Playwright oracles read off `data-state` — the starting gate,
 //! the ownership claim, commit-on-switch, the finalize watchdog — is decided
 //! here and returned as a list of effects, so each one can be pinned by a test
-//! that has no microphone. The component in `crate::components::mobile_voice_input`
+//! that has no microphone. The component in `crate::components::mobile_voice::input`
 //! performs the effects; it does not decide anything.
 //!
 //! The `finalizing` state exists because a stop is not a stop: the engine has

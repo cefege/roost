@@ -1,6 +1,6 @@
 //! The finalize watchdog: the one deadline the mic itself owns.
 //!
-//! Split out of `super::mobile_voice_input` because a timer outlives the call
+//! Split out of `super::input` because a timer outlives the call
 //! that armed it and outlives the recording it was watching, so it is a
 //! lifetime of its own rather than a line of the component's body. The engine
 //! has its own, shorter wait; this is the outer bound, so a wedged engine cannot

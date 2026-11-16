@@ -12,12 +12,12 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use super::mobile_voice_context::ComposerContext;
-use super::mobile_voice_dom::{
+use super::context::ComposerContext;
+use super::dom::{
     EngineHosts, bool_attr, choose_engine, keep_keyboard, mic_icon, mic_label, read_config,
 };
-use super::mobile_voice_send::{FinalizeSendDoor, use_finalize_send_door};
-use super::mobile_voice_shell::use_voice_shell_controls;
+use super::send::{FinalizeSendDoor, use_finalize_send_door};
+use super::shell::use_voice_shell_controls;
 use crate::components::ui::{ButtonSize, ButtonVariant, IconButton};
 use crate::pump::use_store;
 use crate::voice::engine::Engine;

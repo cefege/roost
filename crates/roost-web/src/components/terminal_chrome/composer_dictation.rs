@@ -6,7 +6,7 @@ use std::cell::RefCell;
 
 use dioxus::prelude::*;
 
-use crate::components::mobile_voice_send::FinalizeSendDoor;
+use crate::components::mobile_voice::send::FinalizeSendDoor;
 use crate::voice::send_gate::SendGate;
 use crate::voice::state::{LiveTranscript, VoiceState};
 use crate::voice::transcript::{PaintedDraft, glued, paint};
@@ -235,7 +235,7 @@ pub fn VoiceControl(
     let live_binding = binding.0.clone();
     let discard_binding = binding.0.clone();
     rsx! {
-        crate::components::mobile_voice_input::MobileVoiceInput {
+        crate::components::mobile_voice::input::MobileVoiceInput {
             owner_id,
             on_error: move |error| on_error.call(error),
             active,

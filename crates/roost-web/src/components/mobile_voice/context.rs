@@ -1,5 +1,5 @@
 //! The state one mic shares with its callbacks: the machine, caption, engine and
-//! the effects the machine asks for. Owned by `mobile_voice_input`, which
+//! the effects the machine asks for. Owned by `input`, which
 //! renders it; the watchdog and the shell controls reach it through `apply`.
 
 use std::cell::RefCell;
@@ -8,9 +8,9 @@ use std::rc::Rc;
 use dioxus::prelude::*;
 
 #[cfg(not(target_arch = "wasm32"))]
-use super::mobile_voice_dom::warm_mic_for;
-use super::mobile_voice_dom::{EngineHosts, is_secure_context};
-use super::mobile_voice_watchdog::{arm_watchdog, clear_watchdog};
+use super::dom::warm_mic_for;
+use super::dom::{EngineHosts, is_secure_context};
+use super::watchdog::{arm_watchdog, clear_watchdog};
 use crate::pump::Pump;
 #[cfg(target_arch = "wasm32")]
 use crate::voice::deepgram_engine::{EngineEvent, EngineSink};
