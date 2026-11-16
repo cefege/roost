@@ -105,11 +105,12 @@ jobs:
             glibc: '2.28'
             roost_asset: roost-linux-arm64
             keeper_asset: roost-keeper-linux-arm64
-          - runner: macos-15
+          # Apple's SDK cross-links both architectures on Intel, without
+          # depending on the hosted ARM64 runner pool.
+          - runner: macos-15-intel
             target: aarch64-apple-darwin
             roost_asset: roost
             keeper_asset: roost-keeper
-          # Build Intel macOS natively, independently of arm64 runner capacity.
           - runner: macos-15-intel
             target: x86_64-apple-darwin
             roost_asset: roost-darwin-x64

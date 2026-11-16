@@ -137,6 +137,11 @@ cargo-zigbuild update to 0.17.1/0.24.1; the glibc 2.28 floor and binary-import
 checks remain. Existing moving major refs for rust-cache, install-action,
 setup-zig and setup-nasm continue selecting their maintained major releases.
 
+macOS CI and both macOS release builds use `macos-15-intel`; Apple's SDK
+cross-links the Apple Silicon target. This keeps both release architectures
+without depending on the ARM64 hosted pool that
+[failed to allocate a runner](https://github.com/cefege/roost/actions/runs/43957626879).
+
 Quickstart consumes the self-link command's exit status, as Rust 1.100 requires,
 and returns a non-success status before printing completion or pairing a browser.
 

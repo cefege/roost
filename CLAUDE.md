@@ -589,11 +589,13 @@ not a workspace member, because `cargo fmt` walks local path dependencies
 regardless of `exclude`) and the wasm32 build of the browser crates.
 
 CI (`.github/workflows/ci.yml`) runs the `rust` job on ubuntu-latest AND
-macos-latest, and a `windows` job that runs the workspace's clippy and
+macos-15-intel, and a `windows` job that runs the workspace's clippy and
 nextest on windows-latest. `.github/workflows/release.yml` publishes a `v3.*`
 tag: it re-runs the `rust` job's commands and builds five triples and the web
 bundle, whose assets `install.sh`, `install.ps1` and `cargo xtask fleet install`
-fetch. No gate
+fetch. Both macOS release triples build on macos-15-intel; Apple's SDK
+cross-links the Apple Silicon binaries without needing a hosted ARM64 runner.
+No gate
 needs a deployed coordinator, a tailnet, or a human driving a browser. The
 repository is public, so GitHub-hosted runners cost nothing.
 
