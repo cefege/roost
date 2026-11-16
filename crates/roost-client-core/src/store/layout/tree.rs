@@ -269,27 +269,15 @@ fn is_collapsible_empty(node: &PaneNode, collapsible_pane_ids: &BTreeSet<String>
     }
 }
 
-/// Clamp a ratio into the shared bounds, treating every non-finite input.
+/// Clamp a ratio into the shared bounds, giving a NaN the midpoint.
 ///
-/// FINITENESS FIRST, THEN BOTH ENDS. A NaN compares false against every bound,
-/// so a range check alone would pass it through and hand the renderer a
-/// geometry with no answer. The infinities are named before the clamp for the
-/// same reason: Rust's `f64::max` ignores a NaN, so the guard has to be here
-/// rather than inherited from the clamp.
+/// `f64::clamp` returns NaN for a NaN input, and a NaN compares false against
+/// every bound, so without the guard the renderer would get a geometry with no
+/// answer. The infinities need no guard: `clamp` sends them to the bounds.
 pub(crate) fn normalize_pane_ratio(ratio: f64) -> f64 {
     if ratio.is_nan() {
         return (LAYOUT_RATIO_MIN + LAYOUT_RATIO_MAX) / 2.0;
     }
-    if ratio == f64::INFINITY {
-        return LAYOUT_RATIO_MAX;
-    }
-    if ratio == f64::NEG_INFINITY {
-        return LAYOUT_RATIO_MIN;
-    }
-    // The three guards above make the input finite, so `clamp` and
-    // `max(..).min(..)` agree here. The guards stay because `f64::clamp`
-    // returns NaN for a NaN input while `f64::max` does not, and this function
-    // promises a finite answer for every input including that one.
     ratio.clamp(LAYOUT_RATIO_MIN, LAYOUT_RATIO_MAX)
 }
 
