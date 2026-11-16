@@ -139,7 +139,7 @@ impl CoordinatorCellSink {
             return 0;
         };
         let mut moved = 0usize;
-        while let Some(frame) = held.drain_one(now) {
+        while let Some(frame) = held.drain_one() {
             let label = frame.label.clone();
             match outbox.admit(Lane::Terminal, frame.bytes, label, now) {
                 Ok(_) => moved += 1,

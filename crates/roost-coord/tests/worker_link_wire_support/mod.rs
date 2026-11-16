@@ -174,15 +174,12 @@ async fn enroll_worker(services: &CoordServices, fingerprint: &str, public_key: 
     .expect("the enrollment row applies");
 }
 
-/// A `WHello` for `worker_fp`, advertising semantic metadata.
+/// A `WHello` for `worker_fp`, advertising a capability no owner serves.
 pub fn hello_bytes(worker_fp: &str) -> Vec<u8> {
     upstream_bytes(&CoordWorkerUpstream::Hello {
         worker_fp: WorkerFp::try_from(worker_fp.to_owned()).expect("a 64-hex fingerprint"),
         version: "wire-test".to_owned(),
-        capabilities: vec![
-            "terminal_metadata_v1".to_owned(),
-            "a-capability-no-owner-serves".to_owned(),
-        ],
+        capabilities: vec!["a-capability-no-owner-serves".to_owned()],
         process_epoch: "worker-epoch-1".to_owned(),
         trace_id: None,
     })

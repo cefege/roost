@@ -12,7 +12,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use roost_observability::clock::{EventClock, SystemClock};
-use roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1;
 use roost_protocol::wire::coord_worker::{CoordWorkerDownstream, CoordWorkerUpstream};
 use roost_worker::link_ports::LinkLifecyclePort;
 use roost_worker::runtime::cell_cadence::CellCadence;
@@ -158,7 +157,7 @@ async fn a_clean_boot_delivers_cells_and_a_link_bounce_costs_one_forced_full() {
     let (cadence, coord) = stack.cadence(Uplink::detached(), wire.clone());
 
     cadence.on_open();
-    cadence.on_hello_ack(&[CAPABILITY_TERMINAL_METADATA_V1.to_owned()]);
+    cadence.on_hello_ack(&[]);
     cadence.on_snapshot_ready();
     stack.cells.install_stream(channel(32), &stream_id(1));
     cadence.run_pass();
@@ -187,7 +186,7 @@ async fn a_clean_boot_delivers_cells_and_a_link_bounce_costs_one_forced_full() {
     );
 
     cadence.on_open();
-    cadence.on_hello_ack(&[CAPABILITY_TERMINAL_METADATA_V1.to_owned()]);
+    cadence.on_hello_ack(&[]);
     cadence.on_snapshot_ready();
     cadence.run_pass();
     assert_eq!(
@@ -214,24 +213,13 @@ async fn a_clean_boot_delivers_cells_and_a_link_bounce_costs_one_forced_full() {
 }
 
 #[tokio::test]
-async fn negotiated_titles_and_old_coordinator_raw_bytes_reach_the_uplink() {
+async fn a_hello_acknowledged_link_delivers_titles_to_the_uplink() {
     let stack = stack(33);
     let (uplink, mut receiver) = uplink::channel();
     let (cadence, _coord) = stack.cadence(uplink, Arc::new(ProtoLinkWire));
 
     cadence.on_open();
-    stack.deliver(33, b"raw-before-ack");
-    cadence.run_pass();
-    let raw = receiver
-        .try_recv_delivery()
-        .and_then(|delivery| delivery._take_unconfirmed_frame())
-        .expect("the raw lane dispatched to the uplink");
-    assert!(
-        matches!(&raw, CoordWorkerUpstream::Binary(binary) if binary.data == b"raw-before-ack"),
-        "{raw:?}"
-    );
-
-    cadence.on_hello_ack(&[CAPABILITY_TERMINAL_METADATA_V1.to_owned()]);
+    cadence.on_hello_ack(&[]);
     stack.deliver(33, b"\x1b]0;semantic title\x07");
     cadence.run_pass();
     let mut titles = Vec::new();
@@ -239,12 +227,10 @@ async fn negotiated_titles_and_old_coordinator_raw_bytes_reach_the_uplink() {
         .try_recv_delivery()
         .and_then(|delivery| delivery._take_unconfirmed_frame())
     {
-        match frame {
-            CoordWorkerUpstream::TerminalMetadata(metadata) if metadata.title_changed => {
-                titles.push(metadata.title)
-            }
-            CoordWorkerUpstream::Binary(_) => panic!("raw bytes were sent after negotiation"),
-            _ => {}
+        if let CoordWorkerUpstream::TerminalMetadata(metadata) = frame
+            && metadata.title_changed
+        {
+            titles.push(metadata.title);
         }
     }
     assert_eq!(titles, vec!["semantic title".to_owned()]);
@@ -259,7 +245,7 @@ async fn the_repair_a_refused_coordinator_sink_is_owed_is_built_inside_on_writab
     let wire = Arc::new(RecordingWire::default());
     let (cadence, coord) = stack.cadence(Uplink::detached(), wire.clone());
     cadence.on_open();
-    cadence.on_hello_ack(&[CAPABILITY_TERMINAL_METADATA_V1.to_owned()]);
+    cadence.on_hello_ack(&[]);
     cadence.on_snapshot_ready();
     stack.cells.install_stream(channel(34), &stream_id(1));
     cadence.run_pass();

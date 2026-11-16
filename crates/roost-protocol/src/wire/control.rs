@@ -31,13 +31,6 @@ pub use global_search::{
 /// so the two halves of the paging contract are read from one place.
 pub use crate::terminal_search::ScrollbackHistoryFloor;
 
-/// The direction byte on a binary frame whose bytes came from the PTY. A
-/// `FROM_PTY` frame also carries the eight-byte big-endian `end_seq` the
-/// keeper's ring reached after appending the chunk.
-pub const DIR_FROM_PTY: u8 = 0;
-/// The direction byte on a binary frame whose bytes are going to the PTY.
-pub const DIR_TO_PTY: u8 = 1;
-
 /// The only actions a coordinator may drive on a worker's terminal recorder.
 pub const CAPTURE_ACTIONS: [&str; 3] = ["start", "capture", "stop"];
 /// The only reasons a terminal capture may be taken for. An incident that

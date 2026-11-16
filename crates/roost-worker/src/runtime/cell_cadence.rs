@@ -1,6 +1,6 @@
 //! The production driver that makes cells flow: v2's `queueMicrotask`/
 //! `setTimeout` cadence around `session-cell-scheduler.ts`, `session-sync-output.ts`,
-//! `session-raw-metadata.ts` and `session-terminal-metadata.ts`, plus `main.ts:200-217`
+//! and `session-terminal-metadata.ts`, plus `main.ts:200-217`
 //! (the `"coord"` sink registration) and the session half of `transport/
 //! coord-link-deps.ts:110-181` ([`LinkLifecyclePort`]). The lead calls
 //! [`CellCadence::spawn`] once at boot and puts a clone in `DownstreamOwners.lifecycle`.
@@ -11,14 +11,12 @@ use std::time::Instant;
 
 use roost_observability::clock::EventClock;
 use roost_protocol::wire::brand::ChannelId;
-use roost_protocol::wire::control::DIR_FROM_PTY;
-use roost_protocol::wire::coord_worker::{Binary, CoordWorkerUpstream};
+use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 
 use crate::link_ports::LinkLifecyclePort;
 use crate::session::cell_sink::{COORD_CELL_SINK_ID, CellSink};
 use crate::session::emit::CellEmitter;
 use crate::session::lifecycle::SessionTable;
-use crate::session::raw_metadata::RawSend;
 use crate::session::terminal_metadata::MetadataSend;
 use crate::uplink::Uplink;
 
@@ -139,41 +137,14 @@ impl CellCadence {
             let now_ms = self.shared.clock.now_epoch_ms();
             lock(&self.shared.emitter).run_cadence_work(&mut record, now_ms, now);
         }
-        if work.raw_due {
-            self.dispatch_raw_metadata(now);
-        }
         if work.metadata_due {
             self.flush_terminal_metadata();
         }
         let after = lock(&self.shared.emitter).cadence_work(Instant::now());
-        if !after.channels.is_empty() || after.raw_due || after.metadata_due {
+        if !after.channels.is_empty() || after.metadata_due {
             return Some(now);
         }
         after.next_deadline
-    }
-
-    /// v2 `drainRawMetadata` into the link as `WBinary` (`DIR_FROM_PTY`).
-    fn dispatch_raw_metadata(&self, now: Instant) {
-        let live = self.live_channels();
-        let uplink = &self.shared.uplink;
-        let sent = lock(&self.shared.emitter).raw.dispatch(
-            &|channel_id| live.contains(&channel_id),
-            &mut |frame| {
-                let binary = Binary {
-                    channel_id: frame.channel_id,
-                    direction: DIR_FROM_PTY,
-                    data: frame.bytes.clone(),
-                    seq: frame.end_seq,
-                };
-                if uplink.send(CoordWorkerUpstream::Binary(binary)) {
-                    RawSend::Accepted
-                } else {
-                    RawSend::Dropped
-                }
-            },
-            now,
-        );
-        tracing::trace!(sent, "raw metadata dispatched");
     }
 
     /// v2 `flushTerminalMetadata` into the link's coalescing lane.
@@ -205,10 +176,10 @@ impl CellCadence {
     }
 
     /// Detach the coordinator sink from a socket generation that is gone or not
-    /// yet acknowledged (v2 `setTerminalMetadataNegotiated(false)` + suspend).
+    /// yet acknowledged.
     fn suspend_coordinator(&self, why: &str) {
         let mut emitter = lock(&self.shared.emitter);
-        emitter.set_terminal_metadata_negotiated(false);
+        emitter.set_coordinator_attached(false);
         emitter.suspend_cell_sink(COORD_CELL_SINK_ID);
         drop(emitter);
         self.shared.coord_sink.set_attached(false);
@@ -223,20 +194,15 @@ impl LinkLifecyclePort for CellCadence {
         self.suspend_coordinator("open");
     }
 
-    /// v2 `onHelloAck` (session half): negotiate, then re-baseline the coord
-    /// sink ONLY — stream identity and local viewers are untouched.
-    fn on_hello_ack(&self, capabilities: &[String]) {
-        let terminal_metadata_negotiated = capabilities.iter().any(|capability| {
-            capability == roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1
-        });
+    /// v2 `onHelloAck` (session half): attach the metadata lane, then
+    /// re-baseline the coord sink ONLY — stream identity and local viewers are
+    /// untouched.
+    fn on_hello_ack(&self, _capabilities: &[String]) {
         self.shared.coord_sink.set_attached(true);
         let mut emitter = lock(&self.shared.emitter);
-        emitter.set_terminal_metadata_negotiated(terminal_metadata_negotiated);
+        emitter.set_coordinator_attached(true);
         emitter.resume_cell_sink(COORD_CELL_SINK_ID);
-        tracing::info!(
-            terminal_metadata_negotiated,
-            "the coordinator cell sink resumed at hello-ack"
-        );
+        tracing::info!("the coordinator cell sink resumed at hello-ack");
     }
 
     /// v2 `onDetach` (session half).

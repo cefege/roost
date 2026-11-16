@@ -39,7 +39,7 @@ fn a_clipboard_write_is_sent_once_and_never_reasserted() {
         0,
         500,
     );
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
     stage.observe_live(channel(7), b"", Some("copied".to_owned()), 0, 1_000);
     flush_if_due(&mut stage, &mut sent, 1_000);
     assert_eq!(
@@ -52,8 +52,8 @@ fn a_clipboard_write_is_sent_once_and_never_reasserted() {
 
     stage.replay();
     flush_if_due(&mut stage, &mut sent, 2_000);
-    stage.set_negotiated(false);
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(false);
+    stage.set_coordinator_attached(true);
     flush_if_due(&mut stage, &mut sent, 3_000);
     assert!(
         sent[1..].iter().all(|record| !record.clipboard_changed),
@@ -65,7 +65,7 @@ fn a_clipboard_write_is_sent_once_and_never_reasserted() {
 fn clipboard_event_coalesces_without_erasing_a_pending_title() {
     let mut stage = TerminalMetadataStage::default();
     let mut sent = Vec::new();
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
     stage.observe_live(
         channel(7),
         b"\x1b]2;terminal title\x07",

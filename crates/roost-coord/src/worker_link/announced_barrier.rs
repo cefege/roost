@@ -280,8 +280,6 @@ impl AnnouncedChannelBarrier {
             phase: channel.phase,
             cell_frames: channel.counts.cell_frames + rejected.cell_frames,
             metadata_frames: channel.counts.metadata_frames + rejected.metadata_frames,
-            binary_frames: channel.counts.binary_frames + rejected.binary_frames,
-            binary_bytes: channel.counts.binary_bytes + rejected.binary_bytes,
         };
         let mut parked = None;
         for (index, mut frame) in channel.buffered.into_iter().enumerate() {

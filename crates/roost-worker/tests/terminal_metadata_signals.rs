@@ -48,7 +48,7 @@ fn branch(value: &str) -> Vec<TerminalUserVar> {
 #[test]
 fn progress_and_user_vars_are_sent_once_and_reasserted_on_replay() {
     let mut stage = TerminalMetadataStage::default();
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
     stage.observe_signals(
         channel(),
         LiveSignals {
@@ -84,7 +84,7 @@ fn progress_and_user_vars_are_sent_once_and_reasserted_on_replay() {
 #[test]
 fn a_cleared_report_is_sent_once_and_not_reasserted() {
     let mut stage = TerminalMetadataStage::default();
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
     for (progress, now_ms) in [
         (TerminalProgress::Indeterminate, 1_000),
         (TerminalProgress::Clear, 2_000),
@@ -107,7 +107,7 @@ fn a_cleared_report_is_sent_once_and_not_reasserted() {
 #[test]
 fn notifications_are_rate_limited_and_never_replayed() {
     let mut stage = TerminalMetadataStage::default();
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
     stage.observe_signals(
         channel(),
         LiveSignals {
@@ -150,7 +150,7 @@ fn a_notification_before_negotiation_is_dropped_but_progress_is_kept() {
         },
         1_000,
     );
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
     let sent = flush(&mut stage, 1_000);
     assert_eq!(sent[0].progress, Some(TerminalProgress::Normal(5)));
     assert!(sent[0].notifications.is_empty());
@@ -216,7 +216,7 @@ fn program_set(id: &str, state: ProgramState) -> ProgramStatusUpdate {
 #[test]
 fn program_status_is_sent_as_the_whole_set_and_reasserted_on_replay() {
     let mut stage = TerminalMetadataStage::default();
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
     stage.observe_signals(
         channel(),
         LiveSignals {
@@ -242,7 +242,7 @@ fn program_status_is_sent_as_the_whole_set_and_reasserted_on_replay() {
 #[test]
 fn a_prompt_drops_working_records_and_keeps_done_ones_in_the_sent_set() {
     let mut stage = TerminalMetadataStage::default();
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
     stage.observe_signals(
         channel(),
         LiveSignals {
@@ -265,7 +265,7 @@ fn a_prompt_drops_working_records_and_keeps_done_ones_in_the_sent_set() {
 #[test]
 fn a_cleared_program_status_set_is_sent_once_and_not_reasserted() {
     let mut stage = TerminalMetadataStage::default();
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
     stage.observe_signals(
         channel(),
         LiveSignals {
@@ -300,7 +300,7 @@ fn a_cleared_program_status_set_is_sent_once_and_not_reasserted() {
 #[test]
 fn a_done_record_pending_at_close_reaches_the_coordinator() {
     let mut stage = TerminalMetadataStage::default();
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
     stage.observe_signals(
         channel(),
         LiveSignals {
@@ -327,7 +327,7 @@ fn a_done_record_pending_at_close_reaches_the_coordinator() {
 #[test]
 fn closing_a_channel_that_never_reported_sends_nothing() {
     let mut stage = TerminalMetadataStage::default();
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
     stage.forget_channel(channel());
     assert!(flush(&mut stage, 1_000).is_empty());
 }

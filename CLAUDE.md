@@ -322,6 +322,14 @@ keeper client's `write_input` went with it. The browser control frames
 command; `SessionsCursorPos` still publishes presence from the coordinator
 and no longer relays to the worker.
 
+The worker's raw PTY metadata uplink is dropped: the `WBinary` frame
+(`CoordWorkerUp` field 10, reserved), the `terminal_metadata_v1` capability and
+the `TERMINAL_PIPELINE_REASON_RAW_METADATA_PENDING` pipeline reason (18,
+reserved), with the outbox's `RawMetadata` lane, the coordinator's per-lane
+binary counts and the `transport.raw_metadata_drop` doctor signal. Terminal
+titles and activity travel only as compact terminal metadata, and a hello is
+acknowledged with `terminal-view-owner-v1` alone.
+
 The dedicated OMP integration is retired too: managed ACP processes, HTML chat,
 agent RPCs and Sync frames, status detection/reporting, fenced prompts, agent
 configuration and autolaunch, the `roost skill` command, bundled executables,

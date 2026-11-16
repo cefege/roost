@@ -118,12 +118,9 @@ impl PipelineOwner {
         let keeper = self.keeper.keeper_facts(raw_channel, Instant::now());
         let now_ms = self.clock.now_epoch_ms();
         let emitter = self.emitter.lock().unwrap_or_else(PoisonError::into_inner);
-        let (raw_frames, raw_bytes) = emitter.raw_metadata().channel_backlog(channel_id);
         Some(SessionPipelineFacts {
             sequence,
             stream,
-            raw_metadata_frames: raw_frames as u64,
-            raw_metadata_bytes: raw_bytes as u64,
             cell_dirty: emitter.is_dirty(channel_id),
             pending_repair: emitter
                 .streams

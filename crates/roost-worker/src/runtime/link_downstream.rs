@@ -14,7 +14,7 @@ use tokio_tungstenite::tungstenite::Message;
 use crate::browser_commands::Command;
 use crate::link_barrier::{Action, Barrier};
 use crate::link_ports::LinkPipelineState;
-use crate::outbox::Lane;
+
 use crate::uplink::LinkFence;
 
 use super::downstream::DownstreamLink;
@@ -64,17 +64,8 @@ impl DownstreamLink for LinkLoop {
         push_upstream(self, &frame, frame.kind());
     }
 
-    fn hello_acknowledged(&mut self, terminal_metadata_negotiated: bool) {
-        self.terminal_metadata_negotiated = terminal_metadata_negotiated;
-        if terminal_metadata_negotiated {
-            let dropped = self.outbox.discard(Lane::RawMetadata);
-            if dropped > 0 {
-                tracing::debug!(
-                    dropped,
-                    "raw metadata dropped: compact metadata was negotiated"
-                );
-            }
-        }
+    fn hello_acknowledged(&mut self) {
+        self.hello_acked = true;
         let action = self.pump.on_hello_ack();
         apply_to(self, action);
     }

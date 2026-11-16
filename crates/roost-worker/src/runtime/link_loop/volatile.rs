@@ -78,9 +78,7 @@ impl LinkLoop {
             .held
             .insert(channel_id, (merged, encoded));
         tracing::trace!(%channel_id, ?admitted, "terminal metadata was admitted to the link");
-        if let Admitted::Queued | Admitted::Coalesced = admitted {
-            self.wake();
-        }
+        self.wake();
         Ok(admitted)
     }
 

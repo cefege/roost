@@ -25,7 +25,7 @@ mod upstream;
 
 pub use downstream::CoordWorkerDownstream;
 pub use payloads::{
-    Binary, EventAck, InputResult, RefreshJwt, TerminalInputStatus, TerminalMetadata,
+    EventAck, InputResult, RefreshJwt, TerminalInputStatus, TerminalMetadata,
     TerminalSnapshotRequest, TerminalStreamFailureKind, TerminalStreamResult, TerminalStreamStatus,
     TerminalWritePhase, UpdateProgress,
 };
@@ -39,12 +39,6 @@ use serde_json::Value;
 /// that logs the handshake learns nothing.
 pub const WORKER_AUTH_SUBPROTOCOL: &str = "roost-worker-auth";
 
-/// The binary frame layout is `control`'s, byte for byte: two bytes of
-/// big-endian channel id, one direction byte, then the payload. Upstream only
-/// ever carries `DIR_FROM_PTY` and downstream only `DIR_TO_PTY`, but the byte
-/// stays so the two directions cannot be confused by a reader of a log.
-pub use crate::wire::control::{DIR_FROM_PTY, DIR_TO_PTY};
-
 /// The discriminant every frame of either direction carries, read off a
 /// decoded JSON value before serde gets to see it. Kept beside the unions so
 /// the "is this the frame I expected" question is asked in one place.
@@ -54,11 +48,10 @@ pub(crate) fn kind_of(value: &Value) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
+    use super::{CoordWorkerDownstream, CoordWorkerUpstream};
     use serde_json::{Value, json};
 
-    use super::{CoordWorkerDownstream, CoordWorkerUpstream, DIR_FROM_PTY, DIR_TO_PTY};
     use crate::wire::control::ClientControlFrame;
-
     const SESSION: &str = "00000000-0000-4000-8000-000000000001";
     const FINGERPRINT: &str = "abababababababababababababababababababababababababababababababab";
 
@@ -197,16 +190,9 @@ mod tests {
             "coord-relocate",
             "coord-move-prepare",
         ] {
+            assert!(CoordWorkerUpstream::parse(json!({ "kind": kind })).is_err());
             assert!(CoordWorkerDownstream::parse(json!({ "kind": kind })).is_err());
         }
-    }
-
-    #[test]
-    fn the_binary_direction_bytes_are_the_ones_the_keeper_framing_uses() {
-        // 0 is bytes from the PTY and 1 is bytes to it. Swapping them would
-        // send a viewer's keystrokes to the terminal and its output back.
-        assert_eq!(DIR_FROM_PTY, 0);
-        assert_eq!(DIR_TO_PTY, 1);
     }
 
     #[test]

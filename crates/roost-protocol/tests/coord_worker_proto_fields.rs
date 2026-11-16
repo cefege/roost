@@ -22,7 +22,6 @@ const UPSTREAM_FIELD_NUMBERS: &[(&str, u32)] = &[
     ("event", 3),
     ("rpc-ok", 6),
     ("rpc-error", 7),
-    ("binary", 10),
     ("refresh-jwt", 11),
     ("cell-grid", 12),
     ("input-result", 16),

@@ -1,10 +1,10 @@
-//! The coordinator link's input owner: acknowledged `input-request`s, the
-//! legacy binary input frame, route claims, and the route half of a closed
-//! browser socket. Implements `link_ports::TerminalInputPort` for
-//! `runtime::downstream`; built by the composition root over the session
-//! layer. Ports `onInputRequest`, `onBinary` and the route half of
-//! `onTerminalViewSocketClosed` of `apps/worker/src/transport/coord-link-deps.ts`,
-//! and `onTerminalInputRouteClaim` of `coord-link-direct-deps.ts`.
+//! The coordinator link's input owner: acknowledged `input-request`s, route
+//! claims, and the route half of a closed browser socket. Implements
+//! `link_ports::TerminalInputPort` for `runtime::downstream`; built by the
+//! composition root over the session layer. Ports `onInputRequest` and the
+//! route half of `onTerminalViewSocketClosed` of
+//! `apps/worker/src/transport/coord-link-deps.ts`, and
+//! `onTerminalInputRouteClaim` of `coord-link-direct-deps.ts`.
 
 use std::sync::Arc;
 

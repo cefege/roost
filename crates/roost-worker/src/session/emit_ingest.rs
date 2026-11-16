@@ -64,7 +64,7 @@ impl CellEmitter {
         };
         self.observe_sync_output(channel_id, chunk);
         let input_echo = self.input_echo_armed(channel_id, now_ms);
-        if self.sinks.is_empty() && self.metadata.negotiated() {
+        if self.sinks.is_empty() && self.metadata.coordinator_attached() {
             warn!(%channel_id, len = chunk.len(), "PTY output arrived with no cell sink registered");
         }
         let accepted = self.route_chunk_to_cells(record, input_echo, false, now_ms, now);
@@ -72,7 +72,7 @@ impl CellEmitter {
         if image_changed && accepted {
             self.schedule_cell_emission(record, input_echo, now_ms, now);
         }
-        self.observe_upstream(channel_id, end_seq, chunk, events, now_ms);
+        self.observe_upstream(channel_id, chunk, events, now_ms);
         tracing::trace!(%channel_id, len = chunk.len(), end_seq, accepted, "a PTY chunk was ingested");
         if accepted {
             IngestOutcome::Accepted {
@@ -105,13 +105,7 @@ impl CellEmitter {
         self.observe_sync_output(channel_id, chunk);
         let input_echo = self.input_echo_armed(channel_id, now_ms);
         self.route_chunk_to_cells(record, input_echo, true, now_ms, Instant::now());
-        self.observe_upstream(
-            channel_id,
-            end_seq,
-            chunk,
-            LiveTerminalEvents::default(),
-            now_ms,
-        );
+        self.observe_upstream(channel_id, chunk, LiveTerminalEvents::default(), now_ms);
         end_seq
     }
 
@@ -151,12 +145,10 @@ impl CellEmitter {
         true
     }
 
-    /// The metadata lanes after the cell lane (v2 order): semantic facts always,
-    /// raw bytes only while the semantic lane is not negotiated.
+    /// The semantic metadata lane after the cell lane.
     fn observe_upstream(
         &mut self,
         channel_id: ChannelId,
-        end_seq: u64,
         chunk: &[u8],
         events: LiveTerminalEvents,
         now_ms: i64,
@@ -174,16 +166,15 @@ impl CellEmitter {
         ) | self
             .metadata
             .observe_signals(channel_id, events.signals, now_ms);
-        let raw_owed = !self.metadata.negotiated() && self.raw.stage(channel_id, end_seq, chunk);
-        if flush_owed || raw_owed {
+        if flush_owed {
             self.wake_cadence();
         }
     }
 
-    /// v2 `setTerminalMetadataNegotiated`: one flag for both metadata lanes.
-    pub fn set_terminal_metadata_negotiated(&mut self, negotiated: bool) {
-        self.raw.set_semantic_metadata_negotiated(negotiated);
-        if self.metadata.set_negotiated(negotiated) {
+    /// Whether a coordinator link is attached and acknowledged. Metadata is
+    /// retained while detached and reasserted when a link attaches.
+    pub fn set_coordinator_attached(&mut self, attached: bool) {
+        if self.metadata.set_coordinator_attached(attached) {
             self.wake_cadence();
         }
     }

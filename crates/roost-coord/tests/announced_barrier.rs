@@ -11,9 +11,7 @@
 
 mod announced_support;
 
-use announced_support::{
-    Barrier, SESSION, binary, cell, chunk, commit_labels, label, metadata, now,
-};
+use announced_support::{Barrier, SESSION, cell, chunk, commit_labels, label, metadata, now};
 use roost_coord::worker_link::announced_types::{
     ANNOUNCED_CHANNEL_MAX_BYTES, ANNOUNCED_CHANNEL_MAX_FRAMES, ANNOUNCED_CHANNEL_MAX_WAIT,
     BarrierStats, ChannelPhase, DropReason, EnqueueOutcome,
@@ -23,23 +21,19 @@ use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 const MAX_BYTES: u64 = ANNOUNCED_CHANNEL_MAX_BYTES;
 
 #[test]
-fn a_respawns_binary_frames_and_its_cells_drain_in_arrival_order() {
+fn a_respawns_metadata_and_its_cells_drain_in_arrival_order() {
     // v2: "a respawn's metadata binary frame and its cell frames drain in arrival order"
     let mut b = Barrier::new();
     assert_eq!(b.enqueue(cell(1, true), 100), EnqueueOutcome::NotAnnounced);
     b.announce(SESSION);
     assert_eq!(
-        b.enqueue(binary(1, "\u{1b}]0;fresh-title\u{7}"), 60),
+        b.enqueue(metadata("fresh-title", true, false, 1), 40),
         EnqueueOutcome::Buffered
     );
     assert_eq!(b.enqueue(cell(10, true), 100), EnqueueOutcome::Buffered);
-    assert_eq!(
-        b.enqueue(binary(2, "prompt$ "), 40),
-        EnqueueOutcome::Buffered
-    );
     assert_eq!(b.enqueue(cell(11, false), 100), EnqueueOutcome::Buffered);
     let stats = b.barrier.stats();
-    assert_eq!((stats.channels, stats.frames, stats.bytes), (1, 4, 300));
+    assert_eq!((stats.channels, stats.frames, stats.bytes), (1, 3, 240));
     assert_eq!((stats.pending, stats.draining), (1, 0));
 
     let (committed, delivered) = commit_labels(&mut b, SESSION, true);
@@ -47,12 +41,7 @@ fn a_respawns_binary_frames_and_its_cells_drain_in_arrival_order() {
     assert!(committed);
     assert_eq!(
         delivered,
-        [
-            "binary:\u{1b}]0;fresh-title\u{7}",
-            "cell:10:full",
-            "binary:prompt$ ",
-            "cell:11:delta"
-        ]
+        ["metadata:fresh-title", "cell:10:full", "cell:11:delta"]
     );
     assert_eq!(b.barrier.stats().channels, 0);
     assert_eq!(
@@ -127,13 +116,13 @@ fn coalesced_metadata_retains_its_original_channel_order() {
 }
 
 #[test]
-fn frame_count_overflow_reports_the_pending_loss_of_both_lanes() {
-    // v2: "frame-count overflow reports the pending loss of both lanes"
+fn frame_count_overflow_reports_the_pending_loss() {
+    // v2: "frame-count overflow reports the pending loss of both lanes" (one lane remains)
     let mut b = Barrier::new();
     b.announce(SESSION);
     assert_eq!(b.enqueue(cell(10, true), 100), EnqueueOutcome::Buffered);
     for seq in 1..ANNOUNCED_CHANNEL_MAX_FRAMES as u64 {
-        assert_eq!(b.enqueue(binary(seq, "ab"), 10), EnqueueOutcome::Buffered);
+        assert_eq!(b.enqueue(chunk(seq), 10), EnqueueOutcome::Buffered);
     }
     assert_eq!(b.enqueue(cell(11, false), 10), EnqueueOutcome::Dropped);
 
@@ -148,34 +137,22 @@ fn frame_count_overflow_reports_the_pending_loss_of_both_lanes() {
     );
     assert_eq!((drop.channel_id, drop.session_id.as_str()), (7, SESSION));
     // The refused frame is lost too, so it is counted with the buffer.
-    assert_eq!(drop.cell_frames, 2);
-    assert_eq!(drop.binary_frames, ANNOUNCED_CHANNEL_MAX_FRAMES - 1);
-    assert_eq!(
-        drop.binary_bytes,
-        (ANNOUNCED_CHANNEL_MAX_FRAMES as u64 - 1) * 2
-    );
+    assert_eq!(drop.cell_frames, ANNOUNCED_CHANNEL_MAX_FRAMES + 1);
     assert_eq!(b.budget.stats().frames, 0, "a drop releases what it held");
 }
 
 #[test]
-fn byte_cap_overflow_drops_the_buffer_and_reports_the_dropped_pty_bytes() {
+fn byte_cap_overflow_drops_the_buffer_and_reports_the_dropped_frames() {
     // v2: "byte-cap overflow drops the buffer and reports the dropped PTY bytes"
     let mut b = Barrier::new();
     b.announce(SESSION);
     b.enqueue(cell(10, true), 100);
-    b.enqueue(binary(1, "title-bytes"), 64);
-    assert_eq!(
-        b.enqueue(binary(2, "flood"), MAX_BYTES),
-        EnqueueOutcome::Dropped
-    );
+    b.enqueue(chunk(11), 64);
+    assert_eq!(b.enqueue(chunk(12), MAX_BYTES), EnqueueOutcome::Dropped);
     let drops = b.drops();
     assert_eq!(drops.len(), 1);
     assert_eq!(drops[0].reason, DropReason::Overflow);
-    assert_eq!((drops[0].cell_frames, drops[0].binary_frames), (1, 2));
-    assert_eq!(
-        drops[0].binary_bytes,
-        ("title-bytes".len() + "flood".len()) as u64
-    );
+    assert_eq!(drops[0].cell_frames, 3);
 }
 
 #[test]
@@ -185,10 +162,7 @@ fn metadata_survives_an_overflowed_cell_barrier_until_the_route_commits() {
     b.announce(SESSION);
     b.enqueue(metadata("survives-overflow", true, true, 1), 40);
     b.enqueue(cell(10, true), 100);
-    assert_eq!(
-        b.enqueue(binary(1, "flood"), MAX_BYTES),
-        EnqueueOutcome::Dropped
-    );
+    assert_eq!(b.enqueue(chunk(11), MAX_BYTES), EnqueueOutcome::Dropped);
     let stats = b.barrier.stats();
     assert_eq!(
         (stats.channels, stats.frames, stats.recovery_metadata),
@@ -208,10 +182,7 @@ fn matching_recovery_survives_a_same_session_reannouncement() {
     let mut b = Barrier::new();
     b.announce(SESSION);
     b.enqueue(metadata("reannounced", true, true, 1), 40);
-    assert_eq!(
-        b.enqueue(binary(1, "overflow"), MAX_BYTES),
-        EnqueueOutcome::Dropped
-    );
+    assert_eq!(b.enqueue(chunk(11), MAX_BYTES), EnqueueOutcome::Dropped);
     b.announce(SESSION);
     let stats = b.barrier.stats();
     assert_eq!(
@@ -231,7 +202,7 @@ fn a_timed_out_cell_barrier_retains_latest_metadata_through_route_binding() {
     b.barrier.announce(7, SESSION, announced_at, &mut b.budget);
     b.enqueue(metadata("survives-timeout", true, true, 1), 40);
     b.enqueue(cell(10, true), 100);
-    b.enqueue(binary(1, "osc8-link"), 32);
+    b.enqueue(chunk(11), 32);
 
     b.barrier
         .expire(announced_at + ANNOUNCED_CHANNEL_MAX_WAIT, &mut b.budget);
@@ -242,8 +213,7 @@ fn a_timed_out_cell_barrier_retains_latest_metadata_through_route_binding() {
         (drops[0].reason, drops[0].phase),
         (DropReason::Timeout, ChannelPhase::Pending)
     );
-    assert_eq!((drops[0].cell_frames, drops[0].binary_frames), (1, 1));
-    assert_eq!(drops[0].binary_bytes, "osc8-link".len() as u64);
+    assert_eq!(drops[0].cell_frames, 2);
     let stats = b.barrier.stats();
     assert_eq!(
         (stats.channels, stats.frames, stats.recovery_metadata),
@@ -259,12 +229,15 @@ fn a_delta_before_the_channels_first_full_grid_is_an_ordering_loss() {
     // v2: "a delta before the channel's first full grid is an ordering loss"
     let mut b = Barrier::new();
     b.announce(SESSION);
-    // A binary frame first is legitimate; a cell DELTA first is not.
-    assert_eq!(b.enqueue(binary(1, "bytes"), 20), EnqueueOutcome::Buffered);
+    // A metadata frame first is legitimate; a cell DELTA first is not.
+    assert_eq!(
+        b.enqueue(metadata("title", true, false, 1), 20),
+        EnqueueOutcome::Buffered
+    );
     assert_eq!(b.enqueue(cell(2, false), 100), EnqueueOutcome::Dropped);
     let drops = b.drops();
     assert_eq!(drops[0].reason, DropReason::OutOfOrder);
-    assert_eq!((drops[0].cell_frames, drops[0].binary_frames), (1, 1));
+    assert_eq!((drops[0].cell_frames, drops[0].metadata_frames), (1, 1));
 
     b.announce(SESSION);
     assert_eq!(b.enqueue(cell(10, true), 100), EnqueueOutcome::Buffered);
@@ -278,7 +251,7 @@ fn commit_without_the_exact_binding_delivers_nothing() {
     let mut b = Barrier::new();
     b.announce(SESSION);
     b.enqueue(cell(10, true), 100);
-    b.enqueue(binary(1, "bytes"), 20);
+    b.enqueue(chunk(11), 20);
     let (committed, delivered) = commit_labels(&mut b, SESSION, false);
     assert!(!committed);
     assert!(delivered.is_empty());

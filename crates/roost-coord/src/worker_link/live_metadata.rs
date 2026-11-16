@@ -3,32 +3,19 @@
 //! notification and activity transitions to coordinator services.
 
 use super::*;
-use roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1;
 use roost_protocol::wire::coord_worker::TerminalMetadata;
 
 impl WorkerFrameDispatcher {
     /// One semantic metadata record: a title, an activity stamp, or both.
     ///
-    /// v2's `acceptTerminalMetadata`. The session is resolved through the byte
-    /// hub rather than trusted from the frame, and an unmapped channel is a drop
-    /// with a reason rather than a title attributed to a session that may not
-    /// own it.
+    /// The session is resolved through the byte hub rather than trusted from
+    /// the frame, and an unmapped channel is a drop with a reason rather than a
+    /// title attributed to a session that may not own it.
     pub(super) fn publish_metadata(
         &self,
         worker: &WorkerFp,
         metadata: &TerminalMetadata,
     ) -> DispatchOutcome {
-        if !self
-            .handle
-            .capabilities
-            .contains(CAPABILITY_TERMINAL_METADATA_V1)
-        {
-            tracing::debug!(
-                worker_fp = %worker,
-                "a semantic metadata frame arrived without the negotiated capability"
-            );
-            return DispatchOutcome::Refused;
-        }
         let services = &self.core.services;
         let Some(session_id) = services.byte_hub.resolve(worker, metadata.channel_id) else {
             tracing::debug!(

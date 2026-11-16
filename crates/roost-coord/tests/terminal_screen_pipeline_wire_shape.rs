@@ -125,11 +125,9 @@ fn only_worker_stages_and_known_reasons_are_accepted() {
     };
     assert!(!with_reason(TerminalPipelineReason::Unspecified as i32));
     assert!(with_reason(TerminalPipelineReason::None as i32));
-    assert!(with_reason(
-        TerminalPipelineReason::RawMetadataPending as i32
-    ));
+    assert!(with_reason(TerminalPipelineReason::NativeBuffered as i32));
     assert!(!with_reason(
-        TerminalPipelineReason::RawMetadataPending as i32 + 1
+        TerminalPipelineReason::NativeBuffered as i32 + 1
     ));
 }
 

@@ -36,7 +36,7 @@ enum NextWrite {
     /// The snapshot, which the coordinator acknowledges from the same sequence
     /// space a durable event uses.
     Snapshot { bytes: Vec<u8> },
-    /// A control, terminal or raw-metadata frame, in lane order.
+    /// A control or terminal frame, in lane order.
     Queued(Pending),
     /// The repair a refused cell sink produced when told the link is writable,
     /// written as one run ahead of the queued controls (v2 `notifyingWritable`).
@@ -44,12 +44,12 @@ enum NextWrite {
 }
 
 /// Admit one frame the uplink carried, on its lane, under v2's outbox gates:
-/// compact metadata only once negotiated, raw PTY metadata only while not.
+/// compact metadata only once the hello is acknowledged.
 pub(super) fn admit_uplink(loop_state: &mut LinkLoop, frame: CoordWorkerUpstream) -> bool {
     match frame {
         CoordWorkerUpstream::TerminalMetadata(metadata) => {
-            if !loop_state.terminal_metadata_negotiated {
-                tracing::debug!(channel = %metadata.channel_id, "terminal metadata dropped: this link did not negotiate it");
+            if !loop_state.hello_acked {
+                tracing::debug!(channel = %metadata.channel_id, "terminal metadata dropped: this link has not acknowledged the hello");
                 return false;
             }
             if let Err(error) = loop_state.send_terminal_metadata(metadata.channel_id, &metadata) {
@@ -57,14 +57,6 @@ pub(super) fn admit_uplink(loop_state: &mut LinkLoop, frame: CoordWorkerUpstream
                 return false;
             }
             true
-        }
-        CoordWorkerUpstream::Binary(binary) => {
-            if loop_state.terminal_metadata_negotiated {
-                tracing::trace!(channel = %binary.channel_id, "raw metadata dropped: compact metadata is negotiated");
-                return false;
-            }
-            let frame = CoordWorkerUpstream::Binary(binary);
-            admit_to_lane(loop_state, &frame, Lane::RawMetadata, "raw-metadata")
         }
         control => push_upstream(loop_state, &control, control.kind()),
     }
@@ -170,7 +162,7 @@ fn notify_writable(loop_state: &mut LinkLoop, now: Instant) -> Option<Vec<Pendin
     }
     let mut repair = crate::outbox::Outbox::default();
     sink.drain_into(&mut repair, now);
-    Some(repair.drain_all(now))
+    Some(repair.drain_all())
 }
 
 /// What goes on the socket next, or nothing — v2 `drainQueues`' order.
@@ -210,7 +202,7 @@ fn next_write(loop_state: &mut LinkLoop, now: Instant, notified: &mut bool) -> O
         *notified = true;
         return Some(NextWrite::Repair(repair));
     }
-    loop_state.outbox.drain_one(now).map(NextWrite::Queued)
+    loop_state.outbox.drain_one().map(NextWrite::Queued)
 }
 
 /// Act on what the barrier asked for.

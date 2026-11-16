@@ -317,7 +317,7 @@ fn a_cell_frame_goes_to_the_terminal_lane_and_drains_behind_the_opened_event() {
         )
         .expect("the durable lane has room");
 
-    let first = outbox.drain_one(Instant::now()).expect("something drains");
+    let first = outbox.drain_one().expect("something drains");
     assert_eq!(
         first.lane,
         Lane::Durable,

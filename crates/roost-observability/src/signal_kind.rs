@@ -25,7 +25,7 @@ macro_rules! signal_kinds {
 
         impl SignalKind {
             /// Every kind, in the order the vocabulary grew.
-            pub const ALL: [SignalKind; 73] = [$(Self::$variant,)*];
+            pub const ALL: [SignalKind; 72] = [$(Self::$variant,)*];
 
             /// The token that goes into the log line. Exact.
             pub fn as_str(self) -> &'static str {
@@ -242,9 +242,6 @@ signal_kinds! {
     WorkerUncaught => "worker.uncaught",
     /// SessionEvent evicted from the unacked outbox on overflow (at-least-once broken = data loss)
     TransportEventDrop => "transport.event_drop",
-    /// bounded worker/CoordLink metadata lane rejected bytes; cells remain authoritative but the
-    /// title/activity scanners saw a gap
-    TransportRawMetadataDrop => "transport.raw_metadata_drop",
     /// replaceable cwd/git/pr/ports event was superseded or rejected within its bounded volatile
     /// lane; lifecycle durability is unaffected
     TransportMetadataCoalesced => "transport.metadata_coalesced",

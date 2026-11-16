@@ -14,7 +14,6 @@ use super::cell_gates::GateSuppression;
 use super::cell_scheduler::CellEmissionSchedule;
 use super::cell_sink::{CellDeltaFanout, CellSinkRegistry, StreamDelivery};
 use super::query_reply::QueryReplyLane;
-use super::raw_metadata::RawMetadataStage;
 use super::sync_output::SyncOutputState;
 use super::terminal_metadata::TerminalMetadataStage;
 
@@ -84,7 +83,6 @@ pub enum FrameOutcome {
 pub struct CellEmitter {
     pub(crate) sinks: CellSinkRegistry,
     pub(crate) streams: HashMap<ChannelId, StreamOutput>,
-    pub(crate) raw: RawMetadataStage,
     pub(crate) metadata: TerminalMetadataStage,
     /// v2 `cellDirty`.
     pub(crate) dirty: HashSet<ChannelId>,
@@ -116,7 +114,6 @@ impl std::fmt::Debug for CellEmitter {
             .field("sinks", &self.sinks)
             .field("streams", &self.streams.len())
             .field("schedules", &self.schedules.len())
-            .field("raw", &self.raw)
             .finish_non_exhaustive()
     }
 }
@@ -128,10 +125,6 @@ impl CellEmitter {
 
     pub fn sinks(&self) -> &CellSinkRegistry {
         &self.sinks
-    }
-
-    pub fn raw_metadata(&self) -> &RawMetadataStage {
-        &self.raw
     }
 
     pub fn terminal_metadata(&self) -> &TerminalMetadataStage {
@@ -190,7 +183,6 @@ impl CellEmitter {
     /// v2 `_disposeOutputState` + `cancelCellEmission`: nothing keyed on a gone
     /// channel may outlive it.
     pub fn cancel(&mut self, channel_id: ChannelId) {
-        self.raw.forget_channel(channel_id);
         self.metadata.forget_channel(channel_id);
         self.input_echo.remove(&channel_id);
         self.dirty.remove(&channel_id);

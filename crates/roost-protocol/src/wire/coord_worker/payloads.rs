@@ -18,8 +18,6 @@ use crate::program_status::ProgramStatusRecord;
 use crate::terminal_signals::{TerminalNotification, TerminalProgress, TerminalUserVar};
 
 use crate::wire::brand::{ChannelId, SessionId};
-use crate::wire::coord_worker::{DIR_FROM_PTY, DIR_TO_PTY};
-use crate::{ProtocolError, ProtocolResult};
 
 pub use roost_proto::{
     DAttachmentChunk, DAttachmentDirectStatusRequest, DInputRequest, DKeeperUpdatePrepare,
@@ -33,40 +31,6 @@ pub use roost_proto::{
     WTerminalInputRouteResult, WTerminalPipelineSnapshot, WTerminalTransportProbeResult,
     WTerminalViewProjection, WTerminalViewState,
 };
-
-/// PTY bytes in flight between the two ends of the link. `seq` is the keeper
-/// ring's end sequence and is upstream-only: the coordinator stamps a
-/// direction on what it relays and has no ring to read.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Binary {
-    pub channel_id: ChannelId,
-    pub direction: u8,
-    pub data: Vec<u8>,
-    #[serde(default, skip_serializing_if = "is_zero_seq")]
-    pub seq: u64,
-}
-
-fn is_zero_seq(seq: &u64) -> bool {
-    *seq == 0
-}
-
-impl Binary {
-    /// The two direction bytes, checked together so a frame naming neither is
-    /// refused at the boundary rather than at the keeper write.
-    pub fn check(&self) -> ProtocolResult<()> {
-        if self.direction == DIR_FROM_PTY || self.direction == DIR_TO_PTY {
-            Ok(())
-        } else {
-            Err(ProtocolError::new(
-                "binary.direction",
-                format!(
-                    "must be {DIR_FROM_PTY} or {DIR_TO_PTY}, got {}",
-                    self.direction
-                ),
-            ))
-        }
-    }
-}
 
 /// The in-band replacement token a worker sends before its current JWT
 /// expires. The stream stays open across it, so a bad one closes the socket

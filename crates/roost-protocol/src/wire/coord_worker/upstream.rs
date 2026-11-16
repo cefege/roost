@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use super::kind_of;
 use super::payloads::{
-    Binary, InputResult, RefreshJwt, TerminalMetadata, TerminalStreamResult, UpdateProgress,
+    InputResult, RefreshJwt, TerminalMetadata, TerminalStreamResult, UpdateProgress,
     WAttachmentDirectStatus, WCellGrid, WCellGridChunk, WLocalAttachmentPeerAnswer,
     WLocalAttachmentPeerError, WLocalTerminalPeerAnswer, WLocalTerminalPeerError,
     WTerminalInputRouteResult, WTerminalPipelineSnapshot, WTerminalTransportProbeResult,
@@ -81,9 +81,6 @@ pub enum CoordWorkerUpstream {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         trace_id: Option<TraceId>,
     },
-    /// PTY bytes as the worker saw them, on their own channel id.
-    #[serde(rename = "binary")]
-    Binary(Binary),
     /// An in-band replacement JWT, sent before the current one expires.
     #[serde(rename = "refresh-jwt")]
     RefreshJwt(RefreshJwt),
@@ -149,7 +146,6 @@ impl CoordWorkerUpstream {
             Self::Event { .. } => "event",
             Self::RpcOk { .. } => "rpc-ok",
             Self::RpcError { .. } => "rpc-error",
-            Self::Binary(_) => "binary",
             Self::RefreshJwt(_) => "refresh-jwt",
             Self::CellGrid(_) => "cell-grid",
             Self::CellGridChunk(_) => "cell-grid-chunk",
@@ -190,7 +186,6 @@ impl CoordWorkerUpstream {
     pub fn check(&self) -> ProtocolResult<()> {
         match self {
             Self::Pong { ts, .. } => nonnegative("pong.ts", *ts),
-            Self::Binary(binary) => binary.check(),
             Self::LiveMetrics(snapshot) => snapshot.check(),
             _ => Ok(()),
         }

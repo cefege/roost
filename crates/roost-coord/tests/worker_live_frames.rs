@@ -16,8 +16,6 @@ mod db_support;
 mod frame_dispatch_support;
 mod workers_support;
 
-use std::sync::Arc;
-
 use frame_dispatch_support::{LinkFixture, WORKER_FP, live_frame, rpc_frame};
 use roost_coord::worker_link::dispatch::{DispatchOutcome, FrameDispatch};
 use roost_protocol::wire::ChannelId;
@@ -107,39 +105,10 @@ async fn a_cell_grid_whose_body_is_unset_is_refused_rather_than_claimed_handled(
 }
 
 #[tokio::test]
-async fn a_semantic_metadata_frame_without_the_negotiated_capability_is_refused() {
-    let fixture = LinkFixture::new("live-metadata-unnegotiated").await;
-    fixture.mark_ready();
-    let dispatcher = fixture.dispatcher();
-
-    let outcome = dispatcher.handle_now(WORKER_FP, live_frame(1, metadata(1, "vim")));
-
-    assert_eq!(
-        outcome,
-        DispatchOutcome::Refused,
-        "a worker that never advertised terminal_metadata_v1 gets no semantic hub"
-    );
-}
-
-#[tokio::test]
 async fn a_semantic_metadata_frame_on_an_unbound_channel_is_refused_not_attributed() {
     let fixture = LinkFixture::new("live-metadata-unmapped").await;
     fixture.mark_ready();
-    let negotiated = Arc::new(roost_coord::coord_core::worker_handle::WorkerHandle::new(
-        frame_dispatch_support::worker(WORKER_FP),
-        None,
-        "negotiated".to_owned(),
-        std::collections::BTreeSet::from([
-            roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1.to_owned(),
-        ]),
-        fixture.socket.sender(),
-    ));
-    roost_coord::workers::registry::claim_generation(
-        &fixture.services.buses,
-        &fixture.services.workers,
-        Arc::clone(&negotiated),
-    );
-    let dispatcher = fixture.services.worker_dispatcher(Arc::clone(&negotiated));
+    let dispatcher = fixture.dispatcher();
 
     let outcome = dispatcher.handle_now(WORKER_FP, live_frame(1, metadata(1, "vim")));
 

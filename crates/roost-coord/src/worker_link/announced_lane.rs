@@ -66,7 +66,6 @@ pub(super) fn is_terminal_frame(frame: &CoordWorkerUpstream) -> bool {
         frame,
         CoordWorkerUpstream::CellGrid(_)
             | CoordWorkerUpstream::CellGridChunk(_)
-            | CoordWorkerUpstream::Binary(_)
             | CoordWorkerUpstream::TerminalMetadata(_)
     )
 }
@@ -80,8 +79,7 @@ pub(super) fn invalidate_screen_on_drop(
     Box::new(move |drop: &ChannelDrop| {
         tracing::info!(%worker_fp, channel_id = drop.channel_id, session_id = %drop.session_id,
             reason = %drop.reason, phase = ?drop.phase, cell_frames = drop.cell_frames,
-            metadata_frames = drop.metadata_frames, binary_frames = drop.binary_frames,
-            binary_bytes = drop.binary_bytes, "worker link: announced channel dropped");
+            metadata_frames = drop.metadata_frames, "worker link: announced channel dropped");
         let Ok(session_id) = SessionId::try_from(drop.session_id.as_str()) else {
             tracing::warn!(%worker_fp, session_id = %drop.session_id,
                 "worker link: a dropped announcement names no addressable session");

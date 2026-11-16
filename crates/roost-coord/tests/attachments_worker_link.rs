@@ -66,7 +66,7 @@ async fn a_hello_is_acknowledged_the_attachment_peer_capability_it_advertised() 
             .any(|capability| capability == CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1)
     );
 
-    let silent = acknowledged(&fixture, &["terminal_metadata_v1"]).await;
+    let silent = acknowledged(&fixture, &["a-capability-no-owner-serves"]).await;
     assert!(
         !silent
             .iter()

@@ -319,8 +319,8 @@ fn a_view_decision_queued_before_its_baseline_leaves_ahead_of_it() {
     );
 
     assert_eq!(link.move_cell_frames_into(), 1);
-    let now = std::time::Instant::now();
-    let written: Vec<Lane> = std::iter::from_fn(|| link.outbox.drain_one(now))
+
+    let written: Vec<Lane> = std::iter::from_fn(|| link.outbox.drain_one())
         .map(|frame| frame.lane)
         .collect();
     assert_eq!(

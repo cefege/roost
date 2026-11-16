@@ -43,7 +43,6 @@ pub mod lifecycle;
 pub mod lifecycle_commands;
 pub mod query_probe;
 pub mod query_reply;
-pub mod raw_metadata;
 pub mod replay_align;
 pub mod resize;
 pub mod resize_pin;

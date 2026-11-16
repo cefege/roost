@@ -47,8 +47,6 @@ pub struct ChannelDiagnostics {
     pub pending_repair: bool,
     pub stream: Option<StreamDiagnostics>,
     pub sync_output: Option<SyncOutputDiagnostics>,
-    pub raw_frames: usize,
-    pub raw_bytes: usize,
 }
 
 /// One channel's delivery stream, as the report names it.
@@ -88,7 +86,6 @@ impl CellEmitter {
     /// One channel's emitter-owned facts, read once.
     pub fn channel_diagnostics(&self, channel_id: ChannelId) -> ChannelDiagnostics {
         let suppression = self.gate_suppression(channel_id);
-        let (raw_frames, raw_bytes) = self.raw.channel_backlog(channel_id);
         ChannelDiagnostics {
             dirty: self.dirty.contains(&channel_id),
             gate_active: self.gate_held(channel_id) || self.sync_output_held(channel_id),
@@ -136,8 +133,6 @@ impl CellEmitter {
                         .collect(),
                 }),
             sync_output: self.sync_output_diagnostics(channel_id),
-            raw_frames,
-            raw_bytes,
         }
     }
 }
@@ -232,12 +227,6 @@ pub fn session_value(
                 "snapshot_part_count": delivery.snapshot_part_count,
             })).collect::<Vec<Value>>(),
         })),
-        "terminal_control": {
-            "raw_metadata_queue": {
-                "pending_frames": channel.raw_frames,
-                "pending_bytes": channel.raw_bytes,
-            },
-        },
         "terminal": {
             "alt_mode": record.alt_mode,
             "cols": core.cols(),

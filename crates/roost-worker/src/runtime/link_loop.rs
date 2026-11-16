@@ -121,9 +121,9 @@ pub struct LinkLoop {
     /// The downstream dispatch. Shared so a frame can be dispatched while the
     /// loop itself is the `DownstreamLink` the dispatch answers through.
     pub(super) dispatcher: Arc<Dispatcher>,
-    /// Whether the coordinator echoed terminal metadata at hello-ack; v2's
-    /// outbox gates raw PTY metadata and compact metadata on it.
-    pub(super) terminal_metadata_negotiated: bool,
+    /// Whether the coordinator acknowledged this link's hello; compact
+    /// terminal metadata is held back until it has.
+    pub(super) hello_acked: bool,
     /// The pending compact-metadata record per channel. `volatile.rs` owns it.
     pub(super) terminal_metadata: volatile::TerminalMetadataLane,
     pub(super) outbox: Outbox,
@@ -206,7 +206,7 @@ impl LinkLoop {
             browser,
             uplink,
             dispatcher,
-            terminal_metadata_negotiated: false,
+            hello_acked: false,
             terminal_metadata: volatile::TerminalMetadataLane::default(),
             credential,
             outbox: Outbox::default(),

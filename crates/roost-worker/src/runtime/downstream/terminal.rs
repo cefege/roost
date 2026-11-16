@@ -12,10 +12,9 @@ use roost_proto::{
     DInputRequest, DTerminalInputRouteClaim, DTerminalPipelineSnapshotRequest,
     DTerminalStreamState, DTerminalViewRelay,
 };
-use roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1;
 use roost_protocol::wire::coord_worker::{
-    CoordWorkerUpstream, TerminalInputStatus, TerminalSnapshotRequest,
-    TerminalStreamFailureKind, TerminalStreamStatus, TerminalWritePhase,
+    CoordWorkerUpstream, TerminalInputStatus, TerminalSnapshotRequest, TerminalStreamFailureKind,
+    TerminalStreamStatus, TerminalWritePhase,
 };
 
 use super::owner_task::{InFlightSlot, run_owner};
@@ -28,18 +27,12 @@ impl Dispatcher {
     /// v2 order: the barrier first (`acceptHelloAck`), then the coordinator's
     /// browser sockets are dropped, then the session half is told.
     pub(super) fn hello_ack(&self, capabilities: &[String], link: &mut dyn DownstreamLink) {
-        let negotiated = capabilities
-            .iter()
-            .any(|capability| capability == CAPABILITY_TERMINAL_METADATA_V1);
-        link.hello_acknowledged(negotiated);
+        link.hello_acknowledged();
         if let Some(owners) = &self.owners {
             owners.view.drop_coordinator_sockets();
             owners.lifecycle.on_hello_ack(capabilities);
         }
-        tracing::info!(
-            terminal_metadata_v1 = negotiated,
-            "the coordinator acknowledged the hello"
-        );
+        tracing::info!("the coordinator acknowledged the hello");
     }
 
     /// One sequence space serves both durable events and the snapshot; the ack

@@ -27,14 +27,6 @@ pub const PENDING_CAP: usize = 1024;
 /// that the queue is 40% over its limit is how a byte cap stops being one.
 pub const PENDING_BYTES_CAP: usize = 8 * 1024 * 1024;
 
-/// Raw PTY bytes feed coordinator-only scanners, and cells normally go first.
-///
-/// A raw frame that has waited longer than this is PROMOTED ahead of the
-/// cells, so a chatty terminal cannot starve the scanners indefinitely. The
-/// age bound is short because the scanners run on the coordinator and stale
-/// raw bytes are worth less than fresh ones, not more.
-pub const RAW_METADATA_MAX_AGE: Duration = Duration::from_millis(100);
-
 /// Which lane a frame belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Lane {
@@ -49,9 +41,6 @@ pub enum Lane {
     Control,
     /// Authoritative terminal frames. Drained last, always.
     Terminal,
-    /// Raw PTY bytes for coordinator-side scanners. Volatile: this is the only
-    /// lane the outbox is allowed to drop from.
-    RawMetadata,
 }
 
 impl Lane {
@@ -60,22 +49,8 @@ impl Lane {
     /// The order IS the contract. `Terminal` is last because a cell ahead of
     /// its own `opened` is unrecoverable, while a cell behind one is merely
     /// late.
-    pub const DRAIN_ORDER: [Lane; 5] = [
-        Lane::Liveness,
-        Lane::Durable,
-        Lane::Control,
-        Lane::Terminal,
-        Lane::RawMetadata,
-    ];
-
-    /// Whether this lane may be dropped when the caps are reached.
-    ///
-    /// Only raw metadata. Dropping anything else loses information the
-    /// coordinator cannot reconstruct: a durable event is a fact about what
-    /// happened, and a terminal frame is the only description of the screen.
-    pub fn is_droppable(self) -> bool {
-        self == Lane::RawMetadata
-    }
+    pub const DRAIN_ORDER: [Lane; 4] =
+        [Lane::Liveness, Lane::Durable, Lane::Control, Lane::Terminal];
 }
 
 /// A frame waiting to go upstream.
@@ -105,9 +80,7 @@ impl Pending {
 pub enum AdmitError {
     #[error("the outbox is full: {pending} frames waiting against a cap of {cap}")]
     Full { pending: usize, cap: usize },
-    #[error(
-        "the outbox holds {bytes} bytes against a cap of {cap}, and this lane may not be dropped"
-    )]
+    #[error("the outbox holds {bytes} bytes against a cap of {cap}")]
     OverBytes { bytes: usize, cap: usize },
     #[error("this frame encodes to {bytes} bytes, which alone exceeds the {cap} byte cap")]
     FrameTooLarge { bytes: usize, cap: usize },
@@ -140,14 +113,12 @@ pub enum Admitted {
     /// the lane's length is unchanged, and a caller counting what it added is
     /// counting the wrong thing if the two are one value.
     Coalesced,
-    /// The lane was full and the frame was dropped because it may be.
-    DroppedVolatile,
 }
 
 /// The outbox.
 #[derive(Debug)]
 pub struct Outbox {
-    lanes: [VecDeque<Pending>; 5],
+    lanes: [VecDeque<Pending>; 4],
     frame_count: usize,
     byte_count: usize,
     cap: usize,
@@ -168,7 +139,6 @@ impl Outbox {
                 VecDeque::new(),
                 VecDeque::new(),
                 VecDeque::new(),
-                VecDeque::new(),
             ],
             frame_count: 0,
             byte_count: 0,
@@ -181,9 +151,8 @@ impl Outbox {
         match lane {
             Lane::Durable => 0,
             Lane::Control => 1,
-            Lane::RawMetadata => 2,
-            Lane::Terminal => 3,
-            Lane::Liveness => 4,
+            Lane::Terminal => 2,
+            Lane::Liveness => 3,
         }
     }
 
@@ -206,9 +175,9 @@ impl Outbox {
 
     /// Offer an already-encoded frame.
     ///
-    /// A lane that may be dropped is dropped rather than refusing; one that may
-    /// not is refused, so the caller learns that its durable event did not fit
-    /// instead of discovering later that the coordinator never heard about it.
+    /// A frame that does not fit is refused, so the caller learns that its
+    /// durable event did not fit instead of discovering later that the
+    /// coordinator never heard about it.
     pub fn admit(
         &mut self,
         lane: Lane,
@@ -220,17 +189,7 @@ impl Outbox {
     }
 
     /// Take the next frame, in the order the contract requires.
-    ///
-    /// `now` decides whether a raw-metadata frame has aged into promotion; the
-    /// clock is a parameter so the promotion rule is testable without sleeping.
-    pub fn drain_one(&mut self, now: Instant) -> Option<Pending> {
-        // A raw frame past its age bound goes first even though its lane sits
-        // ahead of Terminal, or a chatty terminal starves the scanners.
-        if let Some(front) = self.lanes[Self::slot(Lane::RawMetadata)].front()
-            && front.age(now) >= RAW_METADATA_MAX_AGE
-        {
-            return self.take_from(Lane::RawMetadata);
-        }
+    pub fn drain_one(&mut self) -> Option<Pending> {
         for lane in Lane::DRAIN_ORDER {
             if let Some(frame) = self.take_from(lane) {
                 return Some(frame);
@@ -248,9 +207,9 @@ impl Outbox {
     }
 
     /// Take everything, in drain order. What a reconnect replays.
-    pub fn drain_all(&mut self, now: Instant) -> Vec<Pending> {
+    pub fn drain_all(&mut self) -> Vec<Pending> {
         let mut drained = Vec::with_capacity(self.frame_count);
-        while let Some(frame) = self.drain_one(now) {
+        while let Some(frame) = self.drain_one() {
             drained.push(frame);
         }
         drained
@@ -319,27 +278,17 @@ impl Outbox {
         coalesce_key: Option<String>,
     ) -> Result<Admitted, AdmitError> {
         self.refuse_oversized(&bytes)?;
-        // A droppable lane sheds its OLDEST frame rather than the new one. The
-        // new frame is the one the caller is holding a reference to, and
-        // dropping it would make the caller's accounting a lie.
-        if self.frame_count >= self.cap || self.byte_count + bytes.len() > self.byte_cap {
-            if !lane.is_droppable() {
-                return Err(if self.frame_count >= self.cap {
-                    AdmitError::Full {
-                        pending: self.frame_count,
-                        cap: self.cap,
-                    }
-                } else {
-                    AdmitError::OverBytes {
-                        bytes: self.byte_count,
-                        cap: self.byte_cap,
-                    }
-                });
-            }
-            if let Some(evicted) = self.lanes[Self::slot(lane)].pop_front() {
-                self.frame_count -= 1;
-                self.byte_count -= evicted.bytes.len();
-            }
+        if self.frame_count >= self.cap {
+            return Err(AdmitError::Full {
+                pending: self.frame_count,
+                cap: self.cap,
+            });
+        }
+        if self.byte_count + bytes.len() > self.byte_cap {
+            return Err(AdmitError::OverBytes {
+                bytes: self.byte_count,
+                cap: self.byte_cap,
+            });
         }
 
         let frame = Pending {
@@ -355,11 +304,8 @@ impl Outbox {
         Ok(Admitted::Queued)
     }
 
-    /// Refuse a frame that alone exceeds the byte cap, on every admit path.
-    ///
-    /// Checked BEFORE a droppable lane sheds its oldest frame: shedding cannot
-    /// make room for a frame larger than the whole outbox, so a lane that
-    /// evicted for it would lose a frame and still hold one it can never send.
+    /// Refuse a frame that alone exceeds the byte cap, on every admit path: no
+    /// amount of draining makes room for a frame larger than the whole outbox.
     fn refuse_oversized(&self, bytes: &[u8]) -> Result<(), AdmitError> {
         if bytes.len() > self.byte_cap {
             return Err(AdmitError::FrameTooLarge {

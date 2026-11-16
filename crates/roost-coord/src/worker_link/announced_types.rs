@@ -93,10 +93,6 @@ pub struct ChannelDrop {
     pub cell_frames: usize,
     /// Metadata frames lost or parked, the refused one included.
     pub metadata_frames: usize,
-    /// Raw PTY frames lost, the refused one included.
-    pub binary_frames: usize,
-    /// Raw PTY bytes lost, the refused frame's included.
-    pub binary_bytes: u64,
 }
 
 /// What `AnnouncedChannelBarrier::enqueue` did with a frame.

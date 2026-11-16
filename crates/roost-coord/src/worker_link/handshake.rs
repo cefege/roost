@@ -10,9 +10,7 @@ use std::collections::BTreeSet;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
-use roost_protocol::versioning::{
-    CAPABILITY_TERMINAL_METADATA_V1, CAPABILITY_TERMINAL_VIEW_OWNER_V1,
-};
+use roost_protocol::versioning::CAPABILITY_TERMINAL_VIEW_OWNER_V1;
 
 use crate::auth::authenticate::Authenticator;
 use crate::auth::jwt_verify::VerifyClock;
@@ -161,22 +159,18 @@ pub(super) async fn credential_refresh_accepted(
 
 /// The capabilities a hello is acknowledged with, in v2's order.
 ///
-/// The coordinator's own two first — semantic terminal metadata, which
-/// `live_frames` serves, and view ownership, which the view hub serves — then
-/// whatever the registered lifecycle owners serve. A capability no owner serves
+/// The coordinator's own first — view ownership, which the view hub serves —
+/// then whatever the registered lifecycle owners serve. A capability no owner serves
 /// is never acknowledged (`worker-conn.ts:293-321`).
 pub(super) fn acknowledged_capabilities(
     advertised: &[String],
     lifecycle: &WorkerLifecycle,
 ) -> Vec<String> {
     let advertised: BTreeSet<String> = advertised.iter().cloned().collect();
-    [
-        CAPABILITY_TERMINAL_METADATA_V1,
-        CAPABILITY_TERMINAL_VIEW_OWNER_V1,
-    ]
-    .into_iter()
-    .filter(|capability| advertised.contains(*capability))
-    .chain(lifecycle.acknowledged_capabilities(&advertised))
-    .map(str::to_owned)
-    .collect()
+    [CAPABILITY_TERMINAL_VIEW_OWNER_V1]
+        .into_iter()
+        .filter(|capability| advertised.contains(*capability))
+        .chain(lifecycle.acknowledged_capabilities(&advertised))
+        .map(str::to_owned)
+        .collect()
 }

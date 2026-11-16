@@ -31,7 +31,7 @@ fn no_two_kinds_share_a_literal() {
 
 #[test]
 fn the_list_covers_every_kind_exactly_once() {
-    assert_eq!(SignalKind::ALL.len(), 73);
+    assert_eq!(SignalKind::ALL.len(), 72);
     let mut listed: Vec<SignalKind> = SignalKind::ALL.to_vec();
     listed.sort_unstable();
     listed.dedup();

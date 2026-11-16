@@ -16,8 +16,7 @@ use roost_proto::coord_worker_down::Frame;
 use roost_proto::{CoordWorkerDown, DBrowserCommand, DInputRequest};
 use roost_protocol::proto_adapters::coord_worker_proto;
 use roost_protocol::versioning::{
-    CAPABILITY_TERMINAL_INPUT_ROUTE_V1, CAPABILITY_TERMINAL_METADATA_V1,
-    CAPABILITY_TERMINAL_VIEW_OWNER_V1,
+    CAPABILITY_TERMINAL_INPUT_ROUTE_V1, CAPABILITY_TERMINAL_VIEW_OWNER_V1,
 };
 use roost_protocol::wire::coord_worker::{
     CoordWorkerDownstream as Down, CoordWorkerUpstream as Up, TerminalInputStatus,
@@ -63,7 +62,7 @@ async fn a_live_link_dispatches_answers_and_calls_every_lifecycle_hook_across_a_
     let mut socket = live.accept().await;
     let hello = go_live(
         &mut socket,
-        vec![CAPABILITY_TERMINAL_METADATA_V1.to_owned()],
+        vec![CAPABILITY_TERMINAL_VIEW_OWNER_V1.to_owned()],
     )
     .await;
     let Up::Hello {
@@ -80,7 +79,6 @@ async fn a_live_link_dispatches_answers_and_calls_every_lifecycle_hook_across_a_
     );
     // v2 `coord-link-deps.ts:96-100` + `main.ts:181-185`, by the protocol's own spellings.
     for capability in [
-        CAPABILITY_TERMINAL_METADATA_V1,
         CAPABILITY_TERMINAL_VIEW_OWNER_V1,
         CAPABILITY_TERMINAL_INPUT_ROUTE_V1,
     ] {
@@ -127,7 +125,7 @@ async fn a_live_link_dispatches_answers_and_calls_every_lifecycle_hook_across_a_
         [
             "lifecycle.on_open",
             "view.drop_coordinator_sockets",
-            "lifecycle.on_hello_ack:true",
+            "lifecycle.on_hello_ack",
             "lifecycle.on_snapshot_ready",
             "input.write_input:in-1",
         ]

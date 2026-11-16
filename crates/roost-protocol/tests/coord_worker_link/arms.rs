@@ -6,7 +6,7 @@
 use super::fixtures::{FINGERPRINT, SESSION, STREAM, channel, hello, session};
 use roost_protocol::wire::control::ClientControlFrame;
 use roost_protocol::wire::coord_worker::{
-    Binary, CoordWorkerDownstream, CoordWorkerUpstream, EventAck, InputResult, RefreshJwt,
+    CoordWorkerDownstream, CoordWorkerUpstream, EventAck, InputResult, RefreshJwt,
     TerminalInputStatus, TerminalMetadata, TerminalSnapshotRequest, TerminalStreamFailureKind,
     TerminalStreamResult, TerminalStreamStatus, TerminalWritePhase, UpdateProgress,
 };
@@ -60,15 +60,6 @@ pub fn upstream_arms() -> Vec<(&'static str, CoordWorkerUpstream)> {
                 message: "no such session".to_owned(),
                 trace_id: None,
             },
-        ),
-        (
-            "binary",
-            CoordWorkerUpstream::Binary(Binary {
-                channel_id: channel(4),
-                direction: 0,
-                data: b"hello\r\n".to_vec(),
-                seq: 91,
-            }),
         ),
         (
             "refresh-jwt",

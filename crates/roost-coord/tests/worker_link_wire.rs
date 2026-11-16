@@ -98,10 +98,8 @@ async fn an_admitted_worker_upgrades_and_its_hello_is_acknowledged_before_it_is_
     routable_becomes(&fixture, true).await;
 }
 
-// v2: worker-ws-transport-lifecycle.test.ts "acknowledges terminal metadata
-// only for an advertising worker", and worker-conn-pending-supersession.test.ts
-// "tracks worker boot and socket generations without retaining superseded
-// capabilities".
+// v2: worker-conn-pending-supersession.test.ts "tracks worker boot and socket
+// generations without retaining superseded capabilities".
 #[tokio::test]
 async fn a_hello_is_acknowledged_with_only_the_capabilities_this_coordinator_serves() {
     let fixture = WireFixture::start("capabilities").await;
@@ -111,15 +109,17 @@ async fn a_hello_is_acknowledged_with_only_the_capabilities_this_coordinator_ser
     let CoordWorkerDownstream::HelloAck { capabilities, .. } = ack else {
         panic!("the first frame is the hello-ack");
     };
-    assert_eq!(capabilities, vec!["terminal_metadata_v1".to_owned()]);
+    assert!(
+        capabilities.is_empty(),
+        "no owner serves the advertised capability"
+    );
     let handle = fixture
         .services
         .workers
         .current(&fixture.fp())
         .expect("a generation");
-    assert_eq!(
-        handle.capabilities.iter().cloned().collect::<Vec<_>>(),
-        vec!["terminal_metadata_v1".to_owned()],
+    assert!(
+        handle.capabilities.is_empty(),
         "the handle keeps what was acknowledged, never what was advertised"
     );
     assert_eq!(handle.process_epoch.as_deref(), Some("worker-epoch-1"));

@@ -52,15 +52,14 @@ impl CellEmitter {
             .is_some_and(|stream| stream.enabled && stream.core_valid)
     }
 
-    /// Forget the stream, the staged raw bytes, the dirty mark and any hold.
+    /// Forget the stream, the dirty mark and any hold.
     ///
-    /// ONE CALL RATHER THAN THREE AT EACH CALLER, because a replaced generation
-    /// must leave nothing describing a grid that no longer exists, and the three
-    /// things a stale entry would keep alive — the stream, the staged raw
-    /// bytes, and the dirty mark and hold keyed on it — have no other owner.
+    /// ONE CALL RATHER THAN TWO AT EACH CALLER, because a replaced generation
+    /// must leave nothing describing a grid that no longer exists, and the
+    /// things a stale entry would keep alive — the stream, and the dirty mark
+    /// and hold keyed on it — have no other owner.
     pub fn forget_channel(&mut self, channel_id: ChannelId) {
         self.streams.remove(&channel_id);
-        self.raw.forget_channel(channel_id);
         self.cancel(channel_id);
     }
 

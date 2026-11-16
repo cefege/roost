@@ -108,19 +108,17 @@ impl LinkLoop {
         if let Some(delivery) = &self.durable_delivery {
             delivery.mark_pending();
         }
-        self.terminal_metadata_negotiated = false;
+        self.hello_acked = false;
         let liveness = self.outbox.discard(Lane::Liveness);
         let control = self.outbox.discard(Lane::Control);
         let terminal = self.outbox.discard(Lane::Terminal);
-        let raw = self.outbox.discard(Lane::RawMetadata);
         self.forget_terminal_metadata();
         tracing::info!(
             generation,
             liveness,
             control,
             terminal,
-            raw,
-            "the coordinator link detached; its pong, control, terminal and raw frames were dropped"
+            "the coordinator link detached; its pong, control and terminal frames were dropped"
         );
         self.notify_detach();
     }

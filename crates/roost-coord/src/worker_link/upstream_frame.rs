@@ -122,7 +122,6 @@ fn classify(upstream: CoordWorkerUpstream) -> LinkFrame {
         Up::Event { event, .. } => (FrameClass::Durable, announced_channel(event)),
         Up::CellGrid(grid) => (FrameClass::Live, grid.channel_id),
         Up::CellGridChunk(chunk) => (FrameClass::Live, chunk.channel_id),
-        Up::Binary(binary) => (FrameClass::Live, binary.channel_id.as_u32()),
         Up::TerminalMetadata(metadata) => (FrameClass::Live, metadata.channel_id.as_u32()),
         Up::TerminalViewState(_) | Up::TerminalViewProjection(_) | Up::LiveMetrics(_) => {
             (FrameClass::Live, 0)

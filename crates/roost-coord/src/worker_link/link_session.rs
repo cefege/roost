@@ -13,9 +13,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 
 use axum::extract::ws::WebSocket;
-use roost_protocol::versioning::{
-    CAPABILITY_TERMINAL_METADATA_V1, CAPABILITY_TERMINAL_VIEW_OWNER_V1,
-};
+use roost_protocol::versioning::CAPABILITY_TERMINAL_VIEW_OWNER_V1;
 use roost_protocol::wire::WorkerFp;
 use roost_protocol::wire::coord_worker::CoordWorkerDownstream;
 use tokio::sync::{Notify, mpsc};
@@ -152,7 +150,6 @@ impl LinkSession {
         tracing::info!(
             %worker_fp,
             connection_generation = %handle.connection_generation,
-            terminal_metadata_v1 = handle.capabilities.contains(CAPABILITY_TERMINAL_METADATA_V1),
             terminal_view_owner_v1 = owns_views,
             acknowledged = handle.capabilities.len(),
             "worker link: hello"

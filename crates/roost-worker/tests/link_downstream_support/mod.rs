@@ -246,13 +246,8 @@ impl LinkLifecyclePort for Fakes {
     fn on_open(&self) {
         self.log.push("lifecycle.on_open");
     }
-    fn on_hello_ack(&self, capabilities: &[String]) {
-        let terminal_metadata_negotiated = capabilities.iter().any(|capability| {
-            capability == roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1
-        });
-        self.log.push(format!(
-            "lifecycle.on_hello_ack:{terminal_metadata_negotiated}"
-        ));
+    fn on_hello_ack(&self, _capabilities: &[String]) {
+        self.log.push("lifecycle.on_hello_ack");
     }
     fn on_detach(&self) {
         self.log.push("lifecycle.on_detach");
@@ -280,10 +275,8 @@ impl DownstreamLink for FakeLink {
     fn reply(&mut self, frame: CoordWorkerUpstream) {
         self.replies.push(frame);
     }
-    fn hello_acknowledged(&mut self, terminal_metadata_negotiated: bool) {
-        self.log.push(format!(
-            "link.hello_acknowledged:{terminal_metadata_negotiated}"
-        ));
+    fn hello_acknowledged(&mut self) {
+        self.log.push("link.hello_acknowledged");
     }
     fn event_acknowledged(&mut self, client_seq: u64) -> bool {
         self.log

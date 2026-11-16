@@ -1,7 +1,6 @@
 // Coordinator ↔ worker raw WebSocket protocol. Worker dials once at boot and
 // the long-lived binary stream remains full duplex.
-// Both directions carry protobuf oneof frames; WBinary remains only for
-// old-coordinator terminal-metadata compatibility.
+// Both directions carry protobuf oneof frames.
 // Connect bidi is not used because Bun cannot preserve this stream's stable
 // full-duplex behavior.
 
@@ -37,7 +36,6 @@ message WSessionEvent {
 }
 message WRpcOk { string request_id = 1; string data_json = 2; }
 message WRpcError { string request_id = 1; string message = 2; }
-message WBinary { uint32 channel_id = 1; uint32 direction = 2; uint64 seq = 3; bytes data = 4; }
 
 // Compact semantic terminal metadata. Changed flags preserve intentional empty
 // values; clipboard writes are one-shot UTF-8 text, capped at 256 KiB, and a
@@ -263,17 +261,17 @@ message WLiveMetrics {
 
 
 message CoordWorkerUp {
-  reserved 4, 5, 8, 9, 13, 14, 15, 33, 34, 35, 37, 38, 39;
+  reserved 4, 5, 8, 9, 10, 13, 14, 15, 33, 34, 35, 37, 38, 39;
   reserved "viewport_result", "transfer_line", "transfer_done",
       "agent_tool_output", "agent_tool_result", "agent_job_result",
-      "agent_status", "omp_events", "omp_host_service_request", "omp_ui_action_receipt";
+      "agent_status", "omp_events", "omp_host_service_request", "omp_ui_action_receipt",
+      "binary";
   oneof frame {
     WHello hello = 1;
     WPong pong = 2;
     WSessionEvent event = 3;
     WRpcOk rpc_ok = 6;
     WRpcError rpc_error = 7;
-    WBinary binary = 10;
     WRefreshJwt refresh_jwt = 11;
     WCellGrid cell_grid = 12;
     WInputResult input_result = 16;

@@ -33,12 +33,8 @@ use crate::sync_ws::feed::{FeedFrame, as_f64};
 /// How long one session may go without a fanned-out activity frame, in
 /// milliseconds.
 ///
-/// v2's `TERMINAL_METADATA_ACTIVITY_THROTTLE_MS`
-/// (`packages/protocol/src/terminal-metadata.ts:9`). The value is shared with
-/// the OSC title parser's module in v2; in v3 that module's home
-/// (`roost-protocol::terminal_metadata`) does not exist yet, and when it lands
-/// this constant is the one line that must be re-pointed at it rather than kept
-/// beside it.
+/// The worker's `TERMINAL_METADATA_ACTIVITY_THROTTLE_MS` is the same interval;
+/// keep the two in step rather than letting a second copy drift.
 pub const LAST_ACTIVITY_THROTTLE_MS: i64 = 60_000;
 
 /// One session's retained activity and the moment its last frame went out.

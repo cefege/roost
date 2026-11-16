@@ -6,8 +6,6 @@
 //!
 //! A capability is a PROMISE: a coordinator that reads one routes traffic here
 //! and waits for the answer. Each entry names the collaborator that earns it:
-//!  - `terminal-metadata-v1` — the cell emitter stages compact metadata and
-//!    the link negotiates it from the hello-ack.
 //!  - `terminal-view-owner-v1` — `terminal_view::TerminalViewOwner` owns view
 //!    membership, geometry and stream generations for this worker's sessions.
 //!  - `terminal-input-route-v1` — `terminal_input::TerminalInputRouteOwner`
@@ -19,8 +17,7 @@
 
 use roost_protocol::versioning::{
     CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1, CAPABILITY_TERMINAL_INPUT_ROUTE_V1,
-    CAPABILITY_TERMINAL_METADATA_V1, CAPABILITY_TERMINAL_PEER_WEBRTC_V1,
-    CAPABILITY_TERMINAL_VIEW_OWNER_V1,
+    CAPABILITY_TERMINAL_PEER_WEBRTC_V1, CAPABILITY_TERMINAL_VIEW_OWNER_V1,
 };
 
 use crate::peer::DirectPeerSupport;
@@ -33,7 +30,6 @@ use crate::peer::DirectPeerSupport;
 #[must_use]
 pub fn advertised(direct: DirectPeerSupport) -> Vec<String> {
     let mut capabilities = vec![
-        CAPABILITY_TERMINAL_METADATA_V1.to_owned(),
         CAPABILITY_TERMINAL_VIEW_OWNER_V1.to_owned(),
         CAPABILITY_TERMINAL_INPUT_ROUTE_V1.to_owned(),
     ];

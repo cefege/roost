@@ -13,7 +13,6 @@ use std::time::Instant;
 
 use link_downstream_support::{FakeLink, Fakes, OwnerMode, SESSION, next_uplink, settle_tasks};
 use roost_proto::{DInputRequest, DTerminalInputRouteClaim, DTerminalPipelineSnapshotRequest};
-use roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1;
 use roost_protocol::wire::coord_worker::{
     CoordWorkerDownstream as Down, CoordWorkerUpstream as Up, TerminalInputStatus,
     TerminalWritePhase,
@@ -69,11 +68,6 @@ async fn hello_ack_moves_the_barrier_then_drops_coordinator_sockets_then_tells_t
         ..FakeLink::default()
     };
     dispatcher.dispatch(
-        hello_ack(vec![CAPABILITY_TERMINAL_METADATA_V1.to_owned()]),
-        Instant::now(),
-        &mut link,
-    );
-    dispatcher.dispatch(
         hello_ack(vec!["terminal-view-owner-v1".to_owned()]),
         Instant::now(),
         &mut link,
@@ -81,12 +75,9 @@ async fn hello_ack_moves_the_barrier_then_drops_coordinator_sockets_then_tells_t
     assert_eq!(
         fakes.log.calls(),
         [
-            "link.hello_acknowledged:true",
+            "link.hello_acknowledged",
             "view.drop_coordinator_sockets",
-            "lifecycle.on_hello_ack:true",
-            "link.hello_acknowledged:false",
-            "view.drop_coordinator_sockets",
-            "lifecycle.on_hello_ack:false",
+            "lifecycle.on_hello_ack",
         ]
     );
 }

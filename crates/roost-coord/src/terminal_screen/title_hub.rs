@@ -1,9 +1,8 @@
 //! Coordinator-owned retained terminal titles, deduplicated across spinner
-//! animation and fanned out on the title bus. Ports `terminal/terminal-title-hub.ts`,
-//! plus the negotiated path of `terminal-metadata-adapter.ts` and `worker-terminal-metadata-frame.ts`
-//! (`live_frames::publish_metadata` observes here). Their legacy WBinary title parser and its
-//! route-retirement subscription are NOT ported: every v3 peer negotiates `terminal_metadata_v1`
-//! and the coordinator refuses legacy Binary metadata. The Sync seed reads the snapshot.
+//! animation and fanned out on the title bus. Titles arrive only as compact
+//! terminal metadata frames (`live_frames::publish_metadata` observes here);
+//! the coordinator never parses raw PTY bytes for a title, so a retired route
+//! key has no subscriber. The Sync seed reads the snapshot.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};

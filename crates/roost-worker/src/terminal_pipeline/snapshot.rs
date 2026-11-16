@@ -60,8 +60,6 @@ pub struct SessionPipelineFacts {
     /// The record's `cell_emit.seq`, stamped on every stage.
     pub sequence: u64,
     pub stream: Option<StreamPipelineFacts>,
-    pub raw_metadata_frames: u64,
-    pub raw_metadata_bytes: u64,
     pub cell_dirty: bool,
     pub pending_repair: bool,
     /// v2 `cellEmissionGates.has`.
@@ -163,22 +161,8 @@ fn session_stages(
     let scheduled = u64::from(facts.cell_dirty) + u64::from(facts.pending_repair);
     let keeper = facts.keeper;
     let keeper_frames = keeper.input_frames + keeper.resize_frames;
-    let raw_pending = facts.raw_metadata_frames > 0;
     vec![
-        bounds::stage(
-            Stage::WorkerPty,
-            if raw_pending {
-                Reason::RawMetadataPending
-            } else {
-                Reason::None
-            },
-            StageInput {
-                queue_frames: facts.raw_metadata_frames,
-                queue_bytes: facts.raw_metadata_bytes,
-                count: facts.raw_metadata_frames,
-                ..base.clone()
-            },
-        ),
+        bounds::stage(Stage::WorkerPty, Reason::None, base.clone()),
         bounds::stage(
             Stage::WorkerCore,
             if core_invalid {

@@ -35,8 +35,6 @@ pub struct CadenceWork {
     /// Channels with a due leading/trailing emit, an owed baseline, or an
     /// expired synchronized-output ceiling. Sorted.
     pub channels: Vec<ChannelId>,
-    /// The raw-metadata compatibility lane owes a dispatch.
-    pub raw_due: bool,
     /// The semantic metadata lane owes a flush.
     pub metadata_due: bool,
     /// The earliest future deadline, if any.
@@ -271,10 +269,6 @@ impl CellEmitter {
         }
         for (channel_id, deadline) in self.sync_output_deadlines() {
             consider(deadline, channel_id, &mut work.channels);
-        }
-        work.raw_due = self.raw.dispatch_due(now);
-        if let Some(wake) = self.raw.next_wake().filter(|wake| *wake > now) {
-            next = Some(next.map_or(wake, |held| held.min(wake)));
         }
         work.metadata_due = self.metadata.flush_due();
         work.channels.sort_unstable();

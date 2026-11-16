@@ -1,6 +1,6 @@
 //! Worker-owned semantic terminal metadata: v2
 //! `apps/worker/src/session/session-terminal-metadata.ts` (per-channel title and
-//! activity facts, the negotiated flag, the fair 32-frame flush, replay after the
+//! activity facts, the attached flag, the fair 32-frame flush, replay after the
 //! snapshot barrier) and `packages/protocol/src/terminal-metadata.ts`
 //! (`TerminalTitleParser`). OSC 52 clipboard writes, long-command finishes,
 //! bells and program notifications are events: sent once, never reasserted by
@@ -67,7 +67,7 @@ pub struct ChannelMetadata {
 /// The semantic lane: every channel's facts, the ready ring, and the flag.
 #[derive(Debug, Default)]
 pub struct TerminalMetadataStage {
-    negotiated: bool,
+    coordinator_attached: bool,
     channels: HashMap<ChannelId, ChannelMetadata>,
     ready: VecDeque<ChannelId>,
     ready_set: HashSet<ChannelId>,
@@ -75,8 +75,8 @@ pub struct TerminalMetadataStage {
 }
 
 impl TerminalMetadataStage {
-    pub fn negotiated(&self) -> bool {
-        self.negotiated
+    pub fn coordinator_attached(&self) -> bool {
+        self.coordinator_attached
     }
 
     /// A channel's retained facts, for diagnostics and tests.
@@ -86,7 +86,7 @@ impl TerminalMetadataStage {
 
     /// Whether a flush is owed (v2's queued microtask / yielded timer).
     pub fn flush_due(&self) -> bool {
-        self.flush_scheduled && self.negotiated && !self.ready.is_empty()
+        self.flush_scheduled && self.coordinator_attached && !self.ready.is_empty()
     }
 
     /// v2 `observeTerminalMetadata`: record one chunk without retaining it.
@@ -96,9 +96,9 @@ impl TerminalMetadataStage {
     }
 
     /// [`Self::observe`] for a live chunk, with the newest clipboard write and
-    /// the BEL count it parsed. A write or bell seen before the link negotiated
-    /// metadata is dropped rather than held: by the time the link is up the
-    /// operator has moved on.
+    /// the BEL count it parsed. A write or bell seen before a link attached is
+    /// dropped rather than held: by the time the link is up the operator has
+    /// moved on.
     pub fn observe_live(
         &mut self,
         channel_id: ChannelId,
@@ -120,12 +120,12 @@ impl TerminalMetadataStage {
             state.title_dirty = true;
             title_changed = true;
         }
-        let clipboard_changed = clipboard.is_some() && self.negotiated;
-        if let Some(text) = clipboard.filter(|_| self.negotiated) {
+        let clipboard_changed = clipboard.is_some() && self.coordinator_attached;
+        if let Some(text) = clipboard.filter(|_| self.coordinator_attached) {
             state.clipboard = Some(text);
             state.clipboard_dirty = true;
         }
-        let bell_due = self.negotiated
+        let bell_due = self.coordinator_attached
             && bell_count > 0
             && state.last_bell_at_ms.is_none_or(|last_bell| {
                 now_ms.saturating_sub(last_bell) >= TERMINAL_BELL_RATE_LIMIT_MS
@@ -144,7 +144,7 @@ impl TerminalMetadataStage {
         if activity_due {
             state.activity_dirty = true;
         }
-        if self.negotiated
+        if self.coordinator_attached
             && (title_changed || activity_due || clipboard_changed || bell_due)
             && !self.ready_set.contains(&channel_id)
         {
@@ -169,7 +169,8 @@ impl TerminalMetadataStage {
                         continue;
                     };
                     let duration_ms = now_ms.saturating_sub(started_at_ms).max(0);
-                    if self.negotiated && duration_ms >= COMMAND_FINISHED_MIN_DURATION_MS {
+                    if self.coordinator_attached && duration_ms >= COMMAND_FINISHED_MIN_DURATION_MS
+                    {
                         state.command_finished = Some((exit_code, duration_ms as u64));
                         state.command_dirty = true;
                         finished = true;
@@ -177,11 +178,11 @@ impl TerminalMetadataStage {
                 }
             }
         }
-        self.negotiated && finished && self.mark_ready(channel_id)
+        self.coordinator_attached && finished && self.mark_ready(channel_id)
     }
 
     /// Progress, notifications and user variables a live parse produced. A
-    /// notification seen before the link negotiated metadata is dropped, like a
+    /// notification seen before the link attached is dropped, like a
     /// bell; progress and user variables are retained and sent once it is up.
     pub fn observe_signals(
         &mut self,
@@ -192,7 +193,7 @@ impl TerminalMetadataStage {
         if live.is_empty() {
             return false;
         }
-        if !self.negotiated {
+        if !self.coordinator_attached {
             live.notifications.clear();
         }
         let owed = self
@@ -201,17 +202,18 @@ impl TerminalMetadataStage {
             .or_default()
             .signals
             .observe(live, now_ms);
-        self.negotiated && owed && self.mark_ready(channel_id)
+        self.coordinator_attached && owed && self.mark_ready(channel_id)
     }
 
-    /// v2 `setTerminalMetadataNegotiated`. Returns whether a flush became owed.
-    pub fn set_negotiated(&mut self, negotiated: bool) -> bool {
-        if self.negotiated == negotiated {
+    /// Whether a coordinator link is attached and has acknowledged the hello.
+    /// Returns whether a flush became owed.
+    pub fn set_coordinator_attached(&mut self, attached: bool) -> bool {
+        if self.coordinator_attached == attached {
             return false;
         }
-        self.negotiated = negotiated;
-        tracing::info!(negotiated, "terminal_metadata_mode");
-        if !negotiated {
+        self.coordinator_attached = attached;
+        tracing::info!(attached, "terminal_metadata_mode");
+        if !attached {
             self.ready.clear();
             self.ready_set.clear();
             return false;
@@ -222,7 +224,7 @@ impl TerminalMetadataStage {
     /// v2 `replayTerminalMetadata`: reassert retained facts once the reconnect
     /// snapshot is live. Returns whether a flush became owed.
     pub fn replay(&mut self) -> bool {
-        self.negotiated && self.reassert_retained_facts()
+        self.coordinator_attached && self.reassert_retained_facts()
     }
 
     fn reassert_retained_facts(&mut self) -> bool {
@@ -249,7 +251,7 @@ impl TerminalMetadataStage {
         now_ms: i64,
     ) {
         self.flush_scheduled = false;
-        if !self.negotiated {
+        if !self.coordinator_attached {
             return;
         }
         let mut frames = 0usize;

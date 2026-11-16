@@ -143,7 +143,7 @@ async fn force_hello(loop_state: &mut LinkLoop, link: &mut Link) -> Option<LinkE
     );
     // v2 calls `onOpen` after the forced hello write, never for a hello that
     // failed; a fresh socket's session half starts suspended until hello-ack.
-    loop_state.terminal_metadata_negotiated = false;
+    loop_state.hello_acked = false;
     if let Some(owners) = loop_state.dispatcher.owners() {
         owners.lifecycle.on_open();
     }

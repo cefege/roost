@@ -15,7 +15,7 @@ use super::control_outcomes::{
     stream_result_to_proto,
 };
 use super::records::{
-    channel_id, data_from_json, data_to_json, metadata_from_proto, metadata_to_proto, narrow_i64,
+    data_from_json, data_to_json, metadata_from_proto, metadata_to_proto, narrow_i64,
     update_progress_from_proto, update_progress_to_proto, widen_u64,
 };
 use super::{UPSTREAM, empty_arm, unknown_arm};
@@ -24,12 +24,11 @@ use crate::proto_adapters::live_metrics_proto::{
 };
 use crate::wire::brand::WorkerFp;
 use crate::wire::coord_worker::CoordWorkerUpstream;
-use crate::wire::coord_worker::{Binary, RefreshJwt};
+use crate::wire::coord_worker::RefreshJwt;
 use crate::wire::event_proto::{event_to_proto, proto_to_event};
 use crate::{ProtocolError, ProtocolResult};
 use roost_proto::{
-    CoordWorkerUp, WBinary, WHello, WLiveMetrics, WPong, WRefreshJwt, WRpcError, WRpcOk,
-    WSessionEvent,
+    CoordWorkerUp, WHello, WLiveMetrics, WPong, WRefreshJwt, WRpcError, WRpcOk, WSessionEvent,
 };
 
 /// Map one union frame onto the generated oneof. The event and the status
@@ -75,13 +74,6 @@ pub(super) fn to_proto(frame: &CoordWorkerUpstream) -> ProtocolResult<CoordWorke
         } => Frame::RpcError(Box::new(WRpcError {
             request_id: request_id.clone(),
             message: message.clone(),
-            ..Default::default()
-        })),
-        CoordWorkerUpstream::Binary(binary) => Frame::Binary(Box::new(WBinary {
-            channel_id: binary.channel_id.as_u32(),
-            direction: u32::from(binary.direction),
-            seq: binary.seq,
-            data: binary.data.clone(),
             ..Default::default()
         })),
         CoordWorkerUpstream::RefreshJwt(refresh) => Frame::RefreshJwt(Box::new(WRefreshJwt {
@@ -189,13 +181,6 @@ pub(super) fn from_proto(message: &CoordWorkerUp) -> ProtocolResult<CoordWorkerU
             message: rpc.message.clone(),
             trace_id: None,
         },
-        Frame::Binary(binary) => CoordWorkerUpstream::Binary(Binary {
-            channel_id: channel_id("binary.channel_id", binary.channel_id)?,
-            direction: u8::try_from(binary.direction)
-                .map_err(|_| ProtocolError::new("binary.direction", "must fit in 8 bits"))?,
-            data: binary.data.clone(),
-            seq: binary.seq,
-        }),
         Frame::RefreshJwt(refresh) => CoordWorkerUpstream::RefreshJwt(RefreshJwt {
             jwt: refresh.jwt.clone(),
         }),

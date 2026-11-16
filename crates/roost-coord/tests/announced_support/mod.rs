@@ -13,7 +13,7 @@ use roost_coord::worker_link::retained_budget::RetainedWorkBudget;
 use roost_proto::buffa::MessageField;
 use roost_proto::{PbCellGridChunk, PbCellGridFrame, WCellGrid, WCellGridChunk};
 use roost_protocol::wire::ChannelId;
-use roost_protocol::wire::coord_worker::{Binary, CoordWorkerUpstream, TerminalMetadata};
+use roost_protocol::wire::coord_worker::{CoordWorkerUpstream, TerminalMetadata};
 use tokio::time::Instant;
 
 pub const SESSION: &str = "00000000-0000-4000-8000-000000000717";
@@ -141,15 +141,6 @@ pub fn chunk(seq: u64) -> CoordWorkerUpstream {
     })
 }
 
-pub fn binary(seq: u64, text: &str) -> CoordWorkerUpstream {
-    CoordWorkerUpstream::Binary(Binary {
-        channel_id: ChannelId::try_from(i64::from(CHANNEL)).unwrap(),
-        direction: 1,
-        data: text.as_bytes().to_vec(),
-        seq,
-    })
-}
-
 pub fn metadata(
     title: &str,
     title_changed: bool,
@@ -186,9 +177,6 @@ pub fn label(frame: &CoordWorkerUpstream) -> String {
         CoordWorkerUpstream::CellGridChunk(chunk) => {
             let part = chunk.chunk.as_option().unwrap().part.as_option().unwrap();
             format!("chunk:{}", part.seq)
-        }
-        CoordWorkerUpstream::Binary(binary) => {
-            format!("binary:{}", String::from_utf8_lossy(&binary.data))
         }
         CoordWorkerUpstream::TerminalMetadata(metadata) => format!("metadata:{}", metadata.title),
         other => format!("other:{}", other.kind()),

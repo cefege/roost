@@ -146,7 +146,7 @@ fn is_worker_pipeline_stage(stage: &TerminalPipelineStageSnapshot) -> bool {
 
 fn is_pipeline_reason(stage: &TerminalPipelineStageSnapshot) -> bool {
     let first = TerminalPipelineReason::None as i32;
-    let last = TerminalPipelineReason::RawMetadataPending as i32;
+    let last = TerminalPipelineReason::NativeBuffered as i32;
     stage
         .reason
         .as_known()

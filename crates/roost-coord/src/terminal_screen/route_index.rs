@@ -5,11 +5,9 @@
 //! the route cache and the retirement bookkeeping, and `byte_hub` owns the
 //! cells. Neither names a caller.
 //!
-//! Names `apps/coord/src/terminal/input/terminal-route-retirement.ts`, v2's
-//! publication of a retired route key. Its sole v2 subscriber,
-//! `terminal-metadata-adapter.ts` `removeLegacyParser`, is not ported because
-//! the legacy WBinary title path is refused, so that publication has no reader
-//! and [`NoRouteRetirement`] is the whole of it.
+//! A route key that stops resolving is published as a retirement. Titles arrive
+//! only as compact terminal metadata, so nothing keeps per-route parser state
+//! and the publication has no reader: [`NoRouteRetirement`] is the whole of it.
 //!
 //! WHY THE FORWARD INDEX IS NESTED BY WORKER. v2 keeps one `Map` keyed by the
 //! string `"<fp>:<channel>"` and prefix-sweeps it. A nested `BTreeMap` makes

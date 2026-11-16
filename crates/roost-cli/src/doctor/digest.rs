@@ -16,7 +16,7 @@ use serde_json::Value;
 
 /// The kinds that get the red icon rather than the warning one. This is a
 /// PRESENTATION list and deliberately a subset: the closed vocabulary itself is
-/// `roost_observability::SignalKind::ALL` (73 kinds), and a kind that is not
+/// `roost_observability::SignalKind::ALL` (72 kinds), and a kind that is not
 /// listed here still appears in the digest and still sets the exit code — it
 /// just wears a ⚠️. Hand-promoting a kind into this list is therefore a
 /// cosmetic decision, which is why it lives in the CLI and not in the

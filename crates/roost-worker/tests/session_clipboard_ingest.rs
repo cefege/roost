@@ -15,7 +15,7 @@ async fn a_live_osc52_store_is_pending_and_a_captured_one_is_not() {
     let harness = Harness::new();
     harness.install(SESSION, 7, "/home/user/project", "/home/user/project");
     let mut emitter = CellEmitter::new();
-    emitter.set_terminal_metadata_negotiated(true);
+    emitter.set_coordinator_attached(true);
     let channel = ChannelId::try_from(7).unwrap();
     let record = harness.table.record_of_channel(7).unwrap();
     let mut record = record.lock().unwrap();

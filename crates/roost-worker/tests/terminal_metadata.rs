@@ -42,7 +42,7 @@ fn sends_one_semantic_record_after_the_capability_acknowledgement() {
         "metadata left before the capability was acknowledged"
     );
 
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
     flush_if_due(&mut stage, &mut sent, 1_000);
     assert_eq!(sent.len(), 1);
     assert!(sent[0].title_changed && sent[0].activity_changed);
@@ -55,10 +55,10 @@ fn replays_the_latest_title_after_a_capability_cutover() {
     let mut stage = TerminalMetadataStage::default();
     let mut sent = Vec::new();
     stage.observe(channel(7), b"\x1b]2;replay me\x1b\\", 1_000);
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
     flush_if_due(&mut stage, &mut sent, 1_000);
-    stage.set_negotiated(false);
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(false);
+    stage.set_coordinator_attached(true);
     flush_if_due(&mut stage, &mut sent, 1_000);
     let titles: Vec<&str> = sent
         .iter()
@@ -75,7 +75,7 @@ fn replays_the_latest_title_after_a_capability_cutover() {
 fn throttles_steady_activity_publications() {
     let mut stage = TerminalMetadataStage::default();
     let mut sent = Vec::new();
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
     stage.observe(channel(7), b"a", 1_000);
     flush_if_due(&mut stage, &mut sent, 1_000);
     assert_eq!(sent.len(), 1);
@@ -99,15 +99,15 @@ fn throttles_steady_activity_publications() {
 fn replays_the_latest_activity_retained_during_throttling() {
     let mut stage = TerminalMetadataStage::default();
     let mut sent = Vec::new();
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
     stage.observe(channel(7), b"a", 1_000);
     flush_if_due(&mut stage, &mut sent, 1_000);
     stage.observe(channel(7), b"b", 2_000);
     flush_if_due(&mut stage, &mut sent, 2_000);
     assert_eq!(sent.len(), 1);
 
-    stage.set_negotiated(false);
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(false);
+    stage.set_coordinator_attached(true);
     flush_if_due(&mut stage, &mut sent, 2_000);
     assert_eq!(sent.len(), 2);
     assert_eq!(sent[1].activity_ts_ms, 2_000);
@@ -117,12 +117,12 @@ fn replays_the_latest_activity_retained_during_throttling() {
 fn does_not_republish_activity_immediately_after_a_delayed_replay() {
     let mut stage = TerminalMetadataStage::default();
     let mut sent = Vec::new();
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
     stage.observe(channel(7), b"a", 1_000);
     flush_if_due(&mut stage, &mut sent, 1_000);
 
-    stage.set_negotiated(false);
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(false);
+    stage.set_coordinator_attached(true);
     flush_if_due(&mut stage, &mut sent, 61_000);
     assert_eq!(sent.len(), 2);
     assert_eq!(sent[1].activity_ts_ms, 1_000);
@@ -141,7 +141,7 @@ fn a_refused_send_does_not_spin_and_retries_on_the_next_flush() {
     let mut stage = TerminalMetadataStage::default();
     let mut attempts = 0;
     stage.observe(channel(7), b"\x1b]0;blocked\x07", 1_000);
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
     let mut refuse = |_: TerminalMetadata| {
         attempts += 1;
         MetadataSend::Dropped
@@ -163,7 +163,7 @@ fn yields_after_one_full_metadata_quantum() {
     for index in 1..=channels {
         stage.observe(channel(index as i64), &[index as u8], 1_000);
     }
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
     flush_if_due(&mut stage, &mut sent, 1_000);
     assert_eq!(
         sent.len(),
@@ -181,7 +181,7 @@ fn yields_after_one_full_metadata_quantum() {
 #[test]
 fn a_session_that_is_gone_is_not_published() {
     let mut stage = TerminalMetadataStage::default();
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
     stage.observe(channel(8), b"\x1b]0;gone\x07", 1_000);
     let mut sent = 0;
     stage.flush(
@@ -286,7 +286,7 @@ fn a_backpressured_title_survives_a_later_activity_only_record() {
 fn publishes_only_long_live_command_finishes_once() {
     let mut stage = TerminalMetadataStage::default();
     let mut sent = Vec::new();
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
 
     stage.observe_command_events(channel(7), [roost_term::core::CommandEvent::Started], 1_000);
     stage.observe_command_events(
@@ -327,7 +327,7 @@ fn publishes_only_long_live_command_finishes_once() {
 fn terminal_bells_are_rate_limited_per_channel_and_not_replayed() {
     let mut stage = TerminalMetadataStage::default();
     let mut sent = Vec::new();
-    stage.set_negotiated(true);
+    stage.set_coordinator_attached(true);
 
     assert!(stage.observe_live(channel(7), b"", None, 1, 1_000));
     flush_if_due(&mut stage, &mut sent, 1_000);

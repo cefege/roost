@@ -41,7 +41,7 @@ fn a_coalescing_frame_replaces_its_own_predecessor_in_one_lane() {
     assert!(outbox.coalesces(Lane::Control, "s-1"));
     assert!(outbox.coalesces(Lane::Control, "s-2"));
 
-    let drained = outbox.drain_all(now);
+    let drained = outbox.drain_all();
     assert_eq!(drained.len(), 2);
     assert_eq!(
         drained[0].bytes,
@@ -81,7 +81,7 @@ fn a_coalescing_frame_that_does_not_fit_keeps_the_record_it_would_replace() {
         16,
         "the refused record changed the byte count"
     );
-    let drained = outbox.drain_all(now);
+    let drained = outbox.drain_all();
     assert_eq!(
         drained[1].label, "first",
         "the record that was told is the one that left"

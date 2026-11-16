@@ -250,8 +250,6 @@ mod session_git_ports;
 mod session_ids;
 #[path = "session_lifecycle.rs"]
 mod session_lifecycle;
-#[path = "session_raw_metadata.rs"]
-mod session_raw_metadata;
 #[path = "session_resize.rs"]
 mod session_resize;
 #[path = "session_resume_teardown.rs"]

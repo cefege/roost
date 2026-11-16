@@ -73,14 +73,6 @@ impl WorkerFrameDispatcher {
             CoordWorkerUpstream::TerminalMetadata(metadata) => {
                 self.publish_metadata(&worker, &metadata)
             }
-            CoordWorkerUpstream::Binary(_) => {
-                // v2 parses a legacy worker's raw output for a title. The
-                // capability cutover makes that path dead — v2 refuses it too once
-                // `terminal_metadata_v1` is negotiated — and this build has never
-                // carried the parser, so the refusal is the whole behaviour and
-                // claiming otherwise would be a lie about a frame we drop.
-                self.refuse(channel, "legacy_binary_metadata_is_not_parsed")
-            }
             CoordWorkerUpstream::TerminalViewState(state) => {
                 self.core.services.views.apply_owner_view_state(
                     &worker,

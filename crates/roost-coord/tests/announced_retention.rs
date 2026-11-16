@@ -13,7 +13,7 @@
 
 mod announced_support;
 
-use announced_support::{Barrier, CHANNEL, SESSION, binary, commit_labels, metadata, now};
+use announced_support::{Barrier, CHANNEL, SESSION, chunk, commit_labels, metadata, now};
 use roost_coord::worker_link::announced_types::{
     ANNOUNCED_CHANNEL_MAX_BYTES, EnqueueOutcome, SEMANTIC_METADATA_MAX_CHANNELS,
     SEMANTIC_METADATA_PREANNOUNCE_MAX, SEMANTIC_METADATA_RECOVERY_MAX,
@@ -33,7 +33,7 @@ fn park(b: &mut Barrier, session: &str, title: &str) -> Instant {
     let parked_at = now();
     b.announce(session);
     b.enqueue(metadata(title, true, true, 1), 40);
-    let flood = binary(1, "overflow");
+    let flood = chunk(1);
     assert_eq!(
         b.enqueue(flood, ANNOUNCED_CHANNEL_MAX_BYTES),
         EnqueueOutcome::Dropped
@@ -171,7 +171,7 @@ fn the_socket_frame_cap_counts_the_in_flight_append_and_every_announced_channel(
         let channel = 1_000 + index;
         b.barrier
             .announce(channel, SESSION, now(), queue.budget_mut());
-        let frame = binary(u64::from(index) + 1, "x");
+        let frame = chunk(u64::from(index) + 1);
         let held = b
             .barrier
             .enqueue(channel, frame, 1, now(), queue.budget_mut());
@@ -183,7 +183,7 @@ fn the_socket_frame_cap_counts_the_in_flight_append_and_every_announced_channel(
         .announce(2_000, SESSION, now(), queue.budget_mut());
     let refused = b
         .barrier
-        .enqueue(2_000, binary(1, "x"), 1, now(), queue.budget_mut());
+        .enqueue(2_000, chunk(1), 1, now(), queue.budget_mut());
 
     assert_eq!(refused, EnqueueOutcome::Dropped);
     let overflow = BudgetOverflow {
@@ -223,7 +223,7 @@ fn the_socket_byte_cap_counts_the_in_flight_append_through_the_first_excess_byte
             .announce(channel, SESSION, now(), queue.budget_mut());
         let held = b
             .barrier
-            .enqueue(channel, binary(1, "x"), bytes, now(), queue.budget_mut());
+            .enqueue(channel, chunk(1), bytes, now(), queue.budget_mut());
         assert_eq!(held, EnqueueOutcome::Buffered);
         remaining -= bytes;
         channel += 1;
@@ -237,7 +237,7 @@ fn the_socket_byte_cap_counts_the_in_flight_append_through_the_first_excess_byte
         .announce(4_000, SESSION, now(), queue.budget_mut());
     let refused = b
         .barrier
-        .enqueue(4_000, binary(1, "x"), 1, now(), queue.budget_mut());
+        .enqueue(4_000, chunk(1), 1, now(), queue.budget_mut());
 
     assert_eq!(refused, EnqueueOutcome::Dropped);
     assert!(queue.budget().overflow().is_some());

@@ -1,9 +1,8 @@
 //! The link-side gates v2 keeps in `apps/worker/src/transport/coord-link-outbox.ts`,
 //! through a real link loop: a cell sink that was refused is told the link is
 //! writable (`maybeNotifyWritable`) only once the link is live, and once; compact
-//! terminal metadata rides only a link that negotiated it and raw PTY metadata
-//! only one that did not; the pong goes out before the link is live; a detach
-//! drops the control lane.
+//! terminal metadata rides a link once its hello is acknowledged; the pong goes
+//! out before the link is live; a detach drops the control lane.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod link_downstream_support;
@@ -14,11 +13,9 @@ use std::time::Duration;
 use link_downstream_support::live::{LiveLink, eventually, go_live, next_frame, send};
 use link_downstream_support::{Fakes, OwnerMode};
 use roost_protocol::cell::types::{CellGridFrame, CellRow, MouseTracking};
-use roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1;
 use roost_protocol::wire::brand::ChannelId;
 use roost_protocol::wire::coord_worker::{
-    Binary, CoordWorkerDownstream as Down, CoordWorkerUpstream as Up, DIR_FROM_PTY,
-    TerminalMetadata,
+    CoordWorkerDownstream as Down, CoordWorkerUpstream as Up, TerminalMetadata,
 };
 use roost_worker::runtime::link_loop::CoordinatorCellSink;
 use roost_worker::runtime::link_wire::ProtoLinkWire;
@@ -120,13 +117,13 @@ async fn a_refused_cell_sink_is_told_writable_once_and_only_after_the_link_is_li
     live.stop().await;
 }
 
-/// Send compact metadata, raw metadata and a control sentinel through the
-/// uplink; return every frame that reached the coordinator, bounded.
-async fn metadata_frames(capabilities: Vec<String>) -> Vec<Up> {
+/// Send compact metadata and a control sentinel through the uplink; return
+/// every frame that reached the coordinator, bounded.
+async fn metadata_frames() -> Vec<Up> {
     let fakes = Fakes::new(OwnerMode::Answer);
     let live = LiveLink::start(&fakes, None).await;
     let mut socket = live.accept().await;
-    go_live(&mut socket, capabilities).await;
+    go_live(&mut socket, Vec::new()).await;
     eventually(|| fakes.log.count("lifecycle.on_snapshot_ready") == 1).await;
     let metadata = TerminalMetadata {
         channel_id: channel(),
@@ -147,13 +144,6 @@ async fn metadata_frames(capabilities: Vec<String>) -> Vec<Up> {
         user_vars: Vec::new(),
     };
     assert!(live.uplink.send(Up::TerminalMetadata(metadata)));
-    let raw = Binary {
-        channel_id: channel(),
-        direction: DIR_FROM_PTY,
-        data: b"\x1b]0;vim\x07".to_vec(),
-        seq: 9,
-    };
-    assert!(live.uplink.send(Up::Binary(raw)));
     assert!(live.uplink.send(sentinel("sentinel")));
     let mut frames = Vec::new();
     while let Ok(frame) =
@@ -166,19 +156,11 @@ async fn metadata_frames(capabilities: Vec<String>) -> Vec<Up> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_negotiated_link_carries_compact_metadata_and_drops_raw_metadata() {
-    let frames = metadata_frames(vec![CAPABILITY_TERMINAL_METADATA_V1.to_owned()]).await;
+async fn a_hello_acked_link_carries_compact_metadata() {
+    let frames = metadata_frames().await;
     let mut kinds: Vec<_> = frames.iter().map(Up::kind).collect();
     kinds.sort_unstable();
     assert_eq!(kinds, ["rpc-ok", "terminal-metadata"]);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_link_without_metadata_carries_raw_metadata_and_drops_compact_metadata() {
-    let frames = metadata_frames(Vec::new()).await;
-    let mut kinds: Vec<_> = frames.iter().map(Up::kind).collect();
-    kinds.sort_unstable();
-    assert_eq!(kinds, ["binary", "rpc-ok"]);
 }
 
 /// v2 `drainQueues` writes the liveness lane before replay and before the link

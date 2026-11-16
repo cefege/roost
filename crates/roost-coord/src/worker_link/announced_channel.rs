@@ -23,7 +23,6 @@ use crate::worker_link::retained_budget::{RetainOutcome, RetainedWorkBudget};
 pub(super) enum Lane {
     Cell { full: bool, seq: u64 },
     Metadata,
-    Binary { bytes: u64 },
 }
 
 /// What one channel lost, per lane.
@@ -31,8 +30,6 @@ pub(super) enum Lane {
 pub(super) struct LaneCounts {
     pub(super) cell_frames: usize,
     pub(super) metadata_frames: usize,
-    pub(super) binary_frames: usize,
-    pub(super) binary_bytes: u64,
 }
 
 impl LaneCounts {
@@ -46,10 +43,6 @@ impl LaneCounts {
         match lane {
             Lane::Cell { .. } => self.cell_frames += 1,
             Lane::Metadata => self.metadata_frames += 1,
-            Lane::Binary { bytes } => {
-                self.binary_frames += 1;
-                self.binary_bytes += bytes;
-            }
         }
     }
 }
@@ -212,9 +205,6 @@ fn frame_lane(frame: &CoordWorkerUpstream) -> Option<Lane> {
                 full: part.full,
                 seq: part.seq,
             }),
-        CoordWorkerUpstream::Binary(binary) => Some(Lane::Binary {
-            bytes: u64::try_from(binary.data.len()).unwrap_or(u64::MAX),
-        }),
         CoordWorkerUpstream::TerminalMetadata(_) => Some(Lane::Metadata),
         _ => None,
     }
@@ -225,10 +215,6 @@ pub(super) fn remove_lane(counts: &mut LaneCounts, lane: Lane) {
     match lane {
         Lane::Cell { .. } => counts.cell_frames -= 1,
         Lane::Metadata => counts.metadata_frames -= 1,
-        Lane::Binary { bytes } => {
-            counts.binary_frames -= 1;
-            counts.binary_bytes -= bytes;
-        }
     }
 }
 

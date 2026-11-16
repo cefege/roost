@@ -37,7 +37,7 @@ pub trait DownstreamLink {
     /// Admit an answer now, in receive order, on the connection it answers.
     fn reply(&mut self, frame: CoordWorkerUpstream);
     /// Advance the replay barrier past the hello (v2 `outbox.acceptHelloAck`).
-    fn hello_acknowledged(&mut self, terminal_metadata_negotiated: bool);
+    fn hello_acknowledged(&mut self);
     /// Apply a durable or snapshot ack; true when THIS ack took the link live.
     fn event_acknowledged(&mut self, client_seq: u64) -> bool;
     /// Hand a browser command to the command pump, its answers fenced to `fence`.

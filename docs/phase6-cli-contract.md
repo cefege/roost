@@ -280,7 +280,7 @@ host=<HOST or local>  sources=coord+worker(local)  cutoff=2026-06-18 20:13
 
 - `🔴` for a kind in `ERROR_SIGNALS`, `⚠️` for every other kind. That list is a
   **presentation** subset of the real vocabulary
-  (`roost_observability::SignalKind::ALL`, 73 kinds): an unlisted kind still
+  (`roost_observability::SignalKind::ALL`, 72 kinds): an unlisted kind still
   appears and still sets the exit code, it just wears a ⚠️.
 - Signals sort by count descending, ties by kind name. Infra rows sort the same
   way, capped at 15. Audit rows sort the same way, capped at 15. The cap exists

@@ -1,12 +1,9 @@
 //! Retained terminal titles: normalized and capped before fan-out, published
 //! only on a meaningful change, deduplicated across spinner animation, and
-//! retained as displayed; and the negotiated worker metadata frame that feeds
-//! them, next to the raw legacy frame that must not.
+//! retained as displayed; and the worker metadata frame that feeds them.
 //!
 //! Ports `apps/coord/tests/terminal/terminal-title-hub.test.ts` and the
-//! negotiated cases of `terminal-metadata-adapter.test.ts`. Its two legacy
-//! parser cases have no port: the Rust coordinator carries no raw title parser
-//! and refuses a legacy `Binary` metadata frame (`live_frames.rs`).
+//! metadata-frame cases of `terminal-metadata-adapter.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod db_support;
@@ -23,8 +20,7 @@ use roost_coord::events::bus_messages::SessionTitleUpdate;
 use roost_coord::terminal_screen::title_hub::TerminalTitleHub;
 use roost_coord::worker_link::dispatch::{DispatchOutcome, FrameDispatch};
 use roost_coord::worker_link::frame_dispatch::WorkerFrameDispatcher;
-use roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1;
-use roost_protocol::wire::coord_worker::{Binary, CoordWorkerUpstream, TerminalMetadata};
+use roost_protocol::wire::coord_worker::{CoordWorkerUpstream, TerminalMetadata};
 use roost_protocol::wire::{ChannelId, SessionId};
 
 const SEMANTIC_SESSION: &str = "00000000-0000-4000-8000-000000000071";
@@ -114,14 +110,13 @@ fn the_retained_title_is_the_displayed_one_not_its_dedup_key() {
     );
 }
 
-/// A generation that negotiated `terminal_metadata_v1`, with `CHANNEL` bound
-/// to `SEMANTIC_SESSION`.
-fn negotiated(fixture: &LinkFixture) -> WorkerFrameDispatcher {
+/// A generation with `CHANNEL` bound to `SEMANTIC_SESSION`.
+fn bound_generation(fixture: &LinkFixture) -> WorkerFrameDispatcher {
     let handle = Arc::new(WorkerHandle::new(
         worker(WORKER_FP),
         None,
-        "negotiated".to_owned(),
-        std::collections::BTreeSet::from([CAPABILITY_TERMINAL_METADATA_V1.to_owned()]),
+        "bound".to_owned(),
+        std::collections::BTreeSet::new(),
         fixture.socket.sender(),
     ));
     roost_coord::workers::registry::claim_generation(
@@ -143,7 +138,7 @@ fn negotiated(fixture: &LinkFixture) -> WorkerFrameDispatcher {
 #[tokio::test]
 async fn a_negotiated_metadata_frame_feeds_the_title_and_activity_hubs() {
     let fixture = LinkFixture::new("metadata-semantic").await;
-    let dispatcher = negotiated(&fixture);
+    let dispatcher = bound_generation(&fixture);
     let buses = &fixture.services.buses;
     let (titles, title_subscription) = collect(buses, SEMANTIC_SESSION);
     let activity = Arc::new(Mutex::new(Vec::new()));
@@ -185,7 +180,7 @@ async fn a_negotiated_metadata_frame_feeds_the_title_and_activity_hubs() {
 #[tokio::test]
 async fn a_clipboard_write_is_published_once_and_retained_nowhere() {
     let fixture = LinkFixture::new("metadata-clipboard").await;
-    let dispatcher = negotiated(&fixture);
+    let dispatcher = bound_generation(&fixture);
     let buses = &fixture.services.buses;
     let (titles, title_subscription) = collect(buses, SEMANTIC_SESSION);
     let writes = Arc::new(Mutex::new(Vec::new()));
@@ -227,32 +222,5 @@ async fn a_clipboard_write_is_published_once_and_retained_nowhere() {
         titles.lock().unwrap().is_empty(),
         "a clipboard-only record is not a title"
     );
-    assert!(fixture.services.titles.title_snapshot().is_empty());
-}
-
-// v2 terminal-metadata-adapter.test.ts "drops input-direction and
-// post-negotiation raw metadata frames".
-#[tokio::test]
-async fn a_raw_metadata_frame_publishes_no_title_in_either_direction() {
-    let fixture = LinkFixture::new("metadata-gated").await;
-    let dispatcher = negotiated(&fixture);
-    let (titles, subscription) = collect(&fixture.services.buses, SEMANTIC_SESSION);
-    let raw_title = b"\x1b]0;must not publish\x07".to_vec();
-
-    for direction in [1, 0] {
-        let raw = CoordWorkerUpstream::Binary(Binary {
-            channel_id: ChannelId::try_from(CHANNEL).unwrap(),
-            direction,
-            data: raw_title.clone(),
-            seq: 0,
-        });
-        assert_eq!(
-            dispatcher.handle_now(WORKER_FP, live_frame(71, raw)),
-            DispatchOutcome::Refused
-        );
-    }
-
-    drop(subscription);
-    assert!(titles.lock().unwrap().is_empty());
     assert!(fixture.services.titles.title_snapshot().is_empty());
 }
