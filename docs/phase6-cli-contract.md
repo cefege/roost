@@ -280,7 +280,7 @@ host=<HOST or local>  sources=coord+worker(local)  cutoff=2026-06-18 20:13
 
 - `🔴` for a kind in `ERROR_SIGNALS`, `⚠️` for every other kind. That list is a
   **presentation** subset of the real vocabulary
-  (`roost_observability::SignalKind::ALL`, 72 kinds): an unlisted kind still
+  (`roost_observability::SignalKind::ALL`, 62 kinds): an unlisted kind still
   appears and still sets the exit code, it just wears a ⚠️.
 - Signals sort by count descending, ties by kind name. Infra rows sort the same
   way, capped at 15. Audit rows sort the same way, capped at 15. The cap exists
@@ -292,8 +292,8 @@ host=<HOST or local>  sources=coord+worker(local)  cutoff=2026-06-18 20:13
   facts and the digest says which one it found.
 - The four `terminal.capture_*` **lifecycle** signals are printed and excluded
   from the exit code: an operator who turned on terminal debugging must not make
-  the nightly gate red every time they use it. `terminal.capture_failed`,
-  `terminal.history_conflict` and `terminal.emission_conflict` are **not**
+  the nightly gate red every time they use it. `terminal.capture_failed` and
+  `terminal.emission_conflict` are **not**
   excluded — those are the anomalies the feature exists to surface.
 
 ### `--session`

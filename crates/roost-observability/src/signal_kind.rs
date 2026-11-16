@@ -25,7 +25,7 @@ macro_rules! signal_kinds {
 
         impl SignalKind {
             /// Every kind, in the order the vocabulary grew.
-            pub const ALL: [SignalKind; 72] = [$(Self::$variant,)*];
+            pub const ALL: [SignalKind; 62] = [$(Self::$variant,)*];
 
             /// The token that goes into the log line. Exact.
             pub fn as_str(self) -> &'static str {
@@ -52,19 +52,20 @@ macro_rules! signal_kinds {
 }
 
 signal_kinds! {
+    /// the browser's wasm panic hook or an unhandled error reached the top of the SPA
     SpaUncaught => "spa.uncaught",
-    /// SPA self-healed a stale-chunk load after a redeploy (kv.msg,attempt). A BURST = deploys
-    /// leaving tabs broken, or dist served inconsistently
-    SpaChunkReload => "spa.chunk_reload",
     /// SPA anomaly detectors (kv.kind = the detector)
     DiagCorruptionSignal => "diag.corruption_signal",
     /// duplicated browser tab inherited sessionStorage identity; newcomer rotated before opening
     /// authenticated transports
     TabDuplicateIdentityRotated => "tab.duplicate_identity_rotated",
+    /// the device key had been minted before but its slot was empty at boot, so a fresh key
+    /// replaced it and the device must pair again
     AuthKeyEvicted => "auth.key_evicted",
+    /// the coordinator rejected this browser's device credential with a 401 and it must pair again
     AuthRelogin401 => "auth.relogin_401",
+    /// the composer or a terminal refused a burst of keystrokes, once per minute per pane at most
     InputDropBurst => "input.drop_burst",
-    ReconnectGiveUp => "reconnect.give_up",
     /// keeper subprocess exited → all PTYs lost; worker respawns + reconciles sessions
     KeeperDied => "keeper.died",
     /// keeper alive but births dead PTYs (spawn ok, no I/O) — emit_no_session burst; fix = fresh
@@ -80,10 +81,6 @@ signal_kinds! {
     KeeperRestartDegraded => "keeper.restart_degraded",
     /// keeper never acked a Spawn frame within timeout → session hangs (degraded/wedged keeper)
     SpawnNoAck => "spawn.no_ack",
-    /// auto/forced agent launch input was rejected by terminal admission (Sync not
-    /// connected/subscribed yet) — the PTY opens with no agent and nothing said why; kv names
-    /// reason. One legitimate attempt exists; there is no retry path
-    SpawnAgentLaunchDropped => "spawn.agent_launch_dropped",
     /// ring rolled past lastSeq → silent history hole on resume (observability, NOT a band-aid
     /// trigger)
     ScrollbackGap => "scrollback.gap",
@@ -117,21 +114,11 @@ signal_kinds! {
     TerminalScreenCapacity => "terminal.screen_capacity",
     /// coordinator could not encode a canonical cached snapshot for incremental recipient delivery
     TerminalSnapshotEncodeFailed => "terminal.snapshot_encode_failed",
-    /// worker stream result did not match the coordinator lane's addressed stream or desired
-    /// payload
-    TerminalStreamResultMismatch => "terminal.stream_result_mismatch",
-    /// worker classified a coordinator-produced stream request as structurally invalid
-    TerminalStreamInvariantFailure => "terminal.stream_invariant_failure",
     /// an application opened a DEC 2026 synchronized-output frame and did not close it inside
     /// either ceiling, so the worker force-emitted the withheld cell frame and stopped suppressing
     /// that generation; kv names which cap tripped, the generation, the hold's monotonic age and
     /// how many frames it withheld
     TerminalSyncOutputCap => "terminal.sync_output_cap",
-    /// the core's fixed OSC 8 link table filled up, so every NEW distinct hyperlink this session
-    /// emits silently renders as PLAIN TEXT (no error, no missing output — links just stop
-    /// appearing); kv names capacity/used/rejected. Fires once per false→true flip, and the table
-    /// resets on a core rebuild
-    TerminalHyperlinkSaturated => "terminal.hyperlink_saturated",
     /// the terminal core's dispatcher IGNORED an escape sequence the application sent — the
     /// "renders wrong in Roost, fine in iTerm" class (e.g. DA1 `CSI c`, DECSCUSR `CSI Ps SP q`);
     /// kv names final/private/param_count/params plus ring_full+dropped. ONE line per distinct
@@ -156,15 +143,12 @@ signal_kinds! {
     /// a lease passed its server-time expiry without renewal; recorders disarmed themselves and a
     /// page reload must START again rather than silently resume
     TerminalCaptureExpired => "terminal.capture_expired",
-    /// the painted scrollback violated a structural invariant: a duplicate or out-of-order
-    /// ABSOLUTE row index, or DOM history whose identity/order disagrees with the committed
-    /// painted model at the same completed boundary. This is the duplicated-footer class; kv names
-    /// stream/epoch/reason identity and counts only
-    TerminalHistoryConflict => "terminal.history_conflict",
     /// a fresh viewport-only core scan disagreed with the worker's own emitted-frame fold at one
     /// emission's exact generation and sequence — the grid the core holds is not the grid the
     /// worker shipped. kv names the differing field plus row/column, never the text
     TerminalEmissionConflict => "terminal.emission_conflict",
+    /// the dictation WebSocket closed without the user ending the recording; kv names the stage,
+    /// close code and reason
     VoiceWsFailed => "voice.ws_failed",
     /// mic capture never started (getUserMedia denied/busy/absent, or the pipeline was torn down
     /// mid-start) — the failure class the Deepgram WS signal is blind to
@@ -190,9 +174,6 @@ signal_kinds! {
     /// coord's announced-channel barrier abandoned buffered worker frames; a mapped terminal
     /// stream is invalidated and requests one full snapshot
     CellAnnounceBarrierDrop => "cell.announce_barrier_drop",
-    /// coord dropped announced binary PTY frames: a later cell snapshot recreates the grid
-    /// (hyperlinks included — they ride the cells) but NOT that channel's one-time OSC 0/2 title
-    BytesMetadataLoss => "bytes.metadata_loss",
     /// coord reconnect backfill query threw; live stream continued → SPA split-brain
     SyncBackfillFailed => "sync.backfill_failed",
     /// coord backfill hit the getEventsSince row cap → events silently skipped
@@ -214,9 +195,6 @@ signal_kinds! {
     /// foreground terminal liveness bound fired; kv.layer=view_ack|terminal_proof|dom_reconcile
     /// and kv.action=resync|redial|reconcile name the failed proof and recovery
     CellForegroundStall => "cell.foreground_stall",
-    /// PTY→browser-arrival latency for a cell frame exceeded the per-session felt-lag floor by
-    /// PAINT_LAG_SIGNAL_MS (skew-corrected); kv's per-hop values name the hop that owns the delay
-    CellPaintLag => "cell.paint_lag",
     /// coord appendEvent DB tx failed (event-log durability)
     EventAppendFailed => "event.append_failed",
     /// coord audit_log insert failed (audit/compliance trail hole)
@@ -240,8 +218,6 @@ signal_kinds! {
     /// worker uncaughtException/unhandledRejection (mirror of spa.uncaught);
     /// kv.kind=error|rejection
     WorkerUncaught => "worker.uncaught",
-    /// SessionEvent evicted from the unacked outbox on overflow (at-least-once broken = data loss)
-    TransportEventDrop => "transport.event_drop",
     /// replaceable cwd/git/pr/ports event was superseded or rejected within its bounded volatile
     /// lane; lifecycle durability is unaffected
     TransportMetadataCoalesced => "transport.metadata_coalesced",

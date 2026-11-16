@@ -12,7 +12,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_cli::doctor::audit::AuditSummary;
-use roost_cli::doctor::digest::{Digest, classify};
+use roost_cli::doctor::digest::{Digest, ERROR_SIGNALS, OPERATOR_SIGNALS, classify};
 use roost_cli::doctor::digest_render::render_digest;
 use serde_json::{Value, json};
 
@@ -119,11 +119,7 @@ fn an_operator_caused_capture_lifecycle_is_listed_but_does_not_trip_the_exit() {
     assert!(output.text.contains("terminal.capture_saved"));
 
     // The capture FAULT kinds are the anomalies the feature exists to surface.
-    for fault in [
-        "terminal.capture_failed",
-        "terminal.history_conflict",
-        "terminal.emission_conflict",
-    ] {
+    for fault in ["terminal.capture_failed", "terminal.emission_conflict"] {
         let digest = fold(&[signal("terminal.capture_started"), signal(fault)]);
         assert_eq!(
             render(&digest).exit_code,
@@ -143,6 +139,16 @@ fn a_structured_message_never_splits_one_kind_into_two_groups() {
     ]);
     assert_eq!(digest.signals.len(), 1);
     assert_eq!(digest.signals.get("spa.uncaught").unwrap().count, 2);
+}
+
+#[test]
+fn error_and_operator_lists_name_live_kinds() {
+    for entry in ERROR_SIGNALS.iter().chain(OPERATOR_SIGNALS.iter()) {
+        assert!(
+            roost_observability::SignalKind::from_name(entry).is_some(),
+            "{entry} is not in the signal vocabulary"
+        );
+    }
 }
 
 #[test]
@@ -166,6 +172,22 @@ fn error_kinds_wear_the_red_icon_and_the_rest_wear_the_warning() {
     assert!(line("deploy.failed").contains('\u{1F534}'));
     assert!(line("rpc.worker_timeout").contains('\u{26A0}'));
     assert!(line("sync.queue_overflow").contains('\u{26A0}'));
+}
+
+#[test]
+fn keeper_died_wears_the_red_icon() {
+    let output = render(&fold(&[signal("keeper.died"), signal("keeper.degraded")]));
+    assert_eq!(output.exit_code, 1);
+    let line = |kind: &str| {
+        output
+            .text
+            .lines()
+            .find(|line| line.contains(kind))
+            .unwrap_or_default()
+            .to_string()
+    };
+    assert!(line("keeper.died").contains('\u{1F534}'));
+    assert!(line("keeper.degraded").contains('\u{26A0}'));
 }
 
 #[test]

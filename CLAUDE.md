@@ -345,6 +345,15 @@ and `0x36`, retired and never reassigned), the client's `legacy_history`,
 wrappers in `win32_ffi`. A resize whose answer never arrives is recovered with
 `GetTerminalState`.
 
+Eleven doctor signal kinds with no producer or no reachable failure path are
+retired from `SignalKind` (`roost-observability`): `spa.chunk_reload`,
+`reconnect.give_up`, `spawn.agent_launch_dropped`,
+`terminal.stream_result_mismatch`, `terminal.stream_invariant_failure`,
+`terminal.hyperlink_saturated`, `terminal.history_conflict`, `cell.paint_lag`,
+`transport.event_drop`, `transport.raw_metadata_drop` and
+`bytes.metadata_loss`. A log line carrying one reads back as an unrecognised
+token; 62 kinds remain.
+
 The dedicated OMP integration is retired too: managed ACP processes, HTML chat,
 agent RPCs and Sync frames, status detection/reporting, fenced prompts, agent
 configuration and autolaunch, the `roost skill` command, bundled executables,

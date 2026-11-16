@@ -16,30 +16,31 @@ use serde_json::Value;
 
 /// The kinds that get the red icon rather than the warning one. This is a
 /// PRESENTATION list and deliberately a subset: the closed vocabulary itself is
-/// `roost_observability::SignalKind::ALL` (72 kinds), and a kind that is not
+/// `roost_observability::SignalKind::ALL` (62 kinds), and a kind that is not
 /// listed here still appears in the digest and still sets the exit code — it
 /// just wears a ⚠️. Hand-promoting a kind into this list is therefore a
 /// cosmetic decision, which is why it lives in the CLI and not in the
-/// vocabulary. Carried over verbatim from the v2 list, which an operator's
-/// muscle memory is calibrated to.
-pub const ERROR_SIGNALS: [&str; 10] = [
+/// vocabulary.
+pub const ERROR_SIGNALS: [&str; 12] = [
     "spa.uncaught",
     "auth.relogin_401",
     "voice.ws_failed",
     "worker.uncaught",
-    "transport.event_drop",
     "event.append_failed",
     "audit.write_failed",
     "sync.backfill_failed",
     "deploy.failed",
     "scrollback.history_lost",
+    "keeper.died",
+    "keeper.degraded_unrecoverable",
+    "terminal.core_failed",
 ];
 
 /// Kinds an operator deliberately caused by turning on terminal debugging.
 /// They are listed because consent and the saved-file trail must be auditable,
 /// not because anything is wrong, and they are excluded from the exit code —
 /// a health check that fails every time the feature is used tells nobody
-/// anything. `terminal.capture_failed`, `terminal.history_conflict` and
+/// anything. `terminal.capture_failed` and
 /// `terminal.emission_conflict` are deliberately NOT here: those are the
 /// anomalies the feature exists to surface.
 pub const OPERATOR_SIGNALS: [&str; 4] = [

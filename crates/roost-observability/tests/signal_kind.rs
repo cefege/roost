@@ -31,11 +31,32 @@ fn no_two_kinds_share_a_literal() {
 
 #[test]
 fn the_list_covers_every_kind_exactly_once() {
-    assert_eq!(SignalKind::ALL.len(), 72);
+    assert_eq!(SignalKind::ALL.len(), 62);
     let mut listed: Vec<SignalKind> = SignalKind::ALL.to_vec();
     listed.sort_unstable();
     listed.dedup();
     assert_eq!(listed.len(), SignalKind::ALL.len());
+}
+
+#[test]
+fn retired_tokens_are_not_kinds() {
+    // A retired kind read back off an old log line must be unrecognised, not
+    // revived by a stale table.
+    for token in [
+        "spa.chunk_reload",
+        "reconnect.give_up",
+        "spawn.agent_launch_dropped",
+        "terminal.stream_result_mismatch",
+        "terminal.stream_invariant_failure",
+        "terminal.hyperlink_saturated",
+        "terminal.history_conflict",
+        "cell.paint_lag",
+        "transport.event_drop",
+        "transport.raw_metadata_drop",
+        "bytes.metadata_loss",
+    ] {
+        assert_eq!(SignalKind::from_name(token), None, "{token}");
+    }
 }
 
 #[test]
