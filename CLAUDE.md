@@ -194,8 +194,8 @@ Non-negotiable for every change.
    an owner you can grep for, and every side effect is explicit.
    Document-wide browser singletons — the microphone graph and its ownership
    slot, the permission latch, the shell's voice-control slot, the
-   composer-shell geometry slot, the pre-launch serving-origin answer, the
-   visibility pin, and the document perf/phase rings — may live in a
+   composer-shell geometry slot, the pre-launch serving-origin answer and the
+   document phase timeline — may live in a
    `thread_local!` owned by one module that exposes accessor functions; state
    with a component, `ComposerContext` or `Pump` owner lives there instead.
 
@@ -385,7 +385,16 @@ observer in `roost-web-terminal`, the dated wave-gate and gate-baseline logs
 under `docs/` with the phase 3 contract's size-cap exemption section (that
 rationale now lives in the `STRUCTURAL_EXEMPTIONS` doc comment in
 `xtask/src/file_size.rs`), and the Claude Code slash-command snapshot under
-`docs/snapshots/`.
+`docs/snapshots/`. The browser automation hooks nothing arms since the
+Playwright oracle went are dropped too: client-core's `store::sync_smoke`,
+`terminal::smoke_faults`, `terminal::input::smoke_observer` and
+`terminal::frame_counts`, its `DiagSnapshot` call wrapper, the
+`DeleteWorkspace`, `SetWorkspaceSessions` and `ListWorkspaces` calls, the
+`TransportControl::{ArmMaxBackoff, Pause, Resume}` controls and the redial
+pause; and in `roost-web` the pane-registry and surface read API, the
+`PerfCounters` input round-trip ring (`long_task_watch` keeps the long-task
+observer), the visibility pin (`visibility::{pin_visible, pin_engaged}`),
+`Pump::sync_dial_count` and `EchoHost::debug`.
 
 The sidebar holds terminal folders only. Folder order is static until a user
 drags it, and the saved order synchronizes across that account's devices.
@@ -561,7 +570,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo nextest run --workspace   # unit + integration suites, one process per test
 cargo test --workspace --doc    # doctests; nextest does not run them
 cargo xtask lint            # 400-line cap, crate DAG, stdout rule, one test
-                            #   binary per crate, design raw-value ratchet
+                            #   binary per crate, design raw-value ratchet,
+                            #   CSS custom-property and overscroll contracts
 ```
 
 Plain `cargo test` on a crate's integration suite is unsupported: its tests

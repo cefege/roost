@@ -6,7 +6,8 @@ scratch.
 It is grep-first, never read top-to-bottom: one `### ` heading per failure class, and the `**Symptom**` line
 carries the report's own words, so grep this file for what the user said before you touch code.
 Each `**Guard**` names the test or `cargo xtask lint` check that pins the entry. A `**Guard**` that starts
-`owed:` names a test that does not exist yet, and `browser smoke only` marks a failure that needs a real engine.
+`owed:` names a test that does not exist yet, and `browser smoke only` marks a failure only a real browser engine
+can reproduce: no automated suite drives one, so those steps are checked by hand in a browser.
 
 ---
 
@@ -27,10 +28,10 @@ Promote an unstamped local order only when the account has no saved order.
 PostgreSQL Sync fixtures must start and await the cluster notice listener:
 serving the router alone does not receive `pg_notify`.
 
-**Guard** — `client_state_sync::a_folder_drag_reaches_an_open_device_without_echoing`,
+**Guard** — `crates/roost-client-core/tests/client_state_sync.rs` — `a_folder_drag_reaches_an_open_device_without_echoing`,
 `discovering_folders_before_the_first_pull_cannot_overwrite_the_account_order`,
 `an_unstamped_browser_order_seeds_only_an_account_without_an_order`, and
-`sync_ws_socket::a_folder_order_write_reaches_other_devices_before_domain_hydration`.
+`crates/roost-coord/tests/sync_ws_socket.rs` — `a_folder_order_write_reaches_other_devices_before_domain_hydration`.
 
 ### Retired local preferences block supported settings after an upgrade
 
@@ -45,7 +46,7 @@ those keys and rejects the entire batch when the browser uploads them again.
 just as remote entries and new local writes do. Retired stamps remain inert;
 supported local writes still upload.
 
-**Guard** — `client::client_state::merge::tests::retired_local_stamps_cannot_block_a_supported_preference_upload`.
+**Guard** — `crates/roost-client-core/src/client/client_state/merge.rs` — `retired_local_stamps_cannot_block_a_supported_preference_upload`.
 
 ## Store subscription and component lifecycle
 
@@ -202,9 +203,10 @@ taken through a memo whose value does not change, so the subscription exists and
 **Right** — every fallback must reference a defined token, OR the var must be declared in
 `crates/roost-web/assets/styles/theme-vars.css`.
 
-**Guard** — owed: an `xtask` lint that every `var(--x)` in the roost-web CSS and `.rs` sources resolves to a
-token declared in `theme-vars.css` or `tailwind.css`. A new `var(--x, #hex)` fallback is already refused by
-the design raw-value ratchet (`xtask/src/design_raw.rs`).
+**Guard** — `cargo xtask lint` (`xtask/src/css_contracts.rs`): a `var(--x)` with no fallback in the roost-web
+sources must name a custom property some stylesheet declares, `@property` registers, or a Rust source sets as a
+`"--x"` literal. A new `var(--x, #hex)` fallback is already refused by the design raw-value ratchet
+(`xtask/src/design_raw.rs`).
 
 ### Selected state derived from children instead of the URL
 
@@ -234,9 +236,11 @@ will replace them, and a failure keeps its own reader-facing copy plus a Retry t
 fetch. Denial replacements that a test pins by accessible name (here `browse-worker-unavailable`)
 stay byte-identical and take the content region's place, never the page's.
 
-**Guard** — owed: a browse status-model test that the loading arm is skeleton rows and the error arm carries
-Retry, with the worker-unavailable region id `browse-worker-unavailable`
-(`crates/roost-web/src/components/browse/unavailable.rs`) unchanged.
+**Guard** — the status model: `crates/roost-web/src/components/browse/view.rs` unit tests
+`a_listing_that_has_not_answered_is_pending_and_not_an_empty_folder`, `a_failed_listing_is_the_named_error_surface`
+and `a_machine_that_went_away_is_the_offline_surface`. The skeleton rows and Retry are the `Loading` and `Error`
+arms of `browse/entry_list.rs`, and the region id `browse-worker-unavailable` is `unavailable::REGION_ID`;
+browser smoke only.
 
 ### An inline-size container query pins every flex item to its minimum width
 
@@ -292,12 +296,16 @@ and `six_tabs_that_fit_are_not_clipped_when_the_scroll_extent_overruns` (the 102
 
 **Wrong** — `<Show when={activeSession()}>{(s) => <CellTerminal .../>}</Show>` (remount per nav).
 
-**Right** — every open session stays mounted in the deck (`crates/roost-web/src/components/deck/terminal_deck.rs`)
-and is shown or hidden by `visibility: visible↔hidden`. The deck host stays mounted for every MainPane screen so
-a `/file` or `/search` visit never tears it down.
+**Right** — the deck keeps every slotted session plus a bounded warm set mounted (`mounted_session_ids` and
+`WarmSet` in `crates/roost-client-core/src/deck/`, `DECK_WARM_LIMIT` = 8, the keyboard-reachable tab range) and
+shows or hides them by `visibility: visible↔hidden`, so no tab shortcut lands on a cold mount. The deck host
+(`crates/roost-web/src/components/deck/terminal_deck.rs`) stays mounted for every MainPane screen so a `/file`
+or `/search` visit never tears it down.
 
-**Guard** — owed: a test over the mounted-set projection of `TerminalDeck`
-(`crates/roost-web/src/components/deck/terminal_deck.rs`) that every open session stays mounted.
+**Guard** — `crates/roost-client-core/tests/deck_warm_set.rs` (`a_slotted_id_is_never_evicted_even_when_it_is_the_oldest`,
+`membership_never_exceeds_one_slot_plus_the_limit` and siblings); `crates/roost-client-core/tests/deck_view.rs`
+(`only_slotted_or_warm_open_sessions_stay_mounted`); `crates/roost-web/tests/terminal_deck_model.rs` —
+`open_sessions_are_mounted_oldest_first_not_in_id_order`.
 
 ### Torn seam between retained history and the live stream
 
@@ -384,8 +392,8 @@ shows `rows` stepping (46→44→42…) at a fixed `cols` while the user types.
 
 **Wrong** — hunt the renderer, the emitter, or history backfill without first
 checking core parity. `crates/roost-term/tests/terminal_core_vectors.rs` runs the
-xterm-oracle vectors in `protocol/conformance/terminal-core/`; the real-stack smoke suite then
-proves what the worker retained. In the height-step incident the rows are real:
+xterm-oracle vectors in `protocol/conformance/terminal-core/`; `roost api cells <sid>` then shows what the
+worker retained. In the height-step incident the rows are real:
 every PTY height change makes an inline TUI repaint, and a TUI that repaints IN
 PLACE (omp latches this for the life of the process after a height-only change
 around an alt-screen overlay; tmux-style panes do it always) leaves the rows a
@@ -409,10 +417,10 @@ resting baseline. Voice errors stay outside the measured frame. TV keys mount
 above it as a sibling, not inside the prompt's `overflow-hidden` boundary. The
 field and dictation mirror use the same short-side mobile typography policy.
 
-**Guard** — `components::terminal_chrome::pane_geometry::tests::the_field_growth_is_removed_without_subtracting_the_stacked_footer`
+**Guard** — `crates/roost-web/src/components/terminal_chrome/pane_geometry.rs` — `the_field_growth_is_removed_without_subtracting_the_stacked_footer`
 and `stacked_field_and_footer_baseline_is_stable_at_standard_and_tv_metrics`,
 plus `staged_thumbnails_do_not_resize_the_terminal_baseline`.
-Browser smoke must also prove unchanged live PTY rows and columns with a pasted
+Browser smoke only, beyond those: unchanged live PTY rows and columns with a pasted
 multiline draft and a microphone error, visible TV keys, and a 16px field on
 portrait and landscape phones.
 
@@ -540,8 +548,8 @@ the list, and the list's own `none` still stops the chain from reaching the
 document. Rows that cover their whole area with a hit target never showed the
 defect, which is why it surfaced only in the sidebar and file lists.
 
-**Guard** — owed: an assertion that the `@utility truncate`, `@utility overflow-hidden` and
-`@utility overflow-x-auto` blocks of `crates/roost-web/tailwind.css` carry `overscroll-behavior-y: auto`.
+**Guard** — `cargo xtask lint` (`xtask/src/css_contracts.rs`): the `@utility truncate`, `@utility overflow-hidden`
+and `@utility overflow-x-auto` blocks of `crates/roost-web/tailwind.css` must carry `overscroll-behavior-y: auto`.
 
 ### Scrollback mangles or drifts with no user action
 
@@ -582,7 +590,7 @@ primitive, so grepping `minimumTerminalGeometry` made the policy look pinned
 while the decider used its own copy.
 
 **Right** — **ONE predicate decides geometry membership and ONE primitive
-computes the minimum.** `minimumTerminalGeometry` (`@roost/protocol/viewport`) is
+computes the minimum.** `minimum_terminal_geometry` (`crates/roost-protocol/src/viewport.rs`) is
 the only per-axis aggregation anywhere. A parked view keeps its lease,
 membership and tombstone for reclaim, but stops constraining geometry once
 `TERMINAL_VIEW_PARK_GRACE_MS` lapses — reclaim and geometry are different
@@ -590,8 +598,7 @@ questions. With zero live viewers the last effective geometry is HELD, never
 re-minted, so a flapping link cannot become a stream re-mint storm. The
 per-viewer inputs that produced the minimum are observable from outside the
 process: `DiagSnapshot`'s `coord.sessions[<id>].viewers[]` carries
-`{ fingerprint, viewId, cols, rows, parked, constrains }` — the smoke probe
-surfaces the same array as `terminal_control.viewer_inputs` — and `constrains`
+`{ fingerprint, viewId, cols, rows, parked, constrains }`, and `constrains`
 is true exactly for the records the live predicate admitted, so "who is
 pinning this session?" is answerable without attaching a debugger.
 
@@ -1051,7 +1058,7 @@ so the scroll max never dips under `scrollTop`; (d) the slow path pins to bottom
 the held window (no image in the new epoch — collapse allowed, bottom mandatory); (e) ONE route definition for
 all MainPane screens plus an always-mounted deck host (visibility flip) so `/file` and `/search` never tear the
 deck down. This was the 6th attempt at this class: the prior five "passed" because nothing asserted what the
-reader SEES at first paint, so the smoke now samples the READER'S POSITION during reveal.
+reader SEES at first paint, so a check of this class samples the READER'S POSITION during reveal.
 
 Browser-owned focus can also jump straight to the history head. `.wterm`'s
 `contain: layout paint` makes even a fixed-position descendant part of its
@@ -1071,7 +1078,7 @@ over stale DOM; a brand-new cold mount's first frame). The real sequence —
 fresh FULL arriving over the wire asynchronously against whatever
 `reader`/geometry state that gap left behind — is tied to real
 `web_sys` DOM and has browser smoke only.
-Native-focus browser smoke is also required: with deep history at the live bottom,
+Native focus is browser smoke only too: with deep history at the live bottom,
 Tab into `.terminal-input` and assert the position stays at the bottom; wheel up
 and repeat to assert the reader stays put. Background the real document while the
 PTY writes, then return and assert the live tail is visible. Route unmounts must
@@ -1585,8 +1592,9 @@ change is the same invalidation with no font event at all: `term_font_size::appl
 raises `TERM_FONT_SIZE_EVENT` on `window`, and the pane routes it to the same callback — without
 it a larger size keeps the old column count and paints past the clip until the next reload.
 
-**Guard** — owed: `crates/roost-web/src/components/terminal/pane_mount/browser.rs::on_fonts_settled` — a test that a
-font settle clears `shared.cell` whatever `viewport_publishable` says.
+**Guard** — browser smoke only: `on_fonts_settled` (`crates/roost-web/src/components/terminal/pane_mount/browser.rs`)
+is wasm-only and reads a live `PaneShared`. Check that a font settle while the pane is hidden still re-measures:
+reveal it after a text-size change and the column count matches the new size.
 
 ---
 
@@ -1835,10 +1843,10 @@ identify which transport triggered it. Supervise the production executor and
 stop the worker on task failure so its service manager recovers it. Drop the
 keeper connection during shutdown, never the keeper's surviving PTYs.
 
-**Guard** — `roost-worker`:
-`scrollback_read::a_retained_floor_past_the_requested_end_keeps_the_window_ordered`,
-`browser_command_terminal::a_page_older_than_the_retained_floor_does_not_stop_later_commands`,
-and `runtime::link_loop::browser::tests::a_panicked_command_pump_requests_worker_shutdown`.
+**Guard** — `crates/roost-worker/tests/scrollback_read.rs` —
+`a_retained_floor_past_the_requested_end_keeps_the_window_ordered`;
+`crates/roost-worker/tests/browser_command_terminal.rs` — `a_page_older_than_the_retained_floor_does_not_stop_later_commands`;
+and `crates/roost-worker/src/runtime/link_loop/browser.rs` — `a_panicked_command_pump_requests_worker_shutdown`.
 
 
 ### Pane close races the worker reading the kill
@@ -1850,8 +1858,10 @@ and `runtime::link_loop::browser::tests::a_panicked_command_pump_requests_worker
 **Right** — the worker's kill path answers the `Kill` command once the session layer has written the tombstone
 (`crates/roost-worker/src/browser_commands/session_lifecycle.rs`); the browser waits for that answer before tearing down.
 
-**Guard** — owed: a test in `session_lifecycle.rs` that a kill is answered only after the session layer has
-recorded the end.
+**Guard** — `crates/roost-worker/tests/session_lifecycle.rs` — `a_session_that_ends_twice_emits_one_close` (the
+close is published before `kill_held_session` returns `Killed`), `an_unrecordable_close_reports_durability_lost`
+(a close that could not be recorded is never answered `Killed`) and
+`the_kill_arm_answers_with_what_the_close_path_did`.
 
 ### A `u32::MAX` pid is `kill(-1)`, and one test call SIGINTs the whole user session
 
@@ -3583,8 +3593,9 @@ and on its next request. In Rust that is `focus_menu_edge` returning a
 `MenuFocusRequest` (`crates/roost-web/src/components/ui/menu_focus.rs` and `ui/menu_focus/dom.rs`); the
 menu also attempts from its `onmounted`, so focus lands in the render that inserted it.
 
-**Guard** — owed: a test that Home and End pressed before the menu's focus lands still pick their edge
-(`ui/menu_focus.rs`'s `MenuFocusRequest`).
+**Guard** — `crates/roost-web/tests/menu_focus_keys.rs` — `home_and_end_pick_their_edge_before_any_item_has_focus`
+and `cancelling_a_request_stops_every_retry_holding_a_clone`. The microtask-then-frame attempt order
+(`ui/menu_focus/dom.rs`) needs a document: browser smoke only.
 
 ---
 
@@ -3731,8 +3742,9 @@ than taken from the process default, and Mozilla's roots compiled in. The Connec
 `HttpClient::with_tls`, and the link takes it through `Connector::Rustls` for `wss`. The configuration
 sets no ALPN, so the WebSocket upgrade stays on HTTP/1.1.
 
-**Guard** — `roost_worker::runtime::bootstrap_redeem::activation` test
-`an_https_coordinator_gets_a_tls_client_rather_than_a_refusal`, and `coordinator_tls`'s ALPN test. The
+**Guard** — `crates/roost-worker/src/runtime/bootstrap_redeem/activation.rs` —
+`an_https_coordinator_gets_a_tls_client_rather_than_a_refusal`, and `crates/roost-worker/src/coordinator_tls.rs` —
+`the_configuration_offers_no_alpn_so_the_link_upgrade_stays_on_http1`. The
 real flow: a remote `roost join` appears in `roost status`'s worker list.
 
 ### A join replaced v2's `roost` CLI, or installed a v3 release into `RoostWorkerV2`
@@ -3957,7 +3969,7 @@ ever set in every branch (`layout::shell_style::editor_style`: `padding-bottom: 
 reserve).
 
 **Guard** — `crates/roost-web/tests/ui_status.rs` —
-`a_status_dot_never_puts_its_token_in_a_shorthand`; `layout::shell_style::editor_style_tests` —
+`a_status_dot_never_puts_its_token_in_a_shorthand`; `crates/roost-web/src/components/layout/shell_style.rs` —
 `every_editor_style_names_every_property_it_can_set`.
 
 ### An authorized browser stays on "Checking access…" while Sync closes `1013 byte_limit`
@@ -4001,8 +4013,8 @@ calls that success.
 `systemd_commands`), and a self-update accepts only a worker whose main pid runs a program under
 `versions/<tag>/` (`self_update/running_release.rs`).
 
-**Guard** — `services::service_argv::tests::a_systemd_restart_reloads_the_unit_it_just_wrote_first`;
-`self_update::running_release::tests::only_the_tags_own_release_directory_counts`.
+**Guard** — `crates/roost-cli/src/services/service_argv.rs` — `a_systemd_restart_reloads_the_unit_it_just_wrote_first`;
+`crates/roost-cli/src/self_update/running_release.rs` — `only_the_tags_own_release_directory_counts`.
 
 ### A macOS worker restart fails with "Bootstrap failed: 5: Input/output error"
 
@@ -4015,7 +4027,7 @@ asynchronously and answers `bootstrap` with EIO until it is gone (about a second
 **Right** — `bootstrap` carries `BOOTSTRAP_ATTEMPTS` one-second tries (`services/service_argv.rs`), which
 `service_control::run_commands` honours for the deploy, the rollback and `roost deploy` alike.
 
-**Guard** — `services::service_control::tests::a_retried_command_succeeds_once_the_manager_accepts_it` and
+**Guard** — `crates/roost-cli/src/services/service_control.rs` — `a_retried_command_succeeds_once_the_manager_accepts_it` and
 `a_command_still_refused_after_its_last_try_fails_the_action`.
 
 ### `roost` on PATH dangles after an update
@@ -4071,7 +4083,7 @@ ticket and clears the old confirmation before each write. Only that ticket's
 verdict can publish feedback; its reset timer uses the same ticket. Both paths
 tolerate the component disappearing before they settle.
 
-**Guard** — `components::hooks::use_copy_clipboard::tests` in `roost-web`:
+**Guard** — `crates/roost-web/src/components/hooks/use_copy_clipboard.rs` —
 `another_attempt_clears_success_even_when_its_write_is_refused`,
 `an_older_success_cannot_confirm_a_newer_refusal`, and
 `an_older_refusal_cannot_clear_a_newer_success`.
@@ -4088,8 +4100,8 @@ a checker that recognizes only private, `pub` and `pub(crate)` declarations.
 Restricted visibility changes access, not reachability; undeclared neighboring
 files must remain unreachable.
 
-**Guard** — `xtask`
-`unreached_module::tests::restricted_visibility_reaches_declared_children_but_not_orphans`
+**Guard** — `xtask/src/unreached_module/tests.rs` —
+`restricted_visibility_reaches_declared_children_but_not_orphans`
 builds a real module graph with every restricted visibility and an undeclared file.
 
 ### macOS service PATH hides terminal memory
@@ -4105,8 +4117,8 @@ raise the admission cap, or inject a pretend memory ceiling.
 PATH. Keep the ordinary memory-based admission calculation and fail-closed
 behavior when the actual probe fails.
 
-**Guard** — `roost-host`
-`host_memory::macos_tests::macos_memory_probe_works_with_a_minimal_service_path`
+**Guard** — `crates/roost-host/src/host_memory_macos_tests.rs` —
+`macos_memory_probe_works_with_a_minimal_service_path`
 executes the real probe in an isolated child with `PATH=/usr/bin:/bin` and
 compares its byte count with the OS. Native worker proof verifies restored
 admission and a real keeper PTY whose browser input writes the expected file.
@@ -4126,8 +4138,8 @@ pending batch atomically under the migration lock so no replica sees an
 intermediate schema. Retired tables keep their shipped shape; nothing reads or
 writes them.
 
-**Guard** — `roost-coord`:
-`db::migration_apply::tests::failed_upgrade_leaves_no_partial_schema_and_can_retry`
+**Guard** — `crates/roost-coord/src/db/migration_apply.rs` —
+`failed_upgrade_leaves_no_partial_schema_and_can_retry`
 pins whole-upgrade rollback and recovery.
 
 ### A Windows automatic update stages its release under the Windows directory
@@ -4145,7 +4157,7 @@ temporary, profile and system directory variables, matching their names
 case-insensitively. Keep the explicit allowlist; never inherit bootstrap tokens
 or unrelated secrets. The child then stages under the worker user's temp directory.
 
-**Guard** — `runtime::auto_update_spawn::tests::the_detached_environment_keeps_a_writable_user_temporary_directory`
+**Guard** — `crates/roost-worker/src/runtime/auto_update_spawn.rs` — `the_detached_environment_keeps_a_writable_user_temporary_directory`
 launches a Windows child with the actual forwarded environment, writes a staging
 probe and verifies that its temp root matches the worker's.
 
@@ -4176,8 +4188,8 @@ cells end_row must be a nonnegative JSON-safe integer`; an explicit `--end` work
 **Right** — reuse the coordinator's `scrollback_window::MAX_SAFE_ROW`; the
 worker clamps the request at its retained tail.
 
-**Guard** — `roost-cli`
-`api_coordinator_calls::cells_without_an_end_row_reads_the_newest_rows`.
+**Guard** — `crates/roost-cli/tests/api_coordinator_calls.rs` —
+`cells_without_an_end_row_reads_the_newest_rows`.
 
 ### A side-branch release outranks the fleet's releases
 
@@ -4194,11 +4206,11 @@ the comparison is unreadable. Decide default fallback from admitted stable
 tags. `install.sh`, `install.ps1` and the CLI share these rules; GitHub API
 requests carry a User-Agent.
 
-**Guard** — `roost-cli`:
-`install_script_channel::a_tag_cut_from_a_side_branch_is_passed_over`,
-`install_script_channel::an_off_branch_stable_does_not_block_the_default_prerelease_fallback`,
-`install_powershell_channel::the_windows_installer_takes_only_a_tag_whose_commit_is_on_v3`,
-and `update_release_decision::only_a_tag_on_the_release_branch_is_installable`.
+**Guard** — `crates/roost-cli/tests/install_script_channel.rs` —
+`a_tag_cut_from_a_side_branch_is_passed_over` and
+`an_off_branch_stable_does_not_block_the_default_prerelease_fallback`;
+`crates/roost-cli/tests/install_powershell_channel.rs` — `the_windows_installer_takes_only_a_tag_whose_commit_is_on_v3`;
+and `crates/roost-cli/tests/update_release_decision.rs` — `only_a_tag_on_the_release_branch_is_installable`.
 
 ### Windows self-update refuses its absolute staging directory
 
@@ -4212,9 +4224,9 @@ worker keeps running.
 `Path::is_absolute`. Drive-rooted and UNC Windows paths are absolute;
 drive-relative and root-relative paths are not.
 
-**Guard** — `roost-cli`
-`deploy::manifest::tests::windows_staging_paths_require_a_drive_or_unc_root`
-and `deploy::manifest::tests::relative_staging_paths_are_refused_before_activation`.
+**Guard** — `crates/roost-cli/src/deploy/manifest.rs` —
+`windows_staging_paths_require_a_drive_or_unc_root`
+and `relative_staging_paths_are_refused_before_activation`.
 
 ### Cold release verification exhausts the hosted runner's disk
 
@@ -4246,6 +4258,6 @@ root, fragment and component recursion. The pinned `dioxus-core` patch
 propagates `EdgeScan` and reads fragment children from their mounted views.
 Live edge scans keep their existing semantics.
 
-**Guard** — `file_viewer::loading_tests::loaded_preview_paints_file_lines_when_download_controls_appear`,
+**Guard** — `crates/roost-web/src/components/file_viewer/loading_tests.rs` — `loaded_preview_paints_file_lines_when_download_controls_appear`,
 driven by `protocol/conformance/dom-placement/file-preview-loading.json`.
 
