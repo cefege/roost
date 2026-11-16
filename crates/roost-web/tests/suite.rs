@@ -24,6 +24,8 @@ mod deck_swipe_settle;
 mod deck_swipe_style;
 #[path = "deck_swipe_touch.rs"]
 mod deck_swipe_touch;
+#[path = "deck_tab_strip.rs"]
+mod deck_tab_strip;
 #[path = "deploy_dialog_state.rs"]
 mod deploy_dialog_state;
 #[path = "directional_input.rs"]
@@ -108,6 +110,8 @@ mod terminal_file_drop;
 mod terminal_file_link;
 #[path = "terminal_find_bar.rs"]
 mod terminal_find_bar;
+#[path = "terminal_grid_css.rs"]
+mod terminal_grid_css;
 #[path = "terminal_input_echo.rs"]
 mod terminal_input_echo;
 #[path = "terminal_pane_presentation.rs"]

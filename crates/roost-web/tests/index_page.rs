@@ -15,9 +15,8 @@ fn inline_stylesheet(html: &str) -> &str {
         .map_or("", |(sheet, _)| sheet)
 }
 
-/// Every top-level block of `css` with comments removed: the text before each
-/// `{` that opens at depth zero.
-fn top_level_preludes(css: &str) -> Vec<String> {
+/// `css` with every `/* … */` comment removed.
+fn without_comments(css: &str) -> String {
     let mut uncommented = String::with_capacity(css.len());
     let mut rest = css;
     while let Some(start) = rest.find("/*") {
@@ -27,7 +26,13 @@ fn top_level_preludes(css: &str) -> Vec<String> {
             .map_or("", |(_, after)| after);
     }
     uncommented.push_str(rest);
+    uncommented
+}
 
+/// Every top-level block of `css` with comments removed: the text before each
+/// `{` that opens at depth zero.
+fn top_level_preludes(css: &str) -> Vec<String> {
+    let uncommented = without_comments(css);
     let mut preludes = Vec::new();
     let mut depth = 0_usize;
     let mut prelude = String::new();
@@ -65,4 +70,22 @@ fn every_inline_page_rule_sits_in_the_base_layer() {
 fn an_unlayered_rule_is_reported() {
     let preludes = top_level_preludes("@layer base { * { margin: 0 } } /* x { */ * { padding: 0 }");
     assert_eq!(preludes, vec!["@layer base".to_string(), "*".to_string()]);
+}
+
+/// The page base declares the no-overscroll policy once: no scroller chains or
+/// rubber-bands, and the document itself has no scroll range. Both halves are
+/// needed — the first alone leaves the `height: 100%` vs `svh` page scroll.
+#[test]
+fn the_page_base_disables_vertical_overscroll() {
+    let sheet = without_comments(inline_stylesheet(INDEX_HTML));
+    let normalised = sheet.split_whitespace().collect::<Vec<_>>().join(" ");
+    for declaration in [
+        "* { overscroll-behavior-y: none; }",
+        "html, body { overflow: hidden; }",
+    ] {
+        assert!(
+            normalised.contains(declaration),
+            "index.html's base style lost `{declaration}`"
+        );
+    }
 }

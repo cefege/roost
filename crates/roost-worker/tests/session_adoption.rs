@@ -82,6 +82,46 @@ async fn an_adoption_seeds_the_head_from_the_keeper_not_from_the_retained_bytes(
     );
 }
 
+/// A TUI on the alternate screen survives a worker restart: the rebuilt core is
+/// primed from the replayed history, because the snapshot reads the CORE's alt
+/// state and an empty core answers false, which lands a live redraw on the
+/// main screen. The legacy 47 and 1047 variants are the ones the core does not
+/// honour on replay, so only the priming puts it on the alternate screen.
+#[tokio::test]
+async fn an_adopted_alt_screen_session_re_enters_the_alt_screen() {
+    for enter in [&b"\x1b[?1049h"[..], b"\x1b[?47h", b"\x1b[?1047h"] {
+        let keeper = Arc::new(ScriptedKeeper::with_survivor(7, 4242));
+        let mut history_bytes = enter.to_vec();
+        history_bytes.extend_from_slice(b"full-screen");
+        *keeper.history.lock().expect("held") = SurvivorHistory {
+            head_seq: history_bytes.len() as u64,
+            records: vec![HistoryRecord::Output {
+                bytes: history_bytes,
+            }],
+            base_cols: 80,
+            base_rows: 24,
+        };
+        let harness = Harness::with_keeper(Arc::clone(&keeper));
+        harness
+            .manager
+            .adopt_survivor(&harness.adoption(SESSION, 7, "/home/user/project"))
+            .await
+            .expect("the survivor is adoptable");
+        let (retained_alt, core_alt) = harness
+            .table
+            .with_record(&session_id(SESSION), |record| {
+                (record.alt_mode, record.terminal_core.using_alt_screen())
+            })
+            .expect("the adopted session is live");
+        let label = String::from_utf8_lossy(enter);
+        assert!(retained_alt, "{label:?}: the record keeps the alt state");
+        assert!(
+            core_alt,
+            "{label:?}: the rebuilt core must be on the alt screen"
+        );
+    }
+}
+
 /// AN ADOPTION THAT FITS IS SWAPPED WHOLE, and the bytes the keeper produced
 /// while the core was being rebuilt are parsed in order, behind the history.
 #[tokio::test]
