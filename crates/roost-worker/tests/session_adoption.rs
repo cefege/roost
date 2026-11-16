@@ -317,10 +317,9 @@ async fn a_survivor_whose_replay_converges_on_the_keepers_geometry_is_admitted()
 
 /// A KEEPER THAT WILL NOT ANSWER ITS CHANNEL LIST is a refusal naming the
 /// keeper's reason, not a silent "no survivor": the two are different incidents
-/// with different operator responses. v2 `session-resume.ts:73` reads the list
-/// INSIDE the try whose catch (`:303-320`) kills the channel, marks it recently
-/// closed and tombstones the session, so the unreadable list abandons exactly
-/// like a diverging replay does.
+/// with different operator responses. An unreadable list abandons the survivor
+/// exactly like a diverging replay does: the channel is killed, marked recently
+/// closed and the session tombstoned.
 #[tokio::test]
 async fn a_channel_list_that_cannot_be_read_refuses_with_the_keeper_s_reason() {
     let keeper = Arc::new(ScriptedKeeper::with_survivor(7, 4242));
