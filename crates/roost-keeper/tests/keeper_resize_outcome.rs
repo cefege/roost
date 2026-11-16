@@ -96,7 +96,7 @@ fn a_refused_resize_names_the_sequence_and_the_reason() {
 /// F6 — the third outcome, which the old signature could not express at all.
 ///
 /// A resize whose answer never arrives is NOT a refusal: the request may well
-/// have landed, so the caller must ask `resize_status` rather than either
+/// have landed, so the caller must ask `terminal_state` rather than either
 /// resending the sequence or assuming the old geometry held. A daemon that is
 /// gone produces it, and it must arrive without spending the acknowledgement
 /// window doing nothing.

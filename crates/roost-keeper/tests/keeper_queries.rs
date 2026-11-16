@@ -1,5 +1,5 @@
 #![cfg(unix)]
-//! F5: the six frames the daemon already served and the client could not ask
+//! F5: the frames the daemon already served and the client could not ask
 //! for, against a REAL keeper daemon.
 //!
 //! Every expectation below is transcribed from the daemon handler that
@@ -15,9 +15,8 @@
 //!   FIRST geometry, and a client that echoes its own request cannot produce
 //!   that answer.
 //! * A frame's meaning comes from the byte on the wire, not from the nearest
-//!   vocabulary in the crate. `GetHistory` is answered with `GetHistoryResp`
-//!   `[head:u64][ring]` and `GetHistoryRecords` with the versioned ordered
-//!   records (v2 `keeper-frame-handler.ts:487-520`).
+//!   vocabulary in the crate. `GetHistoryRecords` is answered with the
+//!   versioned ordered records (v2 `keeper-frame-handler.ts:505-520`).
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -72,40 +71,6 @@ fn the_ordered_history_is_the_resize_the_keeper_recorded() {
             }],
         },
         "nothing was emitted, the base is the spawn geometry, and the marker is at the applied sequence"
-    );
-}
-
-/// F5 — the legacy question is answered with `GetHistoryResp`: the head and the
-/// raw ring, which agree with the ordered answer's head and window.
-#[test]
-fn the_legacy_history_is_the_head_and_the_raw_ring() {
-    let temp = TempDir::new("legacy-history");
-    let (_keeper, client) = client_with_channel(&temp);
-
-    client
-        .send_input_request(1, 1, b"legacy-ring\n")
-        .expect("input written");
-    let mut legacy = (0, Vec::new());
-    wait_until("the echo is retained", || {
-        legacy = client.legacy_history(1).expect("the legacy answer arrives");
-        String::from_utf8_lossy(&legacy.1).contains("legacy-ring")
-    });
-    let ordered = client
-        .history_records(1)
-        .expect("the ordered answer arrives")
-        .history;
-
-    assert!(
-        legacy.0 > 0 && legacy.0 >= legacy.1.len() as u64,
-        "the head counts every emitted byte"
-    );
-    assert!(
-        ordered.head_seq >= legacy.0,
-        "the head never goes backwards"
-    );
-    assert!(
-        String::from_utf8_lossy(&ordered.window()).contains("legacy-ring"),
-        "the ordered window holds the same retained bytes"
     );
 }
 
@@ -168,39 +133,6 @@ fn the_terminal_state_is_the_geometry_the_keeper_applied_not_the_one_asked_for()
         "the keeper answers GetTerminalState from live channel state \
          (keeper_ops.rs:260), and 200x60 is what nobody ever applied"
     );
-}
-
-/// F5 — `ResizeStatus` is the RECOVERY for a lost acknowledgement.
-///
-/// It is answered from the same live state (`keeper_ops.rs:246`) and it never
-/// re-applies geometry, so asking for a sequence that was never sent is
-/// harmless and must not move the PTY. Asserted both ways: the answer, and the
-/// absence of any effect.
-#[test]
-fn the_resize_status_recovers_the_applied_geometry_without_applying_anything() {
-    let temp = TempDir::new("status");
-    let (_keeper, client) = client_with_channel(&temp);
-
-    client.resize(1, 5, 100, 30);
-    let recovered = client.resize_status(1, 5).expect("the cached status");
-    assert_eq!(
-        (recovered.applied_seq, recovered.cols, recovered.rows),
-        (5, 100, 30),
-        "a worker that lost the acknowledgement learns what landed"
-    );
-
-    // A sequence the keeper was never asked about. The daemon answers from
-    // live state, so this reports the truth rather than inventing an answer.
-    let never_sent = client
-        .resize_status(1, 999)
-        .expect("the status of a sequence that was never sent");
-    assert_eq!(
-        (never_sent.applied_seq, never_sent.cols, never_sent.rows),
-        (5, 100, 30),
-        "asking is not applying: the PTY is still where the last resize left it"
-    );
-    let after = client.terminal_state(1).expect("the live state");
-    assert_eq!(after, recovered, "and the keeper's own state did not move");
 }
 
 /// F5 — terminating a channel's child.

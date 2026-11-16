@@ -6,7 +6,7 @@
 //! able to act on each one differently. An acknowledgement proves the PTY is
 //! at a geometry; a refusal says it never will be, and names why; and the
 //! unknown case is the only one that can be recovered, by asking the keeper
-//! what it applied ([`KeeperClient::resize_status`]). Collapsing all three into
+//! what it applied ([`KeeperClient::terminal_state`]). Collapsing all three into
 //! an error string is what this module replaces: a caller that read a refusal
 //! as a failure retried a resize the keeper had already declined, and a caller
 //! that read a timeout as a failure believed the PTY was at the geometry it had
@@ -19,18 +19,18 @@
 use std::time::Duration;
 
 use super::client::KeeperClient;
-use crate::client_error::ClientError;
 use crate::client_frames::WaitEnded;
-use crate::codec::{MuxFrame, MuxFrameType, read_sequence, write_sequence};
+use crate::codec::{MuxFrame, MuxFrameType, read_sequence};
 use crate::payloads::{ResizeRequest, TerminalState};
 
 /// How long a resize waits for the keeper's answer before it is unknown.
 ///
 /// Not a failure deadline: an unanswered resize is still in flight, and the
-/// caller recovers it by asking [`KeeperClient::resize_status`] rather than by
-/// sending the sequence again. v2's bound is 2.5s for the same reason, and
-/// this one is longer only because the daemon answers resize from live channel
-/// state, which cannot take a lock.
+/// caller recovers it by asking the keeper for its terminal state
+/// ([`KeeperClient::terminal_state`]) rather than by sending the sequence
+/// again. v2's bound is 2.5s for the same reason, and this one is longer only
+/// because the daemon answers resize from live channel state, which cannot take
+/// a lock.
 pub const RESIZE_ACK_TIMEOUT: Duration = Duration::from_secs(10);
 
 impl KeeperClient {
@@ -46,32 +46,6 @@ impl KeeperClient {
     /// a caller that cannot tell them apart cannot choose between resending and
     /// asking.
     pub fn resize(&self, channel_id: u16, seq: u64, cols: u16, rows: u16) -> ResizeOutcome {
-        self.resize_inner(channel_id, seq, cols, rows, None::<fn(MuxFrame)>)
-    }
-
-    /// Resize while delivering frames received before the acknowledgement.
-    ///
-    /// The worker's geometry owner uses this callback to place PTY output and
-    /// the boundary marker on one ordered channel.
-    pub fn resize_with_intervening(
-        &self,
-        channel_id: u16,
-        seq: u64,
-        cols: u16,
-        rows: u16,
-        on_intervening: impl FnMut(MuxFrame),
-    ) -> ResizeOutcome {
-        self.resize_inner(channel_id, seq, cols, rows, Some(on_intervening))
-    }
-
-    fn resize_inner<F: FnMut(MuxFrame)>(
-        &self,
-        channel_id: u16,
-        seq: u64,
-        cols: u16,
-        rows: u16,
-        on_intervening: Option<F>,
-    ) -> ResizeOutcome {
         let request = ResizeRequest { seq, cols, rows };
         let payload = match request.encode() {
             Ok(payload) => payload,
@@ -107,19 +81,11 @@ impl KeeperClient {
             };
         }
 
-        let wait = match on_intervening {
-            Some(on_intervening) => self.wait_for_any_with(
-                channel_id,
-                RESIZE_ACK_TIMEOUT,
-                &[MuxFrameType::ResizeAck, MuxFrameType::ResizeReject],
-                on_intervening,
-            ),
-            None => self.wait_for_any(
-                channel_id,
-                RESIZE_ACK_TIMEOUT,
-                &[MuxFrameType::ResizeAck, MuxFrameType::ResizeReject],
-            ),
-        };
+        let wait = self.wait_for_any(
+            channel_id,
+            RESIZE_ACK_TIMEOUT,
+            &[MuxFrameType::ResizeAck, MuxFrameType::ResizeReject],
+        );
         match wait {
             WaitEnded::Answered(answer) => decode_resize_answer(seq, &answer),
             WaitEnded::TimedOut => {
@@ -134,25 +100,6 @@ impl KeeperClient {
                 reason: ResizeUnknownReason::Disconnected,
             },
         }
-    }
-
-    /// Ask the keeper which resize it has applied, without applying one.
-    ///
-    /// The RECOVERY for [`KeeperClient::resize`]'s `Unknown`, and the only
-    /// answer to a worker that lost an acknowledgement: it is answered from
-    /// live channel state (`keeper_ops.rs:246`), which is the one source that
-    /// cannot itself have been evicted, and it never re-applies geometry, so
-    /// asking twice is safe.
-    pub fn resize_status(&self, channel_id: u16, seq: u64) -> Result<TerminalState, ClientError> {
-        let mut payload = Vec::with_capacity(8);
-        write_sequence(&mut payload, seq);
-        let frame = MuxFrame::new(MuxFrameType::ResizeStatus, channel_id, payload)
-            .map_err(|error| ClientError::Io(error.to_string()))?;
-        self.write(&frame)?;
-        let answer =
-            self.wait_for_reply(MuxFrameType::ResizeAck, channel_id, RESIZE_ACK_TIMEOUT)?;
-        TerminalState::decode(&answer.payload)
-            .map_err(|error| ClientError::Io(format!("the resize status did not decode: {error}")))
     }
 }
 

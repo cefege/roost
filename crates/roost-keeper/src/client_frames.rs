@@ -1,8 +1,8 @@
 //! The frame demultiplexer: one channel carries both PTY output and control
 //! replies, so a control wait that is waiting for its answer must be able to
 //! put back what it picked up on the way. Called by [`crate::client`]'s request
-//! and wait paths, and by the worker through `next_event`. Depends only on
-//! `KeeperClient`'s own fields and the codec's frame type — and on nothing here.
+//! and wait paths. `poll_event` is the worker's reader; `next_event` is its
+//! blocking counterpart for tests.
 
 use std::collections::VecDeque;
 use std::sync::{
@@ -19,7 +19,7 @@ use crate::codec::{MuxFrame, MuxFrameType};
 /// How a bounded wait ended. A value rather than an error because the resize
 /// family must tell a wedged keeper from a departed one, and v2 drives a
 /// different recovery from each: the first is a timeout to be asked about with
-/// `ResizeStatus`, the second is a resize that will never be answered.
+/// `GetTerminalState`, the second is a resize that will never be answered.
 pub(crate) enum WaitEnded {
     Answered(MuxFrame),
     TimedOut,
@@ -49,8 +49,9 @@ impl KeeperClient {
         }
     }
 
-    /// Take a frame the keeper sent that was not a reply.
-    ///
+    /// Take a frame the keeper sent that was not a reply, waiting up to `wait`
+    /// for one. The blocking counterpart of [`KeeperClient::poll_event`], for
+    /// tests.
     pub fn next_event(&self, wait: Duration) -> Option<MuxFrame> {
         // Deferred first, in arrival order. A frame a control wait consumed
         // arrived before the one now waiting on the socket, so reading the
@@ -137,37 +138,6 @@ impl KeeperClient {
         wait_for_any_on_events(&self.deferred, &self.events, channel_id, timeout, accepted)
     }
 
-    /// Observe every non-answer frame before returning the matching response.
-    ///
-    /// Resize callers use this to route preceding PTY output before publishing
-    /// a geometry boundary; later frames remain on the reader queue.
-    pub(crate) fn wait_for_any_with(
-        &self,
-        channel_id: u16,
-        timeout: Duration,
-        accepted: &[MuxFrameType],
-        mut on_other: impl FnMut(MuxFrame),
-    ) -> WaitEnded {
-        replay_deferred_once(&self.deferred, &mut on_other);
-        let deadline = Instant::now() + timeout;
-        loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return WaitEnded::TimedOut;
-            }
-            match self.events.recv_timeout(remaining) {
-                Ok(frame)
-                    if frame.channel_id == channel_id && accepted.contains(&frame.frame_type) =>
-                {
-                    return WaitEnded::Answered(frame);
-                }
-                Ok(frame) => on_other(frame),
-                Err(RecvTimeoutError::Timeout) => return WaitEnded::TimedOut,
-                Err(RecvTimeoutError::Disconnected) => return WaitEnded::Disconnected,
-            }
-        }
-    }
-
     /// A wait with no better cause to report, reported as the one error this
     /// protocol has always reported — so a disconnect during a plain control
     /// round trip does not change the message an operator reads.
@@ -213,16 +183,6 @@ fn wait_for_any_on_events(
             Err(RecvTimeoutError::Timeout) => return WaitEnded::TimedOut,
             Err(RecvTimeoutError::Disconnected) => return WaitEnded::Disconnected,
         }
-    }
-}
-
-fn replay_deferred_once(deferred: &Mutex<VecDeque<MuxFrame>>, mut on_other: impl FnMut(MuxFrame)) {
-    let frames = {
-        let mut deferred = deferred.lock().unwrap_or_else(PoisonError::into_inner);
-        std::mem::take(&mut *deferred)
-    };
-    for frame in frames {
-        on_other(frame);
     }
 }
 

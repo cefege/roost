@@ -25,7 +25,8 @@ pub const KEEPER_MAX_TERMINAL_DIMENSION: u32 = 0xffff;
 pub const KEEPER_MAX_HISTORY_RESIZE_RECORDS: u32 = 4096;
 
 /// Frame type tags. The discriminants are the wire values and must never be
-/// reused for a different meaning.
+/// reused for a different meaning. Tags 0x36, 0xE4 and 0xE5 are retired and
+/// must not be reused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MuxFrameType {
@@ -64,8 +65,6 @@ pub enum MuxFrameType {
     ResizeAck = 0x34,
     /// keeper → client: the geometry was refused.
     ResizeReject = 0x35,
-    /// client → keeper: query the last applied sequence.
-    ResizeStatus = 0x36,
 
     // -- cross-process resume ---------------------------------------------
     /// client → keeper: which channels are still live.
@@ -76,10 +75,6 @@ pub enum MuxFrameType {
     Hello = 0xE2,
     /// keeper → client: contract and observation.
     HelloResp = 0xE3,
-    /// client → keeper: drain history (legacy).
-    GetHistory = 0xE4,
-    /// keeper → client: the head sequence and the raw ring.
-    GetHistoryResp = 0xE5,
     /// client → keeper: ordered history records.
     GetHistoryRecords = 0xE6,
     /// keeper → client: the ordered records.
@@ -137,13 +132,10 @@ impl MuxFrameType {
             0x33 => ResizeRequest,
             0x34 => ResizeAck,
             0x35 => ResizeReject,
-            0x36 => ResizeStatus,
             0xE0 => ListChannels,
             0xE1 => ListChannelsResp,
             0xE2 => Hello,
             0xE3 => HelloResp,
-            0xE4 => GetHistory,
-            0xE5 => GetHistoryResp,
             0xE6 => GetHistoryRecords,
             0xE7 => GetHistoryRecordsResp,
             0xE8 => Shutdown,

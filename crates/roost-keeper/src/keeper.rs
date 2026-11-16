@@ -234,10 +234,8 @@ impl Keeper {
             MuxFrameType::PtyInRequest if per_channel(frame) => self.sequenced_input(frame)?,
             MuxFrameType::Resize if per_channel(frame) => self.legacy_resize(frame)?,
             MuxFrameType::ResizeRequest if per_channel(frame) => self.sequenced_resize(frame)?,
-            MuxFrameType::ResizeStatus if per_channel(frame) => self.resize_status(frame)?,
             MuxFrameType::GetTerminalState if per_channel(frame) => self.terminal_state(frame)?,
             MuxFrameType::GetHistoryRecords if per_channel(frame) => self.history_records(frame)?,
-            MuxFrameType::GetHistory if per_channel(frame) => self.legacy_history_resp(frame)?,
             MuxFrameType::KillChild if per_channel(frame) => {
                 if let Some(channel) = self.channels.get_mut(&frame.channel_id) {
                     channel.pty.kill();
@@ -349,13 +347,6 @@ impl Keeper {
     /// worker's.
     pub fn contract(&self) -> &KeeperContractV1 {
         &self.contract
-    }
-
-    /// The legacy `GetHistoryResp` view of a channel: the head and the raw
-    /// retained ring (v2 `keeper-frame-handler.ts:487-498`).
-    pub fn legacy_history(&self, channel_id: u16) -> Option<(u64, Vec<u8>)> {
-        let channel = self.channels.get(&channel_id)?;
-        Some((channel.history.head_seq(), channel.history.ring_bytes()))
     }
 
     /// A channel's ordered history; a channel the keeper does not hold answers

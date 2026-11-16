@@ -2,8 +2,8 @@
 //! output, the head (every byte ever emitted), and the resize markers
 //! interleaved with the retained bytes. Ports `apps/worker/src/keeper/keeper-history.ts`
 //! and the channel's `outRing`/`headSeq` fields (`keeper-frame-handler.ts`);
-//! `keeper::Keeper` records into it and answers `GetHistoryRecords`/`GetHistory`
-//! from it. The markers are what let a resuming worker replay the exact
+//! `keeper::Keeper` records into it and answers `GetHistoryRecords` from it.
+//! The markers are what let a resuming worker replay the exact
 //! byte/geometry stream the PTY produced.
 
 use std::collections::VecDeque;
@@ -151,11 +151,6 @@ impl ChannelHistory {
             base_rows: self.base_rows,
             records,
         }
-    }
-
-    /// The raw retained ring, for the legacy `GetHistoryResp` framing.
-    pub fn ring_bytes(&self) -> Vec<u8> {
-        self.ring.iter().copied().collect()
     }
 
     /// Markers at or below the retained tail describe bytes that are gone; the

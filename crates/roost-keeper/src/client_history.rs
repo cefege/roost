@@ -1,8 +1,8 @@
 //! Reading a channel's retained history over the client: the ordered records an
-//! adoption or a core re-proof replays, and the legacy head+ring drain. Ports
-//! the client half of `apps/worker/src/keeper/keeper-pool-channels.ts`
-//! (`getChannelHistoryRecords`, `getChannelHistory`) and the matching arms of
-//! `keeper-pool-lifecycle.ts`. Called by the worker's keeper pool.
+//! adoption or a core re-proof replays. Ports the client half of
+//! `apps/worker/src/keeper/keeper-pool-channels.ts` (`getChannelHistoryRecords`)
+//! and the matching arms of `keeper-pool-lifecycle.ts`. Called by the worker's
+//! keeper pool.
 //!
 //! THE ANSWER IS AN ORDERED BOUNDARY. The keeper appends every chunk to the
 //! history before it sends the `PtyOut`, and answers on the same socket, so a
@@ -19,7 +19,7 @@ use crate::client_error::ClientError;
 use crate::codec::{MuxFrame, MuxFrameType};
 use crate::history::HistoryRecords;
 
-/// v2 `getHistoryRecords timed out after 3000ms`, and the legacy drain's 3s.
+/// v2 `getHistoryRecords timed out after 3000ms`.
 pub const HISTORY_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// A history answer and how many pre-boundary output bytes were dropped for it.
@@ -47,20 +47,6 @@ impl KeeperClient {
             history,
             dropped_output_bytes,
         })
-    }
-
-    /// The pre-ordered-history drain: `[head_seq:u64][ring bytes]`, answered
-    /// with `GetHistoryResp`. A short payload is v2's "fresh": head 0, no bytes.
-    pub fn legacy_history(&self, channel_id: u16) -> Result<(u64, Vec<u8>), ClientError> {
-        self.write(&empty_frame(MuxFrameType::GetHistory, channel_id)?)?;
-        let frame =
-            self.wait_as_result(channel_id, HISTORY_TIMEOUT, &[MuxFrameType::GetHistoryResp])?;
-        let Some(head) = frame.payload.get(..8) else {
-            return Ok((0, Vec::new()));
-        };
-        let mut head_bytes = [0u8; 8];
-        head_bytes.copy_from_slice(head);
-        Ok((u64::from_be_bytes(head_bytes), frame.payload[8..].to_vec()))
     }
 
     fn wait_across_history_boundary(

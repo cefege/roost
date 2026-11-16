@@ -265,17 +265,6 @@ impl Keeper {
         }
     }
 
-    pub fn resize_status(&mut self, frame: &MuxFrame) -> Result<Vec<MuxFrame>, CodecError> {
-        let state = self.state_of(frame.channel_id);
-        let ack = ResizeRequest {
-            seq: state.applied_seq,
-            cols: state.cols,
-            rows: state.rows,
-        };
-        let frame = MuxFrame::new(MuxFrameType::ResizeAck, frame.channel_id, ack.encode()?)?;
-        Ok(vec![frame])
-    }
-
     /// The answer to a worker that lost a `ResizeAck` and has no retained
     /// marker left to ask about. It is answered from LIVE channel state, which
     /// is the only source that cannot itself have been evicted.
@@ -314,19 +303,5 @@ impl Keeper {
             payload,
         )?;
         Ok(vec![response])
-    }
-
-    /// v2 `GetHistory` (`keeper-frame-handler.ts:487-498`): `[head:u64][ring]`,
-    /// head 0 and no bytes for a channel this keeper does not hold.
-    pub fn legacy_history_resp(&mut self, frame: &MuxFrame) -> Result<Vec<MuxFrame>, CodecError> {
-        let (head_seq, ring) = self.legacy_history(frame.channel_id).unwrap_or_default();
-        let mut payload = Vec::with_capacity(8 + ring.len());
-        payload.extend_from_slice(&head_seq.to_be_bytes());
-        payload.extend_from_slice(&ring);
-        Ok(vec![MuxFrame::new(
-            MuxFrameType::GetHistoryResp,
-            frame.channel_id,
-            payload,
-        )?])
     }
 }

@@ -8,7 +8,8 @@ impl KeeperPool {
     /// Apply a geometry change, and report what the keeper did with it.
     ///
     /// The outcome is handed back rather than collapsed: a refusal names why the
-    /// PTY will not move, and an unknown is recovered by asking `resize_status`.
+    /// PTY will not move, and an unknown is recovered by asking the keeper for
+    /// its `terminal_state`.
     pub fn resize(
         &self,
         channel_id: u16,

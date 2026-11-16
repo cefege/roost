@@ -113,7 +113,6 @@ fn an_unknown_channel_answers_an_empty_history() {
         keeper.ordered_history(60_000),
         HistoryRecords::unknown_channel()
     );
-    assert_eq!(keeper.legacy_history(60_000), None);
 }
 
 /// v2 `keeper-history-resume.test.ts`: the echoed output is retained, the head
@@ -126,10 +125,10 @@ fn a_live_channel_retains_its_echo_and_its_head_advances() {
     drain_until(&mut keeper, |seen| {
         seen.windows(15).any(|w| w == b"first-chunk-RC2")
     });
-    let (first_head, first_ring) = keeper.legacy_history(1).expect("the channel has history");
+    let first = keeper.ordered_history(1);
     assert_eq!(
-        first_head,
-        first_ring.len() as u64,
+        first.head_seq,
+        first.window().len() as u64,
         "under the cap the ring is the whole lifetime"
     );
 
@@ -137,12 +136,15 @@ fn a_live_channel_retains_its_echo_and_its_head_advances() {
     drain_until(&mut keeper, |seen| {
         seen.windows(16).any(|w| w == b"second-chunk-RC2")
     });
-    let (second_head, second_ring) = keeper.legacy_history(1).expect("the channel has history");
-    assert!(second_head > first_head, "the head advances with output");
-    let text = String::from_utf8_lossy(&second_ring);
+    let second = keeper.ordered_history(1);
+    let second_window = second.window();
+    assert!(
+        second.head_seq > first.head_seq,
+        "the head advances with output"
+    );
+    let text = String::from_utf8_lossy(&second_window);
     assert!(
         text.contains("first-chunk-RC2") && text.contains("second-chunk-RC2"),
         "{text}"
     );
-    assert_eq!(keeper.ordered_history(1).head_seq, second_head);
 }

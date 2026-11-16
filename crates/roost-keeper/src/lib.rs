@@ -3,7 +3,7 @@
 //! separate binary so a coordinator deploy never disturbs a live PTY.
 //! This is the one crate outside third_party/ permitted to use `unsafe`: it
 //! owns raw file descriptors, the controlling-TTY handshake, and the Win32
-//! console, Job Object and named-pipe calls (`win32_ffi` is the safe wrapper
+//! console and Job Object calls (`win32_ffi` holds the standard-handle wrapper
 //! other crates use); every call site must name the invariant it protects.
 
 pub mod capability;

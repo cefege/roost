@@ -337,6 +337,14 @@ ignored direct retirement, the malformed control and packet injection and the
 history-delivery pause, together with the `test_faults` and `expire_grant`
 dependencies that carried them. No ordinary worker ever armed any of it.
 
+The keeper's legacy history drain and resize-status ops are dropped: the
+`GetHistory`, `GetHistoryResp` and `ResizeStatus` frames (tags `0xE4`, `0xE5`
+and `0x36`, retired and never reassigned), the client's `legacy_history`,
+`resize_status` and `resize_with_intervening` calls with the keeper's
+`ring_bytes` view, and the Win32 named-pipe client pid and file-identity
+wrappers in `win32_ffi`. A resize whose answer never arrives is recovered with
+`GetTerminalState`.
+
 The dedicated OMP integration is retired too: managed ACP processes, HTML chat,
 agent RPCs and Sync frames, status detection/reporting, fenced prompts, agent
 configuration and autolaunch, the `roost skill` command, bundled executables,

@@ -43,13 +43,10 @@ Stable, never renumber. A tag that changes meaning breaks every deployed keeper 
 | `0x33` | `ResizeRequest` | client → keeper | `[seq:u64][cols:u32][rows:u32]` |
 | `0x34` | `ResizeAck` | keeper → client | `[seq:u64][cols:u32][rows:u32]` |
 | `0x35` | `ResizeReject` | keeper → client | `[seq:u64][reason:u8]` |
-| `0x36` | `ResizeStatus` | client → keeper | `[seq:u64]` — cached-status query |
 | `0xE0` | `ListChannels` | client → keeper | empty (`channel=0`) |
 | `0xE1` | `ListChannelsResp` | keeper → client | JSON `{channels: [{channel_id, pid}]}` |
 | `0xE2` | `Hello` | client → keeper | capability-bearing hello (`channel=0`), the first frame of every connection — see [Hello](#hello) |
 | `0xE3` | `HelloResp` | keeper → client | contract + process/channel observation — see [Hello](#hello) |
-| `0xE4` | `GetHistory` | client → keeper | empty, per channel (legacy drain) |
-| `0xE5` | `GetHistoryResp` | keeper → client | `[head_seq:u64][ring bytes]` |
 | `0xE6` | `GetHistoryRecords` | client → keeper | empty, per channel |
 | `0xE7` | `GetHistoryRecordsResp` | keeper → client | ordered `Output`/`Resize` records |
 | `0xE8` | `Shutdown` | client → keeper | empty (`channel=0`) — deliberate offline maintenance |
@@ -61,6 +58,8 @@ Stable, never renumber. A tag that changes meaning breaks every deployed keeper 
 | `0xEE` | `ShutdownIfEmptyReject` | keeper → client | empty (`channel=0`) |
 | `0xF0` | `Ping` | both | empty (`channel=0`) |
 | `0xF1` | `Pong` | both | empty (`channel=0`) |
+
+Tags `0x36`, `0xE4` and `0xE5` are retired and must not be reused.
 
 ## Hello
 
