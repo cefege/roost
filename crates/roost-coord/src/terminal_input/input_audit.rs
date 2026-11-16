@@ -3,7 +3,6 @@
 //! held through a failed write, and producers beyond that waiting for room
 //! rather than being dropped. Owned by `TerminalInputRuntime`; fed by
 //! `terminal_input::input_control`; writes through `middleware::audit`.
-//! Ports the audit pump of `apps/coord/src/terminal/input/input-control.ts`.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};

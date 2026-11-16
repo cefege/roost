@@ -4,8 +4,7 @@
 //! socket it holds, closed `4001 revoked`.
 //!
 //! Called by `DevicesRevoke`, `DevicesRotateCurrent` and `AuthLogout`
-//! (`auth::rpc_devices`) right after the key cache is invalidated. Ports the
-//! `onKeyRevoked` / `closeRevokedSockets` hook of `apps/coord/src/main.ts`.
+//! (`auth::rpc_devices`) right after the key cache is invalidated.
 //!
 //! A socket already open verified its key once, at upgrade; nothing re-reads
 //! it afterwards, so without this hook a revoked browser keeps its live feed

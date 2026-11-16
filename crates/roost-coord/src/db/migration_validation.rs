@@ -3,7 +3,7 @@
 //! file passes `PRAGMA integrity_check`.
 //!
 //! Owned by `crate::db`; `db::open` is the only caller, before and after the
-//! migration set runs. Ports `apps/coord/src/db/migration-validation.ts`.
+//! migration set runs.
 //! Postgres enforces foreign keys unconditionally and has no file to check, so
 //! every function here returns `Ok(())` on that backend.
 
@@ -32,7 +32,7 @@ fn database_label(database: &CoordDb) -> String {
 
 /// Turn foreign-key enforcement on and refuse a connection that did not keep it.
 ///
-/// v2's `enableAndVerifyForeignKeys`. Setting it again rather than trusting the
+/// Setting it again rather than trusting the
 /// connect options matters after a migration: a table rebuild is written with
 /// `PRAGMA foreign_keys = OFF`, and a connection a migration left unenforced
 /// would accept every orphan the rest of the process writes. A SQLite built
@@ -56,9 +56,9 @@ pub(super) async fn enable_and_verify_foreign_keys(database: &CoordDb) -> Result
 
 /// Refuse a database in which any row violates a foreign key.
 ///
-/// v2's `validateForeignKeys` names the first violation as `table -> parent`;
-/// this names every distinct pair, so an operator repairing the file sees the
-/// whole job rather than one table per restart.
+/// Names every distinct `table -> parent` pair that violates a key, so an
+/// operator repairing the file sees the whole job rather than one table per
+/// restart.
 pub(super) async fn validate_foreign_keys(database: &CoordDb) -> Result<(), DbError> {
     if !applies_to(database, "foreign_key_check") {
         return Ok(());
@@ -93,9 +93,9 @@ pub(super) async fn validate_foreign_keys(database: &CoordDb) -> Result<(), DbEr
 
 /// Refuse a freshly migrated file that SQLite itself reports as corrupt.
 ///
-/// v2's `validateIntegrity`, which its runner applies only after the final
-/// pending migration: a full check is a scan of the whole file, and a boot
-/// that migrated nothing changed nothing it could have corrupted.
+/// Applied only after the final pending migration: a full check is a scan of
+/// the whole file, and a boot that migrated nothing changed nothing it could
+/// have corrupted.
 pub(super) async fn validate_integrity(database: &CoordDb, migration: &str) -> Result<(), DbError> {
     if !applies_to(database, "integrity_check") {
         return Ok(());

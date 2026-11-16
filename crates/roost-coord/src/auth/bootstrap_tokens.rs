@@ -1,7 +1,7 @@
-//! Ported from `apps/coord/src/auth/bootstrap-tokens.ts`. A bootstrap token is
-//! how a fresh machine or a fresh browser joins a fleet without a pairing
-//! ceremony, which is exactly why it is scoped, time-bounded and redeemable
-//! ONCE: a token that could be redeemed twice would be a permanent credential
+//! A bootstrap token is how a fresh machine or a fresh browser joins a fleet
+//! without a pairing ceremony, which is exactly why it is scoped, time-bounded
+//! and redeemable ONCE: a token that could be redeemed twice would be a
+//! permanent credential
 //! for anyone who ever saw it. The plaintext bearer exists only in the minting
 //! call's return value; SQLite stores a scoped SHA-256 digest and the claim
 //! state, so a stolen database file yields no working token.
@@ -29,11 +29,10 @@ use crate::db::CoordDb;
 /// The prefix that makes a token recognisable in a log a human reads.
 pub const BOOTSTRAP_TOKEN_PREFIX: &str = "roost_bt_";
 
-/// How long a minted token stays redeemable: 24 h (`bootstrap-tokens.ts:45`).
+/// How long a minted token stays redeemable: 24 h.
 pub const BOOTSTRAP_TOKEN_TTL_MS: i64 = 24 * 60 * 60 * 1_000;
 
-/// The randomness in a token: 24 bytes, rendered as 48 hex characters
-/// (`bootstrap-tokens.ts:46`).
+/// The randomness in a token: 24 bytes, rendered as 48 hex characters.
 pub const BOOTSTRAP_TOKEN_RANDOM_BYTES: usize = 24;
 
 /// Which kind of principal a grant may create.

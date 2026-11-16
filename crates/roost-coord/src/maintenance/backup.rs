@@ -1,7 +1,7 @@
 //! The nightly database backup: one verified snapshot, gzipped into
 //! `backups/`, published by rename, and pruned to a fixed keep count.
 //!
-//! Owned by the coordinator. Ports `apps/coord/src/db/backup.ts`. `serve`
+//! Owned by the coordinator. `serve`
 //! calls `spawn_scheduled_backups` after the listener binds, and `db::open`
 //! calls `run_backup` with the pre-migration reason, so the two cannot drift
 //! apart in how they write or prune.
@@ -16,11 +16,11 @@ use crate::maintenance::gzip_file::gzip_file_to_path;
 use crate::maintenance::snapshot::{SnapshotError, create_sqlite_snapshot};
 use crate::serve::now_ms;
 
-/// How many archives are kept. 14 (`backup.ts:20`): two weeks of nightly
+/// How many archives are kept. 14: two weeks of nightly
 /// archives, at one file each.
 pub const MAX_BACKUPS: usize = 14;
 
-/// The archive name prefix. `coord_v2.` (`backup.ts:46`), kept as the contract
+/// The archive name prefix. `coord_v2.`, kept as the contract
 /// states it in §2.5 so the prune filter and any operator tooling that looks
 /// for these files keep matching.
 const ARCHIVE_PREFIX: &str = "coord_v2.";
@@ -28,7 +28,7 @@ const ARCHIVE_PREFIX: &str = "coord_v2.";
 /// The archive name suffix. `.db.gz`.
 const ARCHIVE_SUFFIX: &str = ".db.gz";
 
-/// What asked for a backup. v2's `"scheduled" | "pre-migration"`.
+/// What asked for a backup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackupReason {
     /// The nightly timer.
@@ -94,7 +94,7 @@ pub async fn run_backup(
 /// Take a backup whose archive name is derived from `now_ms`.
 ///
 /// The clock is a parameter so a test can say which archive it expects, the
-/// same reason v2's sweep takes an injectable `now` (`audit-retention.ts:52`).
+/// same reason the retention sweep takes an injectable `now`.
 pub async fn run_backup_at(
     database: &CoordDb,
     reason: BackupReason,
@@ -128,10 +128,9 @@ pub async fn run_backup_at(
         );
         // The staging file never earns its real name, so removing it is the
         // whole cleanup. The real name is NOT touched: it holds some earlier
-        // archive, and v2's catch deletes that too (`backup.ts:68-69`), which
-        // is only sound there because its rename is the last statement. Here
-        // nothing can fail after the rename at all, so deleting a published
-        // archive would only ever destroy a backup that is already good.
+        // archive, and nothing can fail after the rename, so deleting a
+        // published archive would only ever destroy a backup that is already
+        // good.
         let _ = super::remove_file_if_present(&staging_path).await;
     }
     let record = published?;
@@ -158,7 +157,7 @@ async fn publish_archive(
         Ok(_) => stage_and_rename(snapshot_path, staging_path, archive_path, reason).await,
         Err(error) => Err(BackupError::Snapshot(error)),
     };
-    // The uncompressed intermediate never outlives the call (`backup.ts:70-72`).
+    // The uncompressed intermediate never outlives the call.
     let _ = super::remove_file_if_present(snapshot_path).await;
     published
 }
@@ -193,7 +192,7 @@ async fn stage_and_rename(
 ///
 /// A prune failure is logged and skipped. A full disk, a permission change or
 /// an unremovable file must not turn an archive that was written and verified
-/// into a reported backup failure (`backup.ts:74-86`).
+/// into a reported backup failure.
 async fn prune_backups(directory: &Path) {
     let archives = list_archives(directory).await;
     let excess = archives.len().saturating_sub(MAX_BACKUPS);
@@ -227,7 +226,7 @@ pub async fn list_archives(directory: &Path) -> Vec<PathBuf> {
 }
 
 /// Whether the newest archive is older than a day, so the first scheduled run
-/// fires immediately rather than a day after boot (`backup.ts:99-103`).
+/// fires immediately rather than a day after boot.
 async fn backup_is_stale(directory: &Path) -> bool {
     let archives = list_archives(directory).await;
     let Some(newest) = archives.last() else {
@@ -249,10 +248,9 @@ const DAY_MS_U64: u64 = DAY_MS as u64;
 
 /// The archive tag for a wall-clock instant: `YYYY-MM-DDTHH-MM-SS-mmm`, UTC.
 ///
-/// v2 built it from `Date.toISOString()` by replacing `:` and `.` with `-` and
-/// dropping the `Z` (`backup.ts:46`), so the name is safe on every filesystem
-/// and sorts chronologically as plain text -- which is exactly what the prune
-/// orders by.
+/// Built from the ISO timestamp with `:` and `.` replaced by `-` and the `Z`
+/// dropped, so the name is safe on every filesystem and sorts chronologically
+/// as plain text -- which is exactly what the prune orders by.
 #[must_use]
 pub fn backup_tag(now_ms: i64) -> String {
     let total_seconds = now_ms.div_euclid(1000);
@@ -291,8 +289,8 @@ fn civil_from_days(days_since_epoch: i64) -> (i64, u32, u32) {
 
 /// Run the backup loop: one run if the newest archive is stale, then one a day.
 ///
-/// The returned task is detached. A tokio task is dropped when the runtime
-/// shuts down, which is the effect v2's `setInterval(…).unref()` was buying.
+/// The returned task is detached: a tokio task does not keep the process alive
+/// and is dropped when the runtime shuts down.
 pub fn spawn_scheduled_backups(database: CoordDb) {
     let Some(database_path) = database.sqlite_path() else {
         tracing::info!(
@@ -319,6 +317,6 @@ pub fn spawn_scheduled_backups(database: CoordDb) {
 
 async fn run_and_log(database: &CoordDb, reason: BackupReason) {
     // `run_backup` already logged the actionable error; scheduled work has no
-    // caller to return one to (`backup.ts:101-105`).
+    // caller to return one to.
     let _ = run_backup(database, reason).await;
 }

@@ -6,9 +6,7 @@
 //! security rather than convenience -- the worker endpoint's total query ban, and
 //! the Sync origin check running before the credential is read.
 //!
-//! The order IS the contract in both cases
-//! (`apps/coord/src/workers/worker-ws-upgrade.ts:37-117`,
-//! `apps/coord/src/sync/sync-ws-upgrade.ts:124-213`), and an order that lives in a
+//! The order IS the contract in both cases, and an order that lives in a
 //! socket handler is an order nobody reviews. That is why these are pure
 //! functions and this file drives them directly.
 
@@ -62,9 +60,8 @@ fn a_well_formed_worker_upgrade_is_admitted_and_bound_to_its_url_fingerprint() {
 fn any_query_string_at_all_refuses_the_worker_endpoint() {
     // Not a denylist of `token=`. "Rejecting the entire query surface guarantees
     // an old `?token=` client cannot leak a credential into access logs while
-    // still authenticating successfully by subprotocol"
-    // (`worker-ws-upgrade.ts:42-44`). A denylist would be a denylist of the
-    // spelling v2 shipped.
+    // still authenticating successfully by subprotocol". A denylist would be a
+    // denylist of one historical spelling.
     for query in ["?token=abc", "?", "?x=1", "?flow=1"] {
         let mut request = admitted_worker_request();
         request.query = query.to_string();

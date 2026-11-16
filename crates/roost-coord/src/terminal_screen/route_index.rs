@@ -1,6 +1,6 @@
 //! The `(worker, channel) -> session` half of the terminal byte hub.
 //!
-//! Split out of v2's `byte-hub.ts` (457 lines, over the 400 cap) on the seam
+//! Split from `byte_hub` for the size cap on the seam
 //! `coord_core::seams::WorkerRouteIndex` draws: this module owns the index,
 //! the route cache and the retirement bookkeeping, and `byte_hub` owns the
 //! cells. Neither names a caller.
@@ -9,8 +9,8 @@
 //! only as compact terminal metadata, so nothing keeps per-route parser state
 //! and the publication has no reader: [`NoRouteRetirement`] is the whole of it.
 //!
-//! WHY THE FORWARD INDEX IS NESTED BY WORKER. v2 keeps one `Map` keyed by the
-//! string `"<fp>:<channel>"` and prefix-sweeps it. A nested `BTreeMap` makes
+//! WHY THE FORWARD INDEX IS NESTED BY WORKER. A single map keyed by the string
+//! `"<fp>:<channel>"` would need a prefix sweep. A nested `BTreeMap` makes
 //! "every key of this worker" a single subtree, so a replacement is one
 //! `BTreeMap` built locally and one swap -- which is what makes
 //! [`RouteIndex::replace_worker_channel_index`] atomic rather than a sequence

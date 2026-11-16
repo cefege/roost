@@ -230,8 +230,7 @@ fn a_host_approval_is_readable_only_from_the_host() {
 }
 
 /// The read normalizes an overdue live row to `expired` WITHOUT writing, and
-/// says so on every live status rather than only the one it happened to check
-/// in v2.
+/// says so on every live status rather than only the one it happened to check.
 #[test]
 fn an_overdue_read_reports_expired_for_every_live_status() {
     let now = NOW;

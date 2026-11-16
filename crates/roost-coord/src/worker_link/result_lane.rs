@@ -1,9 +1,9 @@
 //! The frames a worker link lets past a durable append that is still in flight,
 //! and the bounded ordered backlog every other frame waits in meanwhile.
-//! Ports the completion-frame lane of `apps/coord/src/workers/worker-ws-handler.ts:235-254`,
-//! its terminal fast path through the announced-channel barrier (`:281-338`, in
-//! `worker_link::announced_lane`, which charges the backlog's budget) and its
-//! bounded slow-path queue (`:347-349`) over `worker_link::frame_queue`.
+//! It carries the completion-frame lane, the terminal fast path through the
+//! announced-channel barrier (in `worker_link::announced_lane`, which charges
+//! the backlog's budget) and the bounded slow-path queue over
+//! `worker_link::frame_queue`.
 //! Owned by `worker_link::link_session`; `worker_link::connection` drains the backlog.
 
 use axum::body::Bytes;
@@ -22,12 +22,12 @@ use crate::worker_link::worker_signals;
 
 /// Whether a frame may overtake a durable append still in flight.
 ///
-/// v2's list: a typed completion has no durable effect and no channel-order
+/// A typed completion has no durable effect and no channel-order
 /// dependency, so it must not wait out a slow append its waiter never asked
 /// about; the two owner-mode view frames install the expectation a stream's
-/// first cells are checked against. v2 also lists `terminalStreamResult`, whose
-/// control is not ported here (`terminal_view/mod.rs`), so its refusal waits
-/// its turn like any other frame.
+/// first cells are checked against. A terminal stream result does not overtake:
+/// that control is not carried here (`terminal_view/mod.rs`), so its refusal
+/// waits its turn like any other frame.
 fn bypasses_ordered_lane(frame: &CoordWorkerUpstream) -> bool {
     matches!(
         frame,
@@ -54,7 +54,7 @@ pub(super) struct ResultLane {
 }
 
 impl ResultLane {
-    /// A lane over this socket's second dispatcher, with v2's queue bounds.
+    /// A lane over this socket's second dispatcher, with the standard queue bounds.
     pub(super) fn new(dispatcher: WorkerFrameDispatcher) -> Self {
         Self {
             announced: AnnouncedLane::new(&dispatcher),
@@ -131,7 +131,7 @@ impl ResultLane {
             .announce(announcement, self.backlog.budget_mut());
     }
 
-    /// v2's terminal fast path: `Some` publishes now; `None` is held, retained
+    /// The terminal fast path: `Some` publishes now; `None` is held, retained
     /// or dropped by the barrier (whose overflow closes the socket 1009).
     pub(super) fn route_terminal(
         &mut self,
@@ -158,7 +158,7 @@ impl ResultLane {
             .commit_after_append(announcement, appended, &self.dispatcher, budget)
     }
 
-    /// Charge the durable frame whose append is about to run, as v2's queue
+    /// Charge the durable frame whose append is about to run, as the queue
     /// charges its in-flight frame; false when the socket budget refused it.
     pub(super) fn charge_in_flight(&mut self, encoded_bytes: usize) -> bool {
         let bytes = u64::try_from(encoded_bytes).unwrap_or(u64::MAX);
@@ -277,7 +277,7 @@ impl ResultLane {
         }
     }
 
-    /// The peer went away mid-append: v2 closes the queue, dropping what waited.
+    /// The peer went away mid-append: the queue closes, dropping what waited.
     fn discard_backlog(&mut self) -> bool {
         self.backlog.latch();
         while let Some(frame) = self.backlog.take_front() {

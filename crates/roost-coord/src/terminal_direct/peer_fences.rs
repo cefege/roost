@@ -2,8 +2,7 @@
 //! grant that did not change while authorization or the answer was awaited,
 //! the exact current worker generation, and a typed result that answers the
 //! offer that was actually sent.
-//! Called by `peer_negotiations`. Ports `requireOwnedGrant`, `requireStableGrant`,
-//! `requireWorker` and `matchesPending` of `apps/coord/src/terminal/direct/terminal-peer-negotiations.ts`.
+//! Called by `peer_negotiations`.
 
 use std::sync::Arc;
 

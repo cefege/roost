@@ -1,10 +1,8 @@
 //! The auth gate's own refusal carries the marker a browser acts on.
 //!
-//! v2 refused inside the handler, so every handler reached
-//! `requireAccountDevice` for a caller it could not resolve and stamped
-//! `x-roost-auth-layer: device` (`auth-interceptor.ts:256-262`). The v3 gate
-//! refuses before a handler runs, and the answer it wrote named the method and
-//! nothing else — which reads to a browser as an opaque `Unauthenticated`.
+//! The gate refuses before a handler runs, so it must stamp
+//! `x-roost-auth-layer: device` itself; an answer that named the method and
+//! nothing else reads to a browser as an opaque `Unauthenticated`.
 //! Its bootstrap probe classifies on that header and on nothing else, so an
 //! unpaired browser could not tell "re-pair" from "retry" and sat on the
 //! checking screen for as long as the coordinator ran. A handler-level test
@@ -180,8 +178,7 @@ fn unresolvable_token() -> String {
 /// only thing that lets its page leave the checking screen
 /// (`roost-client-core/src/handle_sync/hydration.rs:249`). Without the marker
 /// the answer classifies as retryable, the gate never closes, and the pairing
-/// panel never renders — `smoke/terminal/pair-gate.spec.ts` and
-/// `smoke/terminal/tv-dpad.spec.ts` both time out on it.
+/// panel never renders.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_unresolvable_credential_on_a_device_method_is_answered_with_the_device_marker() {
     let scratch = Scratch::new("gate-device-marker").await;
@@ -269,9 +266,8 @@ fn relay_chunk_body(data_bytes: usize) -> Value {
     })
 }
 
-/// A full 4 MiB relay chunk (`apps/web/src/lib/attachments.ts:19`) plus its
-/// envelope must reach the gate rather than be refused for its size; v2 caps
-/// the body at 16 MiB (`bun-coordinator-listeners.ts:48,313`). connectrpc's
+/// A full 4 MiB relay chunk plus its envelope must reach the gate rather than
+/// be refused for its size: the coordinator's body cap is 16 MiB. connectrpc's
 /// own default is 4 MiB, which refuses every full chunk before any handler.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_full_relay_chunk_reaches_the_gate_and_an_oversized_body_does_not() {

@@ -3,8 +3,6 @@
 //! synchronously, before the bridge awaits anything, so the evidence describes
 //! the incident rather than whatever the terminal did while the worker
 //! answered. Called by `terminal_capture::bridge`.
-//! Ports `freezeCoordinatorEvidence` and `selectRecordsWithinBudget` of
-//! `apps/coord/src/terminal/capture/terminal-capture-recorder.ts`.
 
 use roost_host::build_identity::{COMPILED_ROOST_ARTIFACT_VERSION, DEV_BUILD_STAMP};
 use roost_protocol::terminal_capture::TERMINAL_CAPTURE_LIMITS;

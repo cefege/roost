@@ -2,13 +2,12 @@
 //! buffered output and bus, and its expiry twenty minutes after it finishes.
 //! Called by `deploy::job_process` (which feeds a job), `deploy::output_stream`
 //! (which reads one), `deploy::catchup` (which hosts are busy) and
-//! `deploy::rpc_deploy`. Ports the registry half of
-//! apps/coord/src/deploy/deploy-jobs.ts.
+//! `deploy::rpc_deploy`.
 //!
 //! A LINE IS BUFFERED AND PUBLISHED UNDER ONE LOCK, and a reader snapshots the
-//! buffer and subscribes under the same lock. v2 got that for free from one
-//! thread; here it is what keeps a line from reaching a new reader twice, or
-//! falling between its snapshot and its subscription.
+//! buffer and subscribes under the same lock, which is what keeps a line from
+//! reaching a new reader twice, or falling between its snapshot and its
+//! subscription.
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};

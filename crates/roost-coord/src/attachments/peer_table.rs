@@ -2,8 +2,7 @@
 //! being admitted against which workers, which offers wait for an answer, and
 //! the capacity rules both share. Held under `AttachmentPeerNegotiations`' one
 //! lock, so a slot moves from admitted to pending without ever being counted
-//! twice. Ports the admission and correlation maps of
-//! `apps/coord/src/attachments/attachment-peer-negotiations.ts`.
+//! twice.
 
 use std::collections::HashMap;
 

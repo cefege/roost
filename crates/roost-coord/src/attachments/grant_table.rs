@@ -1,8 +1,6 @@
 //! The grant owner's table: live leases with their expiry timers, the grants
 //! still minting, and the capacity rules both count against. Held under
-//! `AttachmentGrantOwner`'s one lock; nothing here notifies or sends. Ports the
-//! lease, pending and per-document/worker/device count maps of
-//! `apps/coord/src/attachments/attachment-grant-owner.ts`.
+//! `AttachmentGrantOwner`'s one lock; nothing here notifies or sends.
 
 use std::collections::HashMap;
 
@@ -43,7 +41,7 @@ pub(crate) struct PendingGrant {
 
 impl GrantTable {
     /// Refuse a mint that would exceed the document, worker, process or device
-    /// bound, in v2's order.
+    /// bound, in a fixed order.
     pub(crate) fn admit_capacity(
         &self,
         request: &AttachmentGrantRequest,

@@ -1,8 +1,7 @@
 //! Pair-request retention: the sweep that expires live requests and reclaims
 //! decided ones, and the lifetime the coordinator holds it for.
 //!
-//! Owned by the pairing slice. Ported from
-//! `apps/coord/src/auth/pair-request-retention.ts`.
+//! Owned by the pairing slice.
 //!
 //! WHY A SWEEP EXISTS AT ALL. A pair request is a standing credential for ten
 //! minutes: anybody who learns its id and requester token can be confirmed into

@@ -1,8 +1,6 @@
 //! The heartbeat write, and the choice between the two presence frames a beat
 //! can publish.
 //!
-//! Ported from `apps/coord/src/workers/handlers-workers-heartbeat.ts`.
-//!
 //! EVERY FIELD A BEAT RE-ASSERTS SELF-HEALS A ROW. `git_sha`, `reachable_addr`,
 //! `os` and the host identity are re-sent every beat precisely so a machine that
 //! was renamed, rebuilt or moved converges within one heartbeat instead of
@@ -20,8 +18,7 @@
 //! A STATIC FIELD CHANGE RIDES THE FULL ROW, NOT THE LIGHT BEAT. The SPA's
 //! worker record is only replaced by a `registered` frame, so a heartbeat that
 //! changed `os` and published a light delta would leave the browser showing the
-//! platform of a machine that no longer holds the key
-//! (`handlers-workers-heartbeat.ts:199-221`).
+//! platform of a machine that no longer holds the key.
 
 use roost_protocol::keeper_update::KeeperRuntimeObservationV1;
 use roost_protocol::wire::{HostIdentity, HostMetrics, TerminalCoreCapacityReport, WorkerOs};

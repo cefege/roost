@@ -1,11 +1,10 @@
 //! The worker-lifecycle observer that runs the catch-up deploy each time a
 //! worker generation crosses its snapshot barrier and becomes routable.
 //! Registered on `CoordServices::worker_lifecycle` by `services.rs`; depends on
-//! `deploy::{catchup,start}`. Ports the `startCatchUpDeployOnAttach` call of
-//! v2 `main.ts` onWorkerConnected (apps/coord/src/deploy/worker-catchup-deploy.ts).
+//! `deploy::{catchup,start}`.
 //!
-//! v2's same hook first resumes the worker's signed Windows update deploys; that
-//! updater is not carried by this coordinator, so the catch-up is the whole hook.
+//! A signed Windows update deploy is not carried by this coordinator, so the
+//! catch-up is the whole hook.
 
 use std::sync::Arc;
 
@@ -34,7 +33,7 @@ impl CatchUpOnReady {
 }
 
 impl WorkerLifecycleObserver for CatchUpOnReady {
-    /// Detached, as v2's `void`-ed hook is: the link's read loop must not wait
+    /// Detached: the link's read loop must not wait
     /// on a database read and a subprocess spawn to keep serving the worker.
     fn on_ready(&self, handle: &Arc<WorkerHandle>) {
         let Ok(tokio_runtime) = tokio::runtime::Handle::try_current() else {

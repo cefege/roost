@@ -2,9 +2,6 @@
 //! answer and one timeout side by side, a worker that is not connected, a
 //! reply that is not an object, and the envelope a DiagSnapshot carries.
 //!
-//! Ports `apps/coord/tests/diagnostics/diag-snapshot-fanout.test.ts` and the
-//! scoping of `apps/coord/src/diagnostics/diag-snapshot-worker-results.ts`.
-//!
 //! `expect` and `unwrap` are denied outside `#[cfg(test)]`, and an integration
 //! test is its own crate rather than a module of one, so the exemption has to
 //! be stated here rather than inherited.

@@ -2,11 +2,6 @@
 //! own resources in its index, its backfill and its live feed, the install-wide
 //! audit stream only for install-wide viewers, and every open socket of a
 //! revoked device or a deleted worker closed `4001 revoked`.
-//!
-//! Ports `apps/coord/tests/sync/sync-worker-socket-scope.test.ts`, the worker
-//! and v1 cases of `sync-audit-subscription.test.ts`, and the
-//! `closeForFingerprint` hooks of `apps/coord/src/main.ts` (device revocation)
-//! and `workers/handlers-workers.ts` (worker delete).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod db_support;
@@ -71,8 +66,8 @@ async fn two_worker_install(fixture: &SyncFixture) -> (String, String, Vec<u64>)
     (worker_a, token, ids)
 }
 
-// v2 "a worker index holds only its own resources while a browser index spans
-// the install".
+// A worker index holds only its own resources while a browser index spans the
+// install.
 #[tokio::test]
 async fn a_worker_index_holds_only_its_own_resources() {
     let fixture = SyncFixture::start("scope-index").await;
@@ -98,8 +93,8 @@ async fn a_worker_index_holds_only_its_own_resources() {
     assert_eq!(browser.workspace_ids.len(), 2);
 }
 
-// v2 "a worker feed excludes another worker's durable and live session
-// frames": the backfill, the titles and the live session events all stop at
+// A worker feed excludes another worker's durable and live session frames: the
+// backfill, the titles and the live session events all stop at
 // the worker's own sessions, and a read-only socket gets no UI seed.
 #[tokio::test]
 async fn a_worker_socket_carries_only_its_own_durable_and_live_session_frames() {
@@ -155,9 +150,8 @@ fn audit_row() -> AuditRow {
     }
 }
 
-// v2 sync-audit-subscription.test.ts "worker-scoped Sync v2 feeds cannot
-// subscribe to install-wide audits" and "Sync v1 retains eager install-wide
-// audit delivery".
+// Worker-scoped Sync v2 feeds cannot subscribe to install-wide audits, and Sync
+// v1 retains eager install-wide audit delivery.
 #[tokio::test]
 async fn audit_rows_reach_install_wide_viewers_only() {
     let fixture = SyncFixture::start("scope-audit").await;
@@ -213,9 +207,8 @@ fn on_host_browser(fingerprint: &str, account_id: &str) -> Caller {
     }
 }
 
-// main.ts `onKeyRevoked` -> sync-ws-handler.ts `closeForFingerprint`: revoking
-// a device closes every Sync socket it holds, v1 and v2, with 4001 at once --
-// and nobody else's.
+// Revoking a device closes every Sync socket it holds, v1 and v2, with 4001 at
+// once -- and nobody else's.
 #[tokio::test]
 async fn a_revoked_device_loses_every_open_sync_socket_with_4001() {
     let fixture = SyncFixture::start("scope-revoke").await;
@@ -270,7 +263,7 @@ async fn a_revoked_device_loses_every_open_sync_socket_with_4001() {
     assert!(matches!(frame.frame, Some(Frame::PairRequestDelta(_))));
 }
 
-// handlers-workers.ts `onWorkerDeletedSocketClose`: deleting a worker closes
+// Deleting a worker closes
 // its own read-only Sync socket with 4001.
 #[tokio::test]
 async fn a_deleted_worker_loses_its_sync_socket_with_4001() {

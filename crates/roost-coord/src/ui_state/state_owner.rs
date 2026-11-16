@@ -1,12 +1,10 @@
 //! Bounded, TTL-scoped retention for one coordinator's browser tab reports.
 //!
-//! Ported from `apps/coord/src/ui-state/ui-state-owner.ts`. The report is
-//! volatile by design: a browser tab that stops reporting is dropped after the
-//! TTL rather than left in the Sync feed for every other client to see.
-//! Read by the four UI handlers, and by the Sync seed once that slice lands.
+//! The report is volatile by design: a browser tab that stops reporting is
+//! dropped after the TTL rather than left in the Sync feed for every other
+//! client to see. Read by the four UI handlers and by the Sync seed.
 //!
-//! THE REAP IS LAZY, NOT ON A TIMER. v2 arms a 60-second interval as well as
-//! reaping on access; the interval only exists to release memory on a
+//! THE REAP IS LAZY, NOT ON A TIMER. A timer would only release memory on a
 //! coordinator nobody is reading, and what it bounds is already capped at
 //! `UI_STATE_MAX_TABS_TOTAL` entries. Every entry point here reaps first, so a
 //! report is never observable past its TTL.

@@ -1,10 +1,9 @@
 //! `SessionsCancelGlobalSearch`: explicit coordinator cancellation of one
 //! install-wide terminal search.
 //!
-//! Ports `apps/coord/src/search/global-search-cancel.ts`. The tombstone is
-//! installed BEFORE any asynchronous worker discovery, so a search that
-//! arrives while this cancel is still reading the database is already
-//! refused. Called from the `SessionsCancelGlobalSearch` arm in
+//! The tombstone is installed BEFORE any asynchronous worker discovery, so a
+//! search that arrives while this cancel is still reading the database is
+//! already refused. Called from the `SessionsCancelGlobalSearch` arm in
 //! `rpc/service_impl.rs`; shares `services.search` with `search::rpc_search`.
 
 use std::collections::HashSet;
@@ -66,7 +65,7 @@ pub async fn handle_sessions_cancel_global_search(
 
 /// Sends the worker cancels and then releases the in-flight search. Dropping
 /// it unsent (a failed lookup, or the caller hanging up mid-lookup) still
-/// cancels the sessions the search had selected, as v2's `finally` does.
+/// cancels the sessions the search had selected.
 struct CancellationDispatch<'a> {
     core: &'a CoordCore,
     identity: &'a GlobalSearchIdentity,

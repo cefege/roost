@@ -1,7 +1,7 @@
 //! `CoordinatorService.DiagDebugLogBatch` — the sink a browser uploads its
 //! own diagnostics into.
 //!
-//! Ported from `handlers-system.ts:142-181`. A browser batches its diag events
+//! A browser batches its diag events
 //! and ships them every 100 ms or 64 entries; this re-emits each one through
 //! the coordinator's log so a terminal-corruption investigation has the SPA's
 //! view and the coordinator's view in ONE file.
@@ -9,10 +9,10 @@
 //! TWO TIERS, AND THE GATE IS THE COORDINATOR'S, NOT THE BROWSER'S. A Tier-1
 //! signal is an anomaly or an error and always lands, on the `signal` target
 //! that `roost doctor` reads. The Tier-0 firehose — every `info` entry — is
-//! dropped unless `ROOST_DIAG=1` here. v2's note is the reason: "gate, don't
-//! chase every browser's localStorage", and a stale browser that still has the
-//! flag set must not be able to flood the operator's disk from the other side
-//! of the process.
+//! dropped unless `ROOST_DIAG=1` here: the gate is here rather than in every
+//! browser's localStorage, and a stale browser that still has the flag set
+//! must not be able to flood the operator's disk from the other side of the
+//! process.
 //!
 //! THE ENTRY'S OWN `evt` SURVIVES ITS `kv`. `spa.uncaught` carries the error
 //! text in `kv.msg`, which would otherwise clobber the structural message and
@@ -114,9 +114,8 @@ fn emit(entry: &proto::DiagDebugLogEntry, caller: &Caller) {
     }
 }
 
-/// An optional wire string that is present but empty is absent: v2 writes
-/// `e.sid || undefined`, and a log line reading `sid=""` is a different claim
-/// from one with no `sid` at all.
+/// An optional wire string that is present but empty is absent: a log line
+/// reading `sid=""` is a different claim from one with no `sid` at all.
 fn non_empty(value: &str) -> Option<&str> {
     if value.is_empty() { None } else { Some(value) }
 }

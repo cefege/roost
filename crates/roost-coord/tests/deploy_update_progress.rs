@@ -2,8 +2,6 @@
 //! or a sequence past the safe-integer range, and handled on a socket that has
 //! not crossed its snapshot barrier, because progress settles no pending RPC.
 //!
-//! Pins the `updateProgress` arm of `apps/coord/src/workers/worker-frame-dispatch.ts`.
-//!
 //! `unwrap` and `expect` are denied outside `#[cfg(test)]`, and an integration
 //! test is its own crate rather than a module of one, so the exemption has to be
 //! stated here. Every panic names a value the test just built.

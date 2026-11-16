@@ -2,10 +2,9 @@
 //! live connection advertised the capability, which sessions it owns, and the
 //! membership it publishes back.
 //!
-//! Ported from `apps/coord/src/terminal/view/terminal-view-projection.ts`. This
-//! is a read model only -- no minimizer, no stream, no geometry decision -- so
-//! the coordinator can still answer presence, diagnostics and a respawn for a
-//! session whose geometry is the worker's to own.
+//! This is a read model only -- no minimizer, no stream, no geometry decision
+//! -- so the coordinator can still answer presence, diagnostics and a respawn
+//! for a session whose geometry is the worker's to own.
 //!
 //! WHY THE COORDINATOR KEEPS A ROW AT ALL. A respawn asks the view hub what
 //! size a session is, and the honest answer for an owner-mode session is the
@@ -168,12 +167,11 @@ impl OwnerIndex {
 
     /// The owner-mode worker that owns this session's views, if one does.
     ///
-    /// The route cache answers first, as v2's `terminalViewOwnerForSession`
-    /// does: a freshly opened session is routed long before its owner
-    /// publishes a projection, and looking only at remembered bindings would
-    /// hand its first view command to the coordinator's own registry -- a
-    /// second minimizer. A session bound to a worker that is no longer
-    /// registered stops being owned rather than staying bound to a dead
+    /// The route cache answers first: a freshly opened session is routed long
+    /// before its owner publishes a projection, and looking only at remembered
+    /// bindings would hand its first view command to the coordinator's own
+    /// registry -- a second minimizer. A session bound to a worker that is no
+    /// longer registered stops being owned rather than staying bound to a dead
     /// connection.
     #[must_use]
     pub fn owner_for_session(&self, session_id: &SessionId) -> Option<WorkerFp> {

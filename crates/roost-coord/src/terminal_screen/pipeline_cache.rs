@@ -1,8 +1,7 @@
 //! Handler-owned, target-scoped terminal-pipeline sampling: each worker is
 //! sampled at most once per 2 s window, concurrent collections batch only their
 //! uncached targets, a cached record never answers another target's scope, and
-//! a replaced worker generation starts fresh. Ports
-//! `apps/coord/src/terminal/screen/worker-terminal-pipeline-cache.ts`. Owned by
+//! a replaced worker generation starts fresh. Owned by
 //! the DiagSnapshot handler; requests go through `pipeline_request`.
 
 use std::collections::BTreeMap;

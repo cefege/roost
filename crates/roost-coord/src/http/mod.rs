@@ -10,9 +10,8 @@
 //! decision in it, which is `roost_host::spa_path` -- shared with the worker's
 //! local door so the two front doors cannot disagree.
 //!
-//! The coordinator never terminates TLS: "The coordinator serves plaintext on its
-//! loopback bind; the operator's front door owns TLS"
-//! (`apps/coord/src/bun-coordinator-listeners.ts:4-5`).
+//! The coordinator never terminates TLS: it serves plaintext on its loopback
+//! bind, and the operator's front door owns TLS.
 
 pub mod bind;
 pub mod db_export;

@@ -2,11 +2,9 @@
 //! `opened`/`respawned` route commits drain in their original channel order
 //! after the binding, and every loss is reported with what it cost.
 //!
-//! Ports `apps/coord/tests/events/announced-channel-barrier.test.ts`; each
-//! test names its v2 case. Not ported: "frames arriving during the drain join
-//! the tail" — delivery here is a synchronous callback on the socket's one
-//! task, so nothing can arrive mid-drain; its closing assertion (a committed
-//! channel is open again) is the last test below.
+//! Delivery here is a synchronous callback on the socket's one task, so no
+//! frame can arrive mid-drain; the last test below pins the closing condition
+//! (a committed channel is open again).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod announced_support;
@@ -22,7 +20,6 @@ const MAX_BYTES: u64 = ANNOUNCED_CHANNEL_MAX_BYTES;
 
 #[test]
 fn a_respawns_metadata_and_its_cells_drain_in_arrival_order() {
-    // v2: "a respawn's metadata binary frame and its cell frames drain in arrival order"
     let mut b = Barrier::new();
     assert_eq!(b.enqueue(cell(1, true), 100), EnqueueOutcome::NotAnnounced);
     b.announce(SESSION);
@@ -54,7 +51,6 @@ fn a_respawns_metadata_and_its_cells_drain_in_arrival_order() {
 
 #[test]
 fn semantic_metadata_waits_for_the_announced_channel_route() {
-    // v2: "semantic metadata waits for the announced channel route"
     let mut b = Barrier::new();
     b.announce(SESSION);
     assert_eq!(
@@ -69,7 +65,6 @@ fn semantic_metadata_waits_for_the_announced_channel_route() {
 
 #[test]
 fn early_title_and_activity_facts_merge_before_the_route_announces() {
-    // v2: "early title and activity facts merge before the route announces"
     let mut b = Barrier::new();
     assert!(b.retain_early(metadata("early title", true, false, 11), 40));
     assert!(b.retain_early(metadata("", false, true, 22), 40));
@@ -87,7 +82,6 @@ fn early_title_and_activity_facts_merge_before_the_route_announces() {
 
 #[test]
 fn a_pre_bind_snapshot_chunk_establishes_the_barrier_baseline() {
-    // v2: "a pre-bind snapshot chunk establishes the barrier baseline"
     let mut b = Barrier::new();
     b.announce(SESSION);
     assert_eq!(b.enqueue(chunk(10), 100), EnqueueOutcome::Buffered);
@@ -98,7 +92,6 @@ fn a_pre_bind_snapshot_chunk_establishes_the_barrier_baseline() {
 
 #[test]
 fn coalesced_metadata_retains_its_original_channel_order() {
-    // v2: "coalesced metadata retains its original channel order"
     let mut b = Barrier::new();
     b.announce(SESSION);
     b.enqueue(metadata("retained-title", true, false, 1), 40);
@@ -117,7 +110,7 @@ fn coalesced_metadata_retains_its_original_channel_order() {
 
 #[test]
 fn frame_count_overflow_reports_the_pending_loss() {
-    // v2: "frame-count overflow reports the pending loss of both lanes" (one lane remains)
+    // Frame-count overflow reports the pending loss of both lanes (one lane remains).
     let mut b = Barrier::new();
     b.announce(SESSION);
     assert_eq!(b.enqueue(cell(10, true), 100), EnqueueOutcome::Buffered);
@@ -143,7 +136,6 @@ fn frame_count_overflow_reports_the_pending_loss() {
 
 #[test]
 fn byte_cap_overflow_drops_the_buffer_and_reports_the_dropped_frames() {
-    // v2: "byte-cap overflow drops the buffer and reports the dropped PTY bytes"
     let mut b = Barrier::new();
     b.announce(SESSION);
     b.enqueue(cell(10, true), 100);
@@ -157,7 +149,6 @@ fn byte_cap_overflow_drops_the_buffer_and_reports_the_dropped_frames() {
 
 #[test]
 fn metadata_survives_an_overflowed_cell_barrier_until_the_route_commits() {
-    // v2: "metadata survives an overflowed cell barrier until the route commits"
     let mut b = Barrier::new();
     b.announce(SESSION);
     b.enqueue(metadata("survives-overflow", true, true, 1), 40);
@@ -178,7 +169,6 @@ fn metadata_survives_an_overflowed_cell_barrier_until_the_route_commits() {
 
 #[test]
 fn matching_recovery_survives_a_same_session_reannouncement() {
-    // v2: "matching recovery survives a same-session reannouncement"
     let mut b = Barrier::new();
     b.announce(SESSION);
     b.enqueue(metadata("reannounced", true, true, 1), 40);
@@ -196,7 +186,6 @@ fn matching_recovery_survives_a_same_session_reannouncement() {
 
 #[test]
 fn a_timed_out_cell_barrier_retains_latest_metadata_through_route_binding() {
-    // v2: "a timed-out cell barrier retains latest metadata through route binding"
     let mut b = Barrier::new();
     let announced_at = now();
     b.barrier.announce(7, SESSION, announced_at, &mut b.budget);
@@ -226,7 +215,6 @@ fn a_timed_out_cell_barrier_retains_latest_metadata_through_route_binding() {
 
 #[test]
 fn a_delta_before_the_channels_first_full_grid_is_an_ordering_loss() {
-    // v2: "a delta before the channel's first full grid is an ordering loss"
     let mut b = Barrier::new();
     b.announce(SESSION);
     // A metadata frame first is legitimate; a cell DELTA first is not.
@@ -247,7 +235,6 @@ fn a_delta_before_the_channels_first_full_grid_is_an_ordering_loss() {
 
 #[test]
 fn commit_without_the_exact_binding_delivers_nothing() {
-    // v2: "commit without the exact binding delivers nothing"
     let mut b = Barrier::new();
     b.announce(SESSION);
     b.enqueue(cell(10, true), 100);
@@ -269,7 +256,6 @@ fn commit_without_the_exact_binding_delivers_nothing() {
 
 #[test]
 fn a_replacement_announcement_reports_the_buffer_it_can_never_bind() {
-    // v2: "a replacement announcement reports the buffer it can never bind"
     let mut b = Barrier::new();
     b.announce(SESSION);
     b.enqueue(cell(10, true), 100);
@@ -290,7 +276,7 @@ fn a_replacement_announcement_reports_the_buffer_it_can_never_bind() {
 
 #[test]
 fn a_committed_channel_is_open_and_its_next_frame_takes_the_fast_path() {
-    // v2: the closing assertion of "frames arriving during the drain join the tail"
+    // A committed channel is open again once its barrier has drained.
     let mut b = Barrier::new();
     b.announce(SESSION);
     b.enqueue(cell(10, true), 100);

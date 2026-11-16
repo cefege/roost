@@ -3,7 +3,6 @@
 //! durable. Once the worker transport admits a batch, a missing or malformed
 //! result is ambiguous and is never retried. Called by the Sync terminal
 //! controls and the unary `SessionsInput` handler.
-//! Ports `apps/coord/src/terminal/input/input-control.ts`.
 
 use std::sync::Arc;
 

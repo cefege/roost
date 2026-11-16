@@ -5,7 +5,6 @@
 //! The reply crosses a trust boundary, so the acknowledgement is rebuilt from
 //! the fields it recognizes and everything else is a worker failure.
 //! Called by `terminal_capture::bridge`.
-//! Ports `apps/coord/src/terminal/capture/terminal-capture-worker-call.ts`.
 
 use connectrpc::ErrorCode;
 use roost_protocol::terminal_capture::command::TerminalCaptureCommand;

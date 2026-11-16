@@ -1,8 +1,7 @@
 //! The coordinator-side correlation table for coordinator-to-worker requests
 //! that need a reply: a scrollback page, a search, a spawn, a terminal input.
 //!
-//! Ported from `apps/coord/src/router/pending-rpcs.ts`. v2 keeps it in a
-//! module-level `Map`; here it is a value the boot path constructs and hands
+//! It is a value the boot path constructs and hands
 //! down (`services.scrollback.pending()`), because nothing in this crate reaches
 //! for a global -- and that includes the request-id sequence, which is this
 //! table's own field rather than a crate-root `static` every test would share.
@@ -11,8 +10,8 @@
 //! alone: a client-supplied correlation id must not be able to settle another
 //! worker's request, and one worker's ids must not collide with another's.
 //!
-//! WHERE THE DEADLINE LIVES. v2 arms a timer inside the table entry. Here the
-//! entry holds a `oneshot` and the CALLER owns the deadline, because the caller
+//! WHERE THE DEADLINE LIVES. The entry holds a `oneshot` and the CALLER owns
+//! the deadline, because the caller
 //! is the only one that knows which error a timeout should become: a search
 //! deadline is `Unavailable`, a page deadline is `Unavailable` with different
 //! wording, and a table that answered for both would have to guess.
@@ -196,7 +195,7 @@ impl PendingRpcs {
 
     /// A fresh correlation id for one coordinator-to-worker request.
     ///
-    /// v2 mints a v4 uuid per request. This is a monotonic counter: the id only
+    /// The id is a monotonic counter: it only
     /// has to be unique among this table's entries, and the table namespaces it
     /// by worker anyway, so a random source would buy a property nothing checks.
     #[must_use]
@@ -204,8 +203,8 @@ impl PendingRpcs {
         format!("rpc-{}", self.sequence.fetch_add(1, Ordering::Relaxed) + 1)
     }
 
-    /// Open one entry under a freshly minted id (v2 `createPendingRpc`;
-    /// [`Self::create`] is `createPendingRpcWithId`, for a caller-supplied id).
+    /// Open one entry under a freshly minted id ([`Self::create`] takes a
+    /// caller-supplied id).
     pub fn create_fresh(
         self: &Arc<Self>,
         worker_fp: Option<&str>,

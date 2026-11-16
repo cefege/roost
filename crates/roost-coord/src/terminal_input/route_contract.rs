@@ -2,7 +2,6 @@
 //! that the Sync admission and the result owner share, so the two can never
 //! disagree about a limit. Pure: nothing here sends a frame or holds state.
 //! Read by `terminal_input::route_results` and `terminal_input::sync_route_controls`.
-//! Ports `apps/coord/src/terminal/input/terminal-input-route-result-contract.ts`.
 
 use std::sync::Arc;
 
@@ -37,7 +36,7 @@ pub enum RouteControlRefusal {
 }
 
 impl RouteControlRefusal {
-    /// v2's reason spelling.
+    /// The reason's wire spelling.
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {

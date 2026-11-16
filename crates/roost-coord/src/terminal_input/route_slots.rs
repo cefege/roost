@@ -2,8 +2,6 @@
 //! browser nonce, its binding to one worker control, the coordinator request
 //! id that control was sent under, and every worker epoch a socket reached.
 //! Mutated only under `TerminalInputRouteResults`' lock; it performs no I/O.
-//! Ports the slot bookkeeping of
-//! `apps/coord/src/terminal/input/terminal-input-route-results.ts`.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;

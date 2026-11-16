@@ -1,7 +1,6 @@
 //! The deterministic screen hub harness: frame builders, a recording socket
 //! sink, a recording replica owner, and deadlines the test fires by hand.
 //!
-//! Ports `apps/coord/tests/terminal/screen/terminal-screen-hub-harness.ts`.
 //! Shared by the `terminal_screen_hub*`, `terminal_screen_fanout` and
 //! `terminal_view_owner_screen` binaries; the recorders are `sink.rs`.
 
@@ -100,7 +99,7 @@ pub fn baseline(seq: u64, texts: &[&str]) -> PbCellGridFrame {
 }
 
 /// A delta patching `patch_index` to `text` on top of `base_seq`, flipping
-/// every terminal mode the v2 harness flips, so a fold that drops one shows.
+/// every terminal mode the harness flips, so a fold that drops one shows.
 pub fn delta_frame(
     stream_id: &str,
     base_seq: u64,
@@ -129,7 +128,7 @@ pub fn delta_frame(
     }
 }
 
-/// The v2 harness's default delta: row 1 reads `text` on top of `base_seq`.
+/// The default delta: row 1 reads `text` on top of `base_seq`.
 pub fn delta(base_seq: u64, text: &str) -> PbCellGridFrame {
     delta_frame(STREAM, base_seq, 1, text)
 }

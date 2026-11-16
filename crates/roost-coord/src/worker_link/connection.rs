@@ -1,10 +1,10 @@
 //! One admitted worker socket, read and written by one task to its end.
 //!
-//! Called by `http::upgrade::worker_upgrade` once the upgrade completes. Ports
-//! the socket lifecycle of `apps/coord/src/workers/worker-ws-handler.ts`
-//! (`open`, `message`, `close`) and the transport half of `worker-conn.ts`
-//! (`send`, `requestClose`). What a frame MEANS is `worker_link::link_session`
-//! and the dispatcher behind it; this file owns only the socket.
+//! Called by `http::upgrade::worker_upgrade` once the upgrade completes. It
+//! owns the socket lifecycle (open, message, close) and the transport half of
+//! the connection (send, request-close). What a frame MEANS is
+//! `worker_link::link_session` and the dispatcher behind it; this file owns
+//! only the socket.
 //!
 //! ONE OWNER, NO SPLIT. `WebSocket::recv` and `send` both take `&mut self` and
 //! axum's `WebSocket` is not a `Sink`, so the socket is never divided: the loop
@@ -55,9 +55,8 @@ pub async fn serve_socket(
             return;
         }
     };
-    // v2's `open` re-checks the key generation, because a revocation can land
-    // between the upgrade's verification and the socket opening
-    // (`worker-ws-handler.ts:155-158`).
+    // Re-check the key generation on open, because a revocation can land
+    // between the upgrade's verification and the socket opening.
     if !services
         .jwt_keys
         .generation_is_current(&caller.fingerprint, caller.key_generation)

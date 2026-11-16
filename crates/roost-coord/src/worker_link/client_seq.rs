@@ -29,9 +29,9 @@ use tokio::sync::Mutex;
 
 /// What one `client_seq` offer means to the worker's sequence.
 ///
-/// NO VERDICT REFUSES THE WRITE, and that is v2's rule: `handleEvent` appends
-/// every positive safe-integer `clientSeq` and leaves duplicates to the
-/// `(worker_fp, client_seq)` unique index (`worker-frame-dispatch.ts:62-71`).
+/// NO VERDICT REFUSES THE WRITE: every positive safe-integer `client_seq` is
+/// appended and duplicates are left to the
+/// `(worker_fp, client_seq)` unique index.
 /// A worker's outbox deletes each ACKed row, so after a coordinator restart the
 /// first sequence a fresh cursor sees is legitimately N > 1; refusing it would
 /// leave the worker unacknowledged and never routable.

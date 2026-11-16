@@ -3,7 +3,6 @@
 //! each to one exact worker generation. Correlation and browser replies belong
 //! to `terminal_input::route_results`; this module only allocates the
 //! coordinator's request id and writes the frame, on the terminal hop budget.
-//! Ports `apps/coord/src/terminal/input/worker-send-terminal-route.ts`.
 
 use std::sync::Arc;
 

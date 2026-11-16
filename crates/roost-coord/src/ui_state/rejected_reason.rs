@@ -1,10 +1,9 @@
 //! Bounded, control-free rendering of a browser's own layout rejection reason.
 //!
 //! The reason a target tab sends back is echoed to the CALLING browser, so it is
-//! untrusted text on a path that ends in somebody's UI. v2's
-//! `sanitizeRejectedReason` (`ui-layout-apply-owner.ts:321-345`) collapses
+//! untrusted text on a path that ends in somebody's UI. It collapses
 //! whitespace, drops control and format characters, and stops at 200 code
-//! points; this is that function. Called from `layout_apply` only.
+//! points. Called from `layout_apply` only.
 
 /// The longest reason a caller is told, in code points.
 pub const UI_LAYOUT_REJECTED_REASON_MAX_LENGTH: usize = 200;
@@ -20,8 +19,8 @@ const REJECTED_REASON_FALLBACK: &str = "layout apply rejected";
 
 /// The Unicode `Cf` (format) ranges a browser UI can be misled by, in order.
 ///
-/// v2 filters the whole `Cf` category through a regular expression. Rust's
-/// standard library has no general-category predicate, so this table names the
+/// The whole `Cf` category is filtered. Rust's standard library has no
+/// general-category predicate, so this table names the
 /// ranges that carry invisible or direction-changing formatting: zero-width
 /// joiners and spaces, bidirectional overrides and isolates, the Arabic and
 /// Mongolian formatting controls, the byte-order mark, and the interlinear

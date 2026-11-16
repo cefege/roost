@@ -9,8 +9,8 @@
 //! the limit never fired. The table is one process-wide runtime keyed on
 //! `(rpc, caller address)` — never on a socket.
 //!
-//! WHY THE CLOCK IS MONOTONIC, NOT WALL CLOCK, where v2 reads `Date.now()`
-//! (`rate-limit.ts:108`). A wall-clock refill stops limiting the moment NTP
+//! WHY THE CLOCK IS MONOTONIC, NOT WALL CLOCK. A wall-clock refill stops
+//! limiting the moment NTP
 //! steps the clock forward, and a step backward pins a spent budget shut for as
 //! long as the skew lasts; neither is a decision a rate limiter gets to make
 //! twice a year. `admit_at` takes the instant as an argument, so the window
@@ -27,7 +27,7 @@ use std::num::NonZeroUsize;
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-/// The window every budget is spent over. 60 s (`rate-limit.ts:68`).
+/// The window every budget is spent over. 60 s.
 pub const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
 
 /// Requests a minute a [`RateLimitBucket::Sensitive`] RPC allows.
@@ -37,7 +37,7 @@ pub const DEFAULT_TOKENS_PER_WINDOW: u32 = 100;
 /// is expected to, and throttling it throttles the user out of their pairing.
 pub const PAIR_POLL_TOKENS_PER_WINDOW: u32 = 600;
 
-/// The process-wide ceiling on live buckets (`rate-limit.ts:69`). Reached, the
+/// The process-wide ceiling on live buckets. Reached, the
 /// limiter fails closed rather than evicting a live limit and handing a
 /// churning caller a fresh budget.
 pub const RATE_LIMIT_MAX_BUCKETS: usize = 10_000;
@@ -121,7 +121,7 @@ impl RateLimitBucket {
 ///
 /// The mount builds one from the address `middleware::caller_origin` resolved
 /// under the listener's boot-selected trust profile. A caller whose address
-/// could not be resolved shares one budget with every other such caller: v2's
+/// could not be resolved shares one budget with every other such caller:
 /// `"unknown"`, which is fail-closed rather than a hole.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RateLimitCaller(String);
@@ -230,7 +230,7 @@ impl BucketTable {
             });
         }
         // A window opens full and spends its first token on the request that
-        // opened it, exactly as v2 does by falling through to the same charge.
+        // opened it.
         self.buckets.insert(
             key,
             Bucket {

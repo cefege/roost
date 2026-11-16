@@ -2,7 +2,7 @@
 //! it may sit there, and every close the window can take.
 //!
 //! Owned by the coordinator's Sync link and consulted before every application
-//! frame is handed to the socket (`apps/coord/src/sync/sync-ws-v1-delivery.ts`).
+//! frame is handed to the socket.
 //! Pure arithmetic over an injected `now_ms` and an injected "did the socket
 //! accept it" answer, so the whole contract is testable with no socket and no
 //! sleeping.
@@ -16,7 +16,7 @@
 //! client's own acknowledgement cadence, so exceeding either means the client
 //! is not merely slow, it is not answering.
 //!
-//! WHY 10 S AND NOT v2's 3 S. The age bound measures a full round trip through
+//! WHY 10 S AND NOT 3 S. The age bound measures a full round trip through
 //! the client's network, not the client's dispatch alone. A Wi-Fi link that
 //! holds packets for several seconds and then delivers them closed healthy
 //! sockets every few minutes at 3 s, and each close costs a redial and a
@@ -33,8 +33,7 @@
 //! is a protocol violation, not backpressure: a client cannot have processed a
 //! sequence the coordinator never sent, and continuing would mean the window's
 //! accounting no longer describes reality. `1008` is the policy-violation code
-//! and it is the only place a Sync socket uses it
-//! (`sync-ws-v1-delivery.ts:270-275`).
+//! and it is the only place a Sync socket uses it.
 
 /// Application frames that may be sent but not yet acknowledged.
 pub const MAX_UNACKED_FRAMES: usize = 512;
@@ -56,7 +55,7 @@ pub const INVALID_ACK_CLOSE_CODE: u16 = 1008;
 pub const INVALID_ACK_REASON: &str = "invalid sync ack";
 
 /// Why a socket was closed for backpressure. The five are the complete
-/// vocabulary (`apps/coord/src/sync/sync-ws-v1-delivery.ts:27-32`).
+/// vocabulary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum BackpressureReason {
     /// The socket's own buffered bytes passed its high-water mark.
@@ -90,8 +89,7 @@ pub struct WindowStats {
 
 /// One in-flight record. Metadata only: payloads and encoded buffers are never
 /// stored here, because a queue of frames that holds their payloads is a second
-/// copy of everything the socket is holding
-/// (`apps/coord/src/sync/sync-ws-upgrade.ts:109`).
+/// copy of everything the socket is holding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DeliveryRecord {
     /// The `delivery_seq` this frame was sent under.
@@ -165,11 +163,10 @@ impl AckWindow {
     ///
     /// THIS IS NOT `may_send`, and the difference is the contract. `may_send`
     /// also passes the age deadline, and a Sync v2 egress turn that found the
-    /// deadline passed would have to choose between closing and stalling. v2
-    /// resolves that by never checking the age on the send path at all -- the
-    /// delivery timer owns it and closes the socket -- so the v2 scheduler
-    /// STALLS on a full window and lets the timer close on a stalled one
-    /// (`sync-ws-v2-egress.ts:277-290`).
+    /// deadline passed would have to choose between closing and stalling. The
+    /// send path never checks the age at all -- the delivery timer owns it and
+    /// closes the socket -- so the scheduler STALLS on a full window and lets
+    /// the timer close on a stalled one.
     #[must_use]
     pub fn has_room(&self, encoded_bytes: u64) -> bool {
         if !self.enabled {
@@ -216,8 +213,7 @@ impl AckWindow {
     ///
     /// Only ever called for an accepted send. A socket that dropped the frame
     /// (its send returned zero) never had it, so counting it would make the
-    /// window describe a delivery that did not happen
-    /// (`sync-ws-v1-delivery.ts:205-215`).
+    /// window describe a delivery that did not happen.
     pub fn record_sent(&mut self, encoded_bytes: u64, now_ms: u64) -> u64 {
         if !self.enabled {
             // Zero is the wire value a CONTROL frame carries, and an unnegotiated
@@ -310,8 +306,8 @@ impl AckWindow {
 ///
 /// The socket's own buffered bytes are a different resource from the
 /// unacknowledged application window, and they are checked *after* a successful
-/// send, because only then is there a buffered amount to read
-/// (`sync-ws-v1-delivery.ts:216-219`). A port that folds the two together loses
+/// send, because only then is there a buffered amount to read. Folding the
+/// two together loses
 /// the distinction between "the client is behind" and "the kernel buffer is
 /// full", which are different problems with different fixes.
 #[must_use]
@@ -322,8 +318,8 @@ pub fn buffered_over_high_water(buffered_bytes: u64, limit_bytes: u64) -> bool {
 /// Whether a backpressure-reported send should start the recovery timer.
 ///
 /// The socket reports backpressure with a negative return rather than dropping
-/// the frame, so the frame is still counted and the timer is armed once
-/// (`sync-ws-v1-delivery.ts:220-226`). Arming per send would reset the timer on
+/// the frame, so the frame is still counted and the timer is armed once.
+/// Arming per send would reset the timer on
 /// every frame and the socket would never time out.
 #[must_use]
 pub fn should_arm_recovery_timer(socket_reported_backpressure: bool, timer_armed: bool) -> bool {

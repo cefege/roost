@@ -1,9 +1,6 @@
 //! The workers half of `LiveEffects`: the browser-command reap a committed
 //! snapshot owes the workers it dropped.
 //!
-//! Ported from `dispatchSnapshotOrphanReaps` in
-//! `apps/coord/src/events/event-transaction.ts:323-348`.
-//!
 //! WHY THE INDEX HALF IS DELEGATED AND NOT REIMPLEMENTED. A committed event's
 //! durable channel index belongs to the terminal byte hub -- it owns the key and
 //! route-cache maps a `respawned` rebinds and a `closed` prunes, and

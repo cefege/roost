@@ -2,11 +2,10 @@
 //! publish, retain, claim, and the route-before-bus order.
 //!
 //! This is a separate file from `append` because the boundary between them *is*
-//! the invariant. `docs/phase3-coord-contract.md` §3.2 records how v2 enforces it
-//! structurally rather than by convention: the transaction body contains no
+//! the invariant. `docs/phase3-coord-contract.md` §3.2 records why the ordering
+//! is structural rather than conventional: the transaction body contains no
 //! publish call at all, and the only publisher is module-private, with its two
-//! call sites after the awaited transaction has resolved
-//! (`apps/coord/src/events/pending-event-publications.ts:267,231,258`). Here
+//! call sites after the awaited transaction has resolved. Here
 //! `publish_committed_event` is private to this module and `resolve_publication`
 //! is the only thing that calls it, so the ordering is verifiable by reading one
 //! signature.
@@ -50,7 +49,7 @@ pub struct CommittedEventPublication {
     pub event_json: String,
     /// Workspaces this close orphaned. Published after commit, and retained so a
     /// later claim republishes them: without that, a browser that missed the
-    /// `workspaceBus` deletion keeps a phantom workspace in its sidebar until the
+    /// `workspace_bus` deletion keeps a phantom workspace in its sidebar until the
     /// next seeded snapshot.
     pub cascade_orphan_ids: Vec<WorkspaceId>,
     /// Sessions a snapshot found force-closed. Reaped after commit, never before.
@@ -120,7 +119,7 @@ pub struct PublicationResolution {
 
 /// Publish, retain, or claim: the whole post-commit decision.
 ///
-/// The order of the questions is v2's (`pending-event-publications.ts:221-265`).
+/// The order of the questions is part of the contract.
 /// A fresh commit is published or retained. A dedupe with nothing retained is
 /// released and forgotten, which is the ordinary path after a crash. A dedupe
 /// with something retained claims it, re-checks the fence -- because the claim

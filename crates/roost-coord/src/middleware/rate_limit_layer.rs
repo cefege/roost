@@ -36,8 +36,7 @@ use crate::middleware::caller_origin::{UNKNOWN_PEER, from_extensions};
 use crate::middleware::rate_limit::RateLimitCaller;
 use crate::services::CoordServices;
 
-/// The refusal body, byte for byte what v2 answers
-/// (`apps/coord/src/middleware/rate-limit.ts`).
+/// The refusal body: a fixed JSON error object.
 const REFUSAL_BODY: &str = r#"{"error":"rate limit exceeded"}"#;
 
 /// The bare Connect method name this path names, or `None` for a path that is

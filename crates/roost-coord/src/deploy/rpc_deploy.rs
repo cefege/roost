@@ -2,8 +2,7 @@
 //! target to one registered worker and starts its job; `WorkersDeployOutput`
 //! streams a job's output to its end. Called by `rpc::service_impl`; job
 //! identity and buffered output belong to `deploy::{jobs,start,output_stream}`,
-//! this file only authorizes and adapts them. Ports
-//! apps/coord/src/deploy/handlers-workers-deploy.ts.
+//! this file only authorizes and adapts them.
 
 use connectrpc::{ConnectError, ErrorCode, Response, ServiceResult, ServiceStream};
 use futures_util::StreamExt;

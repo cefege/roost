@@ -18,16 +18,14 @@
 //! THE SHARED STATE IS ONE TYPE, AND THAT IS THE POINT. A frame is charged to a
 //! socket's retention budget by exactly one of {a domain queue, a terminal
 //! cursor's materialisation, a cursor's delta tail, a lane's pending states},
-//! and every release passes through one counter. v2 kept that record in seven
-//! files whose closures all reached back into one `ws.data`; the port keeps the
-//! record and splits the METHODS by concept -- queue ordering in `send_queue`,
+//! and every release passes through one counter. The record stays whole and
+//! the METHODS split by concept -- queue ordering in `send_queue`,
 //! admission and the flush turn in `egress`, terminal fan-out in `terminal/`,
 //! the command path in `commands` -- because the 400-line cap is a file limit,
 //! not a reason to invent a protocol between two owners of one invariant.
 //!
 //! The frame vocabulary and the limits all come from
-//! `protocol/spec/sync.md`, and each constant here cites the v2 line it came
-//! from.
+//! `protocol/spec/sync.md`.
 
 pub mod ack_window;
 pub mod admission;

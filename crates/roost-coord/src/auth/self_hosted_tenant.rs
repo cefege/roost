@@ -1,12 +1,10 @@
 // The one tenancy invariant, enforced before the listener exists.
 //
 // A self-hosted deployment means exactly one account, one organization and one
-// dashboard. v2 enforces that in `ensureSelfHostedTenant`
-// (`apps/coord/src/auth/self-hosted-tenant.ts:350`) and calls it from `main`
-// with the comment "this is the only tenancy invariant and it must hold before
-// any RPC runs". The `serve` path here had documented that boot order and
-// implemented none of it, so a database with two accounts, or with a dashboard
-// belonging to another organization, would have bound a port and answered RPCs.
+// dashboard. `serve` enforces that before it binds a port: a database with two
+// accounts, or with a dashboard belonging to another organization, must not
+// answer RPCs. This is the only tenancy invariant and it must hold before any
+// RPC runs.
 //
 // Every read and write below goes through ONE `BEGIN IMMEDIATE` transaction, so
 // two coordinators racing at boot cannot each observe an empty topology and
@@ -268,7 +266,7 @@ const GLOBAL_SETTING_KEYS: &[&str] = &[crate::push::vapid::VAPID_SETTING_KEY];
 /// key read at a dashboard scope and stored unscoped reads as unset, and the
 /// operator's agent config or transcription key is gone with no error.
 ///
-/// v2 refused both at boot and that refusal is the fail-safe; without it a
+/// Boot refuses both and that refusal is the fail-safe; without it a
 /// mis-scoped row is admitted and the next occurrence is a support ticket.
 /// A row written outside this coordinator is the way one reaches a v3 database
 /// carrying the wrong scope.

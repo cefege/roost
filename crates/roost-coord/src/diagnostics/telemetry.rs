@@ -11,8 +11,7 @@
 //! KEY CARDINALITY IS CAPPED, AND THE PATH IS THE ONLY THING THAT CAN GROW IT.
 //! An unmatched request path is chosen by the caller, so a probe that invents
 //! a URL per request would otherwise grow this map one entry per request and
-//! never stop. Past the cap every further key folds into [`OVERFLOW_KEY`]
-//! (`telemetry.ts:10-11`).
+//! never stop. Past the cap every further key folds into [`OVERFLOW_KEY`].
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -61,7 +60,7 @@ impl Telemetry {
     /// `path` is a URL pathname or a Connect `/<service>/<method>`, already
     /// collapsed by the caller when it is unbounded — a static success and an
     /// unmatched probe each contribute one fixed label, so a probe loop cannot
-    /// amplify this map (`coord-factory.ts:206-216`).
+    /// amplify this map.
     pub fn record_audit_telemetry(&self, path: &str, status: u16) {
         increment(&self.requests, path);
         if (400..600).contains(&status) {

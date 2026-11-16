@@ -1,11 +1,10 @@
 //! The eight legacy UI commands: which sessions each one names, and the
 //! canonical copy that goes onto the bus.
 //!
-//! Ported from `apps/coord/src/ui-state/ui-legacy-command.ts`. The session
-//! identities are extracted BEFORE the database is asked about them, so an
-//! oversized id is refused as a malformed argument rather than as a lookup that
-//! happens to miss; the canonical copy is rebuilt field by field, so a command
-//! carrying unknown wire fields relays without them.
+//! The session identities are extracted BEFORE the database is asked about
+//! them, so an oversized id is refused as a malformed argument rather than as a
+//! lookup that happens to miss; the canonical copy is rebuilt field by field,
+//! so a command carrying unknown wire fields relays without them.
 //!
 //! `applyLayout` is deliberately NOT canonicalisable here. It is admitted only
 //! by `UiApplyLayout`, which reserves a target socket and waits for an

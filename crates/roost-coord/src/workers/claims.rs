@@ -1,10 +1,6 @@
 //! What a worker claimed, read off the wire: the register claims, the heartbeat
 //! claims, and the one platform check both share.
 //!
-//! Ported from the claim-building halves of
-//! `apps/coord/src/workers/handlers-workers.ts:87-109` and
-//! `apps/coord/src/workers/handlers-workers-heartbeat.ts:33-79`.
-//!
 //! TRUNCATION HAPPENS HERE, BEFORE ANY WRITE. A label, a build sha and a
 //! reachable address are all worker-controlled strings that reach an operator's
 //! terminal through a fleet view, so each is cut to the persisted bound on the
@@ -12,8 +8,7 @@
 //!
 //! A PROOF THAT DOES NOT VALIDATE IS NOT A PARSE FAILURE. A keeper observation
 //! or a capacity report the build cannot read is recorded as a malformed claim
-//! and handled by the beat itself, which clears the column and refuses -- v2
-//! catches the same two conversions (`handlers-workers-heartbeat.ts:44-64`).
+//! and handled by the beat itself, which clears the column and refuses.
 
 use connectrpc::{ConnectError, ErrorCode};
 use roost_platform::host_platform::HostPlatform;

@@ -1,12 +1,11 @@
 //! The boot-time purge of durable rows that cannot represent live state after
 //! a restart.
 //!
-//! Owned by the coordinator. Ports `apps/coord/src/startup-janitor.ts`.
-//! `serve::prepare_coordinator_database` runs it after migrations and tenancy
-//! and BEFORE any sync feed installs bus listeners, so its deletes publish no
-//! deltas: a reconnecting SPA learns about the pruning from the sync feed's
-//! seed snapshot, and that seed is what protects the sidebar
-//! (`startup-janitor.ts:1-6`).
+//! Owned by the coordinator. `serve::prepare_coordinator_database` runs it
+//! after migrations and tenancy and BEFORE any sync feed installs bus
+//! listeners, so its deletes publish no deltas: a reconnecting SPA learns
+//! about the pruning from the sync feed's seed snapshot, and that seed is what
+//! protects the sidebar.
 
 use std::future::Future;
 
@@ -29,7 +28,7 @@ pub struct JanitorReport {
 ///
 /// Never returns an error: a janitor that refuses to boot the coordinator is
 /// strictly worse than a coordinator that boots with some closed sessions still
-/// in it (`startup-janitor.ts:45-47`). Each statement is guarded on its own, so
+/// in it. Each statement is guarded on its own, so
 /// one failure does not skip the two that follow it.
 pub async fn run_startup_janitor(database: &CoordDb) -> JanitorReport {
     // Closed sessions are DELETED, not parked (no "closed" limbo). This never
@@ -37,8 +36,7 @@ pub async fn run_startup_janitor(database: &CoordDb) -> JanitorReport {
     // deleted by a janitor, and truly-dead open sessions are reconciled by the
     // worker snapshot's ghost-close on reconnect, not by an age cutoff. There is
     // no time window anywhere in this function, and that is the point: a
-    // wall-clock cutoff is the bug that comment forbids
-    // (`startup-janitor.ts:15-19`).
+    // wall-clock cutoff is the bug that rule forbids.
     let deleted_sessions = guarded("delete closed sessions", || async {
         sqlx::query("DELETE FROM sessions WHERE status = 'closed'")
             .execute(database.pool())
@@ -62,7 +60,7 @@ pub async fn run_startup_janitor(database: &CoordDb) -> JanitorReport {
 
     // Workspaces with no junction rows. Deleted WITHOUT workspace bus deltas:
     // this runs before the sync feeds install their bus listeners, so any
-    // publish here is a structurally guaranteed no-op (`startup-janitor.ts:29-37`).
+    // publish here is a structurally guaranteed no-op.
     let pruned_orphan_workspaces = guarded("prune orphan workspaces", || async {
         sqlx::query(
             "DELETE FROM workspaces WHERE id NOT IN \

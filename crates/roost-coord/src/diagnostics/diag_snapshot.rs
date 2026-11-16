@@ -2,10 +2,8 @@
 //! coordinator's per-session view, every admitted worker's own snapshot and
 //! pipeline sample, and whatever the SPA sent, as one JSON document.
 //!
-//! Ports `diagSnapshot` and `normalizeDiagSnapshotSessionFilterIds` of
-//! `apps/coord/src/rpc/handlers-system.ts`. Called by the `diag_snapshot` arm
-//! of `rpc/service_impl.rs`; assembles `diagnostics::session_state` and
-//! `diagnostics::worker_results`.
+//! Called by the `diag_snapshot` arm of `rpc/service_impl.rs`; assembles
+//! `diagnostics::session_state` and `diagnostics::worker_results`.
 //!
 //! SCOPE IS DURABLE FIRST. Open session rows joined to live (non-deleted)
 //! worker rows decide which sessions and workers the dump may mention; the
@@ -15,7 +13,7 @@
 //!
 //! A TERMINAL CAPTURE REQUEST IS NOT A DUMP. It is one authenticated capture
 //! step on exactly one session (`terminal_capture::bridge`), answered with the
-//! capture result and nothing else, after v2's own scope validation.
+//! capture result and nothing else, after its own scope validation.
 
 use std::collections::{BTreeSet, HashSet};
 
@@ -156,8 +154,8 @@ pub async fn handle_diag_snapshot(
     })
 }
 
-/// v2 `normalizeDiagSnapshotSessionFilterIds`: one of the two filter forms, at
-/// most 64 ids, each nonempty and unique. Empty result = unfiltered.
+/// One of the two filter forms, at most 64 ids, each nonempty and unique. Empty
+/// result = unfiltered.
 pub fn normalize_session_filter_ids(
     session_filter_id: &str,
     session_filter_ids: &[String],
@@ -186,8 +184,8 @@ pub fn normalize_session_filter_ids(
     Ok(normalized)
 }
 
-/// v2 `assertTerminalCaptureSessionFilter`: a capture names exactly one
-/// session, twice, and the legacy scalar filter cannot express that.
+/// A capture names exactly one session, twice, and the legacy scalar filter
+/// cannot express that.
 fn assert_terminal_capture_session_filter(
     session_filter_id: &str,
     session_filter_ids: &[String],

@@ -38,18 +38,15 @@ const SQLITE_PRAGMAS: &[&str] = &[
     "PRAGMA busy_timeout = 5000",
     "PRAGMA foreign_keys = ON",
     // Negative means KiB, not pages: 8 MiB explicitly rather than the implicit
-    // 2 MiB default (`connection.ts:36`).
+    // 2 MiB default.
     "PRAGMA cache_size = -8000",
-    // Mapped pages count against the cgroup; keep them out of RSS
-    // (`connection.ts:38`).
+    // Mapped pages count against the cgroup; keep them out of RSS.
     "PRAGMA mmap_size = 0",
-    // A 64 MiB backstop on one query's allocations (`connection.ts:40`).
+    // A 64 MiB backstop on one query's allocations.
     "PRAGMA soft_heap_limit = 67108864",
-    // A ~4 MiB WAL target, pinned so a config change is visible
-    // (`connection.ts:42`).
+    // A ~4 MiB WAL target, pinned so a config change is visible.
     "PRAGMA wal_autocheckpoint = 1000",
-    // Truncate the -wal back to 32 MiB after a burst instead of never
-    // (`connection.ts:44`).
+    // Truncate the -wal back to 32 MiB after a burst instead of never.
     "PRAGMA journal_size_limit = 33554432",
 ];
 

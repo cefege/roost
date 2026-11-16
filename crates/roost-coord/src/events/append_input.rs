@@ -1,8 +1,7 @@
 //! Everything the append path does **around** the transaction rather than inside
 //! it: validate, normalize, reserve, and release.
 //!
-//! Ported from the pre-transaction and post-throw halves of
-//! `apps/coord/src/events/event-transaction.ts:76-113` and `:283-323`. These are
+//! These are
 //! the steps whose position relative to the commit is the contract, so they are
 //! not buried inside the transaction body that sits between them.
 //!

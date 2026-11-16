@@ -83,7 +83,7 @@ pub enum PairingRefusal {
     ///
     /// One refusal for "no such id", "wrong token", and "an id that exists but
     /// is not yours", because a requester that could tell those apart could
-    /// probe for ids (`handlers-pairing.ts:113,161`).
+    /// probe for ids.
     #[error("not found")]
     NotFound,
     /// The request is decided, and decided rows never re-open.
@@ -139,7 +139,7 @@ pub enum PairingRefusal {
 impl PairingRefusal {
     /// The Connect status this refusal answers with.
     ///
-    /// The mapping is v2's, method by method, and it is the only one: a
+    /// The mapping is method by method, and it is the only one: a
     /// browser's retry logic and the audit trail both read the status, so two
     /// handlers refusing the same fact with two codes is a defect a user files
     /// as "it said expired and then asked me to try again".

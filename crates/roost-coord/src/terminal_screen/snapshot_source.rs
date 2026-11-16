@@ -1,8 +1,7 @@
 //! A resident canonical full as a snapshot source every watching socket walks,
 //! each cursor holding a residency lease on the exact version it reads.
 //!
-//! Ports `apps/coord/src/terminal/screen/terminal-screen-frames.ts`
-//! (`terminalSnapshotSource`, `cellGridEnvelope`). The screen hub plans one
+//! The screen hub plans one
 //! source per cache version; the Sync lane owns the cursors.
 
 use std::sync::{Arc, Weak};
@@ -52,7 +51,7 @@ impl std::fmt::Debug for ResidentSnapshotSource {
 impl ResidentSnapshotSource {
     /// Plan `cache` for fan-out. The plan reserves the widest fan-out stamp a
     /// recipient's egress can write, so no part outgrows its limit once
-    /// stamped (`reserveFanoutStamp`, `terminal-screen-frames.ts:64-67`).
+    /// stamped.
     pub(crate) fn plan(
         hub: &Arc<ScreenHub>,
         session_id: &SessionId,

@@ -2,7 +2,6 @@
 //! browser nonce, and the pending worker control bound into it. Shapes only --
 //! every map that holds them, and every teardown, is
 //! `terminal_input::route_results`, so socket and worker cleanup stay in one owner.
-//! Ports `apps/coord/src/terminal/input/terminal-input-route-result-state.ts`.
 
 use std::sync::Arc;
 

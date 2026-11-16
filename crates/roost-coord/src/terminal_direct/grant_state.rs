@@ -2,8 +2,6 @@
 //! signaling may inspect, the invalidations subscribers hear, the pending
 //! refresh record, the bounded refusals, and the tuple key a lease lives under.
 //! Holds no registry; `grant_owner` and `grant_refresh` own every mutation.
-//! Ports `apps/coord/src/terminal/direct/terminal-grant-owner-state.ts` and the
-//! exported types and constants of `terminal-grant-owner.ts`.
 
 use std::pin::Pin;
 use std::sync::Arc;
@@ -58,7 +56,7 @@ pub enum TerminalGrantInvalidationKind {
 }
 
 impl TerminalGrantInvalidationKind {
-    /// The v2 spelling, for log lines and cancellation reasons.
+    /// The kind's spelling, for log lines and cancellation reasons.
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -209,7 +207,7 @@ pub(crate) struct PendingGrantRefresh {
 /// The owner/tab/worker tuple one lease and one refresh live under.
 pub(crate) type LeaseKey = (String, String, String);
 
-/// The tuple key, as a value rather than v2's JSON string.
+/// The tuple key, as a value.
 pub(crate) fn lease_key(owner_key: &str, tab_id: &str, worker_fp: &str) -> LeaseKey {
     (
         owner_key.to_owned(),

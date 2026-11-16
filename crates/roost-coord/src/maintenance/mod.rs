@@ -3,9 +3,9 @@
 //!
 //! Owned by the coordinator. None of it is a Connect method. Each piece takes
 //! `&CoordDb` and either writes rows or writes files; the `spawn_*` entry
-//! points hand that handle to a long-lived task and return immediately, which
-//! is the whole of what v2's `setInterval(…).unref()` bought -- a tokio task
-//! does not keep the process alive, so there is nothing to unref.
+//! points hand that handle to a long-lived task and return immediately; a
+//! tokio task does not keep the process alive, so a detached task never blocks
+//! shutdown.
 
 pub mod audit_retention;
 pub mod backup;

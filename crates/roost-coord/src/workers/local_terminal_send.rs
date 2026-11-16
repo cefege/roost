@@ -1,7 +1,7 @@
 //! The direct-terminal authorization frames one exact worker generation
 //! receives: the grant install whose ACK the grant owner awaits before a
 //! browser learns its secret, and the best-effort revoke and retirement.
-//! Ports `apps/coord/src/terminal/direct/worker-send-local-terminal.ts`. Called by
+//! Called by
 //! `terminal_direct::grant_owner` and `grant_refresh`; the install correlates
 //! through `services.scrollback.pending()`. Only secret digests pass through.
 
@@ -51,7 +51,7 @@ impl PendingLocalTerminalGrantInstall {
         self.pending.request_id()
     }
 
-    /// Wait for the worker's ACK, a rejection, or v2's pending-RPC deadline
+    /// Wait for the worker's ACK, a rejection, or the pending-RPC deadline
     /// (`DeadlineExceeded`, "worker did not reply within …ms").
     pub async fn acknowledged(mut self) -> Result<serde_json::Value, ConnectError> {
         let timeout_ms = self.timeout_ms;
@@ -74,8 +74,7 @@ impl PendingLocalTerminalGrantInstall {
 }
 
 /// Whether `worker` is still the fingerprint's routable generation AND runs the
-/// exact process epoch a grant was minted for (v2 `isExactRoutableWorker` and
-/// `isExactTerminalGrantWorker`, one predicate here).
+/// exact process epoch a grant was minted for.
 #[must_use]
 pub fn is_exact_routable_worker(
     workers: &WorkerRegistry,

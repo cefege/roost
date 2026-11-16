@@ -306,8 +306,8 @@ async fn a_prune_that_cannot_finish_does_not_fail_the_backup() {
             .seed_archive(&backup_tag(FIXED_MS - (night + 1) * 86_400_000))
             .await;
     }
-    // The oldest entry is a directory, so removing it fails. v2 catches that
-    // per entry and keeps going (`backup.ts:78-84`); the consequence that
+    // The oldest entry is a directory, so removing it fails. The prune catches
+    // that per entry and keeps going; the consequence that
     // matters is the one outside the loop: the backup is still a success.
     let unremovable = fixture.directory().join(format!(
         "coord_v2.{}.db.gz",

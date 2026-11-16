@@ -3,7 +3,6 @@
 //! result owner records them here; a worker becoming ready flushes them, but
 //! only to the SAME process epoch -- a restarted worker already lost the route
 //! table the retirement would mutate, so it is dropped instead.
-//! Ports `apps/coord/src/terminal/input/terminal-input-route-retirements.ts`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Mutex, PoisonError};

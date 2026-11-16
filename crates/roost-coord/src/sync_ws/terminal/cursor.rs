@@ -8,13 +8,13 @@
 //! tail, a lane's pending states} -- and that invariant is why the release
 //! methods live beside the fields they clear.
 //!
-//! WHY A CHARGE IS HELD BY EXACTLY ONE OWNER. In v2 the cursor's `materialized`
-//! field aliased the same charge object the domain queue held, and the first of
-//! the two to release it won. That is safe in JS and unexpressible in Rust
-//! without interior mutability, so the port gives the charge to the QUEUE at
-//! enqueue time and leaves `materialized` empty from that moment. A frame is
-//! charged once and released once, and `materialized` means exactly "a part is
-//! charged and not yet queued".
+//! WHY A CHARGE IS HELD BY EXACTLY ONE OWNER. The cursor's `materialized`
+//! field must not alias the charge the domain queue holds: the first of the two
+//! to release it would win, which is unexpressible in Rust without interior
+//! mutability. So the charge goes to the QUEUE at enqueue time and
+//! `materialized` is empty from that moment. A frame is charged once and
+//! released once, and `materialized` means exactly "a part is charged and not
+//! yet queued".
 
 use std::sync::Arc;
 
@@ -43,9 +43,9 @@ pub struct SnapshotCursor {
     pub delta_tail: Vec<RetainedFrame>,
     /// The tail's charged bytes, including the delta in flight.
     pub delta_bytes: u64,
-    /// The bytes of the one delta taken off the tail and queued. v2 left that
-    /// delta at the head of the tail until the socket delivered it, so it still
-    /// counts against the lane's bounds until then; its charge is the queue's.
+    /// The bytes of the one delta taken off the tail and queued. That delta
+    /// stays counted against the lane's bounds until the socket delivers it;
+    /// its charge is the queue's.
     pub(in crate::sync_ws) in_flight_delta_bytes: Option<u64>,
 }
 
@@ -108,7 +108,7 @@ impl SnapshotCursor {
     }
 
     /// The deltas this cursor still answers for: the tail plus the one in
-    /// flight, which v2 counted as the tail's head.
+    /// flight, which counts as the tail's head.
     pub(in crate::sync_ws) fn buffered_delta_frames(&self) -> usize {
         self.delta_tail.len() + usize::from(self.in_flight_delta_bytes.is_some())
     }

@@ -1,9 +1,6 @@
 //! The owner-mode relay: a browser's view decision for an owned session is
 //! forwarded, the owner's answer is applied, and a closed socket reaches the
 //! owner that has to park its records.
-//!
-//! Ported from `apps/coord/tests/terminal/view/terminal-view-hub.test.ts` and
-//! the relay path of `terminal-view-owner-relay.ts`.
 
 // `unwrap_used` and `expect_used` are denied outside `#[cfg(test)]`, and an
 // integration test is its own crate rather than a module of one, so the

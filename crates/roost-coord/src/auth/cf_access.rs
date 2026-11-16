@@ -1,6 +1,6 @@
 //! Cloudflare Access: the one place a fronted coordinator and a direct one meet.
 //!
-//! Ported from `apps/coord/src/auth/cf-access.ts`. One question, one request:
+//! One question, one request:
 //! does it carry a verified edge identity? The answer is an IDENTITY, never a
 //! principal -- see [`CloudflareAccessIdentity`]. `install_cloudflare_jwks` is
 //! the one wiring line `serve` owes this file.
@@ -21,8 +21,8 @@ pub const ACCESS_ASSERTION_HEADER: &str = "cf-access-jwt-assertion";
 /// The provider string persisted beside a pairing request's edge identity.
 pub const ACCESS_PROVIDER: &str = "cloudflare-access";
 
-/// How much clock difference a claim's instant may carry (`cf-access.ts:20`).
-/// Kept at v2's 60 s: Access mints at its own edge.
+/// How much clock difference a claim's instant may carry. 60 s: Access mints
+/// at its own edge.
 pub const ACCESS_CLOCK_SKEW_MS: i64 = 60_000;
 
 pub const JWKS_TTL_MS: i64 = 15 * 60_000;
@@ -66,7 +66,7 @@ pub enum AccessRejection {
 /// THE ANSWER IS NEVER A PRINCIPAL: no `From<..> for Principal`, no
 /// `principal()` accessor, no public field, so no caller can turn an edge
 /// assertion into authority. An edge identity is provenance only -- pairing
-/// records the email beside a request (`handlers-pairing.ts:92-94`) and
+/// records the email beside a request and
 /// `DevicesList` shows it to every browser -- so a forged header changes what
 /// an operator reads and nothing else. Signature is verified BEFORE claims.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -226,7 +226,7 @@ fn parse_assertion(assertion: &str) -> Result<ParsedAssertion, AccessRejection> 
 }
 
 /// The email and subject of an assertion whose signature already verified. The
-/// refusal order is v2's (`cf-access.ts:227-254`) and each step is a distinct
+/// refusal order is fixed and each step is a distinct
 /// reason. A claim of the WRONG TYPE refuses like an absent one.
 fn validate_claims(
     payload: &[u8],
@@ -239,7 +239,7 @@ fn validate_claims(
     if text("iss") != issuer_of(domain) {
         return Err(AccessRejection::BadIssuer);
     }
-    // `aud` must be an ARRAY holding this tag; v2 refuses a bare string.
+    // `aud` must be an ARRAY holding this tag; a bare string is refused.
     let audience_matches = claims
         .get("aud")
         .and_then(Value::as_array)
@@ -292,10 +292,10 @@ fn claim_instant_ms(seconds: Option<f64>) -> Result<f64, AccessRejection> {
 
 /// Whether a string may be recorded as an identity, whatever it claims to be.
 ///
-/// STRICTER THAN v2, ON PURPOSE. `cf-access.ts:247-253` bounds `email` only by
-/// non-empty and 320 UTF-8 bytes, and that text reaches an audit row, a
-/// `pair_requests` row and every browser's device list -- so a newline or a bidi
-/// override in it is log forging.
+/// STRICTER THAN THE ASSERTION'S OWN BOUNDS, ON PURPOSE. A claim that is
+/// non-empty and at most 320 UTF-8 bytes is not enough: that text reaches an
+/// audit row, a `pair_requests` row and every browser's device list -- so a
+/// newline or a bidi override in it is log forging.
 #[must_use]
 pub fn is_reportable_identity_text(value: &str) -> bool {
     if value.is_empty() || value.trim() != value {

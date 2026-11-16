@@ -2,8 +2,7 @@
 //! required` exactly at the credential's deadline, and a deadline beyond the
 //! timer maximum is re-armed rather than dropped.
 //!
-//! Ports `apps/coord/tests/auth/ws-auth-deadline.test.ts` over a paused tokio
-//! clock, so no test waits the deadline out.
+//! A paused tokio clock means no test waits the deadline out.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::sync::Arc;
@@ -12,7 +11,7 @@ use std::time::Duration;
 
 use roost_coord::auth::ws_auth_deadline::{reauth_expired, reauth_wait_ms, sleep_until_reauth_on};
 
-/// The v2 fake clock's `maxDelayMs`.
+/// The fake clock's maximum delay.
 const FAKE_MAX_DELAY_MS: u64 = 50;
 
 /// Arm the deadline on a task whose clock is the paused runtime's elapsed time,
@@ -36,7 +35,7 @@ async fn advance(ms: u64) {
     }
 }
 
-// v2: "closes at Access expiry with the reauth code and reason"
+// Closes at Access expiry with the reauth code and reason
 #[tokio::test(start_paused = true)]
 async fn fires_exactly_at_the_deadline_and_not_before() {
     let fired = arm_deadline(100);
@@ -47,7 +46,7 @@ async fn fires_exactly_at_the_deadline_and_not_before() {
     assert!(fired.load(Ordering::SeqCst), "at the deadline");
 }
 
-// v2: "re-arms deadlines beyond the platform timer maximum"
+// Re-arms deadlines beyond the platform timer maximum
 #[tokio::test(start_paused = true)]
 async fn re_arms_a_deadline_beyond_the_timer_maximum() {
     let fired = arm_deadline(120);
@@ -60,7 +59,7 @@ async fn re_arms_a_deadline_beyond_the_timer_maximum() {
     assert!(fired.load(Ordering::SeqCst));
 }
 
-// v2 sync-ws-handler.ts:187-191: a deadline already passed at open closes
+// A deadline already passed at open closes
 // immediately, and the instant itself counts as passed.
 #[test]
 fn a_deadline_at_or_before_now_is_already_expired() {

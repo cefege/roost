@@ -11,7 +11,6 @@
 //! happen to that keeper. "I do not know" is a refusal: proceeding on an
 //! unprovable runtime is the failure this gate exists to prevent, and
 //! `keeper_survivor_identity_unproven` is what it looks like from the host.
-//! Ported whole from `apps/coord/src/deploy/handlers-workers-update.ts`.
 
 mod identity;
 mod refusal;
@@ -37,8 +36,8 @@ pub use self::request::{
     decide_keeper_update, read_open_session_ids,
 };
 
-/// v2's `sendKeeperUpdatePreparation(workerFp, message, 10_000)`, and shorter
-/// than the shared default on purpose: an update that cannot be decided
+/// The preparation deadline, 10 s: shorter than the shared default on purpose,
+/// because an update that cannot be decided
 /// promptly must free the drain rather than hold this coordinator's writes
 /// behind it.
 const KEEPER_UPDATE_RPC_DEADLINE: Duration = Duration::from_millis(10_000);
@@ -62,8 +61,7 @@ impl KeeperUpdateAdmission {
 ///
 /// Re-read inside the drain, never taken from the interceptor: a key or device
 /// revoked between that resolve and here must not proceed on the stale
-/// admission. v2 needed this because its fence queues behind another update;
-/// this gate fails fast, so the window is shorter, but it is the same window.
+/// admission. This gate fails fast, so the window is short, but it is real.
 async fn reauthorize_device(
     core: &CoordCore,
     device_fingerprint: &str,

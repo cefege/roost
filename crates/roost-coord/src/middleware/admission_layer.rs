@@ -12,13 +12,12 @@
 //! listener binds. A gate that answered from an empty allowlist in that window
 //! would refuse every request -- a boot-time outage -- so the pre-bind answer is
 //! `503 listener unavailable`, which tells a caller to retry rather than that
-//! it is forbidden
-//! (`apps/coord/src/bun-coordinator-listeners.ts:279-282,368-370`).
+//! it is forbidden.
 //!
-//! THE LAYER COVERS THE WHOLE SURFACE, NOT JUST THE SOCKETS. v2 runs the gate
-//! first thing in the fetch handler -- before the worker upgrade, before the
-//! Sync upgrade, and before Connect -- so mounting it around the router rather
-//! than around the two upgrade routes reproduces that. Scoping it to the
+//! THE LAYER COVERS THE WHOLE SURFACE, NOT JUST THE SOCKETS. The gate runs
+//! first of all -- before the worker upgrade, before the Sync upgrade, and
+//! before Connect -- so it is mounted around the router rather than around the
+//! two upgrade routes. Scoping it to the
 //! upgrades would leave Connect answering a DNS-rebinding request that the
 //! sockets refuse, which is the same bypass with a different path.
 
@@ -47,8 +46,7 @@ struct AdmissionSources {
 #[derive(Debug)]
 pub struct AdmissionLayer {
     /// A coordinator bound to a routable interface has a front door doing this
-    /// gate, and doing it twice admits less than either alone
-    /// (`coordinator-request-admission.ts:15`).
+    /// gate, and doing it twice admits less than either alone.
     engaged: bool,
     sources: AdmissionSources,
     /// Resolved once, when the listener publishes the port it bound. Runtime

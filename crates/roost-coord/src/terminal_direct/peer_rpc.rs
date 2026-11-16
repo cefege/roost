@@ -2,8 +2,7 @@
 //! negotiation owner, which performs every grant, route, SDP, capacity and
 //! worker-generation check; this supplies only the trusted caller, its tab, and
 //! the browser's cancellation (the request future being dropped).
-//! Called by `rpc::service_impl`. Ports
-//! `apps/coord/src/terminal/direct/handlers-sessions-terminal-peer.ts`.
+//! Called by `rpc::service_impl`.
 
 use connectrpc::{Response, ServiceResult};
 use roost_proto::{
@@ -26,9 +25,9 @@ pub async fn handle_sessions_negotiate_local_terminal_peer(
         .principal
         .capture_owner_key()
         .ok_or_else(device_refusal)?;
-    // The browser abandoning the call is v2's `context.signal` aborting: the
-    // guard cancels the negotiation (withdrawing any sent offer) when this
-    // future is dropped before it finishes.
+    // The browser abandoning the call drops this future: the guard cancels the
+    // negotiation (withdrawing any sent offer) when that happens before it
+    // finishes.
     let abort = CancellationToken::new();
     let _abort_when_dropped = abort.clone().drop_guard();
     let response = core

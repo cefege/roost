@@ -2,9 +2,6 @@
 //! `SessionsAssignWorkspace` against a recording worker socket and a real
 //! database: what reaches the worker, what is durably appended, and what the
 //! buses carry.
-//!
-//! Ports the kill and cursor-presence cases of `apps/coord/tests/coord-bidi.test.ts`
-//! and the handler behaviour of `apps/coord/src/sessions/handlers-sessions.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -37,7 +34,7 @@ fn kill(session_id: &str, force: bool) -> SessionsKillRequest {
     }
 }
 
-// v2 coord-bidi: "SessionsKill on unknown session → accepted falsy (idempotent)".
+// SessionsKill on an unknown session is accepted falsy (idempotent).
 #[tokio::test]
 async fn killing_an_unknown_session_is_not_accepted() {
     let harness = SessionsHarness::new("kill-unknown").await;
@@ -292,8 +289,8 @@ async fn sessions_sets_during<F: Future>(
     seen.lock().unwrap().clone()
 }
 
-// v2 B5: membership lives in the column AND the junction, and every workspace
-// the move touched is republished after commit.
+// Membership lives in the column AND the junction, and every workspace the move
+// touched is republished after commit.
 #[tokio::test]
 async fn assigning_moves_both_representations_and_republishes_every_touched_workspace() {
     let harness = SessionsHarness::new("assign").await;

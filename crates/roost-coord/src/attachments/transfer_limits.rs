@@ -2,8 +2,7 @@
 //! enforces: grant lifetimes and capacities, the peer-signaling and receipt
 //! deadlines, and the worker's fixed error reasons.
 //! Read by `attachments::{grant, grant_state, peer, peer_state, status_results,
-//! rpc_direct}`. Ports the coordinator's subset of
-//! `packages/protocol/src/attachment-transfer.ts` (the worker keeps its own copy).
+//! rpc_direct}`. The worker keeps its own copy of the shared bounds.
 
 /// How long a minted grant authorizes its one upload.
 pub const ATTACHMENT_TRANSFER_GRANT_TTL_MS: u32 = 60_000;
@@ -56,7 +55,7 @@ pub const ATTACHMENT_TRANSFER_ERROR_REASONS: [&str; 10] = [
     "write_failed",
 ];
 
-/// The largest integer a v2 browser holds exactly (`Number.MAX_SAFE_INTEGER`);
+/// The largest integer a JSON number consumer holds exactly (`Number.MAX_SAFE_INTEGER`);
 /// a byte count past it cannot round-trip through the web client.
 pub const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
 
@@ -70,8 +69,7 @@ pub fn is_attachment_transfer_chunk_sha256(value: &str) -> bool {
 }
 
 /// Whether an upload id is non-empty, bounded, and names no path or control
-/// character (v2's `/[\\/\x00-\x1f\x7f]/u` refusal, shared by the grant, the
-/// status RPC and the status owner).
+/// character (the refusal shared by the grant, the status RPC and the status owner).
 #[must_use]
 pub fn is_opaque_upload_id(value: &str, max_bytes: usize) -> bool {
     !value.is_empty()
@@ -81,7 +79,7 @@ pub fn is_opaque_upload_id(value: &str, max_bytes: usize) -> bool {
             .any(|character| matches!(character, '\\' | '/' | '\u{0}'..='\u{1f}' | '\u{7f}'))
 }
 
-/// A non-empty identifier within `max_bytes` UTF-8 bytes (v2 `hasAtMostUtf8Bytes`).
+/// A non-empty identifier within `max_bytes` UTF-8 bytes.
 #[must_use]
 pub fn is_bounded_identifier(value: &str, max_bytes: usize) -> bool {
     !value.is_empty() && value.len() <= max_bytes

@@ -147,7 +147,7 @@ fn a_cell_is_fenced_behind_its_announcement_until_the_acknowledgement_lands() {
     assert!(matches!(second.frame.frame, Some(Frame::CellGrid(_))));
 }
 
-/// The age override ranks domain HEADS only, as v2 does (`sync-ws-v2-queue.ts:72-95`):
+/// The age override ranks domain HEADS only:
 /// within one domain a non-cell frame waits behind the frames queued ahead of it, so
 /// the aged `LastActivity` goes out after the `LATE` cell enqueued before it.
 #[test]

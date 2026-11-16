@@ -1,6 +1,6 @@
 //! The SYNC WebSocket's upgrade admission, with no socket and no database.
 //!
-//! Covers: the five-step order in `apps/coord/src/sync/sync-ws-upgrade.ts:124-213`,
+//! Covers: the five-step order,
 //! its five refusals with their exact statuses, the origin policy's exact-match
 //! rule, and the scope a browser and a worker socket each get. The worker
 //! endpoint's order is in `upgrade_admission.rs`.
@@ -75,8 +75,7 @@ fn a_well_formed_sync_upgrade_is_admitted_with_its_scope() {
 #[test]
 fn a_worker_principal_gets_a_read_only_socket_over_its_own_scope() {
     // "Worker Sync is a firehose consumer only; it may ACK/subscription-control
-    // delivery but cannot issue terminal view or input commands"
-    // (`sync-ws-upgrade.ts:78-83`).
+    // delivery but cannot issue terminal view or input commands".
     let decision = admit_sync_upgrade(
         &sync_request(),
         &policy(),
@@ -141,9 +140,9 @@ fn a_declared_origin_and_the_https_twin_of_the_host_are_both_allowed() {
 
 #[test]
 fn the_loopback_http_twin_needs_a_loopback_bind_and_a_loopback_host() {
-    // "A local-first coordinator serves its canonical browser origin over HTTP"
-    // (`sync-ws-upgrade.ts:54-60`). Admitting it on a routable bind would let
-    // any page on the network open the socket.
+    // A local-first coordinator serves its canonical browser origin over HTTP.
+    // Admitting it on a routable bind would let any page on the network open
+    // the socket.
     let mut request = sync_request();
     request.origin = Some("http://roost.example".to_string());
     request.host = "roost.example".to_string();
@@ -168,8 +167,7 @@ fn a_legacy_self_hosted_key_is_404_and_not_401() {
     // It authenticates. What it lacks is a SCOPE, and the two answers say
     // different things: 404 says there is nothing here, which is true; 401 would
     // say the key is not valid, which is false and would send an operator to
-    // re-pair a key that works everywhere else
-    // (`sync-ws-upgrade.ts:160-170`).
+    // re-pair a key that works everywhere else.
     let decision = admit_sync_upgrade(&sync_request(), &policy(), PrincipalKind::LegacySelfHosted);
     assert_eq!(
         decision,
@@ -248,9 +246,8 @@ fn domain_generations_need_both_query_values_and_not_either_alone() {
 
 #[test]
 fn an_unparseable_since_reads_as_zero_rather_than_failing_the_upgrade() {
-    // v2's `Number(...) || 0` (`sync-ws-upgrade.ts:179`) treats garbage and
-    // absence the same, and a client that sends garbage gets a full seed rather
-    // than a refusal it cannot act on.
+    // Garbage and absence are treated the same, and a client that sends garbage
+    // gets a full seed rather than a refusal it cannot act on.
     let mut request = sync_request();
     request.since = Some("not-a-number".to_string());
     let scope = match admit_sync_upgrade(&request, &policy(), PrincipalKind::AccountDevice) {

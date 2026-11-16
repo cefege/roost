@@ -2,8 +2,7 @@
 //! each worker is sampled once per cache window, and an uncached target waits
 //! for its own bounded batch instead of receiving another target's evidence.
 //!
-//! Ports `apps/coord/tests/terminal/screen/worker-terminal-pipeline-cache.test.ts`
-//! against `terminal_screen::pipeline_cache::WorkerTerminalPipelineSnapshotCache`.
+//! These pin `terminal_screen::pipeline_cache::WorkerTerminalPipelineSnapshotCache`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -60,7 +59,6 @@ fn answer_request(workers: &FakeWorkers, index: usize) {
     assert!(resolve_pipeline(&workers.relay, reply, TARGET_WORKER_FP));
 }
 
-// v2: "batches concurrent target scopes and reuses only their own cached records".
 #[tokio::test]
 async fn batches_concurrent_target_scopes_and_reuses_only_their_own_cached_records() {
     let workers = FakeWorkers::new();
@@ -99,7 +97,6 @@ async fn batches_concurrent_target_scopes_and_reuses_only_their_own_cached_recor
     cache.dispose();
 }
 
-// v2: "waits for an uncached target batch instead of projecting another target's sample".
 #[tokio::test(start_paused = true)]
 async fn waits_for_an_uncached_target_batch_instead_of_projecting_another_targets_sample() {
     let workers = FakeWorkers::new();
@@ -138,8 +135,7 @@ async fn waits_for_an_uncached_target_batch_instead_of_projecting_another_target
     cache.dispose();
 }
 
-// v2 header: "a generation replacement starts fresh" (`collectWorker`'s
-// `entry.worker !== worker` arm), which the v2 suite leaves unexercised.
+// A generation replacement starts fresh.
 #[tokio::test]
 async fn a_replaced_generation_is_sampled_afresh() {
     let workers = FakeWorkers::new();
@@ -174,7 +170,7 @@ async fn a_replaced_generation_is_sampled_afresh() {
     cache.dispose();
 }
 
-// v2 `dispose()`: every waiting collection settles offline instead of hanging.
+// Disposal settles every waiting collection offline instead of hanging.
 #[tokio::test]
 async fn dispose_settles_a_waiting_collection_offline() {
     let workers = FakeWorkers::new();

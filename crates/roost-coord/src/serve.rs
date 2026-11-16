@@ -1,10 +1,8 @@
 //! `CoordBoot` and the blocking `serve` the CLI's `roost coord` calls.
 //!
-//! Owned by the coordinator and the ONLY public entry point a process uses. The
-//! shape is v2's `runCoord` (`apps/coord/src/main.ts:48-253`) with one
-//! deliberate difference: v2 ends its shutdown in `process.exit(0)`, and this
-//! **returns** instead, because a library that exits the process cannot be called
-//! from a test or from a subcommand.
+//! Owned by the coordinator and the ONLY public entry point a process uses.
+//! Shutdown **returns** rather than exiting the process, because a library
+//! that exits the process cannot be called from a test or from a subcommand.
 //!
 //! CONFIGURATION IS THE CALLER'S. `CoordBoot` carries an already-resolved,
 //! already-validated [`roost_host::CoordConfig`]. The CLI owns resolving it from
@@ -19,8 +17,8 @@
 //! [`prepare_coordinator_database`]; `db::open` owns 2-4.
 //!
 //! The build SHA reported by `MiscHealth` is resolved once here, through
-//! `roost_host::build_identity` -- the port of `apps/coord/src/git-sha.ts`,
-//! minus its live `git rev-parse`, since a compiled binary names its own commit.
+//! `roost_host::build_identity`: a compiled binary names its own commit, so
+//! there is no live `git rev-parse`.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -136,7 +134,7 @@ pub async fn serve(boot: CoordBoot) -> Result<(), ServeError> {
     ));
     // Chosen ONCE, here, and reported either way. A missing build otherwise
     // presents only as a 404 on every page, which reads like an edge or DNS
-    // fault rather than as a path the operator misspelled (`main.ts:113-120`).
+    // fault rather than as a path the operator misspelled.
     let spa = Arc::new(SpaMount::from_dist_path(
         boot.config.web_dist_path.as_deref(),
     ));
@@ -204,17 +202,15 @@ pub async fn serve(boot: CoordBoot) -> Result<(), ServeError> {
         });
     }
 
-    // Boot step 9 (contract §1.1): maintenance, scheduled AFTER the listener.
-    // v2's ordering note is "the listeners must start before maintenance and
-    // signal wiring" -- a backup that ran before the port was accepting would
-    // compete with the very startup it is meant to protect.
+    // Boot step 9 (contract §1.1): maintenance, scheduled AFTER the listener --
+    // a backup that ran before the port was accepting would compete with the
+    // very startup it is meant to protect.
     crate::maintenance::backup::spawn_scheduled_backups(state.services.db.clone());
     crate::maintenance::audit_retention::spawn_audit_retention(
         state.services.db.clone(),
         boot.config.audit_retention_days,
     );
-    // The terminal view lease sweep (v2 arms it when the hub is built,
-    // `terminal-view-hub.ts:256`), and the view and title hubs' release of
+    // The terminal view lease sweep, and the view and title hubs' release of
     // closed sessions, held for as long as this coordinator serves.
     crate::terminal_view::spawn_view_sweep(Arc::clone(&state.services.views));
     let _view_release = state
@@ -265,9 +261,9 @@ pub async fn serve(boot: CoordBoot) -> Result<(), ServeError> {
 ///
 /// Opens the database (pragmas, the pre-migration backup, migrations and their
 /// validation all live in `db::open`), imports the authorized-keys file, enforces
-/// the self-hosted tenant invariant and runs the startup janitor, in v2's order
-/// (`main.ts:60-86`). `serve` is the one production caller; it is public so the
-/// order is provable without binding a port.
+/// the self-hosted tenant invariant and runs the startup janitor, in that
+/// order. `serve` is the one production caller; it is public so the order is
+/// provable without binding a port.
 pub async fn prepare_coordinator_database(
     config: &CoordConfig,
     now_ms: i64,
@@ -281,7 +277,7 @@ pub async fn prepare_coordinator_database(
             })?;
 
     // Step 5, BEFORE the tenancy invariant, so the invariant sees the keys the
-    // operator's file just added (`main.ts:73-83`).
+    // operator's file just added.
     import_authorized_keys_at_boot(&database, &config.authorized_keys_path, now_ms).await;
 
     // Step 6: a mis-scoped database must never bind a port, so a throw here is
@@ -310,9 +306,9 @@ pub async fn prepare_coordinator_database(
 
 /// Import the operator's authorized-keys file if it exists.
 ///
-/// A failure is a warning and boot continues, as v2's does (`main.ts:73-80`):
-/// the keys already in the database still authenticate, and refusing to boot
-/// over one unreadable file would take every paired device down with it.
+/// A failure is a warning and boot continues: the keys already in the
+/// database still authenticate, and refusing to boot over one unreadable file
+/// would take every paired device down with it.
 async fn import_authorized_keys_at_boot(database: &CoordDb, path: &Path, now_ms: i64) {
     if !path.exists() {
         tracing::debug!(path = %path.display(), "authorized_keys file absent: nothing to import");

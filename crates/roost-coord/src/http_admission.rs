@@ -5,15 +5,14 @@
 //! before any WebSocket upgrade, because the thing it refuses -- a DNS-rebinding
 //! request -- is a request a browser can be made to send from any page it visits.
 //!
-//! Only engaged on a loopback bind (`apps/coord/src/middleware/coordinator-request-admission.ts:15`);
-//! a coordinator bound to a routable interface has a front door doing this, and
-//! doing it twice would admit less than either alone.
+//! Only engaged on a loopback bind; a coordinator bound to a routable interface
+//! has a front door doing this, and doing it twice would admit less than either
+//! alone.
 //!
 //! FAILS CLOSED UNTIL THE PORT IS KNOWN. The gate's allowlist is built from the
 //! RESOLVED port, and a request that arrives before the listener knows its own
-//! port is answered `503 listener unavailable`
-//! (`apps/coord/src/bun-coordinator-listeners.ts:363-365`) rather than allowed
-//! through an empty allowlist.
+//! port is answered `503 listener unavailable` rather than allowed through an
+//! empty allowlist.
 
 /// What the gate decided.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,8 +107,7 @@ pub fn admit(host: Option<&str>, origin: Option<&str>, policy: &AdmissionPolicy)
 ///
 /// Parsing under both `http://` and `https://` matters because the coordinator
 /// never terminates TLS while an operator's front door usually does, and the same
-/// `Host` reaches this gate either way
-/// (`coordinator-request-admission.ts:59-73`). Everything except a bare
+/// `Host` reaches this gate either way. Everything except a bare
 /// authority is discarded: userinfo, a path, a query and a fragment all mean the
 /// header was not a `Host` header.
 #[must_use]

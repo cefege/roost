@@ -1,11 +1,6 @@
 //! `SessionsSpawn` end to end against a recording worker socket: the one worker
 //! command, the answer it settles, the joins and refusals around it, and how a
 //! lost, superseded or revoked worker link resolves the reservation.
-//!
-//! Ports the spawn case of `apps/coord/tests/coord-bidi.test.ts`, the spawn
-//! half of `apps/coord/tests/workers/worker-conn-pending-supersession.test.ts`,
-//! and the handler paths `apps/coord/tests/sessions/pending-spawns.test.ts`
-//! reaches through the table.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -68,7 +63,7 @@ async fn settle_background_tasks() {
     }
 }
 
-// v2 coord-bidi: "SessionsSpawn with no worker attached → FAILED_PRECONDITION".
+// SessionsSpawn with no worker attached is FAILED_PRECONDITION.
 #[tokio::test]
 async fn a_registered_worker_with_no_link_refuses_the_spawn() {
     let harness = SessionsHarness::new("spawn-offline").await;
@@ -129,7 +124,7 @@ async fn one_spawn_command_is_relayed_and_its_reply_is_the_answer() {
     );
 }
 
-// v2 pending-spawns: exact duplicates share one result; mismatches conflict
+// Exact duplicates share one result; mismatches conflict
 // before a second worker command can create an orphan PTY.
 #[tokio::test]
 async fn an_exact_retry_joins_and_a_changed_retry_conflicts() {
@@ -188,7 +183,7 @@ async fn a_worker_command_failure_is_definite() {
     assert_eq!(error.message.as_deref(), Some("keeper rejected spawn"));
 }
 
-// v2 A5 + pending-spawns: a dropped link fails the worker reply as Unavailable,
+// A dropped link fails the worker reply as Unavailable,
 // which is ambiguous, so the durable `opened` still answers the caller.
 #[tokio::test]
 async fn a_reply_lost_to_a_closed_link_is_answered_by_the_durable_opened() {
@@ -206,7 +201,7 @@ async fn a_reply_lost_to_a_closed_link_is_answered_by_the_durable_opened() {
     assert_eq!(pending.await.unwrap().unwrap().channel_id, 12);
 }
 
-// v2 worker-conn-pending-supersession: a replacement generation rejects the
+// A replacement generation rejects the
 // predecessor's in-flight RPC; for a spawn that is ambiguous, not a failure.
 #[tokio::test]
 async fn a_superseded_generation_leaves_the_spawn_to_the_durable_opened() {
@@ -227,7 +222,7 @@ async fn a_superseded_generation_leaves_the_spawn_to_the_durable_opened() {
     assert_eq!(pending.await.unwrap().unwrap().channel_id, 2);
 }
 
-// v2 worker-conn.ts revoke(): rejectPendingSpawnsForWorker.
+// Revoking a worker rejects its pending spawns.
 #[tokio::test]
 async fn a_revoked_worker_credential_rejects_its_pending_spawn() {
     let harness = SessionsHarness::new("spawn-revoked").await;

@@ -3,19 +3,13 @@
 //! secret is stored under, and the attempt bound that ends a series.
 //!
 //! Owned by the pairing slice. `protocol/spec/auth-and-pairing.md` is the
-//! definition; `apps/coord/src/auth/pairing-secrets.ts` is v2's
-//! implementation of it and `packages/protocol/src/pairing.ts` holds the half
-//! both ends share.
+//! definition, and this module is the implementation of it.
 //!
-//! WHERE THE SHARED HALF LIVES, AND WHY IT IS HERE. v2 keeps the canonical
-//! validators in `@roost/protocol/pairing` and re-exports them, because the
-//! browser mints these values and the coordinator only validates them. In v3
-//! `roost-protocol` has no `pairing` module, and a browser that ported its own
-//! copy of `PAIRING_CEREMONY_VERSION` would be a second definition of the one
-//! number that decides whether two coordinators can talk. So the validators
-//! live here, in the module whose whole subject is those values, and the
-//! integrator's extraction into `roost-protocol::pairing` is recorded in this
-//! slice's report: it is a move, not a second implementation.
+//! WHERE THE SHARED HALF LIVES. The browser mints these values and the
+//! coordinator only validates them. `roost-protocol` has no `pairing` module,
+//! and a second copy of `PAIRING_CEREMONY_VERSION` would be a second definition
+//! of the one number that decides whether two coordinators can talk. So the
+//! validators live here, in the module whose whole subject is those values.
 //!
 //! A SECRET IS ONLY EVER STORED AS ITS DIGEST. `requester_token` and
 //! `verification_code` arrive over the wire, are validated by shape, digested
@@ -52,7 +46,7 @@ pub const PAIR_REQUESTER_TOKEN_HEX_LEN: usize = PAIR_REQUESTER_TOKEN_BYTES * 2;
 ///
 /// Bounded because the code is six decimal digits: an unbounded series is ten
 /// thousand guesses against a standing credential, and a request lives ten
-/// minutes. Five is v2's bound (`pairing-secrets.ts:23`).
+/// minutes.
 pub const PAIR_VERIFICATION_ATTEMPT_LIMIT: i64 = 5;
 
 /// How long a created request stays redeemable.
@@ -116,8 +110,7 @@ pub fn normalize_pair_verification_code(value: &str) -> PairingResult<&str> {
 ///
 /// The plaintext is borrowed, digested, and dropped here. This is the ONLY
 /// function in the crate that turns a pairing secret into anything storable,
-/// and it is also `bootstrapTokenDigest`'s definition
-/// (`apps/coord/src/auth/bootstrap-tokens.ts:54`): same primitive, same
+/// and it is also the bootstrap-token digest's definition: same primitive, same
 /// rendering, so a secret digested as a bootstrap token and the same secret
 /// digested as a pairing secret are the same string and cannot be confused at
 /// the boundary between the two ceremonies.

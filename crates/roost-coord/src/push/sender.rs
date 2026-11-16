@@ -1,18 +1,17 @@
 //! Encrypt and deliver one payload to a bounded set of stored subscriptions.
 //!
 //! Owned by the push domain. The two rules that live here and nowhere else are
-//! the concurrency ceiling and the failure isolation; `push-sender.ts:64-141`
-//! decides them, and both are easy to lose in a tidier port.
+//! the concurrency ceiling and the failure isolation, and both are easy to lose
+//! in a tidier rewrite.
 //!
 //! EVERY FAILURE IS ISOLATED. A delivery that fails for any reason other than a
-//! dead subscription is counted and the batch continues
-//! (`push-sender.ts:130-134`). One push provider having a bad afternoon must not
-//! cost a fleet every other notification, and must not unsubscribe every device
-//! either -- which is why only 404 and 410 prune.
+//! dead subscription is counted and the batch continues. One push provider
+//! having a bad afternoon must not cost a fleet every other notification, and
+//! must not unsubscribe every device either -- which is why only 404 and 410
+//! prune.
 //!
-//! NO REDIRECT REPLAY. `web-push` issues one request and rejects every non-2xx,
-//! and so does this: a 3xx is a failure, counted, and never retried
-//! (`push-sender.ts:97-98`).
+//! NO REDIRECT REPLAY. A delivery is one request and every non-2xx is a
+//! failure: a 3xx is counted and never retried.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -49,8 +48,7 @@ pub struct PushDeliveryOptions {
     ///
     /// Checked before the batch and again before each individual send, so a
     /// transition superseded while the fleet's first four deliveries were in
-    /// flight does not go on to notify the other sixteen. That is
-    /// `push-dispatch.ts:132-141` reaching into the sender, and it is the
+    /// flight does not go on to notify the other sixteen. That is the
     /// difference between one notification and two for one event.
     ///
     /// An owned `Arc` rather than a borrowed `&dyn Fn` so a caller can hand
@@ -84,11 +82,9 @@ impl PushDeliveryOptions {
 
 /// Deliver `payload` to every subscription in `subscriptions`, at most
 /// [`MAX_CONCURRENT_SENDS`] at a time.
-/// The pool is v2's shape (`push-sender.ts:87-139`): a fixed number of workers
-/// each taking the next index, so the ceiling holds however many subscriptions
-/// there are. `buffer_unordered` is what that shape is in Rust -- a stream that
-/// runs at most N futures concurrently and yields each as it settles, which is
-/// also why the results are summed rather than collected in order.
+/// The in-flight set is filled to the ceiling and refilled as each attempt
+/// settles, so the ceiling holds however many subscriptions there are; the
+/// results are summed rather than collected in order.
 pub async fn send_push_to_subscriptions(
     pool: &AnyPool,
     subscriptions: &[StoredSubscription],
@@ -118,9 +114,8 @@ pub async fn send_push_to_subscriptions(
     // everything handed to it. Pushing all of the subscriptions up front is the
     // obvious shape and it is wrong: a dashboard with two thousand stale
     // subscriptions would open two thousand HTTPS round trips at once, which is
-    // the ceiling `MAX_CONCURRENT_SENDS` exists to hold (v2's fixed worker pool,
-    // `push-sender.ts:87-139`). So the set is filled to the ceiling and
-    // refilled one at a time as each attempt settles.
+    // the ceiling `MAX_CONCURRENT_SENDS` exists to hold. So the set is filled to
+    // the ceiling and refilled one at a time as each attempt settles.
     let mut in_flight = futures_util::stream::FuturesUnordered::new();
     let mut remaining = subscriptions.iter();
     for _ in 0..MAX_CONCURRENT_SENDS {
@@ -204,8 +199,7 @@ async fn deliver_one(
 /// Delete a subscription the push service reported as gone.
 ///
 /// The endpoint is named by a short digest and never in full: an endpoint is a
-/// bearer-ish credential, and a log line is the wrong place for one
-/// (`push-sender.ts:18-20` does the same).
+/// bearer-ish credential, and a log line is the wrong place for one.
 async fn prune_dead_subscription(
     pool: &AnyPool,
     subscription: &StoredSubscription,
@@ -249,9 +243,9 @@ fn log_send_failure(subscription: &StoredSubscription, error: &PushTransportErro
 
 /// Twelve hex characters of the endpoint's SHA-256, for a log line.
 ///
-/// v2 takes the first twelve of the hex digest (`push-sender.ts:18-20`), which
-/// is long enough to correlate one endpoint's failures across a log and short
-/// enough that the line cannot be used to reconstruct the endpoint.
+/// The first twelve characters of the hex digest are long enough to correlate
+/// one endpoint's failures across a log and short enough that the line cannot
+/// be used to reconstruct the endpoint.
 #[must_use]
 pub fn endpoint_id(endpoint: &str) -> String {
     let digest = sha2::Sha256::digest(endpoint.as_bytes());

@@ -1,15 +1,13 @@
 //! Cancel tombstones for scrollback searches, so a cancel that beats its own
 //! search still retires it.
 //!
-//! The worker keeps this ledger too (`apps/worker/src/terminal/search/
-//! terminal-search-cancellation.ts`), because the worker is where a search
-//! actually runs. The coordinator keeps it as well, and the reason is a gap in
-//! v2: `sessionsCancelScrollbackSearch` forwards a browser-command and returns,
-//! but it does not touch the pending-RPC entry the matching
-//! `SessionsSearchScrollback` is still awaiting. A browser that cancels a
-//! search, then lets its tab navigate, therefore leaves the coordinator waiting
-//! out the full `TERMINAL_SEARCH_RPC_DEADLINE_MS` for a scan that was already
-//! called off -- and the in-flight search is what the browser abandoned.
+//! The worker keeps this ledger too, because the worker is where a search
+//! actually runs. The coordinator keeps it as well, because forwarding a cancel
+//! does not touch the pending-RPC entry the matching `SessionsSearchScrollback`
+//! is still awaiting. A browser that cancels a
+//! search, then lets its tab navigate, would otherwise leave the coordinator
+//! waiting out the full `TERMINAL_SEARCH_RPC_DEADLINE_MS` for a scan that was
+//! already called off -- and the in-flight search is what the browser abandoned.
 //!
 //! A tombstone is one-shot: consuming it is what retires it, so a `search_id`
 //! reused later by the same tab starts clean rather than inheriting a cancel
@@ -21,7 +19,7 @@ use roost_protocol::terminal_search::TERMINAL_SEARCH_RPC_DEADLINE_MS;
 
 /// A tab's cancelled search identities, and how many of them this holds.
 ///
-/// v2's `SEARCH_CANCEL_TOMBSTONE_MAX`, for the same reason: an abandoned
+/// The count is capped: an abandoned
 /// search must not pin memory for the life of the coordinator.
 pub const SEARCH_CANCEL_TOMBSTONE_MAX: usize = 128;
 /// Twice the RPC deadline, so a tombstone outlives the search it was meant to

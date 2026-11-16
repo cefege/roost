@@ -1,7 +1,7 @@
 //! The two bounds a Web Push dispatch runs under: at most four deliveries in
 //! flight, and a stop the moment its transition stops being current.
 //!
-//! This is half of what `push-sender.ts` decides; the prune and the failure
+//! This is half of what the sender decides; the prune and the failure
 //! isolation are in `push_sender_delivery.rs`. An unbounded fan-out turns one
 //! busy agent transition into a self-inflicted outage, and a fence checked
 //! only before the batch lets a superseded transition notify the fleet twice.

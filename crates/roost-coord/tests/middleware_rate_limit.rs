@@ -21,7 +21,7 @@ use roost_coord::middleware::rate_limit::DEFAULT_TOKENS_PER_WINDOW;
 /// budget is for the attempt.
 const PAIR_CREATE: &str = "/roost.v1.CoordinatorService/PairCreate";
 
-/// A read, which v2 does not limit: `MiscMetrics` is absent from
+/// A read, which is not limited: `MiscMetrics` is absent from
 /// `RATE_LIMITED_METHODS`, and a test that re-listed the methods here would be
 /// a second answer to which ones are limited.
 const MISC_METRICS: &str = "/roost.v1.CoordinatorService/MiscMetrics";
@@ -57,7 +57,7 @@ async fn an_unlimited_method_never_opens_a_bucket() {
     }
 }
 
-/// A browser sends a preflight before every non-simple request. v2 answers
+/// A browser sends a preflight before every non-simple request. The limiter answers
 /// `OPTIONS` before it checks a budget, and charging the preflight would halve
 /// every real caller's budget without limiting anything.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

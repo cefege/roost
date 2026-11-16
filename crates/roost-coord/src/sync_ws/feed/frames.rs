@@ -30,8 +30,7 @@ use crate::sync_ws::feed::{FeedFrame, FeedRefusal, as_u32, as_u64};
 ///
 /// The private kind is refused HERE rather than at the publisher, because this
 /// is the boundary a value crosses into a browser lane and a caller holding a
-/// batch of events must be able to drop this one and keep the rest
-/// (`sync-feed-frames.ts:170-180`).
+/// batch of events must be able to drop this one and keep the rest.
 pub fn session_message_frame(message: &SessionBusMessage) -> Result<FeedFrame, FeedRefusal> {
     let event = event_to_proto(&message.event, message.event_id.unwrap_or(0))?;
     Ok(FeedFrame::of(FirehoseFrame {

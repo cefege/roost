@@ -56,8 +56,7 @@ async fn a_foreign_host_is_refused_before_the_worker_upgrade_route_answers() {
 }
 
 /// A `Host` the operator declared as their front door is the coordinator's own,
-/// because a request through that door arrives bearing its name. v2 admits it
-/// for exactly this reason (`coordinator-request-admission.ts:25-26`).
+/// because a request through that door arrives bearing its name.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_declared_front_door_is_an_admitted_host() {
     let fixture = ListenerFixture::start(

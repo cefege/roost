@@ -2,8 +2,6 @@
 //! for it while it was away, and the delayed respawn-if-missing pass.
 //!
 //! Called by `worker_link::link_session` on its timer and after each dispatch.
-//! Ports the owed-reap delivery and `scheduleRespawn` of
-//! `apps/coord/src/workers/worker-conn.ts:151-160`.
 
 use std::sync::Arc;
 use std::time::Duration;

@@ -2,14 +2,12 @@
 //! cached-or-durable worker route, the owner-published terminal view, the
 //! screen replica's watermark, and the per-view geometry inputs the effective
 //! size was minimized over.
-//! Ports `apps/coord/src/diagnostics/diag-snapshot-session-state.ts`
-//! (`coordSessionDiagnostic`). Called by `diagnostics::diag_snapshot`; reads
-//! `services.byte_hub` and `services.views` and owns no state.
+//! Called by `diagnostics::diag_snapshot`; reads `services.byte_hub` and
+//! `services.views` and owns no state.
 //!
-//! `terminal_view` IS THE OWNER ROW OR NULL. v2 falls back to the
-//! coordinator-owned stream controller for an unowned session; this port
-//! dropped that controller (`terminal_view` module header), so such a session
-//! has no stream state and v2's fallback answers `null` there too.
+//! `terminal_view` IS THE OWNER ROW OR NULL. The coordinator owns no stream
+//! controller (`terminal_view` module header), so a session with no owner row
+//! has no stream state and the field is `null`.
 
 use std::collections::BTreeSet;
 
@@ -112,8 +110,8 @@ fn route_json(
     Value::Null
 }
 
-/// v2 `terminalScreenSnapshot`: null unless the replica both expects a stream
-/// and holds a baseline; `seq` is a decimal string so JSON cannot round it.
+/// Null unless the replica both expects a stream and holds a baseline;
+/// `seq` is a decimal string so JSON cannot round it.
 fn screen_json(services: &CoordServices, session_id: &SessionId) -> Value {
     let sessions = services.byte_hub.screens().locked_sessions();
     let Some(screen) = sessions.get(session_id) else {
@@ -132,7 +130,7 @@ fn screen_json(services: &CoordServices, session_id: &SessionId) -> Value {
     })
 }
 
-/// v2 `TerminalViewInput`, camelCase as the SPA and the smoke probe read it.
+/// One view's geometry input, camelCase as the SPA and the smoke probe read it.
 fn view_input_json(input: &ViewInput) -> Value {
     json!({
         "fingerprint": input.fingerprint,

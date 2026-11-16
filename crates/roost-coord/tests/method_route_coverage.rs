@@ -136,14 +136,14 @@ fn the_on_host_requirement_matches_v2_and_the_gate_does_not_yet_enforce_it() {
     // question, and for one row the two answers differ — so this test asserts
     // both, and the gap is the finding rather than a thing to paper over.
     //
-    // v2 has FIVE `assertOnHost` call sites (`middleware/caller-origin.ts:53`),
-    // and they are TWO DIFFERENT SHAPES which a port must not conflate:
+    // The on-host requirement has TWO DIFFERENT SHAPES which must not be
+    // conflated:
     //
-    //   * UNGUARDED `assertOnHost(...)` — a device key AND on-host. One site:
-    //     `handlers-system.ts:115`, on `MiscDbExportUrl`.
-    //   * `if (!caller) assertOnHost(...)` — on-host as an UNCREDENTIALED
-    //     FALLBACK, so an operator who has lost their only device can still
-    //     recover it. Four sites: pairing ×3 and `handlers-devices.ts:72`.
+    //   * UNGUARDED on-host check — a device key AND on-host. One site:
+    //     `MiscDbExportUrl`.
+    //   * on-host as an UNCREDENTIALED FALLBACK — so an operator who has lost
+    //     their only device can still recover it. Four sites: pairing ×3 and
+    //     the devices handler.
     //
     // `service::principal_satisfies` answers `is_browser` for
     // `Device` and `DeviceOnHost` alike, so it expresses NEITHER shape. The
@@ -166,10 +166,9 @@ fn the_on_host_requirement_matches_v2_and_the_gate_does_not_yet_enforce_it() {
 
     // The keeper update is the CONTRAST and the reason the set has one member:
     // it is host-local in the sense that it changes the binary every live PTY
-    // depends on, and v2 asserts NO locality for it —
-    // `handlers-workers-update.ts:83` is a bare `requireAccountDevice`, and
-    // `assertOnHost` appears at none of its five sites. Recording `Device`
-    // here is not a narrowing: it is what v2 enforces.
+    // depends on, yet it asserts NO locality — it is a bare device-key
+    // requirement. Recording `Device` here is not a narrowing: it is what the
+    // handler enforces.
     assert_eq!(
         auth_requirement("WorkersPrepareKeeperUpdate"),
         Some(AuthRequirement::Device),

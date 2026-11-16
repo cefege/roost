@@ -22,8 +22,8 @@ pub(super) enum Ending {
 /// Write one queued frame as protobuf binary.
 ///
 /// A frame that does not encode, or a write the socket refuses, ends the link
-/// with no code: v2's `sendProtocolFrame` closes on a thrown send so the worker
-/// reconnects and replays whatever was left unacknowledged.
+/// with no code, so the worker reconnects and replays whatever was left
+/// unacknowledged.
 pub(super) async fn write_downstream(
     socket: &mut WebSocket,
     frame: &CoordWorkerDownstream,

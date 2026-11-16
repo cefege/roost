@@ -1,28 +1,25 @@
 //! The exclusive drain a keeper update takes, and the leases every other
 //! mutation waits behind.
 //!
-//! Owned by the coordinator. Ports `apps/coord/src/coordinator-write-gate.ts`.
-//! The Connect interceptor leases from it
-//! (`apps/coord/src/auth/auth-interceptor.ts:201`) and the worker frame
-//! dispatcher checks it before acknowledging
-//! (`apps/coord/src/workers/worker-frame-dispatch.ts:122-127`). Exactly one
+//! Owned by the coordinator. The Connect interceptor leases from it and the
+//! worker frame dispatcher checks it before acknowledging. Exactly one
 //! instance exists per process and it is a field on the services struct, never
 //! a crate-root static.
 //!
 //! WHY IT IS EXCLUSIVE AT ALL. A keeper update replaces the binary every live
 //! PTY depends on. While the drain runs, an event that acknowledged "this PTY
 //! is live" would be lost if the process died, and the worker would never replay
-//! it -- so the gate withholds the acknowledgement rather than the write. The
-//! comment that states it: "A held keeper-update fence withholds the ACK so
-//! CoordLink replays the preserved entry after the update. Acking here loses the
-//! durable record of which PTYs are live."
+//! it -- so the gate withholds the acknowledgement rather than the write. A
+//! held keeper-update fence withholds the ACK so the worker link replays the
+//! preserved entry after the update; acking here loses the durable record of
+//! which PTYs are live.
 //!
 //! WHY TERMINAL WRITES DO NOT TAKE THE EXCLUSIVE LEASE. A user typing must not
-//! be able to hold the global drain open behind a per-session FIFO
-//! (`auth-interceptor.ts:114-116`): "Terminal writes acquire their lease only
-//! after entering the per-sender/session FIFO. Taking one here would let queued
-//! input or a prompt hold the exclusive keeper-update drain open." A port that
-//! puts `SessionsInput` in the lease list reintroduces exactly that.
+//! be able to hold the global drain open behind a per-session FIFO: terminal
+//! writes acquire their lease only after entering the per-sender/session FIFO,
+//! because taking one earlier would let queued input hold the exclusive
+//! keeper-update drain open. Putting `SessionsInput` in the lease list
+//! reintroduces exactly that.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -171,7 +168,7 @@ impl Drop for SharedLease {
 
 /// The RPC methods that take a shared lease, spelled as the **proto** method
 /// names because that is the string both the interceptor and the audit policy
-/// key on (`apps/coord/src/auth/auth-interceptor.ts:111-132`).
+/// key on.
 ///
 /// A method absent from this list is a durable mutation running unfenced; a
 /// method wrongly present is a read that can fail during a keeper update. The
@@ -235,10 +232,9 @@ pub fn method_holds_lease(method: &str) -> bool {
 
 /// The methods whose **successful** audit row carries no forensic signal.
 ///
-/// Failure rows stay durable for every one of them. The source names the reason
-/// for two entries specifically: `WorkersHeartbeat` and `MiscHealth` are volume
-/// with no signal, and `PairApprovalStatus` is "the approver's 1 Hz dialog poll"
-/// (`apps/coord/src/auth/auth-interceptor.ts:135-144`).
+/// Failure rows stay durable for every one of them. `WorkersHeartbeat` and
+/// `MiscHealth` are volume with no signal, and `PairApprovalStatus` is the
+/// approver's 1 Hz dialog poll.
 #[must_use]
 pub fn method_audit_skips_success(method: &str) -> bool {
     matches!(
@@ -264,10 +260,9 @@ pub fn method_audit_skips_success(method: &str) -> bool {
 
 /// The methods that never write an audit row at all, success or failure.
 ///
-/// One method: `PairPoll`. "Requester polling is token-bound but anonymous. Its
+/// One method: `PairPoll`. Requester polling is token-bound but anonymous. Its
 /// valid and invalid outcomes are high-volume, carry no caller identity, and
-/// must never create an unsweepable audit row."
-/// (`apps/coord/src/auth/auth-interceptor.ts:147-149`.) The same reasoning
+/// must never create an unsweepable audit row. The same reasoning
 /// reaches the rate limiter, which gives this one route 600 tokens a minute so
 /// every live requester behind one NAT can still poll -- see §4.11 of
 /// `docs/phase3-coord-contract.md`.
@@ -278,8 +273,7 @@ pub fn method_never_persists_audit(method: &str) -> bool {
 
 /// Whether an audit row is written for this outcome.
 ///
-/// The one special case is a test seam in the source
-/// (`apps/coord/src/auth/auth-interceptor.ts:155`): a **failed** `PairConfirm`
+/// The one special case: a **failed** `PairConfirm`
 /// persists even though a successful one does not, because "who tried to
 /// authorize which device, and failed" is the row an operator actually needs.
 #[must_use]

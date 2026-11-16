@@ -3,7 +3,6 @@
 //! live scope, reserved before any lookup, then correlated by the route owner.
 //! A refusal is answered at once; a control that reached the worker and then
 //! failed is not answered, because no truthful answer exists.
-//! Ports the claim/probe half of `apps/coord/src/terminal/input/sync-terminal-controls.ts`.
 
 use std::sync::Arc;
 

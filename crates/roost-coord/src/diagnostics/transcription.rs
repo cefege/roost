@@ -25,7 +25,7 @@ pub const DEEPGRAM_KEY_SETTING: &str = "transcription.deepgram_key";
 /// The `app_settings` key the dictation language lives under.
 pub const DEEPGRAM_LANGUAGE_SETTING: &str = "transcription.deepgram_language";
 
-/// The language a config that never set one reads as (`transcription.ts:17`).
+/// The language a config that never set one reads as.
 pub const DEFAULT_LANGUAGE: &str = "en";
 
 /// How long a provider that has not answered is given before the probe is
@@ -292,8 +292,8 @@ pub async fn stored_key(
 
 /// One `app_settings` row, by exact key and tenant.
 ///
-/// Scoped to the tenant the writes are stamped with, not to the
-/// `transcription.%` prefix v2 matched: a prefix read would let another
+/// Scoped to the tenant the writes are stamped with, not to a
+/// `transcription.%` prefix: a prefix read would let another
 /// dashboard's row answer for this one.
 async fn read_setting(
     pool: &AnyPool,

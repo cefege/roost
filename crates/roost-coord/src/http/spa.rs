@@ -7,15 +7,14 @@
 //! module owns only what that resolver cannot: reading the bytes, negotiating
 //! and memoizing the gzip body, and setting the response headers.
 //!
-//! WHAT IT REFUSES, AND WHY IT IS A LAYER RATHER THAN A ROUTE. v2 branches on
-//! the path inside one fetch handler (`coord-factory.ts:167-196`): Connect
-//! first, then the export, then `/api/*`, then the SPA. A middleware outside
-//! the router is that same order, and it has one property a `Router::fallback`
-//! does not: the mounted routes — the two WebSocket upgrades and the export —
-//! are never inspected as static paths, because the request still reaches them
-//! through the router untouched.
+//! WHAT IT REFUSES, AND WHY IT IS A LAYER RATHER THAN A ROUTE. The order is
+//! Connect first, then the export, then `/api/*`, then the SPA. A middleware
+//! outside the router keeps that order, and it has one property a
+//! `Router::fallback` does not: the mounted routes — the two WebSocket upgrades
+//! and the export — are never inspected as static paths, because the request
+//! still reaches them through the router untouched.
 //!
-//! The method rule is v2's (`spa.ts:161-163`): a page is GET or HEAD, and
+//! The method rule: a page is GET or HEAD, and
 //! anything else is 405 rather than a page. `/roost.`, `/internal/`, `/ws/` and
 //! `/api/` are excluded FIRST, so Connect, private routes, sockets and exports
 //! are exactly as they were.
@@ -279,7 +278,7 @@ async fn compressed(file: &Path, mount: &SpaMount) -> std::io::Result<Bytes> {
     Ok(body)
 }
 
-/// The response for a file already read, with v2's four header rules.
+/// The response for a file already read, with the four header rules.
 /// `content_encoding` is the coding the body already carries, if any.
 fn response(
     named: &str,
@@ -324,7 +323,7 @@ fn set(headers: &mut HeaderMap, name: header::HeaderName, value: &str) {
     }
 }
 
-/// A page path that is not GET or HEAD. v2's 405, for the same reason: a POST
+/// A page path that is not GET or HEAD. The answer is 405: a POST
 /// to `/s/:id` is a broken client, and answering it with the shell turns that
 /// into a page that silently does nothing.
 fn method_not_allowed() -> Response {

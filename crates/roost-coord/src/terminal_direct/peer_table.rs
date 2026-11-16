@@ -1,9 +1,7 @@
 //! The bounded bookkeeping of terminal-peer signaling: admissions claimed
 //! before authorization, reserved offers awaiting a typed worker answer, and
 //! the per-device and per-worker counts both are charged against.
-//! Owned by `peer_negotiations` behind its lock. Ports the admission and
-//! pending-map half of `apps/coord/src/terminal/direct/terminal-peer-negotiations.ts`
-//! (`claimAdmission`, `releaseAdmission`, `reserve`, `removePending`).
+//! Owned by `peer_negotiations` behind its lock.
 
 use std::collections::HashMap;
 use std::sync::Arc;

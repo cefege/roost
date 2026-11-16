@@ -1,10 +1,7 @@
 //! A worker's committed `opened` reaches the spawn it completes through the real
-//! durable dispatch arm, and only through that worker: the reconciliation v2
-//! runs at `apps/coord/src/workers/worker-frame-dispatch.ts:216`
-//! (`resolvePendingSpawnOpened`) after the append commits.
-//!
-//! Ports the durable-open half of `apps/coord/tests/sessions/pending-spawns.test.ts`
-//! "ambiguous failures reconcile with durable opened while definite failures reject".
+//! durable dispatch arm, and only through that worker: the pending spawn is
+//! reconciled after the append commits, which is how an ambiguous failure
+//! reconciles with a durable `opened` while a definite failure rejects.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

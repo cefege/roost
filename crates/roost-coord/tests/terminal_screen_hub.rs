@@ -2,9 +2,7 @@
 //! that refuses a delta seeded from the fold, history kept on live deltas but
 //! never in a recovery full, and one repair latched per failure.
 //!
-//! Ports the canonical-cache cases of
-//! `apps/coord/tests/terminal/screen/terminal-screen-hub.test.ts`; its two
-//! watcher-lifecycle cases are `terminal_screen_hub_lifecycle.rs`.
+//! The watcher-lifecycle cases are `terminal_screen_hub_lifecycle.rs`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod terminal_screen_hub_support;
@@ -15,8 +13,6 @@ use terminal_screen_hub_support::{
     delta_frame, full_frame, harness, request, row, row_chunks, session, texts, watch,
 };
 
-// v2 "folds deltas once and falls back to the folded baseline when a socket
-// cursor rejects".
 #[test]
 fn a_delta_is_folded_once_and_a_socket_that_refuses_it_is_seeded_from_the_fold() {
     let h = harness();
@@ -97,7 +93,6 @@ fn a_delta_is_folded_once_and_a_socket_that_refuses_it_is_seeded_from_the_fold()
     assert_eq!(texts(&late.last_seeded()), ["old-a", "new-b"]);
 }
 
-// v2 "validates legacy full history before storing a viewport-only cache".
 #[test]
 fn a_legacy_history_full_is_validated_then_stored_viewport_only() {
     let h = harness();
@@ -124,7 +119,6 @@ fn a_legacy_history_full_is_validated_then_stored_viewport_only() {
     assert!(canonical.scrollback_rows.is_empty() && canonical.scrollback_append.is_empty());
 }
 
-// v2 "keeps history on live deltas while recovery snapshots stay viewport-only".
 #[test]
 fn a_live_delta_keeps_its_history_but_a_recovery_full_is_viewport_only() {
     let h = harness();
@@ -156,7 +150,6 @@ fn a_live_delta_keeps_its_history_but_a_recovery_full_is_viewport_only() {
     assert!(seeded.scrollback_rows.is_empty() && seeded.scrollback_append.is_empty());
 }
 
-// v2 "publishes activation before cells and drops hidden socket state".
 #[test]
 fn a_stream_begins_before_its_cells_and_an_unwatched_socket_is_dropped() {
     let h = harness();
@@ -187,7 +180,6 @@ fn a_stream_begins_before_its_cells_and_an_unwatched_socket_is_dropped() {
     assert_eq!(sink.last_seeded().stream_id, OTHER_STREAM);
 }
 
-// v2 "ignores stale streams and latches one repair across wrong base and epoch".
 #[test]
 fn a_stale_stream_is_ignored_and_a_broken_delta_run_latches_one_repair() {
     let h = harness();
@@ -221,7 +213,6 @@ fn a_stale_stream_is_ignored_and_a_broken_delta_run_latches_one_repair() {
     );
 }
 
-// v2 "keeps the old baseline visible until a complete replacement assembles".
 #[test]
 fn the_old_baseline_stays_served_until_a_replacement_assembles_completely() {
     let h = harness();

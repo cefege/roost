@@ -361,8 +361,7 @@ pub(crate) fn report_confirmation(core: &CoordCore, ephemeral_id: &str, result: 
     if let Some(fingerprint) = &result.newly_authorized_fingerprint {
         // `refresh_jwt_key`, not an invalidation: the key was just authorized,
         // so a verifier that already loaded the row must stay valid and the
-        // confirming browser's very next RPC must find the new one. This is
-        // v2's `refreshJwtKey` (`handlers-pairing.ts:289`).
+        // confirming browser's very next RPC must find the new one.
         core.services.jwt_keys.refresh_jwt_key(fingerprint);
         tracing::info!(
             ephemeral_id,

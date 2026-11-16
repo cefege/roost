@@ -83,7 +83,7 @@ pub struct KeeperUpdateRequest {
 }
 
 impl KeeperUpdateRequest {
-    /// Validate the request, refusing in the order v2 asks its questions.
+    /// Validate the request, refusing in a fixed order.
     pub fn parse(
         request: roost_proto::WorkersPrepareKeeperUpdateRequest,
     ) -> Result<Self, KeeperUpdateRefusal> {
@@ -162,8 +162,7 @@ pub struct KeeperUpdateAdmission {
 /// The drain is a parameter rather than an assumption because the emptiness
 /// proof below is the only thing between this call and the destruction of every
 /// live PTY on the machine, and it is only valid while nothing can create a
-/// channel between the read and the worker's shutdown. This is the instant v2's
-/// final-empty-recheck test hook fires, made structural: a decision reached
+/// channel between the read and the worker's shutdown, so a decision reached
 /// outside the drain is refused rather than trusted.
 pub async fn decide_keeper_update(
     gate: &WriteGate,

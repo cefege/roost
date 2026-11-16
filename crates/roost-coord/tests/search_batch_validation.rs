@@ -1,8 +1,5 @@
 //! The batch-result checks that guard a cursor's row boundary and a page's
 //! match identities.
-//!
-//! Ported from the three `validateGlobalSearchGroupResult` tests at the end of
-//! `apps/coord/tests/search/global-search-cursors.test.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -81,9 +78,8 @@ fn duplicate_match_identities_in_a_batch_are_malformed() {
     );
 }
 
-/// v2's `WorkerGlobalSearchResultSchema` and `WorkerSearchScrollbackResultSchema`
-/// are `.strict()`: a batch, an entry, or a result naming a field the contract
-/// does not is malformed, never half-read.
+/// The worker result schemas are strict: a batch, an entry, or a result naming
+/// a field the contract does not is malformed, never half-read.
 #[test]
 fn a_field_outside_the_contract_makes_the_batch_malformed() {
     let valid = cursor_result(0, 2_048, "complete", json!([]));

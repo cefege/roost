@@ -1,9 +1,8 @@
 //! The security-header and CORS response layers, and the preflight they answer.
 //!
 //! Owned by the middleware stack; `http::listener` mounts [`security_layer`]
-//! below the admission gate. Port of `apps/coord/src/middleware/security.ts`
-//! and of the one CSP builder both roost HTTP doors share
-//! (`packages/host/src/http-security.ts`).
+//! below the admission gate. The CSP comes from the one builder both roost
+//! HTTP doors share (`roost_host::http_security::build_csp`).
 //!
 //! NONE OF THIS IS AN AUTHORIZATION DECISION. The admission gate above has
 //! already refused every request whose `Origin` is not on the allowlist, so
@@ -11,8 +10,8 @@
 //! which is why an origin that is not allowed gets no
 //! `Access-Control-Allow-Origin` here rather than a refusal.
 //!
-//! HSTS FOLLOWS `trust_proxy`, never the scheme of the connection
-//! (`bun-coordinator-listeners.ts:350`): the coordinator never terminates TLS
+//! HSTS FOLLOWS `trust_proxy`, never the scheme of the connection: the
+//! coordinator never terminates TLS
 //! (`listener.rs` module header), so only a front door that the operator trusts
 //! to terminate it can make the header true rather than a downgrade instruction
 //! to a browser that reached the loopback bind directly.
@@ -27,7 +26,7 @@ use roost_host::http_security::build_csp;
 use roost_protocol::wire::headers::X_ROOST_AUTH_LAYER;
 
 /// The two origins the transcription client is allowed to reach, in the order
-/// the CSP lists them (`security.ts:29-31`).
+/// the CSP lists them.
 const TRANSCRIPTION_ORIGINS: [&str; 2] = ["https://api.deepgram.com", "wss://api.deepgram.com"];
 
 /// The response header names this module writes, as the shared contract spells
@@ -70,7 +69,7 @@ pub struct SecurityOptions {
 /// directions: its SPA's fetches carry a bearer credential and no cookies, so
 /// allowing it for CORS grants reachability only, and a page this coordinator
 /// served dials that door's terminal socket, so it belongs in `connect-src`
-/// too (`security.ts:22-25`).
+/// too.
 #[must_use]
 pub fn security_options_for_config(config: &roost_host::CoordConfig) -> SecurityOptions {
     let mut cors_allowed_origins = vec![roost_host::DEFAULT_WORKER_LOCAL_UI_ORIGIN.to_owned()];
@@ -133,7 +132,7 @@ fn websocket_twin(origin: &str) -> String {
 /// Stamp the CORS headers for one request's origin.
 ///
 /// `Vary` is unconditional and the method/header permissions are unconditional
-/// too (`security.ts:65-67`): a cache that stored one response without them
+/// too: a cache that stored one response without them
 /// would hand a later origin a decision made for an earlier one.
 /// Add tokens to `Vary` without dropping the ones already there.
 ///

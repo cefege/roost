@@ -1,8 +1,7 @@
 //! The deduplicated per-socket ring of terminal lanes that have something to
 //! send, and the one-head materialisation that walks them.
 //!
-//! Owned by the Sync session. v2 kept this in `sync-ws-v2-terminal-ready.ts`
-//! and the reason it was split out survives the port: egress asks this owner
+//! Owned by the Sync session. It is a separate owner because egress asks it
 //! for the lane it just delivered to, or for one deferred retry, and NEVER
 //! scans every session. A socket carrying twelve terminals must not cost
 //! twelve cursor walks per flushed frame.
@@ -293,7 +292,7 @@ impl SyncV2Session {
     /// Queue the lane's oldest buffered delta. Its meta names the cursor's
     /// stream, as every cursor frame's does: the delivery that lifts the
     /// cursor's in-flight mark matches on it, and a delta without one leaves
-    /// the lane in flight forever (`sync-ws-v2-terminal-ready.ts:120-127`).
+    /// the lane in flight forever.
     fn pump_delta(
         &mut self,
         session_id: &str,

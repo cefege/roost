@@ -1,7 +1,6 @@
 //! The direct-attachment control senders: install and revoke a grant digest,
 //! offer and cancel an attachment peer, and ask for a durable receipt -- each
 //! written only through the exact worker generation its caller captured.
-//! Ports `apps/coord/src/attachments/worker-send-attachment-{grant,peer,status}.ts`.
 //! Called by `attachments::{grant, peer, status_results}`; every write goes
 //! through `workers::send::send_frame_through`, so no bytes or secrets pass here.
 
@@ -63,7 +62,7 @@ pub struct AttachmentPeerOfferSend {
 /// wait: the worker answers `rpc-ok` once the digest is stored.
 ///
 /// A generation that is no longer exact refuses before anything is correlated
-/// (v2 "worker offline"); a socket that drops the frame settles the wait as
+/// (a "worker offline" refusal); a socket that drops the frame settles the wait as
 /// `Unavailable` at once rather than leaving it to the deadline.
 pub fn send_local_attachment_grant_request(
     workers: &WorkerRegistry,

@@ -3,14 +3,11 @@
 //!
 //! Called by `sync_ws::socket` for every binary frame; the decision about what
 //! a v2 frame MEANS is `sync_ws::commands`, and this module is what acts on
-//! it. Ports `apps/coord/src/sync/sync-ws-client-ingress.ts` and the reply
-//! half of `sync-ws-v2-commands.ts` (domain resets, refusals, the audit
-//! toggle's reset notice).
+//! it.
 //!
-//! DECODED WITH NO ROOM FOR UNKNOWN FIELDS. v2 decodes with
-//! `readUnknownFields: false` and then refuses any frame whose canonical
-//! re-encoding differs from its bytes, so a frame carrying a field this build
-//! does not know closes `1008`. `buffa` keeps unknown fields and would
+//! DECODED WITH NO ROOM FOR UNKNOWN FIELDS. A frame whose canonical
+//! re-encoding differs from its bytes is refused, so a frame carrying a field
+//! this build does not know closes `1008`. `buffa` keeps unknown fields and would
 //! re-encode them, which would let such a frame pass the canonical check; an
 //! unknown-field budget of zero makes the decode itself refuse it, which is
 //! the same close for the same frame.
@@ -47,7 +44,7 @@ pub enum IngressEffect {
     /// Settle a layout acknowledgement against the UI runtime.
     LayoutResult(CommandOutcome),
     /// Replay a domain's retained state after its `domain_ready`, narrowed to
-    /// the admitted sessions for the terminal domain (`sync-ws-v2-commands.ts:133`).
+    /// the admitted sessions for the terminal domain.
     SeedDomain {
         /// The domain that became ready.
         domain: SyncDomain,
@@ -73,7 +70,7 @@ pub fn accept_client_frame(
     let mut guard = link.lock();
     let state = &mut *guard;
     // A socket that never negotiated the window reads nothing from its client,
-    // and a closing one reads nothing more (`sync-ws-client-ingress.ts:34`).
+    // and a closing one reads nothing more.
     let flow_control = match &state.delivery {
         Delivery::V1(v1) => v1.flow_control(),
         Delivery::V2(_) => true,
@@ -99,8 +96,8 @@ pub fn accept_client_frame(
             return IngressEffect::Nothing;
         }
         Delivery::V2(session) => {
-            // The command gate reads the socket's scope; v2 reads the LIVE set
-            // (`sync-ws-v2-commands.ts:124-126`), so it is refreshed for the
+            // The command gate reads the socket's scope, which is the LIVE set,
+            // so it is refreshed for the
             // one command that reads it rather than frozen at upgrade.
             if matches!(frame.command, Some(Command::DomainReady(_))) {
                 state
@@ -119,8 +116,7 @@ pub fn accept_client_frame(
 
 /// A text frame on a Sync socket: the client contract is binary only, so a
 /// socket that reads its client closes `1008`, and one that does not (no
-/// `flow=1`) ignores it like every other client frame
-/// (`sync-ws-client-ingress.ts:34-38`).
+/// `flow=1`) ignores it like every other client frame.
 pub fn refuse_text_frame(link: &SyncLink, now_ms: u64) {
     let mut state = link.lock();
     let reads_client = match &state.delivery {
@@ -239,7 +235,7 @@ fn log_refused_frame(
 }
 
 /// The reset an unsubscribe owes the client: the audit domain's new
-/// generation, unsubscribed (`sync-ws-v2-commands.ts:165-175`).
+/// generation, unsubscribed.
 fn announce_unsubscribed(state: &mut LinkState, now_ms: u64) {
     let Delivery::V2(session) = &state.delivery else {
         return;

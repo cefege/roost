@@ -2,7 +2,7 @@
 //! reaches the worker with its authenticated actor and its keeper-proven
 //! outcome returns on the control lane with a durable audit row; claims and
 //! probes are admitted only inside the socket's live scope; a closing socket
-//! retires the routes it claimed. Ports `apps/coord/tests/sync/sync-terminal-route-controls.test.ts`.
+//! retires the routes it claimed.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -202,8 +202,8 @@ fn claim(session_id: &str, generation: u64) -> Command {
     }))
 }
 
-// v2 sync-terminal-controls.ts handleSyncInput: accepted batches answer
-// `inputAccepted` with the command's generation, after the audit row lands.
+// Accepted batches answer
+// `input_accepted` with the command's generation, after the audit row lands.
 #[tokio::test]
 async fn a_sync_batch_reaches_the_worker_and_its_audited_acceptance_returns() {
     let mut hydrated = hydrated("input-accepted").await;
@@ -252,7 +252,7 @@ async fn a_sync_batch_reaches_the_worker_and_its_audited_acceptance_returns() {
     );
 }
 
-// v2: "does not claim a session outside the authenticated socket scope", and
+// A session outside the authenticated socket scope is not claimed, and
 // the same fence for input.
 #[tokio::test]
 async fn a_session_outside_the_socket_scope_is_refused_for_input_and_claims() {
@@ -291,7 +291,7 @@ async fn a_session_outside_the_socket_scope_is_refused_for_input_and_claims() {
     );
 }
 
-// v2: "does not probe a worker outside the authenticated socket scope"
+// A worker outside the authenticated socket scope is not probed.
 #[tokio::test]
 async fn a_probe_of_a_worker_outside_the_socket_scope_is_answered_empty() {
     let mut hydrated = hydrated("foreign-probe").await;
@@ -313,7 +313,7 @@ async fn a_probe_of_a_worker_outside_the_socket_scope_is_answered_empty() {
     assert!(result.worker_epoch.is_empty());
 }
 
-// v2 onV2Close: a claimed route is answered with the worker's validated result
+// On close, a claimed route is answered with the worker's validated result
 // under the browser's own nonce, and the socket's close retires it on the worker.
 #[tokio::test]
 async fn a_claimed_route_is_answered_and_retired_when_its_socket_closes() {

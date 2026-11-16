@@ -47,8 +47,7 @@ impl SessionsRuntime {
     }
 
     /// Reconcile a committed worker event with the spawn it may complete: a
-    /// durable `opened` resolves a spawn whose worker reply was lost (v2
-    /// `worker-frame-dispatch.ts` `resolvePendingSpawnOpened`). Any other event
+    /// durable `opened` resolves a spawn whose worker reply was lost. Any other event
     /// is not a spawn's, and `false` says so.
     pub fn resolve_spawn_on_opened(&self, worker_fp: &WorkerFp, event: &SessionEvent) -> bool {
         let SessionEvent::Opened {

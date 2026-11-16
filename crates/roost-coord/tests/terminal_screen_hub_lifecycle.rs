@@ -4,12 +4,9 @@
 //! callback may corrupt the watcher index, and a closed session releases its
 //! watchers and its resident bytes.
 //!
-//! Ports `apps/coord/tests/terminal/screen/terminal-screen-hub-lifecycle.test.ts`
-//! and the two watcher cases of `terminal-screen-hub.test.ts`. The index is
-//! observed through fan-out: a socket watches a session iff it hears that
-//! session's next stream. v2's "detaches every registration before disposing
-//! reentrant callbacks" is not ported: `dispose` runs only at v2 process exit
-//! (`main.ts:260`), and the Rust hub is dropped with its process.
+//! The index is observed through fan-out: a socket watches a session iff it
+//! hears that session's next stream. There is no `dispose` pass to test: the
+//! hub is dropped with its process.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod terminal_screen_hub_support;
@@ -42,9 +39,8 @@ fn heard(sink: &TestSink, session_id: &str, stream_id: &str) -> bool {
         .contains(&(session_id.to_owned(), stream_id.to_owned()))
 }
 
-// v2 terminal-screen-hub.test.ts "indexes watcher lifecycle through unwatch,
-// replacement, retirement, and session drop without scanning unrelated
-// sockets".
+// The index follows watcher lifecycle through unwatch, replacement, retirement,
+// and session drop without scanning unrelated sockets.
 #[test]
 fn replacing_a_socket_keeps_the_registration_its_retirement_installed() {
     let h = harness();
@@ -106,8 +102,7 @@ fn replacing_a_socket_keeps_the_registration_its_retirement_installed() {
     assert_eq!(closing.drops(), [SESSION]);
 }
 
-// v2 terminal-screen-hub.test.ts "copies watcher IDs before reentrant delta
-// callbacks".
+// Watcher IDs are copied before reentrant delta callbacks.
 #[test]
 fn a_delta_never_reaches_a_socket_unregistered_during_its_fan_out() {
     let h = harness();
@@ -144,8 +139,8 @@ fn a_delta_never_reaches_a_socket_unregistered_during_its_fan_out() {
     );
 }
 
-// v2 terminal-screen-hub-lifecycle.test.ts "detaches every old socket watch
-// before callback and preserves a reentrant replacement".
+// Unregistering detaches every old socket watch before the callback and
+// preserves a reentrant replacement.
 #[test]
 fn unregistering_detaches_every_watch_before_a_callback_reregisters_the_id() {
     let h = harness();
@@ -186,8 +181,7 @@ fn unregistering_detaches_every_watch_before_a_callback_reregisters_the_id() {
     );
 }
 
-// v2 terminal-screen-hub-lifecycle.test.ts "clears watches reinstalled by
-// stale session-drop callbacks".
+// A session drop clears watches reinstalled by stale session-drop callbacks.
 #[test]
 fn dropping_a_session_clears_a_watch_its_own_callbacks_reinstalled() {
     let h = harness();
@@ -221,10 +215,10 @@ fn dropping_a_session_clears_a_watch_its_own_callbacks_reinstalled() {
     );
 }
 
-// v2 terminal-view-hub.ts:258-260 subscribes the session bus and closes a
-// `closed` session, which ends in `screen.dropSession`; the retired-worker path
-// (`workerRetired`) closes the same way. The budget below holds one session's
-// viewport, so the second baseline fits only if the closed one was released.
+// A `closed` session event drops the session from the screen hub, and a
+// retired worker's sessions close the same way. The budget below holds one
+// session's viewport, so the second baseline fits only if the closed one was
+// released.
 #[test]
 fn a_closed_session_releases_its_watchers_and_its_resident_bytes() {
     let h = harness_with_caps(TerminalScreenCaps {

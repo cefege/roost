@@ -2,8 +2,6 @@
 //! sender lanes to exactly one keeper write each, their durable audit, and the
 //! typed input-route claims and probes a direct terminal route depends on.
 //! `TerminalInputRuntime` is built once on `CoordServices::terminal_input`.
-//! Ports `apps/coord/src/terminal/input/session-control.ts`, the facade whose
-//! exports this runtime and its modules are.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};

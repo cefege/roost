@@ -3,8 +3,7 @@
 //! worker-generation fences. Typed worker answers never use generic RPC JSON,
 //! and credentials, SDP and candidates never enter a coordinator log line.
 //! Built once on `AttachmentsRuntime`; called by `rpc_direct`, settled by
-//! `worker_link::direct_results`; its table is `peer_table`. Ports
-//! `apps/coord/src/attachments/attachment-peer-negotiations.ts`.
+//! `worker_link::direct_results`; its table is `peer_table`.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
@@ -53,7 +52,7 @@ impl std::fmt::Debug for AttachmentPeerNegotiations {
     }
 }
 
-/// Releases an admission that never became a pending offer (v2's `finally`).
+/// Releases an admission that never became a pending offer.
 struct AdmissionRelease<'a> {
     owner: &'a AttachmentPeerNegotiations,
     key: Option<PeerKey>,
@@ -67,8 +66,8 @@ impl Drop for AdmissionRelease<'_> {
     }
 }
 
-/// A browser that abandons its call cancels its offer on the worker too
-/// (v2's abort listener); a settled offer is already gone, so this no-ops.
+/// A browser that abandons its call cancels its offer on the worker too; a
+/// settled offer is already gone, so this no-ops.
 struct AbandonCancel<'a> {
     owner: &'a AttachmentPeerNegotiations,
     request_id: String,

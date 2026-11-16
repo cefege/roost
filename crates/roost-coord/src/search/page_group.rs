@@ -2,11 +2,9 @@
 //! `search-scrollback-batch`, settle the reply within the page deadline, and
 //! turn the answer (or its absence) into per-session outcomes.
 //!
-//! Ports the per-group body of `sessionsSearchGlobal` in
-//! `apps/coord/src/search/handlers-sessions-global-search.ts`. Called by
-//! `search::rpc_search` once per online worker, concurrently; correlates
-//! through `services.scrollback.pending()` and sends through the one gate,
-//! `workers::send::send_frame_through`.
+//! Called by `search::rpc_search` once per online worker, concurrently;
+//! correlates through `services.scrollback.pending()` and sends through the
+//! one gate, `workers::send::send_frame_through`.
 
 use std::time::Duration;
 

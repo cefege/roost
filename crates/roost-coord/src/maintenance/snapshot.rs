@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use crate::db::{CoordDb, DbError};
 
 /// The digest is streamed in slices of this size, for the same reason the
-/// backup compresses in slices (`snapshot.ts:7`).
+/// backup compresses in slices.
 pub const SNAPSHOT_HASH_CHUNK_BYTES: usize = 1024 * 1024;
 
 /// Why a snapshot could not be produced.
@@ -44,12 +44,12 @@ pub struct SqliteSnapshot {
 /// Take a consistent, verified copy of `database` at `destination`.
 ///
 /// Any failure removes the destination: a partial snapshot must never escape
-/// to the caller (`snapshot.ts:5`).
+/// to the caller.
 pub async fn create_sqlite_snapshot(
     database: &CoordDb,
     destination: &Path,
 ) -> Result<SqliteSnapshot, SnapshotError> {
-    // Never inherit a previous file (`snapshot.ts:9`).
+    // Never inherit a previous file.
     super::remove_file_if_present(destination).await?;
     let outcome = snapshot_into(database, destination).await;
     if outcome.is_err() {
@@ -68,10 +68,10 @@ async fn snapshot_into(
     database.vacuum_into(destination).await?;
     super::set_owner_only_file(destination).await?;
 
-    // v2 reopened the COPY read-only and checked it (`snapshot.ts:22-27`). This
-    // checks the live handle instead, because `db.rs` deliberately exposes one
-    // database handle and one notion of "the database is healthy", and a second
-    // open of the copy would be a second one. A corrupt source fails the
+    // The check runs on the live handle rather than on a reopened copy,
+    // because `db.rs` deliberately exposes one database handle and one notion
+    // of "the database is healthy", and a second open of the copy would be a
+    // second one. A corrupt source fails the
     // `VACUUM INTO` above outright, so the check is a gate on a source that
     // already copied, not a substitute for the copy.
     if !database.integrity_check().await? {

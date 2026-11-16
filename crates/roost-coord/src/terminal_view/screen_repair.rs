@@ -1,9 +1,6 @@
 //! The screen replica's owner in a coordinator whose workers own their
 //! terminal views: a lost baseline is repaired by the session's owning worker.
 //!
-//! Ports the owner-mode answers of the `TerminalScreenHub` callbacks v2 wires in
-//! `terminal/view/terminal-view-stream-controller.ts:50-68` and
-//! `terminal-view-stream-snapshot-request.ts:31-38` (`repairUnownedSession`).
 //! `services.rs` installs it into the screen hub; the hub calls it.
 
 use std::sync::{Arc, Weak};

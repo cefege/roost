@@ -3,7 +3,7 @@
 //! revoked or closed generation's end fails. Kept apart from terminal peer
 //! negotiation; grant authority stays in `AttachmentGrantOwner`.
 //! Called by `worker_link::link_session` (acknowledgement) and registered on
-//! `CoordServices::worker_lifecycle`. Ports `apps/coord/src/attachments/worker-conn-attachment.ts`.
+//! `CoordServices::worker_lifecycle`.
 
 use std::sync::Arc;
 
@@ -17,8 +17,7 @@ use crate::coord_core::worker_lifecycle::{LinkEnd, WorkerLifecycleObserver};
 
 /// Acknowledge the attachment peer capability exactly when the operator enabled
 /// direct peers and the worker advertised it. An unbooted coordinator has no
-/// configuration that enables peers, as v2's optional `cfg` reads
-/// (`deps.cfg?.terminalPeerEnabled === true`).
+/// configuration that enables peers.
 pub fn acknowledge_attachment_peer_capability(
     boot: &BootFacts,
     advertised: &[String],
@@ -58,7 +57,7 @@ impl AttachmentWorkerLifecycle {
         Self { peers, statuses }
     }
 
-    /// v2 `cancelAttachmentDirectWorkerResults`: both owners, same handle, same reason.
+    /// Both owners, same handle, same reason.
     fn cancel_attachment_direct_worker_results(&self, worker: &Arc<WorkerHandle>, reason: &str) {
         self.peers.cancel_for_worker_handle(worker, reason);
         self.statuses.cancel_for_worker_handle(worker, reason);

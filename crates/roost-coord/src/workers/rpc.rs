@@ -1,13 +1,11 @@
 //! The five worker RPCs, each a `handle_*` the service impl delegates to.
 //!
-//! Ported from `apps/coord/src/workers/handlers-workers.ts` and
-//! `apps/coord/src/workers/handlers-workers-heartbeat.ts`. The methods are not
-//! applied to `rpc::service_impl.rs` here: that file holds the ONE `impl
-//! CoordinatorService` block, so it is written once by the integrator.
+//! The service impl in `rpc::service_impl.rs` is the ONE `impl
+//! CoordinatorService` block, so these are plain functions it calls.
 //!
 //! EVERY MUTATION LEASES FROM THE ONE WRITE GATE. `WorkersHeartbeat` reads like
 //! a read and is a durable write, which is why `write_gate::method_holds_lease`
-//! names it (`write_gate.rs:189-195`); the lease is taken here rather than in
+//! names it; the lease is taken here rather than in
 //! the interceptor because a handler is also the only place a test can hold the
 //! gate and watch a mutation be refused.
 //!
@@ -148,8 +146,7 @@ pub async fn handle_workers_heartbeat(
         HeartbeatOutcome::Refused { cleared, malformed } => {
             // A malformed keeper proof clears a field the fleet view renders, so
             // it rides the full record; a malformed capacity report does not, so
-            // it rides the light beat. v2 makes the same split
-            // (`handlers-workers-heartbeat.ts:113-126`).
+            // it rides the light beat.
             let presence = if malformed == MalformedClaim::KeeperRuntime {
                 registered_presence(&cleared)?
             } else {
@@ -251,7 +248,7 @@ fn fence_deleted_worker(core: &CoordCore, fingerprint: &WorkerFp) {
 
 /// The volatile state a delete has to clear, one isolated step at a time.
 ///
-/// The order is v2's (`handlers-workers.ts:247-272`) and each step has a
+/// The order is fixed and each step has a
 /// different owner: the key cache is the auth domain's, the routes are the byte
 /// hub's, the views are the view hub's, the open Sync sockets are the feed's,
 /// the two buses are this domain's. The
@@ -299,7 +296,7 @@ fn release_worker_state(core: &CoordCore, fingerprint: &WorkerFp, persisted: &[S
     });
 }
 
-/// A shared write lease, or the refusal v2's gate throws.
+/// A shared write lease, or the gate's refusal.
 fn lease(core: &CoordCore) -> Result<SharedLease, ConnectError> {
     core.services
         .write_gate()
@@ -326,8 +323,8 @@ fn account_device(caller: &Caller) -> Result<&str, ConnectError> {
 /// The refusal for a fingerprint with no live row, naming a tombstone when
 /// there is one.
 ///
-/// v2 answers "worker not registered; redeem bootstrap token first" for both
-/// cases, which sends an operator whose machine was deleted looking for a token
+/// Answering "worker not registered; redeem bootstrap token first" for both
+/// cases would send an operator whose machine was deleted looking for a token
 /// problem. The tombstone is the fact that explains the refusal, and it is the
 /// only thing on the row that says an operator did this on purpose.
 async fn not_enrolled(database: &CoordDb, fingerprint: &str) -> ConnectError {

@@ -3,9 +3,7 @@
 //! admission rules a frame must pass to be held.
 //!
 //! Owned by `worker_link::announced_barrier`, which decides when a channel
-//! drains or drops. Ports the per-channel half of
-//! `apps/coord/src/events/announced-channel-barrier.ts` (`AnnouncedChannel`,
-//! `BufferedFrame`, and `enqueue`'s refusal order, `:139-237`).
+//! drains or drops.
 
 use roost_protocol::wire::coord_worker::{CoordWorkerUpstream, TerminalMetadata};
 use tokio::time::Instant;
@@ -106,8 +104,8 @@ impl Channel {
         }
     }
 
-    /// Hold one frame, or name the drop it earns and what it cost
-    /// (`announced-channel-barrier.ts:139-237`, in its order).
+    /// Hold one frame, or name the drop it earns and what it cost; the
+    /// refusals are checked in a fixed order.
     pub(super) fn admit(
         &mut self,
         frame: CoordWorkerUpstream,

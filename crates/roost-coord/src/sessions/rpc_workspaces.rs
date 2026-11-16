@@ -1,7 +1,6 @@
 //! The five workspace Connect methods, and the one write whose ORDER is the
 //! request's own semantics: a membership rewrite that must collect the
 //! workspaces it empties. Everything a write is made of is in `workspaces.rs`.
-//! Ported from `apps/coord/src/sessions/handlers-workspaces.ts`.
 //!
 //! EVERY MUTATION LEASES FROM THE ONE WRITE GATE, in the handler rather than the
 //! interceptor because a handler is the only place a test can hold the gate and

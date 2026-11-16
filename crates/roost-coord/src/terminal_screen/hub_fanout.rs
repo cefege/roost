@@ -2,9 +2,7 @@
 //! socket from the replica, and carrying out what an admission decided once
 //! every hub lock is released.
 //!
-//! Ports the socket fan-out of `apps/coord/src/terminal/screen/terminal-screen-hub.ts`
-//! (`registerSocket`, `setWatching`, `seedSocket`, `resyncSocket`,
-//! `forEachWatcher`). Called by the Sync socket's view sink and its rebaseline
+//! Called by the Sync socket's view sink and its rebaseline
 //! hub; the effects are produced by `replica`, `replica_admission` and
 //! `snapshot_controller`.
 
@@ -263,8 +261,7 @@ impl ScreenHub {
     ///
     /// A socket effect reaches its watcher only if that registration still
     /// watches the session when its turn comes: an earlier sink in the same
-    /// fan-out may have unregistered it (v2 `forEachWatcher` re-reads the
-    /// index per callback).
+    /// fan-out may have unregistered it, so the index is re-read per callback.
     pub(crate) fn run_effects(self: &Arc<Self>, effects: Vec<ScreenEffect>) {
         for effect in effects {
             match effect {

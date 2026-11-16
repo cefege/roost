@@ -2,10 +2,9 @@
 //! its durable-event window, the owed reaps it carries, and the teardown that
 //! gives all of it back.
 //!
-//! Called only by `worker_link::connection`'s read loop. Ports the post-hello
-//! half of `apps/coord/src/workers/worker-conn.ts` (hello admission, pong,
-//! supersede, revoke, close) and the per-message admission of
-//! `worker-ws-handler.ts` (superseded fence, readiness gate, rate window, the
+//! Called only by `worker_link::connection`'s read loop. It owns the post-hello
+//! half of the link (hello admission, pong, supersede, revoke, close) and the
+//! per-message admission (superseded fence, readiness gate, rate window, the
 //! announce-append-commit order); the completion lane and the announced-channel
 //! barrier beside a durable append are `worker_link::result_lane`'s.
 
@@ -330,7 +329,7 @@ impl LinkSession {
     ///
     /// Superseded: the newer hello already asked this socket to close, so it
     /// closes with no code. Fenced with nothing replacing it: the credential was
-    /// revoked under the socket, and v2 ends that socket `4001 revoked`.
+    /// revoked under the socket, and that socket ends `4001 revoked`.
     fn fenced_close(&mut self) -> Option<SocketClose> {
         if !self.handle.is_revoked() {
             return None;
@@ -348,7 +347,7 @@ impl LinkSession {
         })
     }
 
-    /// Give the generation back (v2 `close`, and `revoke` for a fenced one).
+    /// Give the generation back, on close and on revoke of a fenced one.
     pub(super) fn end(mut self) {
         self.keepalive.stop();
         let was_revoked = self.handle.is_revoked();
@@ -384,7 +383,7 @@ impl LinkSession {
 
 /// The handle's `send`: enqueue for the read loop, answering a non-zero
 /// sequence while the loop still reads and zero once it has gone, which is the
-/// transport's "dropped" (`worker_handle.rs`, v2's `ws.send`).
+/// transport's "dropped" (`worker_handle.rs`).
 fn enqueue_into(
     outbound: mpsc::UnboundedSender<CoordWorkerDownstream>,
 ) -> Arc<dyn Fn(CoordWorkerDownstream) -> i64 + Send + Sync> {

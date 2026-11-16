@@ -1,7 +1,6 @@
 //! `SessionsGetScrollbackCells`, `SessionsSearchScrollback` and
 //! `SessionsCancelScrollbackSearch`.
 //!
-//! Ported from `apps/coord/src/terminal/screen/handlers-sessions-scrollback.ts`.
 //! Searches and history pages run on the WORKER, because the SPA holds only a
 //! bounded window of the authoritative grid; this module owns the request's
 //! shape, the correlation, the refusal wording, and the answer's validation.
@@ -39,7 +38,7 @@ use crate::terminal_screen::scrollback_window::ScrollbackWindow;
 
 /// The deadline a history PAGE is served under.
 ///
-/// v2 passes 8000 here rather than `TERMINAL_SEARCH_RPC_DEADLINE_MS`. The two
+/// This is 8000 rather than `TERMINAL_SEARCH_RPC_DEADLINE_MS`. The two
 /// are the same number today and are named separately because they answer to
 /// different budgets: conflating them is how a page deadline ends up owned by
 /// search policy, and the page is the path a scrollbar drags on.
@@ -205,8 +204,7 @@ pub async fn handle_sessions_cancel_scrollback_search(
     let viewer_id =
         ScrollbackRelay::cancel_viewer_id(caller.fingerprint(), caller.tab_id.as_deref());
     // Recorded BEFORE the worker is reached, so a cancel that fails to send
-    // still retires a search that has not been forwarded yet -- which is the
-    // ordering that v2 has no way to express.
+    // still retires a search that has not been forwarded yet.
     let identity = relay.search_identity(&viewer_id, &session, &req.search_id);
     relay.record_cancel(&identity);
     let binding = relay

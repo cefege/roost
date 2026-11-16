@@ -15,8 +15,8 @@
 //! request is a guard that fires all the time, and teaches its reader to ignore
 //! it.
 //!
-//! THE UPGRADES AND THE RETIRED `Sync` ARE ANSWERED ABOVE THIS BLOCK IN v2
-//! (`bun-coordinator-listeners.ts:324-340`), so they get no row here either. A
+//! THE UPGRADES AND THE RETIRED `Sync` ARE ANSWERED ABOVE THIS BLOCK, so
+//! they get no row here either. A
 //! WebSocket upgrade is not a request/response pair at all -- its lifetime is
 //! the socket, and the refusal that matters is the one the upgrade's own
 //! admission module logs with the caller's fingerprint.
@@ -24,11 +24,11 @@
 //! THE TELEMETRY LABEL IS RECORDED HERE, FOR EVERY RESPONSE ON THIS SURFACE.
 //! It is deliberately not behind the `should_persist_non_connect_audit` check:
 //! that check is about what is durable, and a 404 that persists nothing is
-//! still a request `MiscMetrics` has to be able to count. v2's note for the same
-//! call is that a static success and an unmatched `/api/*` probe "each retain
-//! one bounded metric label but do not let arbitrary Internet paths amplify
-//! durable SQLite rows or telemetry keys" (`coord-factory.ts:206-216`) — the
-//! label is collapsed in [`bounded_label`], which is the whole of the bound.
+//! still a request `MiscMetrics` has to be able to count. A static success and
+//! an unmatched `/api/*` probe each retain one bounded metric label but do not
+//! let arbitrary Internet paths amplify durable SQLite rows or telemetry keys
+//! -- the label is collapsed in [`bounded_label`], which is the whole of the
+//! bound.
 ///
 /// A CONNECT PATH IS NOT COUNTED HERE, and the reason is that nothing writes
 /// its audit row yet: `AuditRecord::connect` does not exist, so there is no
@@ -62,13 +62,11 @@ const TRACE_ID_HEADER: &str = "x-roost-trace-id";
 /// The API namespace, which no route owns outside the export.
 const API_PREFIX: &str = "/api/";
 
-/// The one label a page load contributes, whatever it asked for. v2's
-/// `SPA_AUDIT_TELEMETRY_PATH`; a per-path label would let an Internet probe
-/// invent one key per request.
+/// The one label a page load contributes, whatever it asked for; a per-path
+/// label would let an Internet probe invent one key per request.
 const SPA_LABEL: &str = "<spa-static>";
 
-/// The one label an unmatched API probe contributes. v2's
-/// `API_NOT_FOUND_AUDIT_PATH`.
+/// The one label an unmatched API probe contributes.
 const API_404_LABEL: &str = "<api-404>";
 
 /// The proto service namespace, which Connect owns.
@@ -114,7 +112,7 @@ fn surface_of(method: &str, path: &str, spa_available: bool) -> Option<NonConnec
         return Some(NonConnectSurface::DbExport);
     }
     // A `POST` to the proto namespace that Connect did not claim is an API
-    // miss, not a page (`coord-factory.ts:174-176`).
+    // miss, not a page.
     if path.starts_with(API_PREFIX) || (method == "POST" && path.starts_with(PROTO_PREFIX)) {
         return Some(NonConnectSurface::Api);
     }
@@ -147,7 +145,7 @@ fn bounded_label(surface: NonConnectSurface, path: &str, status: u16) -> String 
         NonConnectSurface::Api if status == 404 => API_404_LABEL.to_owned(),
         // The export is ONE path, so its real name is already bounded — and a
         // label that says which export was asked for is worth more than a fixed
-        // one. v2 makes the same choice (`coord-factory.ts:212-215`).
+        // one.
         NonConnectSurface::Api | NonConnectSurface::DbExport => path.to_owned(),
     }
 }
@@ -169,8 +167,7 @@ pub async fn audit_layer(
     // The bounded telemetry label, recorded for EVERY response on this surface
     // and not only for the ones that persist a row: a static success and an
     // unmatched probe each happened, and the counter that `MiscMetrics` reports
-    // is the only place either of them is visible afterwards. v2 records the
-    // same call for the same reason (`security.ts:147-149`), and the label is
+    // is the only place either of them is visible afterwards. The label is
     // collapsed HERE rather than at the counter, because the path is the one
     // dimension a caller can grow without bound.
     mount

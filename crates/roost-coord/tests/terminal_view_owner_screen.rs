@@ -3,8 +3,7 @@
 //! until its last view goes inactive, a lost baseline is repaired by the
 //! owning worker, and only the decision that attaches a socket seeds it.
 //!
-//! Ports the screen cases of `apps/coord/tests/terminal/view/terminal-view-owner-mode.test.ts`;
-//! its relay cases are `terminal_view_relay.rs`. The socket below stands in
+//! The relay cases are `terminal_view_relay.rs`. The socket below stands in
 //! for `sync_ws::terminal::screen_socket::SyncScreenSocket`: its view sink
 //! reaches the replica exactly as that one does.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -203,8 +202,6 @@ fn served(sink: &TestSink) -> Vec<(String, String)> {
         .collect()
 }
 
-// v2 "cells fan out to an owner-mode socket and stop when its last view goes
-// inactive".
 #[test]
 fn cells_reach_an_owner_mode_socket_until_its_last_view_goes_inactive() {
     let owned = Owned::new();
@@ -224,8 +221,6 @@ fn cells_reach_an_owner_mode_socket_until_its_last_view_goes_inactive() {
     );
 }
 
-// v2 "a replica whose baseline is lost obtains a source full from the owning
-// worker".
 #[test]
 fn a_lost_baseline_is_repaired_by_the_owning_worker_once() {
     let owned = Owned::new();
@@ -251,7 +246,6 @@ fn a_lost_baseline_is_repaired_by_the_owning_worker_once() {
     );
 }
 
-// v2 "a lease heartbeat on an attached view pushes no second baseline".
 #[test]
 fn a_lease_heartbeat_on_an_attached_view_pushes_no_second_baseline() {
     let owned = Owned::new();
@@ -265,8 +259,6 @@ fn a_lease_heartbeat_on_an_attached_view_pushes_no_second_baseline() {
     assert_eq!(cells.snapshots().len(), 1);
 }
 
-// v2 "a socket attaching to a stream the replica already holds is seeded from
-// it".
 #[test]
 fn a_socket_attaching_to_a_held_stream_is_seeded_from_the_replica() {
     let owned = Owned::new();
@@ -284,7 +276,6 @@ fn a_socket_attaching_to_a_held_stream_is_seeded_from_the_replica() {
     );
 }
 
-// v2 "a new stream id asks for no source full".
 #[test]
 fn a_new_stream_id_asks_the_owner_for_no_source_full() {
     let owned = Owned::new();

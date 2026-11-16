@@ -33,8 +33,7 @@ use crate::push::vapid::{P256KeypairGenerator, VapidKeyStore, VapidKeys};
 /// operator config, the tenancy scope rows are written under, and the VAPID
 /// identity shared by the RPC and delivery.
 ///
-/// This is v2's `ConnectDeps` narrowed to the three values the push surface
-/// actually reads (`cfg`, `db`, `selfHostedTenant`), carried on `CoordCore` so
+/// The three values the push surface actually reads, carried on `CoordCore` so
 /// a handler reaches them without the service impl.
 #[derive(Clone)]
 pub struct PushRuntime {

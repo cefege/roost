@@ -112,7 +112,7 @@ pub fn request_targets(
         .collect()
 }
 
-/// One worker-stream stage per target, as v2's `pipelineReply` builds it.
+/// One worker-stream stage per target.
 pub fn pipeline_reply(
     request_id: &str,
     targets: &[TerminalPipelineDiagnosticTarget],

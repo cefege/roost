@@ -2,8 +2,7 @@
 //! terminal authenticates with, and the signaling that negotiates a WebRTC peer
 //! over one. `TerminalDirectRuntime` is built once on
 //! `CoordServices::terminal_direct`; its negotiations are also a worker
-//! lifecycle observer. Ports the `TerminalGrantOwner`/`TerminalPeerNegotiations`
-//! composition of `apps/coord/src/coord-factory.ts` and `main.ts`'s revocation hook.
+//! lifecycle observer.
 
 use std::num::NonZeroU64;
 use std::sync::Arc;
@@ -92,15 +91,14 @@ impl TerminalDirectRuntime {
 
     /// Retire a deleted or revoked worker's direct transport before its
     /// generation is fenced. A failure is logged, never propagated: the caller's
-    /// irreversible commit already happened (v2 `handlers-workers.ts:210-218`).
+    /// irreversible commit already happened.
     pub fn retire_worker(&self, worker_fp: &str, reason: TerminalDirectRetireReason) {
         if let Err(error) = self.grants.retire_worker(worker_fp, reason) {
             tracing::warn!(worker_fp, %error, "terminal direct: terminal_retirement_failed");
         }
     }
 
-    /// Drop a revoked key's grants everywhere, as a device and as a worker
-    /// (v2 `main.ts` `closeRevokedSockets`).
+    /// Drop a revoked key's grants everywhere, as a device and as a worker.
     pub fn release_revoked_key(&self, fingerprint: &str) {
         self.retire_worker(fingerprint, TerminalDirectRetireReason::WorkerRevoked);
         if let Err(error) = self.grants.revoke_device(fingerprint) {

@@ -31,7 +31,7 @@ mod ui_debug;
 /// The stamp is **internal**: it is never a wire field. It exists so the Sync
 /// feed can order what it receives against what `get_event_max_id` returns from
 /// the same log, which is what makes the recovery cutoff stable
-/// (`buses.ts:15-19`, `docs/phase3-coord-contract.md` §3.8).
+/// (`docs/phase3-coord-contract.md` §3.8).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SessionBusMessage {
     /// The committed public event.
@@ -124,7 +124,7 @@ pub enum PairRequestDelta {
 ///
 /// `caller_label` is null on every value this bus ever sees: the interceptor
 /// writes the row before it knows the key's label, and the label is joined at
-/// read time (`apps/coord/src/middleware/security.ts:215`). The field exists
+/// read time. The field exists
 /// because the Sync frame carries it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuditRow {
@@ -225,9 +225,8 @@ pub struct WorkerRoutableSet {
 /// Session-scoped presence: viewers, input claims, and the other ephemeral facts
 /// a viewer needs about a session it is watching.
 ///
-/// The payload is opaque by construction. v2 typed it `unknown` and stringified
-/// it straight into `SessionPresence.payload_json`
-/// (`apps/coord/src/sync/sync-feed.ts:245`), so the Sync feed can filter a
+/// The payload is opaque by construction: it is stringified straight into
+/// `SessionPresence.payload_json`, so the Sync feed can filter a
 /// presence update addressed to a *different* viewer without this bus knowing
 /// the shape.
 #[derive(Debug, Clone, PartialEq)]

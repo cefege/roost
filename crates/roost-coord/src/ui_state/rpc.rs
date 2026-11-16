@@ -1,11 +1,10 @@
 //! The four browser UI Connect methods: report, list, dispatch, apply.
 //!
-//! Ported from `apps/coord/src/ui-state/handlers-ui.ts`. Every method requires
-//! the account device principal and validates the caller's own text before it
-//! reaches the database, the retained state or the UI bus; the apply
-//! additionally reserves the target's exact live socket and waits for that
-//! tab's acknowledgement. The tab a method acts on is the body's tab id, never
-//! the caller's own tab header, exactly as v2 reads it.
+//! Every method requires the account device principal and validates the
+//! caller's own text before it reaches the database, the retained state or the
+//! UI bus; the apply additionally reserves the target's exact live socket and
+//! waits for that tab's acknowledgement. The tab a method acts on is the
+//! body's tab id, never the caller's own tab header.
 //!
 //! THE RETAINED STATE IS REACHED THROUGH THE CORE, NOT PASSED IN. Each handler
 //! takes `(core, caller, request)` -- the shape every Connect method in this

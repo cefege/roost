@@ -2,12 +2,9 @@
 //! against a push service on a loopback socket: what one delivery puts on the
 //! wire, and how each answer becomes the status the sender prunes on.
 //!
-//! Ports the transport half of `apps/coord/tests/push/push-delivery-sender.test.ts`
-//! ("prunes 404 and 410 subscriptions without exposing endpoints"; "bounds
-//! sends to four, applies the timeout, and never retries redirects"). v2
-//! substituted `sendNotification`; this drives the real encryption, VAPID
-//! signature and HTTP request, so the headers, the timeout and the redirect
-//! refusal are observed at a socket rather than asserted of a double.
+//! This drives the real encryption, VAPID signature and HTTP request, so the
+//! headers, the timeout and the redirect refusal are observed at a socket
+//! rather than asserted of a double.
 //!
 //! `unwrap` and `expect` are denied outside `#[cfg(test)]`, and an integration
 //! test is its own crate rather than a module of one, so the exemption has to
@@ -163,8 +160,8 @@ async fn a_delivery_is_one_encrypted_post_signed_with_the_stored_vapid_identity(
     );
 
     // `vapid t=<jwt>, k=<public key>`: the key is the one `PushGetConfig` gave
-    // the browser, and the token's claims name this push service and v2's
-    // subject.
+    // the browser, and the token's claims name this push service and the
+    // configured subject.
     let keys = fixture
         .push
         .keys(fixture.database())

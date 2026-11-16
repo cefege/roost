@@ -1,8 +1,6 @@
 //! The terminal-pipeline evidence boundary: the wire-shape check the worker
 //! frame dispatcher runs before it settles a pending pipeline sample, target
 //! normalization, and the reply-matches-request check the requester applies.
-//! Ports the validation half of
-//! `apps/coord/src/terminal/screen/worker-terminal-pipeline-snapshot.ts`.
 //! Called by `worker_link::live_frames`, `pipeline_request` and `pipeline_cache`.
 
 use std::collections::{BTreeMap, HashSet};

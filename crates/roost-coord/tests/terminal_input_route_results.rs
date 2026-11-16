@@ -1,7 +1,6 @@
 //! Typed input-route claim and probe correlation against a fake current worker
 //! generation: outer-id fencing, socket cancellation, bounded admission, and
 //! retirement across a same-epoch reconnection, with no coordinator running.
-//! Ports `apps/coord/tests/terminal/input/terminal-input-route-results.test.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -131,7 +130,6 @@ fn failure_code(outcome: Result<impl Sized, RouteControlError>) -> ErrorCode {
     }
 }
 
-// v2: "installs typed correlation before send and restores only the validated browser nonce"
 #[tokio::test]
 async fn a_claim_is_settled_only_by_its_generation_and_restores_the_browser_nonce() {
     let harness = Harness::new();
@@ -186,7 +184,6 @@ async fn a_claim_is_settled_only_by_its_generation_and_restores_the_browser_nonc
     assert_eq!(closed.socket_id, CONTROL_CONNECTION);
 }
 
-// v2: "does not settle a typed result after its captured worker handle is replaced"
 #[tokio::test]
 async fn a_replaced_generation_cannot_settle_the_claim_it_was_sent() {
     let harness = Harness::new();
@@ -214,7 +211,6 @@ async fn a_replaced_generation_cannot_settle_the_claim_it_was_sent() {
     assert_eq!(failure_code(operation.await.unwrap()), ErrorCode::Canceled);
 }
 
-// v2: "retires a claimed route through a same-epoch worker reconnection"
 #[tokio::test]
 async fn a_retirement_retained_while_unroutable_reaches_the_same_epoch_reconnection() {
     let harness = Harness::new();
@@ -260,7 +256,6 @@ async fn a_retirement_retained_while_unroutable_reaches_the_same_epoch_reconnect
     ));
 }
 
-// v2: "does not send a claim after its pre-lookup socket reservation is retired"
 #[tokio::test]
 async fn a_reservation_retired_before_the_lookup_sends_nothing() {
     let harness = Harness::new();
@@ -291,7 +286,6 @@ async fn a_reservation_retired_before_the_lookup_sends_nothing() {
     assert!(frames(&sent).is_empty());
 }
 
-// v2: "bounds one Sync socket and releases its waiters on close"
 #[tokio::test]
 async fn one_socket_holds_a_bounded_number_of_controls_and_close_releases_them() {
     let harness = Harness::new();
@@ -346,7 +340,6 @@ async fn one_socket_holds_a_bounded_number_of_controls_and_close_releases_them()
     replacement.abort();
 }
 
-// v2: "times out a typed probe through the same pending-RPC deadline"
 #[tokio::test(start_paused = true)]
 async fn a_probe_with_no_reply_fails_at_its_hop_deadline() {
     let harness = Harness::new();
@@ -367,7 +360,6 @@ async fn a_probe_with_no_reply_fails_at_its_hop_deadline() {
     ));
 }
 
-// v2: "drops a mismatched probe epoch without settling its browser waiter"
 #[tokio::test]
 async fn a_probe_result_for_another_epoch_leaves_the_waiter_pending() {
     let harness = Harness::new();

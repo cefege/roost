@@ -1,9 +1,8 @@
 //! The effective geometry: which viewers bind a session's PTY, at what size,
 //! and when a dead one stops binding it.
 //!
-//! The guards named in `docs/FAILURE-INDEX.md` ("A session stays clipped to a
-//! viewer that is no longer looking") and the smoke spec
-//! `terminal-multiview-geometry.spec.ts` are pinned here, because the whole
+//! The guard named in `docs/FAILURE-INDEX.md` ("A session stays clipped to a
+//! viewer that is no longer looking") is pinned here, because the whole
 //! symptom is a terminal that reflows when a second browser opens or a first
 //! one dies.
 

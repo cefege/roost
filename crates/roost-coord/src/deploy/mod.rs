@@ -9,7 +9,7 @@
 //!
 //! `new()` takes nothing and must keep taking nothing: anything the domain
 //! needs from configuration is read at call time from `core.services.boot` or
-//! the process environment, as v2 read `process.env` at call time.
+//! the process environment.
 
 pub mod catchup;
 pub mod catchup_decision;

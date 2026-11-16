@@ -1,4 +1,4 @@
-// The fixtures the deploy tests share: the v2 catch-up test's worker and SHAs,
+// The fixtures the deploy tests share: the catch-up tests' worker and SHAs,
 // a scratch service directory for the rollout probe, a starter that records
 // what it was asked to deploy, and a real subprocess job with a scripted
 // transcript.
@@ -31,7 +31,7 @@ pub const HOST: &str = "m1-us.tailnet.ts.net";
 /// A well-formed job id no journal holds.
 pub const UNHELD_JOB_ID: &str = "00000000-0000-4000-8000-000000000001";
 
-/// v2's `BEHIND_WORKER`: POSIX, reachable, one release behind.
+/// The behind worker: POSIX, reachable, one release behind.
 #[must_use]
 pub fn behind_worker() -> CatchUpWorkerRow {
     CatchUpWorkerRow {

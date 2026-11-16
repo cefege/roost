@@ -3,7 +3,6 @@
 //! or probe to the typed route owner. Every answer rides the control lane, and
 //! a closing socket cancels its queued input and retires its input routes.
 //! Called by `sync_ws::socket` (link unlocked) and `sync_ws::socket_open`.
-//! Ports `apps/coord/src/terminal/input/sync-terminal-controls.ts`.
 
 use std::sync::Arc;
 

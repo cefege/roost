@@ -1,15 +1,12 @@
 //! The pair-request lifecycle, as a type rather than a chain of conditionals.
 //!
 //! Owned by the pairing slice. `protocol/spec/auth-and-pairing.md` §State
-//! machine is the definition; `apps/coord/src/auth/pairing-approval-status.ts`
-//! is v2's implementation of the read half, and `pairing-account.ts` /
-//! `pairing-confirmation.ts` the write halves.
+//! machine is the definition.
 //!
-//! WHY A TYPESTATE AND NOT AN `if`. v2 decides every transition with a
-//! `status === "..."` comparison inside the handler that performs it
-//! (`pairing-account.ts:205-238`, `pairing-confirmation.ts:117-199`), so the
-//! rule "only a request awaiting verification may be confirmed" exists in four
-//! places, in four spellings, and nothing stops a fifth from writing
+//! WHY A TYPESTATE AND NOT AN `if`. Deciding every transition with a
+//! `status == "..."` comparison inside the handler that performs it puts the
+//! rule "only a request awaiting verification may be confirmed" in several
+//! places, in several spellings, and nothing stops another from writing
 //! `WHERE status = 'pending'` on the confirm path. Here a transition is a
 //! method on the value it starts from: `LiveRequest::approve` and
 //! `LiveRequest::deny` exist on the live phases, and
@@ -20,11 +17,9 @@
 //!
 //! EXPIRY IS A QUESTION, NOT A STATE YOU MOVE INTO. Both live phases carry a
 //! deadline and every caller asks `LiveRequest::is_expired_at` before deciding
-//! anything, because v2's expiry handling is a read-only normalization in
-//! three separate places (`pairing-approval-status.ts:43`,
-//! `handlers-pairing.ts:166`, `pairing-account.ts:205`) and a fourth that had
-//! to repeat it is how a requester gets told `expired` by Poll and
-//! `verification_required` by Approve.
+//! anything, because a read-only expiry normalization repeated in separate
+//! handlers, with a later one that had to repeat it, is how a requester gets
+//! told `expired` by Poll and `verification_required` by Approve.
 
 use roost_protocol::ProtocolResult;
 
@@ -354,8 +349,7 @@ pub struct ApprovalStatusFacts {
 ///
 /// `Err` is the only other answer, and it is deliberately uniform: a request
 /// that does not exist and a request somebody else approved both refuse the
-/// same way, so the read cannot be used to discover that an id exists
-/// (`pairing-approval-status.ts:33-38,52`).
+/// same way, so the read cannot be used to discover that an id exists.
 pub fn read_approval_status(
     facts: Option<&ApprovalStatusFacts>,
     caller_fingerprint: Option<&str>,

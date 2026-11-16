@@ -5,7 +5,7 @@
 //! its own side: a hello's exact snapshot, a delete's route sweep, and a frame
 //! dispatch's lookup. The atomicity assertion is the one that would be
 //! impossible to write against a per-key implementation, which is the whole
-//! reason `byte-hub.ts` was split on this seam. What arrives on a route is
+//! reason the index is split from the byte hub. What arrives on a route is
 //! `terminal_screen_byte_hub.rs`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]

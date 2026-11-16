@@ -2,9 +2,7 @@
 //! worker's sessions and a closed session release their views and their screen
 //! replica, and a booted coordinator sweeps lapsed leases.
 //!
-//! Split out of `mod.rs` for the size cap. Ports `workerRetired`, `closeSession`,
-//! the session-bus subscription and the sweep interval of
-//! `apps/coord/src/terminal/view/terminal-view-hub.ts:256-260,346-353`.
+//! Split out of `mod.rs` for the size cap.
 
 use std::sync::{Arc, RwLock, Weak};
 use std::time::Duration;

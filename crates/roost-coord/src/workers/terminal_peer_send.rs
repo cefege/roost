@@ -2,7 +2,7 @@
 //! the offer a negotiation sends after its waiter is installed, and the cancel
 //! it sends when the waiter goes away. Serializes and fences only; SDP, ICE and
 //! grant material never reach a log line here.
-//! Ports `apps/coord/src/terminal/direct/worker-send-terminal-peer.ts`. Called by
+//! Called by
 //! `terminal_direct::peer_negotiations`.
 
 use std::sync::Arc;

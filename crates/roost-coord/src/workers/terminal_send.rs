@@ -93,7 +93,7 @@ pub fn send_terminal_snapshot_request(
     outcome
 }
 
-/// v2's per-frame refusal wording, verbatim, because the input lane matches on
+/// The per-frame refusal wording, verbatim, because the input lane matches on
 /// the expiry text to answer the browser.
 struct RefusalWording {
     expired: &'static str,

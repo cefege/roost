@@ -2,9 +2,7 @@
 //! recording cap with closed-session reclaim, and the START rollback when the
 //! worker refuses.
 //!
-//! Ports the "terminal capture lease" cases of
-//! `apps/coord/tests/terminal/capture/terminal-capture-bridge.test.ts`; its
-//! admission cases are `terminal_capture_admission.rs`.
+//! The admission cases are `terminal_capture_admission.rs`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod db_support;

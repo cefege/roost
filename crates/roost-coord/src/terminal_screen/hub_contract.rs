@@ -1,8 +1,7 @@
 //! The screen hub's boundary contracts: what a watching socket provides, what
 //! the replica's owner is told, and the timer seam the repair ladder runs on.
 //!
-//! Ports `apps/coord/src/terminal/screen/terminal-screen-hub-contract.ts`. The
-//! Sync socket implements the socket sink (`sync_ws::terminal::screen_socket`);
+//! The Sync socket implements the socket sink (`sync_ws::terminal::screen_socket`);
 //! the view owner implements the replica sink (`terminal_view::screen_repair`).
 
 use std::sync::Arc;
@@ -41,8 +40,7 @@ pub trait TerminalScreenSocketSink: Send + Sync {
     fn drop_terminal_session(&self, session_id: &SessionId);
 }
 
-/// The boundary callbacks the replica owes its owner (v2's
-/// `TerminalScreenHubOptions`).
+/// The boundary callbacks the replica owes its owner.
 pub trait ScreenReplicaSink: Send + Sync {
     /// The replica needs a source full for the stream it expects.
     fn request_snapshot(&self, session_id: &SessionId, stream_id: &str);
@@ -78,7 +76,7 @@ impl ScreenReplicaSink for NoScreenReplicaSink {
     }
 }
 
-/// The deadline seam: v2's injectable `setTimer`. A deadline is never
+/// The deadline seam, injectable for tests. A deadline is never
 /// cancelled here; each one re-checks the token it was armed with and does
 /// nothing when that token is no longer current.
 pub trait ScreenTimers: Send + Sync {

@@ -16,11 +16,10 @@
 // THE ARC IS THE FENCE, AND THE FENCE IS A FLAG BOTH SIDES CAN SEE. Retiring a
 // generation drops the registry's entry AND sets the handle's `revoked`, because
 // dropping the entry alone only stops a *lookup*: a holder that kept the
-// `Arc<WorkerHandle>` across the retire would still reach the socket, and v2
-// denies exactly that (`worker-registry.ts:30`, the `connectWorkers.get(workerFp)
-// !== w` re-check inside every send). The flags are atomics rather than fields
-// for the same reason: v2 mutates them from the transport owner while a
-// different task reads them, and a plain `bool` behind an `Arc` cannot be.
+// `Arc<WorkerHandle>` across the retire would still reach the socket, so every
+// send re-checks the flag. The flags are atomics rather than fields because the
+// transport owner mutates them while a different task reads them, and a plain
+// `bool` behind an `Arc` cannot be.
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -48,7 +47,7 @@ pub struct WorkerHandle {
     /// handle cannot be revived by a reconnect.
     revoked: Arc<AtomicBool>,
     send: Arc<dyn Fn(CoordWorkerDownstream) -> i64 + Send + Sync>,
-    /// Asks the transport owner to close this socket (v2's `WorkerHandle.close`),
+    /// Asks the transport owner to close this socket,
     /// which is how a newer hello ends the generation it supersedes.
     close: Option<Arc<dyn Fn() + Send + Sync>>,
 }
@@ -107,9 +106,9 @@ impl WorkerHandle {
     /// Write one downstream frame, returning its delivery sequence.
     ///
     /// Zero for a fenced generation, which is the transport's own "dropped"
-    /// answer and v2's answer too: `myHandle.send` returns 0 once `revoked` is
-    /// set (`worker-conn.ts:64-72`), so a caller that kept this handle across a
-    /// revocation cannot write to the socket. Readiness is NOT checked here --
+    /// answer: `send` returns 0 once `revoked` is set, so a caller that kept
+    /// this handle across a revocation cannot write to the socket. Readiness is
+    /// NOT checked here --
     /// the transport owner sends its own handshake and keepalive before the
     /// snapshot barrier -- and only a caller addressing a frame by fingerprint
     /// goes through [`WorkerRegistry::current_routable`].
@@ -210,8 +209,7 @@ impl WorkerRegistry {
     /// copy of the predicate is how a fenced machine stays green.
     ///
     /// The whole set, in a stable order, because it is published whole on every
-    /// connect and disconnect rather than folded per fingerprint
-    /// (`worker-registry.ts:99-101`).
+    /// connect and disconnect rather than folded per fingerprint.
     #[must_use]
     pub fn routable_fps(&self) -> Vec<WorkerFp> {
         let Ok(handles) = self.handles.read() else {
@@ -232,8 +230,8 @@ impl WorkerRegistry {
     /// The entry stays, so a caller holding the handle can still see that it is
     /// the current one: that is what makes "fenced" and "disconnected"
     /// distinguishable in a log line and in the routable set, and it is the
-    /// state v2's credential revocation leaves behind
-    /// (`worker-conn.ts:169-186`, which sets `revoked` and never deletes).
+    /// state a credential revocation leaves behind: it sets `revoked` and never
+    /// deletes.
     pub fn fence(&self, worker_fp: &WorkerFp) -> Option<Arc<WorkerHandle>> {
         let handle = self.current(worker_fp);
         if let Some(handle) = &handle {
@@ -261,9 +259,8 @@ impl WorkerRegistry {
     ///
     /// The identity check is under the write lock because a closing socket
     /// races the hello of its replacement: a check-then-retire would let a
-    /// superseded socket's close delete the generation that replaced it
-    /// (v2's `_deleteIfStillMine`, `worker-conn.ts:118-123`). Returns whether it
-    /// removed anything.
+    /// superseded socket's close delete the generation that replaced it. Returns
+    /// whether it removed anything.
     pub fn retire_if_current(&self, handle: &Arc<WorkerHandle>) -> bool {
         let Ok(mut handles) = self.handles.write() else {
             return false;

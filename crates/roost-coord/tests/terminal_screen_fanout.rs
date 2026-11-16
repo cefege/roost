@@ -3,9 +3,6 @@
 //! leaves no room for that stamp is repaired rather than fanned out, ingress
 //! timing survives every cache rebuild, and history never counts against the
 //! residency budget.
-//!
-//! Ports `apps/coord/tests/terminal/screen/terminal-screen-fanout-headroom.test.ts`
-//! and `terminal-screen-cache-accounting.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod terminal_screen_hub_support;
@@ -58,7 +55,6 @@ fn assert_fanout_boundary(frame: &PbCellGridFrame) {
     assert!(encoded_cell_grid_frame_size(&stamped) > CELL_GRID_PART_MAX_BYTES);
 }
 
-// v2 "plans snapshot parts with recipient fanout stamp headroom".
 #[test]
 fn a_boundary_full_is_planned_in_parts_that_fit_once_stamped() {
     let source = largest_fitting_frame(
@@ -105,7 +101,6 @@ fn a_boundary_full_is_planned_in_parts_that_fit_once_stamped() {
     }
 }
 
-// v2 "repairs a delta that leaves no recipient fanout stamp headroom".
 #[test]
 fn a_delta_that_leaves_no_stamp_headroom_is_repaired_not_fanned_out() {
     let boundary = largest_fitting_frame(
@@ -134,7 +129,6 @@ fn a_delta_that_leaves_no_stamp_headroom_is_repaired_not_fanned_out() {
     );
 }
 
-// v2 "preserves ingress timing through canonical snapshot cache updates".
 #[test]
 fn ingress_timing_survives_every_cache_rebuild() {
     let h = harness();
@@ -161,7 +155,6 @@ fn ingress_timing_survives_every_cache_rebuild() {
     );
 }
 
-// v2 "uses first receipt timing across an assembled chunked snapshot".
 #[test]
 fn an_assembled_snapshot_carries_its_first_chunk_receipt() {
     let h = harness();
@@ -181,8 +174,8 @@ fn an_assembled_snapshot_carries_its_first_chunk_receipt() {
     assert_eq!(sink.last_seeded().coord_recv_ms, 811);
 }
 
-// v2 terminal-screen-cache-accounting.test.ts "full and live history never
-// enter cache residency accounting". The budget below holds exactly one
+// History on a full or a live delta never enters cache residency accounting.
+// The budget below holds exactly one
 // two-row, two-span viewport: any history counted against it is refused.
 #[test]
 fn history_on_a_full_or_a_live_delta_never_counts_against_the_budget() {

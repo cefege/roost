@@ -33,8 +33,8 @@ pub use super::rows_read::{read_live_pair_request, read_pair_request};
 pub struct PairRequestRow {
     /// `pair_requests.id`, the surrogate key the transitions write through.
     ///
-    /// TEXT, not a rowid: v2 stores the ceremony handle in both columns
-    /// (`pairing-account.ts:139`), and the migration is `id TEXT PRIMARY KEY`.
+    /// TEXT, not a rowid: the ceremony handle is stored in both columns,
+    /// and the migration is `id TEXT PRIMARY KEY`.
     /// An integer here cannot read a real row, and binds an integer against a
     /// TEXT-affinity column, which matches none.
     pub id: String,

@@ -2,7 +2,6 @@
 //! snapshot requests and the fresh-stream escalation, and the one planned
 //! source every socket is seeded from.
 //!
-//! Ports `apps/coord/src/terminal/screen/terminal-screen-snapshot-controller.ts`.
 //! Every deadline carries the token and repair generation it was armed with,
 //! so a stale callback can neither replace a newer stream nor reopen a
 //! completed repair.

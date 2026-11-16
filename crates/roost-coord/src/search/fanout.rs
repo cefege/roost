@@ -1,11 +1,9 @@
 //! Authorized session selection, worker grouping, and cancellation fan-out for
 //! install-wide terminal search.
 //!
-//! Ports `listAuthorizedGlobalSearchSessions`, `reauthorizeGlobalSearchSessions`,
-//! `groupOnlineGlobalSearchSessions` and `sendGlobalSearchCancellationBatches`
-//! from `apps/coord/src/search/global-search-fanout.ts` (result validation is
-//! `search::worker_result`). Called by `search::rpc_search` and
-//! `search::cancel`; frames leave through `workers::send`, the one send gate.
+//! Called by `search::rpc_search` and `search::cancel`; result validation is
+//! `search::worker_result`, and frames leave through `workers::send`, the one
+//! send gate.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

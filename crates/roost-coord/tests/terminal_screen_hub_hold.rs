@@ -2,9 +2,6 @@
 //! hold and folded after it as if the run had never been interrupted, dropped
 //! to the one-resync latch when the hold overflows, superseded by an ordinary
 //! full, and cleared by a new stream.
-//!
-//! Ports the "delta hold during assembly" cases of
-//! `apps/coord/tests/terminal/screen/terminal-screen-hub-chunks.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod terminal_screen_hub_support;
@@ -23,8 +20,6 @@ fn served_texts(h: &Harness, socket_id: &str) -> Vec<String> {
     texts(&probe.last_seeded())
 }
 
-// v2 "holds live deltas during chunk assembly and folds them like an
-// uninterrupted run".
 #[test]
 fn deltas_held_during_assembly_fold_as_if_the_run_was_never_interrupted() {
     let held = harness();
@@ -63,7 +58,6 @@ fn deltas_held_during_assembly_fold_as_if_the_run_was_never_interrupted() {
     assert_eq!(served_texts(&held, "probe"), served_texts(&direct, "probe"));
 }
 
-// v2 "falls back to the resync latch when the delta hold overflows".
 #[test]
 fn a_hold_that_overflows_falls_back_to_the_single_resync_latch() {
     let h = harness();
@@ -91,7 +85,6 @@ fn a_hold_that_overflows_falls_back_to_the_single_resync_latch() {
     assert_eq!(h.replica(), None);
 }
 
-// v2 "an ordinary full mid-assembly still supersedes the partial".
 #[test]
 fn an_ordinary_full_mid_assembly_supersedes_the_partial() {
     let h = harness();
@@ -118,7 +111,6 @@ fn an_ordinary_full_mid_assembly_supersedes_the_partial() {
     assert!(h.requests().is_empty());
 }
 
-// v2 "minting a stream clears the delta hold".
 #[test]
 fn a_new_stream_clears_the_hold() {
     let h = harness();

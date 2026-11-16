@@ -1,13 +1,11 @@
 //! The bounds a worker-controlled string gets before it is stored, and the one
 //! normalization every durable consumer shares.
 //!
-//! Ported from `apps/coord/src/events/persistence-input.ts`. Called by the
+//! Called by the
 //! append transaction before the event is serialized, so the durable JSON, the
 //! projection fold, the channel-index publication and the live Sync publication
-//! all see the same bytes (`event-transaction.ts:85-95`): "Use this one
-//! normalized value for durable JSON, projection folding, channel-index
-//! publication, and live Sync publication. Normalizing a row later would make
-//! replay disagree with the sessions projection."
+//! all see the same bytes. Normalizing a row later would make
+//! replay disagree with the sessions projection.
 //!
 //! THE SIX FIELDS. `cwd`, `spawn_cwd`, `custom_title`, `git_branch`, `git_remote`
 //! and `pr_url` are display strings, paths and URLs a worker supplies. None of
@@ -21,12 +19,10 @@
 //! UTF-8 and the column is bytes, so the bound is bytes, and it lands on a whole
 //! code point: a stored event must never contain half a character.
 //!
-//! WHAT THE JAVASCRIPT VERSION HANDLES THAT A `&str` CANNOT. `truncatePersistedUtf8`
-//! walks UTF-16 code units and has a branch for an unpaired surrogate, which
-//! `TextEncoder` encodes as U+FFFD (`persistence-input.ts:39-50`). A Rust `&str`
-//! is already whole code points, so that branch is unreachable here and the
-//! equivalent walk is over `char_indices`. The bound and the result for every
-//! representable input are identical.
+//! NO UNPAIRED-SURROGATE BRANCH IS NEEDED. A Rust `&str` is already whole code
+//! points, so the truncation walk is over `char_indices` and never has to
+//! repair a split UTF-16 pair; the bound and the result are the same for every
+//! representable input.
 
 use roost_protocol::wire::{Session, SessionEvent};
 
@@ -38,14 +34,13 @@ pub const MAX_PERSISTED_UTF8_BYTES: usize = 4_096;
 /// A snapshot is a whole machine's live set on reconnect. Past this the append
 /// is refused with an error rather than a truncated list, because a truncated
 /// snapshot would read as "these are all my sessions" and quietly orphan the
-/// rest (`event-transaction.ts:87-92`).
+/// rest.
 pub const MAX_WORKER_SNAPSHOT_SESSIONS: usize = 1_024;
 
 /// The longest whole-code-point prefix of `value` that fits in `max_bytes`.
 ///
-/// A zero bound yields the empty string, which is v2's answer for
-/// `maxBytes === 0` (`persistence-input.ts:25`). A negative bound was a
-/// `RangeError` in v2 and is unrepresentable here, so there is no failure to
+/// A zero bound yields the empty string. A negative bound is
+/// unrepresentable, so there is no failure to
 /// return.
 #[must_use]
 pub fn truncate_persisted_utf8(value: &str, max_bytes: usize) -> &str {
@@ -62,7 +57,7 @@ pub fn truncate_persisted_utf8(value: &str, max_bytes: usize) -> &str {
 
 /// Bound every worker-controlled string in an event, in place.
 ///
-/// The shape of this function is v2's: one arm per kind that carries a bounded
+/// There is one arm per kind that carries a bounded
 /// field, and no arm for the kinds that carry none. A field that is already
 /// within its bound is left exactly as it is -- no reallocation, and no way for
 /// the stored value to differ from the value the worker sent by accident.

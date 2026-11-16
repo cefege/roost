@@ -1,8 +1,7 @@
 //! Pair confirmation: the only path that turns a pending browser key into an
 //! account device.
 //!
-//! Owned by the pairing slice. Ported from
-//! `apps/coord/src/auth/pairing-confirmation.ts`.
+//! Owned by the pairing slice.
 //!
 //! ONE TRANSACTION BINDS EVERYTHING. Requester token, verification code,
 //! deadline, key revocation, approver continuity, account ownership, key
@@ -75,8 +74,8 @@ pub struct PairConfirmation {
     /// The notice the "new browser paired" Sync frame carries, present only on
     /// the completing call.
     pub paired_browser: Option<PairedBrowserNotice>,
-    /// The terminal status this call drove the request to, or `None`. v2 names
-    /// it so the log line records the transition rather than the refusal.
+    /// The terminal status this call drove the request to, or `None`. It is
+    /// named so the log line records the transition rather than the refusal.
     pub terminal_status: Option<TerminalRequest>,
 }
 
@@ -148,9 +147,8 @@ async fn confirm_approved(
 /// stands if it is not.
 ///
 /// "No code is bound" and "the series already ended" both end the request here
-/// rather than leaving one that can absorb another guess, which is v2's rule
-/// (`pairing-confirmation.ts:162-172`) and the reason the attempt counter is
-/// not the only bound.
+/// rather than leaving one that can absorb another guess, which is why the
+/// attempt counter is not the only bound.
 fn code_verdict(approved: &ApprovedRequest, presented: &str) -> CodeVerdict {
     let series_ended = approved.verification_attempts >= PAIR_VERIFICATION_ATTEMPT_LIMIT;
     match approved.verification_code_hash.as_deref() {

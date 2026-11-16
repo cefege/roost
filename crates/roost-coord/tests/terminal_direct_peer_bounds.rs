@@ -1,7 +1,6 @@
 //! Terminal-peer signaling capacity: four offers per worker, eight per device
 //! and sixty-four in total, charged from admission (before authorization
 //! resolves) and held by aborted work until its authorizer exits.
-//! Ports `apps/coord/tests/terminal/direct/terminal-peer-negotiation-bounds.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod terminal_direct_support;
@@ -71,7 +70,6 @@ async fn exhausted(pending: PendingPeerNegotiation) {
     assert_eq!(error.code, ErrorCode::ResourceExhausted);
 }
 
-// v2 "bounds four worker, eight device, and sixty-four global peer negotiations".
 #[tokio::test]
 async fn bounds_four_worker_eight_device_and_sixty_four_global_peer_negotiations() {
     let registry = Arc::new(WorkerRegistry::new());
@@ -162,7 +160,6 @@ async fn bounds_four_worker_eight_device_and_sixty_four_global_peer_negotiations
     }
 }
 
-// v2 "counts multi-tab worker admissions before authorization resolves".
 #[tokio::test]
 async fn counts_multi_tab_worker_admissions_before_authorization_resolves() {
     let registry = Arc::new(WorkerRegistry::new());
@@ -213,7 +210,6 @@ async fn counts_multi_tab_worker_admissions_before_authorization_resolves() {
     }
 }
 
-// v2 "keeps aborted preauthorization work charged until its authorizer exits".
 #[tokio::test]
 async fn keeps_aborted_preauthorization_work_charged_until_its_authorizer_exits() {
     let registry = Arc::new(WorkerRegistry::new());

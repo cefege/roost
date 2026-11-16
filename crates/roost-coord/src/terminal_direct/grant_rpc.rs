@@ -3,7 +3,6 @@
 //! lease, and answers which direct carriers the worker generation supports.
 //! Called by `rpc::service_impl`'s `SessionsGrantLocalTerminal` arm; the route
 //! authorizer is shared with peer signaling so the two cannot drift apart.
-//! Ports `apps/coord/src/terminal/direct/local-terminal-grants.ts`.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -145,7 +144,7 @@ pub async fn authorize_terminal_grant_sessions(
     Ok(())
 }
 
-/// v2 `captureFailure`: the bounded `"<code>: <field>"` refusal whose Connect
+/// The bounded `"<code>: <field>"` refusal whose Connect
 /// code the capture vocabulary fixes.
 #[must_use]
 pub fn capture_failure(code: Failure, field: &str) -> ConnectError {

@@ -1,14 +1,14 @@
 //! The four transcription Connect methods: read the settings, write them, hand
 //! the stored key to an authenticated browser, and probe the provider.
 //!
-//! Ported from `apps/coord/src/rpc/handlers-transcription.ts` over
-//! `diagnostics/transcription.rs`, which owns the settings rows and the probe.
+//! Built over `diagnostics/transcription.rs`, which owns the settings rows and
+//! the probe.
 //!
 //! THE HANDOFF IS THE CONFIGURED KEY, NOT A GRANT. Deepgram restricted keys
 //! cannot mint `/v1/auth/grant` tokens -- the provider answers 403 -- so
 //! `transcriptionGrantToken` returns the stored key with `expires_in` zero
 //! rather than a temporary credential, and a browser connects to Deepgram
-//! directly (`transcription.ts:75-85`). It is therefore refused to anything
+//! directly. It is therefore refused to anything
 //! that is not an authenticated device: the key is the credential, and a
 //! machine caller is not the operator a self-hosted coordinator has.
 //!

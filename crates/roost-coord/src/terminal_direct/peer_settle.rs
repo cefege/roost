@@ -3,7 +3,6 @@
 //! worker generation ending, or the owner shutting down. Each path removes the
 //! offer once and withdraws it from the worker when the worker still has it.
 //! Called by `worker_link::direct_results`, the worker lifecycle and `peer_negotiations`.
-//! Ports the settle and cancel half of `apps/coord/src/terminal/direct/terminal-peer-negotiations.ts`.
 
 use std::sync::Arc;
 

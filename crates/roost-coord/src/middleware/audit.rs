@@ -12,9 +12,9 @@
 //! successes cannot answer "who tried this"; the skips below are noise.
 //!
 //! **ONE ROW PER REQUEST.** The RPC interceptor and the outer HTTP layer both see
-//! the same request, and v2 shipped an incident for it: the outer wrapper wrote
-//! rows for requests the auth interceptor had already authenticated, so every
-//! `caller_fp` was NULL (`docs/FAILURE-INDEX.md`, "audit_log caller_fp is NULL for
+//! the same request, and an outer wrapper that wrote rows for requests the auth
+//! interceptor had already authenticated left every `caller_fp` NULL
+//! (`docs/FAILURE-INDEX.md`, "audit_log caller_fp is NULL for
 //! every authed RPC"). A record is consumed by its first call whatever the
 //! outcome, so a second layer writing the same request writes nothing.
 
@@ -140,7 +140,7 @@ impl AuditRecord {
 
     /// One Sync terminal-input batch's outcome. Never skipped: the input path
     /// persists it through [`write_audit_rows`] and turns a failed write into
-    /// the batch's own outcome (`terminal/input/input-control.ts:98-118`).
+    /// the batch's own outcome.
     #[must_use]
     pub fn sync_terminal_input(path: String, status: u16, caller_fp: String) -> Self {
         Self {
@@ -257,8 +257,7 @@ pub async fn record_request(core: &CoordCore, record: &mut AuditRecord) -> Audit
 /// stream agrees with what a later read of the table returns.
 ///
 /// This is the primitive for a caller that must know whether the row landed
-/// (terminal input, `terminal/input/input-control.ts:117`); every other caller
-/// uses the hook, which cannot fail.
+/// (terminal input); every other caller uses the hook, which cannot fail.
 pub async fn write_audit_rows(
     core: &CoordCore,
     records: &[AuditRecord],

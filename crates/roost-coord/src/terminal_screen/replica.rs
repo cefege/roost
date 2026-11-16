@@ -1,8 +1,7 @@
 //! The canonical screen the coordinator holds for every watched session, and
 //! the entry points a worker's cells and a view decision drive it through.
 //!
-//! Ported from `apps/coord/src/terminal/screen/terminal-screen-hub.ts`. Its
-//! state lives in `hub_state`, admission in `replica_admission`, socket fan-out
+//! Its state lives in `hub_state`, admission in `replica_admission`, socket fan-out
 //! in `hub_fanout`, the repair ladder in `snapshot_controller`. The one rule
 //! that matters most: a full that does not fit degrades loudly and is never
 //! half-served.
@@ -204,7 +203,7 @@ impl ScreenHub {
             sink.drop_terminal_session(session_id);
         }
         // A drop callback may have re-watched the session it was told is gone;
-        // that watch belongs to nothing and is cleared, as v2 `dropSession` does.
+        // that watch belongs to nothing and is cleared.
         self.locked_sockets().detach_session(session_id);
     }
 

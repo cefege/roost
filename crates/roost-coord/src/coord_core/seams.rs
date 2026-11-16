@@ -72,10 +72,9 @@ pub trait TerminalViewLifecycle: Send + Sync {
 
     /// The geometry the session's current effective viewer set produced.
     ///
-    /// Deliberately narrower than v2's `terminalViewSnapshot`: the respawn
-    /// dispatcher reads `.effective` and nothing else, and the full snapshot
-    /// also carries active views, parked views, a stream id and an unavailable
-    /// flag, of which four of the five it would ignore.
+    /// Deliberately narrow: the respawn dispatcher reads `.effective` and
+    /// nothing else, and a full view snapshot would also carry active views,
+    /// parked views, a stream id and an unavailable flag it would ignore.
     fn effective_geometry(&self, session_id: &SessionId) -> Option<TerminalGeometry>;
 }
 

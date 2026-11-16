@@ -1,7 +1,6 @@
 //! What INBOUND terminal material may join a session's lane.
 //!
-//! Owned by the Sync session; `cursor.rs` holds the lane's data. v2 kept both in
-//! `sync-ws-v2-terminal.ts`; what changed is the shape, not the policy. The rule
+//! Owned by the Sync session; `cursor.rs` holds the lane's data. The rule
 //! the ingress exists to enforce is that ONE session's baseline is never
 //! interleaved with its own deltas or with another session's snapshot, and that
 //! under pressure the SESSION rebaselines rather than the socket closing --
@@ -121,7 +120,7 @@ impl SyncV2Session {
     /// goes in ahead of queued cells, and if it does not fit even after the
     /// lane's own unsent material is discarded, the socket closes rather than
     /// leaving the client waiting out a deadline for an answer that will never
-    /// come (`sync-ws-v2-terminal.ts:174-206`).
+    /// come.
     pub fn enqueue_terminal_state(
         &mut self,
         frame: &FirehoseFrame,
@@ -166,8 +165,7 @@ impl SyncV2Session {
     /// no parts, or when a baseline is already part-way out -- in that last case
     /// the lane records that a rebaseline is owed and waits for the current
     /// baseline to finish, because abandoning a half-delivered snapshot leaves
-    /// the client with rows from two different snapshots
-    /// (`sync-ws-v2-terminal.ts:208-241`).
+    /// the client with rows from two different snapshots.
     pub fn replace_terminal_snapshot(
         &mut self,
         session_id: &str,

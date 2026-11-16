@@ -1,11 +1,9 @@
 //! Opt-in terminal incident capture on the coordinator: the authenticated
 //! bridge behind DiagSnapshot's `terminal_capture`, the lease registry, the
 //! bounded coordinator cell records, and the correlated worker call.
-//! Ports `apps/coord/src/terminal/capture/` (`terminal-capture.ts`,
-//! `terminal-capture-lease.ts`, `terminal-capture-recorder.ts`,
-//! `terminal-capture-worker-call.ts`). Shapes, limits, validators, the command
-//! and result, and the coordinator section all come from
-//! `roost_protocol::terminal_capture`; this domain owns only the behaviour.
+//! Shapes, limits, validators, the command and result, and the coordinator
+//! section all come from `roost_protocol::terminal_capture`; this domain owns
+//! only the behaviour.
 //!
 //! One `Arc<TerminalCaptureRuntime>` per coordinator: the leases and the
 //! recorder they arm are one table, so no lease transition can leave records

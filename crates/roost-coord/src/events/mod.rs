@@ -15,8 +15,8 @@
 // publisher must not be reachable from a handler. That is §3.2's "the transaction
 // body contains no publish call at all" made structural rather than reviewed.
 //
-// Nine files rather than v2's six, and every split is a boundary v2 already had
-// somewhere: the bus and its payload vocabulary; the row shape and the statements
+// Nine files, and every split is a boundary of its own: the bus and its payload
+// vocabulary; the row shape and the statements
 // that write it; the admission rules and the queries that fill their facts; and
 // the three phases of the append path, which are the three phases of the
 // contract.

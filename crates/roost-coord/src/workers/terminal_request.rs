@@ -1,8 +1,7 @@
 //! One typed terminal-control request to a worker: whether its frame reached
 //! the socket, whether its budget expired before it could, and the bounded wait
 //! for the worker's typed result.
-//! Ports `TerminalWorkerRequest` and `unsentTerminalWorkerRequest` of
-//! `apps/coord/src/workers/worker-send.ts:152-172`. Built by `workers::terminal_send`
+//! Built by `workers::terminal_send`
 //! and the route-claim sender; awaited by the input, stream and route lanes.
 
 use std::marker::PhantomData;
@@ -46,7 +45,7 @@ impl<T: TypedResult> TerminalWorkerRequest<T> {
     /// A definite pre-write failure: nothing was written, so a caller may
     /// reject definitely and a retry cannot duplicate. `expired` says the hop
     /// budget ran out before the frame could reach the socket. The result is
-    /// `Unavailable` with `reason`, as v2's `unsentTerminalWorkerRequest`.
+    /// `Unavailable` with `reason`.
     #[must_use]
     pub fn unsent(reason: &str, expired: bool) -> Self {
         Self::refused(ConnectError::new(ErrorCode::Unavailable, reason), expired)
@@ -63,7 +62,7 @@ impl<T: TypedResult> TerminalWorkerRequest<T> {
     ///
     /// `admitted` is whether the socket took the frame. A sender that saw the
     /// write refused has already settled `pending` as `Unavailable`, so the
-    /// result reports that at once. The wait is v2's pending timer: at least
+    /// result reports that at once. The wait is the pending timer: at least
     /// one millisecond and otherwise what the hop deadline has left, measured
     /// NOW, so a caller that awaits the result later does not extend it.
     #[must_use]
@@ -107,8 +106,8 @@ impl<T: TypedResult> TerminalWorkerRequest<T> {
     /// Wait for the worker's typed result.
     ///
     /// Settles exclusively from the typed result frame, a rejection (transport
-    /// drop, worker close), or the deadline, which is `DeadlineExceeded` in
-    /// v2's `pending-rpcs` wording: an expiry after admission is ambiguity,
+    /// drop, worker close), or the deadline, which is `DeadlineExceeded`: an
+    /// expiry after admission is ambiguity,
     /// never a rejection the caller may retry as unsent.
     pub async fn result(self) -> Result<T, ConnectError> {
         let (mut pending, wait_until, timeout_ms) = match self.state {

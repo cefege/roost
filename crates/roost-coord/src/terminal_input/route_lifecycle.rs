@@ -2,8 +2,7 @@
 //! acknowledged `terminal-input-route-v1` only because this owner exists, a
 //! superseded, revoked or closed generation's controls are cancelled, and a
 //! generation that became ready receives the retirements retained for it.
-//! Registered on `CoordServices::worker_lifecycle`. Ports the route-owner calls
-//! of `apps/coord/src/workers/worker-conn.ts` and `main.ts` `onWorkerConnected`.
+//! Registered on `CoordServices::worker_lifecycle`.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;

@@ -1,7 +1,7 @@
 //! What one worker socket's dispatcher is bound to, and the factory that binds it.
 //!
-//! A dispatcher is per SOCKET: v2 builds one per connection inside
-//! `worker-conn.ts`, and so does this. Everything it reaches — the event log, the
+//! A dispatcher is per SOCKET: one is built per connection.
+//! Everything it reaches — the event log, the
 //! byte hub, the pending-RPC table and the view hub — is per
 //! PROCESS, so it arrives as one `Arc<CoordServices>`. What is per socket arrives
 //! as that socket's own `WorkerHandle`: the readiness barrier, the generation

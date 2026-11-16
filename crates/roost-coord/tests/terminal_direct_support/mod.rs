@@ -1,8 +1,6 @@
 //! Shared fixtures for the direct-terminal tests: exact worker generations in
 //! a per-test registry whose sent frames are captured, grant requests, a fake
 //! grant port for signaling, and a valid bounded SDP. No socket, no global.
-//! Ports `apps/coord/tests/terminal/direct/terminal-peer-negotiation-test-fixture.ts`
-//! and the fake-worker helpers of `terminal-grant-owner.test.ts`.
 
 // Compiled into every `terminal_direct_*.rs` binary; each uses a subset.
 #![allow(clippy::unwrap_used, clippy::expect_used, dead_code)]
@@ -185,7 +183,7 @@ pub fn valid_sdp() -> String {
     .join("\r\n")
 }
 
-/// The fake lease port v2's fixture calls `TestTerminalGrants`.
+/// The fake lease port for signaling.
 #[derive(Default)]
 pub struct TestTerminalGrants {
     leases: Mutex<HashMap<(String, String, String), TerminalGrantLeaseSnapshot>>,
@@ -252,7 +250,7 @@ impl TerminalPeerGrantPort for TestTerminalGrants {
     }
 }
 
-/// The browser v2's fixture calls `TEST_CALLER`.
+/// The browser caller.
 pub fn test_caller() -> TerminalPeerCaller {
     caller_for(&"d".repeat(64))
 }

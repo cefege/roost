@@ -1,5 +1,5 @@
 //! The process-wide dedupe of in-flight session spawns, keyed by the session
-//! UUID the spawn will open under. Ports `apps/coord/src/sessions/pending-spawns.ts`.
+//! UUID the spawn will open under.
 //!
 //! Owned by `SessionsRuntime` (`core.services.sessions`); `sessions::spawn`
 //! reserves and settles, `worker_link::frame_dispatch` records a durable
@@ -10,10 +10,10 @@
 //! reservation waits for the durable `opened` or its own deadline; rejecting
 //! early would let one lost `rpc-ok` become a duplicate spawn (an orphan PTY).
 //!
-//! THE DEADLINES ARE READ WHERE THEY ARE CROSSED. v2 arms two timers per entry;
-//! here each entry carries its deadline, every operation sweeps the ones that
-//! passed first, and a waiter expires its own entry at the same instant, so what
-//! a caller can observe is v2's and no timer task outlives its table.
+//! THE DEADLINES ARE READ WHERE THEY ARE CROSSED. Each entry carries its
+//! deadline, every operation sweeps the ones that passed first, and a waiter
+//! expires its own entry at the same instant, so no timer task outlives its
+//! table.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -314,8 +314,8 @@ impl PendingSpawns {
     }
 }
 
-/// A revoked credential makes every unresolved spawn on that worker impossible
-/// (v2 `worker-conn.ts` `revoke()`). A close or a supersede is NOT a rejection:
+/// A revoked credential makes every unresolved spawn on that worker impossible.
+/// A close or a supersede is NOT a rejection:
 /// the pending-RPC table fails the worker reply as `Unavailable`, which the
 /// spawn treats as ambiguous and reconciles against the durable `opened`.
 impl WorkerLifecycleObserver for PendingSpawns {

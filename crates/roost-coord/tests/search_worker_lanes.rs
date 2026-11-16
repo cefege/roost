@@ -1,8 +1,5 @@
 //! The per-worker global-search lane: one page per worker at a time, distinct
 //! workers in parallel, bounded queues, and waiters that leave cleanly.
-//!
-//! Ported from the "global search worker lane" block of
-//! `apps/coord/tests/search/global-search-cursors.test.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

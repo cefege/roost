@@ -1,9 +1,9 @@
 // The self-hosted tenancy invariant, against a real migrated database.
 //
 // The invariant is the one thing that stands between a mis-scoped database and
-// a bound port, so these tests assert the refusals, not just the happy path:
-// v2's rule is that this runs before the listener exists precisely so a
-// database with two accounts never answers an RPC.
+// a bound port, so these tests assert the refusals, not just the happy path.
+// The check runs before the listener exists precisely so a database with
+// two accounts never answers an RPC.
 
 // A test that cannot say what it expected is not a test. `expect` is denied
 // outside `#[cfg(test)]`, and an integration test is its own crate, so the

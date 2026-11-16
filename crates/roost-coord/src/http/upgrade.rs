@@ -110,7 +110,7 @@ pub async fn worker_upgrade(
 }
 
 /// The admitted half of the worker upgrade: switch protocols echoing ONLY the
-/// marker, never the credential (`worker-ws-upgrade.ts:112-117`), and hand the
+/// marker, never the credential, and hand the
 /// socket to `worker_link::connection::serve_socket`. A request the runtime
 /// cannot upgrade answers `400 upgrade failed`, the contract's step 6.
 async fn upgrade_worker_socket(
@@ -150,8 +150,7 @@ async fn upgrade_worker_socket(
 
 /// The Sync upgrade. The decision is in `sync_ws::upgrade_admission`; an
 /// admitted request is upgraded with the marker echoed, never the credential,
-/// and handed to `sync_ws::socket::serve_socket` with no reauth deadline, as
-/// v2's production listener passes none (`bun-coordinator-listeners.ts:328`).
+/// and handed to `sync_ws::socket::serve_socket` with no reauth deadline.
 pub async fn sync_upgrade(State(state): State<Arc<ListenerState>>, request: Request) -> Response {
     let offered = offered_protocols(&request);
     let credential = offered.get(1).cloned();
@@ -243,8 +242,7 @@ pub async fn sync_upgrade(State(state): State<Arc<ListenerState>>, request: Requ
 
 /// Hijack an admitted Sync request: echo the marker and hand the socket to
 /// the Sync loop. A request that is not a well-formed WebSocket handshake is
-/// `400 upgrade failed`, v2's answer when `server.upgrade` refuses it
-/// (`sync-ws-upgrade.ts:208-212`).
+/// `400 upgrade failed`.
 async fn upgrade_sync_socket(
     state: &Arc<ListenerState>,
     request: Request,
@@ -277,7 +275,7 @@ async fn upgrade_sync_socket(
 
 /// The query values a Sync upgrade reads, decoded as a browser's
 /// `URLSearchParams.get` decodes them: percent-escapes and `+` resolved, and
-/// the FIRST value when a name repeats (`sync-ws-upgrade.ts:172-180`).
+/// the FIRST value when a name repeats.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SyncQuery {
     /// `tab`, the browser tab this socket speaks for.

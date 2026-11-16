@@ -2,7 +2,6 @@
 //! attachment peer capability, typed peer and receipt results reach their
 //! owners through the real frame dispatcher with the exact current handle, and
 //! a closed generation fails what it would have answered.
-//! Ports `apps/coord/tests/attachments/attachment-peer-worker-integration.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod attachments_direct_support;
@@ -55,7 +54,6 @@ async fn acknowledged(fixture: &WireFixture, advertised: &[&str]) -> Vec<String>
     }
 }
 
-// v2 "acknowledges attachment peer capability only while its separate result owner is installed".
 #[tokio::test]
 async fn a_hello_is_acknowledged_the_attachment_peer_capability_it_advertised() {
     let fixture = WireFixture::start("attachment-peer-ack").await;
@@ -117,7 +115,6 @@ fn status_request() -> AttachmentsDirectStatusRequest {
     }
 }
 
-// v2 "dispatches attachment peer and status frames through the exact current handle".
 #[tokio::test]
 async fn peer_and_receipt_results_settle_through_the_frame_dispatcher() {
     let harness = DirectHarness::new("link-dispatch").await;
@@ -192,8 +189,7 @@ async fn peer_and_receipt_results_settle_through_the_frame_dispatcher() {
     );
 }
 
-// v2 `worker-conn.ts` close(): a generation's end fails its attachment peer and
-// receipt waits at once (`cancelAttachmentDirectWorkerResults`).
+// A generation's end fails its attachment peer and receipt waits at once.
 #[tokio::test]
 async fn a_closed_generation_fails_its_pending_peer_and_receipt_waits() {
     let harness = DirectHarness::new("link-close").await;

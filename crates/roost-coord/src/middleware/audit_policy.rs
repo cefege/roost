@@ -42,10 +42,10 @@ pub enum AuditSkip {
 
 /// Whether a non-Connect outcome is worth a durable row.
 ///
-/// "an unmatched /api/* path is an unauthenticated GET the rate limiter lets
-/// through, so one durable row per probed path is pure amplification" -- and the
+/// An unmatched `/api/*` path is an unauthenticated GET the rate limiter lets
+/// through, so one durable row per probed path is pure amplification -- and the
 /// janitor only sweeps anonymous *static* reads, so an amplified row is not even
-/// self-cleaning (`apps/coord/src/middleware/security.ts:114`).
+/// self-cleaning.
 #[must_use]
 pub fn should_persist_non_connect_audit(
     surface: NonConnectSurface,
@@ -79,10 +79,10 @@ pub fn should_persist_connect_audit(
 /// The HTTP status `audit_log` records for a Connect code.
 ///
 /// Dashboards read `WHERE status >= 400`, so the row carries HTTP semantics
-/// rather than the code's own name (`auth-interceptor.ts:62-78`).
+/// rather than the code's own name.
 ///
-/// The catch-all is the source's own `default: 500`: `ErrorCode` is
-/// `#[non_exhaustive]`, so a code Connect adds after this port is an outcome
+/// The catch-all is `500`: `ErrorCode` is
+/// `#[non_exhaustive]`, so a code Connect adds later is an outcome
 /// nobody has decided how to record, and 500 says exactly that.
 #[must_use]
 pub fn connect_status(code: ErrorCode) -> u16 {

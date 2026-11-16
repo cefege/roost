@@ -2,9 +2,8 @@
 //! who may ask, what a page boundary is, and which browser diagnostics reach
 //! the disk.
 //!
-//! Ported from the v2 suite's coverage of `handlers-system.ts`, and written
-//! against a real coordinator because every one of these answers from SQLite or
-//! from a process-wide counter.
+//! Written against a real coordinator because every one of these answers from
+//! SQLite or from a process-wide counter.
 //!
 //! `expect` and `unwrap` are denied outside `#[cfg(test)]`, and an integration
 //! test is its own crate rather than a module of one, so the exemption has to
@@ -44,7 +43,7 @@ async fn the_audit_page_is_newest_first_and_its_cursor_is_the_last_row() {
             .await;
     }
 
-    // A caller that names no size gets v2's default page, and the cursor is
+    // A caller that names no size gets the default page, and the cursor is
     // the LAST row of the page rather than the first row of the next one: a
     // keyset boundary is a value, so a row inserted mid-read cannot shift the
     // window under the reader.
@@ -177,10 +176,10 @@ async fn a_bounded_label_map_stops_a_probe_loop_from_growing_it() {
         telemetry.record_audit_telemetry(&format!("/probe/{probe}"), 404);
     }
     let snapshot = telemetry.snapshot();
-    // The bound is the cap PLUS the overflow key, which is v2's shape exactly
-    // (`telemetry.ts:18-25`): a map is full at 256 distinct labels and every
-    // further label folds into `<other>` rather than being dropped, so an
-    // operator can still see that probes happened after the cap was reached.
+    // The bound is the cap PLUS the overflow key: a map is full at 256 distinct
+    // labels and every further label folds into `<other>` rather than being
+    // dropped, so an operator can still see that probes happened after the cap
+    // was reached.
     assert_eq!(
         snapshot.requests.len(),
         MAX_TELEMETRY_KEYS + 1,

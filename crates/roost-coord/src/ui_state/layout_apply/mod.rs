@@ -1,9 +1,9 @@
 //! Live writable tab targets and the acknowledged layout applies reserved on them.
 //!
-//! Ported from `apps/coord/src/ui-state/ui-layout-apply-owner.ts`. The UI RPC
-//! registers a pending correlation BEFORE it publishes, and Sync ingress settles
-//! it only through the exact fingerprint, tab and socket generation -- so a
-//! browser that redials cannot acknowledge an apply meant for its predecessor.
+//! The UI RPC registers a pending correlation BEFORE it publishes, and Sync
+//! ingress settles it only through the exact fingerprint, tab and socket
+//! generation -- so a browser that redials cannot acknowledge an apply meant
+//! for its predecessor.
 //! `sync_ws::CommandOutcome::LayoutResult` is the only path in.
 
 mod reservation;

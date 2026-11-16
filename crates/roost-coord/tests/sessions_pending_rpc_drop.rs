@@ -3,8 +3,7 @@
 //! browser's spawn spinner fast-fails instead of hanging to its deadline), and
 //! request ids are namespaced by the authenticated worker.
 //!
-//! Ports `apps/coord/tests/pending-rpc-drop.test.ts` against
-//! `terminal_screen::pending_rpcs::PendingRpcs`.
+//! These pin `terminal_screen::pending_rpcs::PendingRpcs`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -18,7 +17,6 @@ const FP_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 const FP_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const SHARED_UPLOAD_ID: &str = "shared-upload-id";
 
-// v2: "rejects only the dropped worker's RPCs; others survive".
 #[tokio::test]
 async fn only_the_dropped_workers_rpcs_are_rejected() {
     let table = Arc::new(PendingRpcs::new());
@@ -40,7 +38,6 @@ async fn only_the_dropped_workers_rpcs_are_rejected() {
     assert_eq!(survivor.settle().await.unwrap(), json!({ "ok": true }));
 }
 
-// v2: "rejecting clears the entries (no leak, no double-reject)".
 #[tokio::test]
 async fn a_rejection_clears_the_entries() {
     let table = Arc::new(PendingRpcs::new());
@@ -52,7 +49,6 @@ async fn a_rejection_clears_the_entries() {
     assert_eq!(table.reject_all_for_worker(FP_A, "gone again"), 0);
 }
 
-// v2: "untagged RPCs are not collateral".
 #[tokio::test]
 async fn an_untagged_rpc_survives_a_worker_drop() {
     let table = Arc::new(PendingRpcs::new());
@@ -62,7 +58,6 @@ async fn an_untagged_rpc_survives_a_worker_drop() {
     assert_eq!(untagged.settle().await.unwrap(), json!(1));
 }
 
-// v2: "equal upload ids resolve independently across workers".
 #[tokio::test]
 async fn equal_ids_resolve_independently_per_worker() {
     let table = Arc::new(PendingRpcs::new());
@@ -74,7 +69,6 @@ async fn equal_ids_resolve_independently_per_worker() {
     assert_eq!(from_a.settle().await.unwrap(), json!({ "worker": "a" }));
 }
 
-// v2: "duplicate explicit ids for one worker reject instead of overwriting".
 #[tokio::test]
 async fn a_duplicate_id_for_one_worker_is_refused() {
     let table = Arc::new(PendingRpcs::new());

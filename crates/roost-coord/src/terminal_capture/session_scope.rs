@@ -2,7 +2,6 @@
 //! session's own worker, and the reclaim of leases whose session has closed.
 //! Read from the coordinator database before any lease allocation, recorder
 //! arming or worker command. Called by `terminal_capture::bridge`.
-//! Ports the session lookups of `apps/coord/src/terminal/capture/terminal-capture.ts`.
 
 use connectrpc::ConnectError;
 use roost_protocol::terminal_capture::TerminalCaptureErrorCode as Failure;

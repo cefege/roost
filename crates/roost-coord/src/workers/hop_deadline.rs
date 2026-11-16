@@ -1,9 +1,7 @@
 //! The monotonic budget one terminal-control hop spends: how long the
 //! coordinator still waits for a typed worker result, and the strictly smaller
 //! slice of it the worker may spend before the keeper write.
-//! Ports the hop-budget half of `apps/coord/src/workers/worker-send.ts`
-//! (`startHopDeadline`, `workerBudgetMs`, and the constants; the 8 s stream-state
-//! deadline goes with the dropped stream controller). Read by
+//! Read by
 //! `workers::terminal_send`, `workers::terminal_request` and the input/route lanes.
 
 use tokio::time::Instant;
@@ -62,7 +60,7 @@ impl HopDeadline {
 
     /// Milliseconds left before the outer waiter gives up; negative once past.
     ///
-    /// Fractional, as v2's `performance.now()` arithmetic is: the worker slice
+    /// Fractional, because the worker slice
     /// floors it and the result wait ceils it, and rounding once here would
     /// make one of the two wrong by a millisecond.
     #[must_use]

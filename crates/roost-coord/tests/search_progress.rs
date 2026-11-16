@@ -1,8 +1,6 @@
 //! The two progress rules the fan-out and the cursor owner enforce together:
 //! a page that rescans nothing at the row it was given does not hand that row
 //! back, and a search must carry a tab id.
-//!
-//! Ported from `apps/coord/tests/search/global-search-progress.test.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

@@ -1,8 +1,7 @@
 //! The screen hub's per-session and per-socket state: the watcher index, the
 //! bounded delta hold, the chunk receipt stamp and the checkpoint test.
 //!
-//! Ports `apps/coord/src/terminal/screen/terminal-screen-hub-state.ts`. Split out
-//! of `replica` for the size cap; `replica`, `replica_admission`, `hub_fanout`
+//! Split out of `replica` for the size cap; `replica`, `replica_admission`, `hub_fanout`
 //! and `snapshot_controller` are its only writers.
 
 use std::collections::{BTreeSet, HashMap};

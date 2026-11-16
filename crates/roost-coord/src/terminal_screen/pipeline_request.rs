@@ -1,8 +1,6 @@
 //! Typed, bounded terminal-pipeline evidence requests over routable worker
 //! links: one `DTerminalPipelineSnapshotRequest` per worker, bound to the
 //! generation current at send time, settled only by that worker's reply.
-//! Ports the requester half of
-//! `apps/coord/src/terminal/screen/worker-terminal-pipeline-snapshot.ts`.
 //! Called by `pipeline_cache`; correlates through `services.scrollback.pending()`.
 
 use std::collections::BTreeMap;

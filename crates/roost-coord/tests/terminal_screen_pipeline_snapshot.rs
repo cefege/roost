@@ -2,8 +2,7 @@
 //! request framing, target-worker correlation, and the reply-matches-request
 //! check a collected sample passes before it is reported.
 //!
-//! Ports `apps/coord/tests/terminal/screen/worker-terminal-pipeline-snapshot.test.ts`
-//! against `terminal_screen::pipeline_request`.
+//! These pin `terminal_screen::pipeline_request`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -48,7 +47,6 @@ fn error_code(result: &WorkerTerminalPipelineSnapshotResult) -> TerminalPipeline
     }
 }
 
-// v2: "sends a bounded direct request and accepts only the target worker reply".
 #[tokio::test]
 async fn sends_a_bounded_direct_request_and_accepts_only_the_target_worker_reply() {
     let workers = FakeWorkers::new();
@@ -97,7 +95,6 @@ async fn sends_a_bounded_direct_request_and_accepts_only_the_target_worker_reply
     assert_eq!(workers.relay.pending().pending_count(), pending_before);
 }
 
-// v2: "ignores a mismatched reply before the matching response arrives".
 #[tokio::test]
 async fn ignores_a_mismatched_reply_before_the_matching_response_arrives() {
     let workers = FakeWorkers::new();
@@ -134,7 +131,6 @@ async fn ignores_a_mismatched_reply_before_the_matching_response_arrives() {
     ));
 }
 
-// v2: "rejects an unaccounted partial response".
 #[tokio::test]
 async fn rejects_an_unaccounted_partial_response() {
     let workers = FakeWorkers::new();
@@ -169,7 +165,6 @@ async fn rejects_an_unaccounted_partial_response() {
     );
 }
 
-// v2: "does not send to an unready worker".
 #[tokio::test]
 async fn does_not_send_to_an_unready_worker() {
     let workers = FakeWorkers::new();
@@ -193,7 +188,6 @@ async fn does_not_send_to_an_unready_worker() {
     );
 }
 
-// v2: "does not dispatch an empty worker target group".
 #[tokio::test]
 async fn does_not_dispatch_an_empty_worker_target_group() {
     let workers = FakeWorkers::new();
@@ -214,9 +208,7 @@ async fn does_not_dispatch_an_empty_worker_target_group() {
     assert!(results.is_empty());
 }
 
-// The error codes below are v2's `requestWorkerTerminalPipelineSnapshot` arms
-// (`sent === 0` → send_failed, a DeadlineExceeded pending → timeout), which the
-// v2 suite leaves unexercised.
+// A write the link drops is send_failed and a DeadlineExceeded pending is timeout.
 #[tokio::test]
 async fn a_dropped_write_is_send_failed_and_leaves_nothing_pending() {
     let workers = FakeWorkers::new();

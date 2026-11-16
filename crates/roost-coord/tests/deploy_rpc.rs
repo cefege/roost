@@ -3,10 +3,6 @@
 //! answers before anything is spawned, and `WorkersDeployOutput` streaming a
 //! job to its end.
 //!
-//! The target and address cases are ported from
-//! `apps/coord/tests/workers/worker-deploy-host.test.ts`; the handler cases pin
-//! `apps/coord/src/deploy/handlers-workers-deploy.ts`.
-//!
 //! `unwrap` and `expect` are denied outside `#[cfg(test)]`, and an integration
 //! test is its own crate rather than a module of one, so the exemption has to be
 //! stated here. Every panic names a value the test just built.
@@ -143,7 +139,7 @@ async fn deploy_start(
     .body
 }
 
-// `workersDeployStart`: an unknown target, an ambiguous one, and a Windows
+// `WorkersDeployStart`: an unknown target, an ambiguous one, and a Windows
 // worker are refused in the response body, with no job opened.
 #[tokio::test]
 async fn deploy_start_refuses_unknown_ambiguous_and_windows_targets_without_a_job() {
@@ -188,7 +184,7 @@ async fn deploy_start_refuses_unknown_ambiguous_and_windows_targets_without_a_jo
     );
 }
 
-// `requireAccountDevice` on both methods: a worker credential is refused.
+// Both methods require an account device: a worker credential is refused.
 #[tokio::test]
 async fn a_worker_credential_is_refused_by_both_deploy_methods() {
     let fixture = WorkersFixture::new("deploy-worker-caller").await;
@@ -213,7 +209,7 @@ async fn a_worker_credential_is_refused_by_both_deploy_methods() {
     );
 }
 
-// `workersDeployOutput`: every line as a `line` frame, then one `done` frame
+// `WorkersDeployOutput`: every line as a `line` frame, then one `done` frame
 // carrying the exit and the failure, and the stream ends there.
 #[tokio::test]
 async fn deploy_output_streams_the_job_and_ends_with_its_done_frame() {

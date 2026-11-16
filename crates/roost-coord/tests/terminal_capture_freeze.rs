@@ -3,9 +3,7 @@
 //! frozen wire JSON admitted through its section, and a maximally trimmed
 //! payload that still fits.
 //!
-//! Ports the freeze cases of
-//! `apps/coord/tests/terminal/capture/terminal-capture-recorder.test.ts`; its
-//! record cases are `terminal_capture_recorder.rs`.
+//! The record cases are `terminal_capture_recorder.rs`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod db_support;

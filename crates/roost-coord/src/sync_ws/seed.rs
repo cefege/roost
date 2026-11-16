@@ -3,9 +3,6 @@
 //!
 //! Called by `sync_ws::socket_open` (the v1 seed, before any live frame) and by
 //! `sync_ws::socket` for a v2 `domain_ready` (`IngressEffect::SeedDomain`).
-//! Ports `retainedSeedFrames` and `seedDomain` of
-//! `apps/coord/src/sync/sync-feed-seed.ts` and the seed branch of `startSyncFeed`
-//! in `sync-feed.ts`.
 //!
 //! THE SOURCES ARE READ UNLOCKED AND FILTERED UNDER THE LINK. Each retained
 //! owner (titles, activity, viewers, routability) has its own
@@ -49,9 +46,8 @@ pub struct V1Open {
     pub seeded: Option<oneshot::Receiver<()>>,
 }
 
-/// Build a v1 socket's delivery around its retained seed
-/// (`sync-feed.ts:76-84, 282-287`): paced by acknowledgements on a `flow=1`
-/// socket, sent in one burst on any other.
+/// Build a v1 socket's delivery around its retained seed: paced by
+/// acknowledgements on a `flow=1` socket, sent in one burst on any other.
 pub fn open_v1_delivery(
     flow_control: bool,
     index: &SyncResourceIndex,
@@ -83,7 +79,7 @@ pub fn open_v1_delivery(
 }
 
 /// Every retained snapshot a v1 socket may observe, routability first because
-/// it is the most volatile (`sync-feed-seed.ts:76-116`).
+/// it is the most volatile.
 #[must_use]
 pub fn retained_seed_frames(
     index: &SyncResourceIndex,
@@ -108,7 +104,7 @@ pub fn retained_seed_frames(
 }
 
 /// Replay one v2 domain's retained state into its queue, ahead of the live
-/// frames it buffered before `domain_ready` (`sync-feed-seed.ts:119-202`).
+/// frames it buffered before `domain_ready`.
 ///
 /// `admitted` narrows the terminal seed to the sessions the client's snapshot
 /// token covered; every other domain has no such fence.
@@ -213,8 +209,7 @@ impl RetainedSessionState {
     }
 }
 
-/// One session's viewer room as the `viewers` presence a fresh socket renders
-/// (`sync-feed-seed.ts:178-200`).
+/// One session's viewer room as the `viewers` presence a fresh socket renders.
 fn viewers_frame(
     session_id: &str,
     room: &BTreeMap<String, TerminalGeometry>,
@@ -247,7 +242,7 @@ fn deliver_retained(
     state.deliver(frame.with_meta(meta), now_ms());
 }
 
-/// The id one routable seed's chunks share, random as v2's `randomUUID()`.
+/// The id one routable seed's chunks share, random.
 fn seed_snapshot_id() -> String {
     mint_socket_id().unwrap_or_else(|error| {
         tracing::warn!(event = "sync-ws", action = "seed_snapshot_id_derived", error = %error, "no entropy for a seed snapshot id; deriving it from the clock");

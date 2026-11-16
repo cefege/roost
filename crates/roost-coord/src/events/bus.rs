@@ -2,39 +2,38 @@
 //! One bus per domain, injected rather than global, and the ring is a
 //! diagnostic seam rather than a delivery buffer.
 //!
-//! Ported from `apps/coord/src/events/buses.ts:82-112`. Three properties of the
-//! original are load-bearing, and each is a rule a caller can get wrong:
+//! Three properties are load-bearing, and each is a rule a caller can get
+//! wrong:
 //!
-//! 1. **Subscribing does not replay the ring.** "Does NOT replay the ring --
-//!    reconnect backfill goes through the events table, not bus history"
-//!    (`buses.ts:103-104`). A subscriber that received the ring would see
-//!    duplicates it had no way to recognise.
+//! 1. **Subscribing does not replay the ring.** Reconnect backfill goes through
+//!    the events table, not bus history. A subscriber that received the ring
+//!    would see duplicates it had no way to recognise.
 //! 2. **There is no per-subscriber queue, and therefore no per-subscriber drop.**
 //!    `publish` calls every listener and forgets it. A consumer that cannot keep
 //!    up is slow *inside its own socket queue*, which is where the per-socket
 //!    frame budget and the close code that enforces it live
-//!    (`docs/phase3-coord-contract.md` §7.4, §8.3) -- never here. A port that
-//!    added a per-subscriber buffer would move the drop to a place with no
+//!    (`docs/phase3-coord-contract.md` §7.4, §8.3) -- never here. Adding a
+//!    per-subscriber buffer would move the drop to a place with no
 //!    backpressure signal, which is precisely how a terminal delta goes missing
 //!    while the log still says it was published.
-//! 3. **A throwing listener cannot kill the publisher.** v2 wraps each call and
-//!    emits `bus.listener_throw` (`buses.ts:98`); here a panic is caught per
-//!    listener so the remaining subscribers still receive the message.
+//! 3. **A throwing listener cannot kill the publisher.** A panic is caught per
+//!    listener and logged as `bus.listener_throw`, so the remaining subscribers
+//!    still receive the message.
 //!
-//! The ring's own policy is unchanged: push, then evict the **oldest** once it
+//! The ring's own policy: push, then evict the **oldest** once it
 //! exceeds the bound. Nothing reads the ring for delivery, so an eviction cannot
-//! lose a delta -- which is what makes a bound of zero (`uiBus`) safe rather
+//! lose a delta -- which is what makes a bound of zero (`ui_bus`) safe rather
 //! than lossy, and what makes a large one harmless.
 //!
-//! ONE DELIBERATE DIFFERENCE, AND ITS VISIBLE CONSEQUENCE. The listener list is
-//! snapshotted under the lock and the callbacks run after it is released, where v2
-//! held its (single-threaded, lock-free) set for the whole loop. Holding a mutex
+//! ONE DELIBERATE CHOICE, AND ITS VISIBLE CONSEQUENCE. The listener list is
+//! snapshotted under the lock and the callbacks run after it is released.
+//! Holding a mutex
 //! across a subscriber callback creates a lock-order cycle when a subscriber
 //! publishes to another bus.
 //!
 //! **The visible consequence, which is not a bug:** a listener that unsubscribes
-//! *during* a fan-out still receives that one message, where v2's live `Set`
-//! iteration would have skipped it. Every other ordering is unchanged -- the ring
+//! *during* a fan-out still receives that one message. Every other ordering is
+//! unchanged -- the ring
 //! is updated before any callback runs, and the callbacks run in subscription
 //! order. Read this as "one message late for a listener that leaves mid-publish",
 //! not as "a subscriber may receive events after it unsubscribed": the
@@ -50,11 +49,11 @@ use roost_observability::LogFields;
 use roost_observability::log::error as log_error;
 
 /// One subscriber. Called with a borrow of the message the bus owns for the
-/// duration of the publish, which is what v2 handed every listener: one object,
+/// duration of the publish: one object,
 /// N readers, no copy. A listener that keeps the message clones it. The `Arc` is
 /// what lets `publish` take the listener list out of the lock and still call it.
 type Listener<T> = Arc<dyn Fn(&T) + Send + Sync>;
-/// `rg bus.listener_throw` finds the port and the original.
+/// `rg bus.listener_throw` finds every site that reports it.
 const LISTENER_THREW: &str = "bus.listener_throw";
 
 /// The log target the coordinator's event core reports under.
@@ -95,9 +94,9 @@ struct BusListener<T> {
 impl<T> BoundedBus<T> {
     /// A bus that retains the last `capacity` messages for diagnostics.
     ///
-    /// The bound is explicit at every call site rather than defaulted: v2's
-    /// constructor defaulted to 64 and all thirteen of its buses passed a value,
-    /// so the default was never a real answer. Zero retains nothing, which is
+    /// The bound is explicit at every call site rather than defaulted: every
+    /// bus passes a value, so a default would never be a real answer. Zero
+    /// retains nothing, which is
     /// the correct setting for a bus that must never hold a payload
     /// ([`crate::events::bus_domains::Buses::ui_bus`]).
     #[must_use]
@@ -153,9 +152,9 @@ impl<T> BoundedBus<T> {
 
     /// Subscribe, and get the handle that ends the subscription.
     ///
-    /// The subscription ends when the returned handle is dropped, which is what
-    /// v2's returned unsubscribe function did and what a `finally` block spelled
-    /// there. Dropping it is the only way to unsubscribe; there is no `unsubscribe`
+    /// The subscription ends when the returned handle is dropped, which is the
+    /// idiomatic RAII guard.
+    /// Dropping it is the only way to unsubscribe; there is no `unsubscribe`
     /// method, because a forgotten explicit call is the leak this avoids.
     pub fn subscribe(&self, call: impl Fn(&T) + Send + Sync + 'static) -> Subscription<T> {
         let id = {
@@ -175,16 +174,15 @@ impl<T> BoundedBus<T> {
     }
 
     /// How many subscribers are attached. A headless caller reads this to tell
-    /// "published into the void" from "some browser will act on it" -- v2's
-    /// `subscriberCount`, used by `uiDispatch` for exactly that.
+    /// "published into the void" from "some browser will act on it", which is
+    /// what `ui_dispatch` uses it for.
     #[must_use]
     pub fn subscriber_count(&self) -> usize {
         self.lock().listeners.len()
     }
 
     /// How many messages the ring holds, for owners whose retention must be
-    /// provably zero. v2's `retainedCount`, and the assertion behind
-    /// `apps/coord/tests/ui-state/ui-state-owner.test.ts:123`.
+    /// provably zero; the `ui_bus` owner tests assert exactly that.
     #[must_use]
     pub fn retained_count(&self) -> usize {
         self.lock().ring.len()

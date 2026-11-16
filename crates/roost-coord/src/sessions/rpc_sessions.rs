@@ -1,7 +1,7 @@
 //! `SessionsList`, `SessionsAttach`, `SessionsKill` and `SessionsRename`, plus the
 //! lease, viewer key, row lookups and coordinator-side append the sibling
 //! `spawn`, `cursor_pos` and `assign_workspace` handlers share. Called from the
-//! arms in `rpc/service_impl.rs`. Ports `apps/coord/src/sessions/handlers-sessions.ts`.
+//! arms in `rpc/service_impl.rs`.
 //!
 //! A WORKER PRINCIPAL SEES ONLY ITS OWN OPEN SESSIONS. `SessionsList` is the one
 //! session RPC a worker may call, for boot recovery, and only for exactly its
@@ -32,7 +32,7 @@ use crate::terminal_screen::pending_rpcs::DEFAULT_PENDING_RPC_TIMEOUT_MS;
 use crate::terminal_screen::rpc_relay::send_browser_command;
 use crate::write_gate::SharedLease;
 
-/// The longest custom title a rename keeps, in UTF-16 code units as v2 counts.
+/// The longest custom title a rename keeps, in UTF-16 code units.
 const CUSTOM_TITLE_MAX_UTF16: usize = 200;
 
 /// List public session rows, restricted to each principal's authorized scope.
@@ -237,7 +237,7 @@ pub(super) fn viewer_key(browser_fp: &str, tab_id: Option<&str>) -> String {
     }
 }
 
-/// A shared write lease, held for the whole mutation, or v2's refusal while a
+/// A shared write lease, held for the whole mutation, or the refusal while a
 /// keeper update drains the coordinator.
 pub(super) fn lease(core: &CoordCore) -> Result<SharedLease, ConnectError> {
     core.services
@@ -307,7 +307,7 @@ pub(super) fn read_failed(operation: &'static str, error: &sqlx::Error) -> Conne
 }
 
 /// Trimmed as JavaScript's `trim()` (which also strips a BOM), then capped at
-/// the UTF-16 length v2's `slice(0, 200)` keeps, never splitting a character.
+/// 200 UTF-16 code units, never splitting a character.
 fn capped_title(title: &str) -> String {
     let mut units = 0;
     title

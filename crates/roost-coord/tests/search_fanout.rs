@@ -2,8 +2,7 @@
 //! generations and the real pending table: fan-out caps, budgets, and the
 //! typed per-session partials.
 //!
-//! Ported from `apps/coord/tests/workers/worker-ws-transport-global-search.test.ts`;
-//! cursor continuation is `search_fanout_cursor.rs`.
+//! Cursor continuation is `search_fanout_cursor.rs`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

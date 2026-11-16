@@ -1,7 +1,6 @@
 //! The separate attachment direct-grant registry: digest-only installation
 //! acknowledged through the real pending-request table, exact generation
 //! fencing, and expiry, device revocation and worker retirement.
-//! Ports `apps/coord/tests/attachments/attachment-grant-owner.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod attachments_direct_support;
@@ -128,7 +127,6 @@ impl GrantFixture {
     }
 }
 
-// v2 "returns a secret only after digest-only worker ACK and keeps the descriptor immutable".
 #[tokio::test]
 async fn a_secret_returns_only_after_the_digest_only_install_is_acknowledged() {
     let fixture = GrantFixture::new();
@@ -172,7 +170,6 @@ async fn a_secret_returns_only_after_the_digest_only_install_is_acknowledged() {
     );
 }
 
-// v2 "rejects an ACK after handle replacement and never rebinds that attachment grant".
 #[tokio::test]
 async fn an_ack_after_the_generation_was_replaced_never_binds_the_grant() {
     let fixture = GrantFixture::new();
@@ -198,7 +195,6 @@ async fn an_ack_after_the_generation_was_replaced_never_binds_the_grant() {
     );
 }
 
-// v2 "expires, revokes, and retires only separate attachment grant leases".
 #[tokio::test]
 async fn expiry_device_revocation_and_worker_retirement_each_drop_their_leases() {
     let fixture = GrantFixture::new();
@@ -256,7 +252,7 @@ async fn expiry_device_revocation_and_worker_retirement_each_drop_their_leases()
     );
 }
 
-// v2 `grant()` capacity rows: a browser document holds at most
+// Capacity rows of `grant()`: a browser document holds at most
 // ATTACHMENT_TRANSFER_MAX_ACTIVE_PER_BROWSER_DOCUMENT live grants, and the
 // refusal is decided before anything reaches the worker.
 #[tokio::test]

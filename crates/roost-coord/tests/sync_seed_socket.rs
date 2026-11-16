@@ -2,12 +2,8 @@
 //! listener: durable recovery above `since` (v1 after its seed, v2 behind the
 //! terminal fence, and the reset a cursor ahead of the log gets), and the v2
 //! retained replay each `domain_ready` asks for, ahead of the live frames the
-//! domain buffered.
-//! and the pacing of a v2 backlog wider than the terminal queue.
-//!
-//! Ports the behaviour of `apps/coord/src/sync/sync-feed.ts` (`backfill`),
-//! `sync-feed-seed.ts` (`seedDomain`) and `sync-ws-v2-commands.ts:106-135`;
-//! contract `docs/phase3-coord-contract.md` §8.5.
+//! domain buffered, and the pacing of a v2 backlog wider than the terminal
+//! queue. Contract: `docs/phase3-coord-contract.md` §8.5.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod db_support;
@@ -94,7 +90,7 @@ async fn expect_quiet(socket: &mut ws_client_support::WsClient, reason: &str) {
     assert!(stray.is_none(), "{reason}: got {stray:?}");
 }
 
-// sync-feed.ts:356-372: a v1 socket resuming from `since` gets its retained
+// A v1 socket resuming from `since` gets its retained
 // seed, then every durable row above `since` once, in order; a live repeat of
 // a replayed row is dropped and a newer one delivered.
 #[tokio::test]
@@ -115,7 +111,7 @@ async fn a_v1_reconnect_replays_above_since_once_after_its_seed() {
     expect_closed(&mut socket, ids[4] + 1).await;
 }
 
-// sync-feed.ts:299-345: a v2 socket fixes its cutoff after the feed listens,
+// A v2 socket fixes its cutoff after the feed listens,
 // replays (since, cutoff] behind the terminal fence, and neither repeats a
 // replayed row nor loses a newer live one.
 #[tokio::test]
@@ -154,7 +150,7 @@ async fn a_v2_reconnect_replays_the_closed_interval_behind_the_terminal_fence() 
     assert_eq!(live.delivery_seq, 4);
 }
 
-// Contract §8.5 and sync-feed.ts:306-310: a cursor past the newest durable row
+// Contract §8.5: a cursor past the newest durable row
 // cannot be recovered from, so the terminal domain is reset and the client
 // re-hydrates instead of believing it is current.
 #[tokio::test]
@@ -182,7 +178,7 @@ async fn a_cursor_ahead_of_the_log_resets_the_terminal_domain() {
     );
 }
 
-// sync-feed-seed.ts:119-202 via sync-ws-v2-commands.ts:133: `domain_ready`
+// `domain_ready`
 // replays the domain's retained state ahead of the live frames it buffered --
 // routability as one chunked snapshot, the terminal as the title, activity
 // and viewers of the sessions the snapshot token admitted and no others.

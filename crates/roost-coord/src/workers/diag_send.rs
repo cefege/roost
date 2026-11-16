@@ -1,8 +1,7 @@
 //! Bounded `diag-snapshot` requests over live worker links: one correlated
 //! browser command per worker, settled only by that worker's `rpc-ok`, each
 //! with its own deadline, and every failure reported as a named result.
-//! Ports `apps/coord/src/diagnostics/worker-diag-snapshot.ts`
-//! (`collectWorkerDiagSnapshots`). Called by `diagnostics::worker_results`;
+//! Called by `diagnostics::worker_results`;
 //! correlates through `services.scrollback.pending()`.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -18,7 +17,7 @@ use tokio::time::{Duration, Instant};
 use crate::terminal_screen::scrollback_relay::ScrollbackRelay;
 use crate::workers::send::{SendOutcome, SendRefusal, current_routable_worker, send_frame_through};
 
-/// The wait a caller that names no timeout gets. v2 `DIAG_SNAPSHOT_TIMEOUT_MS`.
+/// The wait a caller that names no timeout gets.
 pub const DIAG_SNAPSHOT_TIMEOUT_MS: u64 = 2_000;
 
 const DIAG_SNAPSHOT_MAX_TIMEOUT_MS: u64 = 10_000;
@@ -78,7 +77,7 @@ impl WorkerDiagSnapshotResult {
         }
     }
 
-    /// The JSON envelope v2 puts under `workers[fp]`.
+    /// The JSON envelope under `workers[fp]`.
     #[must_use]
     pub fn to_json(&self) -> Value {
         match self {

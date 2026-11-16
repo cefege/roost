@@ -55,7 +55,6 @@ fn installs(sent: &SentFrames) -> usize {
         .count()
 }
 
-// v2 "AttachmentsGrantDirect binds the authenticated tab and uses only separate attachment grant state".
 #[tokio::test]
 async fn the_grant_binds_the_authenticated_tab_and_its_own_lease() {
     let harness = DirectHarness::new("grant-tab").await;
@@ -90,7 +89,6 @@ async fn the_grant_binds_the_authenticated_tab_and_its_own_lease() {
     assert_eq!(installs(&sent), 1, "a refused tab never reached the worker");
 }
 
-// v2 "AttachmentsDirectStatus returns only an authenticated typed receipt".
 #[tokio::test]
 async fn the_status_call_returns_the_workers_typed_receipt() {
     let harness = DirectHarness::new("status-receipt").await;
@@ -145,8 +143,8 @@ async fn the_status_call_returns_the_workers_typed_receipt() {
 }
 
 // Acceptance: a deleted worker's grants are retired before its generation is
-// fenced (v2 `handlers-workers.ts:210-226`), so a negotiation in flight fails
-// with the grant refusal at once instead of waiting out its answer deadline.
+// fenced, so a negotiation in flight fails with the grant refusal at once
+// instead of waiting out its answer deadline.
 #[tokio::test]
 async fn deleting_the_worker_retires_its_grants_and_fails_the_negotiation() {
     let harness = DirectHarness::new("delete-retires").await;

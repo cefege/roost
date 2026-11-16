@@ -6,17 +6,15 @@
 //!
 //! THREE KINDS, NOT TWO. `AccountDevice` is a browser. `Worker` is a machine.
 //! `LegacySelfHosted` is a third, browser-capable kind that exists only for a
-//! key registered before accounts existed
-//! (`apps/coord/src/auth/auth-principal.ts:21-23`). It is accepted by
+//! key registered before accounts existed. It is accepted by
 //! `require_account_device` and **refused at the Sync WebSocket with 404**
-//! (`apps/coord/src/sync/sync-ws-upgrade.ts:162-170`) because it carries no
-//! runtime identity to scope a feed to. A port that folds it into
-//! `AccountDevice` gives an unscoped key a scoped feed.
+//! because it carries no runtime identity to scope a feed to. Folding it into
+//! `AccountDevice` would give an unscoped key a scoped feed.
 //!
 //! WHY A DUAL-AUTHORITY ROW IS REFUSED RATHER THAN PICKED. If a fingerprint is
-//! both a `workers.fp` and an `account_devices.fingerprint`,
-//! `resolveCallerPrincipal` returns `None` (`auth-principal.ts:66`): "A key must
-//! never acquire two kinds of authority." Picking one silently would make the
+//! both a `workers.fp` and an `account_devices.fingerprint`, principal
+//! resolution returns `None`: "A key must never acquire two kinds of
+//! authority." Picking one silently would make the
 //! answer depend on row order, and the answer decides whether a socket may
 //! write. The same self-hosted-tenant boot invariant refuses the same condition
 //! before any RPC runs (§4.8 of `docs/phase3-coord-contract.md`), so reaching
@@ -96,8 +94,7 @@ impl Principal {
     ///
     /// The message and the marker header are the contract a browser reads:
     /// `Unauthenticated: authentication required` with
-    /// `x-roost-auth-layer: device`
-    /// (`apps/coord/src/auth/auth-interceptor.ts:256-262`). A worker principal
+    /// `x-roost-auth-layer: device`. A worker principal
     /// hitting a device-only path gets the same answer, because telling it "you
     /// are a worker" would confirm the key is live to a peer that only guessed
     /// the fingerprint.
@@ -127,8 +124,7 @@ impl Principal {
     /// The owner identity a browser-scoped lease is keyed by: the account and
     /// the device together, so a device re-paired into another account owns
     /// nothing it held before. `None` for a machine, which owns no browser
-    /// lease. Ports v2 `captureOwnerKey` (`terminal-capture-lease.ts:79-83`),
-    /// shared by the capture, terminal-grant and attachment-grant owners.
+    /// lease. Shared by the capture, terminal-grant and attachment-grant owners.
     #[must_use]
     pub fn capture_owner_key(&self) -> Option<String> {
         match self {
@@ -149,8 +145,7 @@ impl Principal {
 ///
 /// Without it a browser sees an opaque 401 and cannot tell "log in again" from
 /// "this method needs a device credential". It is `access-control-expose-headers`
-/// -listed for exactly that reason
-/// (`apps/coord/src/middleware/security.ts:63`).
+/// -listed for exactly that reason.
 pub const AUTH_LAYER_HEADER: &str = "x-roost-auth-layer";
 
 /// The value of [`AUTH_LAYER_HEADER`] on a device-layer refusal.
@@ -168,8 +163,8 @@ pub const AUTH_LAYER_DEVICE: &str = "device";
 /// wrong, and a copy nobody can compare against the others is a copy nobody
 /// will notice is wrong.
 ///
-/// `Unauthenticated` rather than `PermissionDenied` is v2's answer
-/// (`auth-interceptor.ts:256-262`) and the right one: telling a worker that
+/// `Unauthenticated` rather than `PermissionDenied` is the right answer:
+/// telling a worker that
 /// reached a device-only path "permission denied" confirms its key is live to
 /// a peer that guessed a fingerprint.
 #[must_use]

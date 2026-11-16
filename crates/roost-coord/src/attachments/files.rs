@@ -1,19 +1,16 @@
 //! The four worker-keyed file RPCs: whole-file read, paged read, list-dir and
 //! mkdir, relayed to a worker and back.
 //!
-//! Ported from v2 `apps/coord/src/attachments/handlers-attachments.ts`
-//! (`filesRead`, `filesReadChunk`, `filesListDir`, `filesMkdir`). Called by
-//! `rpc_files`; the send, wait and decode policy are `attachments::relay`.
+//! Called by `rpc_files`; the send, wait and decode policy are `attachments::relay`.
 //!
 //! No state: every method is a request/response relay whose only durable thing
 //! is the correlation entry, and that belongs to `ScrollbackRelay::pending`.
 //!
-//! Named hazards, each a case where a faithful-looking port changes behaviour:
-//! - `resolved_path ?? req.path` — twice, list-dir and mkdir (v2 `:92`,
-//!   `:104`). The fallback only shows up when a worker omits the field.
-//! - `mtime_ms ? BigInt(mtime_ms) : 0n` (v2 `:91`) — a falsy zero is a REAL
-//!   zero, not a missing value.
-//! - `atob("")` yields an EMPTY ARRAY, not an error (v2 `:59-61`), twice.
+//! Named hazards, each a case where a plausible simplification changes behaviour:
+//! - The `resolved_path` fallback to the request path -- twice, list-dir and
+//!   mkdir. It only shows up when a worker omits the field.
+//! - A zero `mtime_ms` is a REAL zero, not a missing value.
+//! - An absent or empty `content_b64` is an EMPTY ARRAY, not an error, twice.
 
 use serde_json::Value;
 
@@ -28,15 +25,14 @@ use roost_protocol::wire::control::ClientControlFrame;
 
 use connectrpc::{ConnectError, ErrorCode};
 
-/// The v2 deadline for a whole-file read, a list-dir and a mkdir: `10_000` ms
-/// at v2 `:60`, `:74`, `:94`.
+/// The deadline for a whole-file read, a list-dir and a mkdir: `10_000` ms.
 const DEADLINE_MS: u64 = 10_000;
-/// The paged read's own deadline — `30_000` ms at v2 `:73`.
+/// The paged read's own deadline — `30_000` ms.
 const CHUNK_DEADLINE_MS: u64 = 30_000;
-/// `len > 4 * 1024 * 1024` is refused (v2 `:70-72`).
+/// `len > 4 * 1024 * 1024` is refused.
 const MAX_CHUNK_LEN: i64 = 4 * 1024 * 1024;
 
-/// Whole-file read. v2 `:56-67`.
+/// Whole-file read.
 pub async fn files_read(
     relay: &ScrollbackRelay,
     worker_fp: &WorkerFp,
@@ -67,7 +63,7 @@ pub async fn files_read(
     })
 }
 
-/// The paged read behind the download's progress bar. v2 `:69-84`.
+/// The paged read behind the download's progress bar.
 pub async fn files_read_chunk(
     relay: &ScrollbackRelay,
     worker_fp: &WorkerFp,
@@ -106,7 +102,7 @@ pub async fn files_read_chunk(
     })
 }
 
-/// v2 `:86-99`. The `resolved_path` fallback is v2 `:98`.
+/// Create a directory. The `resolved_path` fallback applies here too.
 pub async fn files_mkdir(
     relay: &ScrollbackRelay,
     worker_fp: &WorkerFp,
@@ -148,26 +144,21 @@ pub fn files_list_dir_entries(reply: &Value) -> Result<Vec<FilesListDirEntry>, C
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_owned(),
-            // ONE spelling, the one the contract uses. This read `isDir` and
-            // fell back to `is_dir` for a producer that had misspelled it, and
-            // the tolerance is worse than the bug it hides: a misspelling makes
-            // a proto bool default to FALSE, so every subdirectory arrives as a
-            // FILE — and on an all-Rust run the fallback quietly reads the
-            // misspelling and the defect is invisible. Only the cross-stack run
-            // (a TypeScript coordinator reading a Rust worker) surfaced it, with
-            // three specs reporting an empty directory listing while the
-            // surrounding chrome stayed correct. A field name is not a
-            // compatibility surface.
+            // ONE spelling, the one the contract uses. Tolerating a second
+            // spelling is worse than the bug it hides: a misspelling makes a
+            // proto bool default to FALSE, so every subdirectory would arrive
+            // as a FILE while the surrounding chrome stayed correct. A field
+            // name is not a compatibility surface.
             is_dir: entry.get("isDir").and_then(Value::as_bool).unwrap_or(false),
-            // v2 `:83`: `mtime_ms ? BigInt(mtime_ms) : 0n` — a falsy ZERO is a
-            // real zero, so this is an unwrap of the option, not of the value.
+            // A ZERO is a real zero, so this is an unwrap of the option, not of
+            // the value.
             mtime_ms: mtime,
         });
     }
     Ok(entries)
 }
 
-/// List a directory. v2 `:86-95`, and the `resolved_path` fallback is v2 `:95`.
+/// List a directory; the `resolved_path` fallback applies.
 pub async fn files_list_dir(
     relay: &ScrollbackRelay,
     worker_fp: &WorkerFp,

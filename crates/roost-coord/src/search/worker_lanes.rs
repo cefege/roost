@@ -1,11 +1,10 @@
 //! Process-wide serialization of global-search batches per worker: one page
 //! scans a worker at a time, distinct workers run in parallel.
 //!
-//! Ports `apps/coord/src/search/global-search-worker-lanes.ts`
-//! (`GlobalSearchWorkerLaneOwner`). One owner lives on `services.search`, so
-//! separate browsers cannot overlap a worker; `search::rpc_search` acquires a
-//! lease per worker group. Queue admission is bounded, every wait spends the
-//! caller's page deadline, and dropping a lease is its release.
+//! One owner lives on `services.search`, so separate browsers cannot overlap a
+//! worker; `search::rpc_search` acquires a lease per worker group. Queue
+//! admission is bounded, every wait spends the caller's page deadline, and
+//! dropping a lease is its release.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};

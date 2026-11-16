@@ -109,8 +109,8 @@ impl SyncV2Session {
     ///
     /// The frame comes back on every refusal so the lane can keep holding it,
     /// which is the difference between a state that is retried and a client that
-    /// waits out its deadline. The generation check is the fence from
-    /// `sync-ws-v2-egress.ts:170-183`: a frame retained under a generation this
+    /// waits out its deadline. The generation check is the fence: a frame
+    /// retained under a generation this
     /// domain has since moved past was admitted against a view of the world the
     /// client has already reset away.
     pub(in crate::sync_ws) fn try_enqueue_lane_frame(
@@ -137,7 +137,7 @@ impl SyncV2Session {
             }
             Some(refusal) => {
                 if refusal == (QueueRefusal::Overflow { rebaseline: true }) {
-                    // v2 asks the hub from inside the queue admission, and the
+                    // The queue admission asks the hub, and the
                     // ask is what makes the drop recoverable: a fresh canonical
                     // full for the session replaces the cells this frame was
                     // carrying.
@@ -149,8 +149,9 @@ impl SyncV2Session {
     }
 
     /// Whether this frame may join its domain's queue, and if not, why.
-    /// `check_budget` is false for a frame the lane already charged: v2 does not
-    /// re-check the socket's retention budget on the retained path, because the
+    /// `check_budget` is false for a frame the lane already charged: the
+    /// socket's retention budget is not re-checked on the retained path,
+    /// because the
     /// charge is already held and re-checking it would count the same bytes
     /// twice.
     fn queue_refusal(
@@ -241,8 +242,7 @@ impl SyncV2Session {
     /// canonical full for THAT session and drops the frame. Terminal SEMANTIC
     /// state -- a view-state, which answers a command the client is waiting on --
     /// closes the socket instead, because a dropped answer is a client that
-    /// waits out its deadline believing a terminal is attached
-    /// (`sync-ws-v2-egress.ts:96-140`).
+    /// waits out its deadline believing a terminal is attached.
     fn act_on_refusal(
         &mut self,
         refusal: QueueRefusal,

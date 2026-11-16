@@ -1,12 +1,11 @@
 //! `SessionsSearchGlobal`: coordinator-authorized, install-wide terminal
 //! content search.
 //!
-//! Ports `apps/coord/src/search/handlers-sessions-global-search.ts`. It
-//! enumerates live session authority from SQLite, fans one bounded batch to
+//! It enumerates live session authority from SQLite, fans one bounded batch to
 //! each routable worker (`search::page_group`), and projects matches,
 //! partials, and a continuation cursor. Continuation and cancel ordering are
 //! `services.search.cursors()`'s. Called from the `SessionsSearchGlobal` arm in
-//! `rpc/service_impl.rs`; a dropped call is v2's aborted request.
+//! `rpc/service_impl.rs`; a dropped call is an aborted request.
 
 use std::collections::{HashMap, HashSet};
 
@@ -35,8 +34,8 @@ use crate::search::options::normalize_global_search_page_limits;
 use crate::search::page_group::{GlobalSearchPage, search_worker_group};
 use crate::search::worker_result::GlobalSearchSessionOutcome;
 
-/// Refuse a `search_id` outside v2's `TerminalSearchIdSchema` (1..=64 UTF-16
-/// code units, as a browser counts its strings).
+/// Refuse a `search_id` outside 1..=64 UTF-16 code units, as a browser counts
+/// its strings.
 pub fn require_search_id(search_id: &str) -> Result<(), ConnectError> {
     let length = search_id.encode_utf16().count();
     if (1..=TERMINAL_SEARCH_ID_MAX_LENGTH).contains(&length) {
@@ -49,7 +48,7 @@ pub fn require_search_id(search_id: &str) -> Result<(), ConnectError> {
 }
 
 /// A search is always tab-scoped: supersession can then only ever mean "this
-/// tab replaced its own search" (v2 `requireSearchTabId`).
+/// tab replaced its own search".
 fn require_search_tab_id(caller: &Caller) -> Result<String, ConnectError> {
     let tab_id = caller.tab_id.as_deref().map(str::trim).unwrap_or_default();
     if tab_id.is_empty() {
@@ -135,7 +134,7 @@ pub async fn handle_sessions_search_global(
 }
 
 /// Ends the active record however the call ends. A call dropped before it
-/// settled is v2's aborted request: the search is tombstoned and its selected
+/// settled is an aborted request: the search is tombstoned and its selected
 /// sessions are cancelled on their workers.
 struct ActiveSearch<'a> {
     core: &'a CoordCore,

@@ -1,10 +1,6 @@
 //! The bus's three load-bearing properties: the bound, the absence of any
 //! per-subscriber drop, and the isolation of one broken subscriber from the rest.
 //!
-//! Ported from the behaviour v2 pins in `apps/coord/src/events/buses.ts:82-112`
-//! and its own test for the zero-capacity bus
-//! (`apps/coord/tests/ui-state/ui-state-owner.test.ts:117-124`).
-//!
 //! The one that matters most is the second: a bus with a per-subscriber buffer
 //! would move the "slow consumer" drop to a place with no backpressure signal,
 //! and a terminal delta that goes missing there is history corruption that no log
@@ -57,7 +53,7 @@ fn the_ring_keeps_the_last_n_and_drops_the_oldest() {
 
 #[test]
 fn a_zero_capacity_bus_retains_nothing_at_all() {
-    // v2's own assertion: "UI bus retains no report or command payloads".
+    // The UI bus retains no report or command payloads.
     let bus = BoundedBus::new(0);
     bus.publish(1_u32);
     assert_eq!(

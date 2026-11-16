@@ -1,8 +1,7 @@
 //! The authenticated direct-attachment RPCs: mint one immutable grant, read one
 //! durable receipt, and negotiate one attachment peer. Grants bind to the
 //! authenticated terminal session and exact tab; no byte
-//! crosses the coordinator here. Called by `rpc::service_impl`; ports the v2
-//! direct and peer handlers.
+//! crosses the coordinator here. Called by `rpc::service_impl`.
 
 use connectrpc::{ConnectError, ErrorCode, Response, ServiceResult};
 use roost_proto::buffa::MessageField;
@@ -28,7 +27,7 @@ use crate::db::CoordDb;
 
 const DIRECT_STATUS_IDENTIFIER_MAX_UTF8_BYTES: usize = 128;
 
-/// Mint one direct grant for the caller's tab. v2 `attachmentsGrantDirect`.
+/// Mint one direct grant for the caller's tab.
 pub async fn handle_attachments_grant_direct(
     core: &CoordCore,
     caller: &Caller,
@@ -90,7 +89,6 @@ pub async fn handle_attachments_grant_direct(
 }
 
 /// Read one upload's durable receipt from a terminal session.
-/// v2 `attachmentsDirectStatus`.
 pub async fn handle_attachments_direct_status(
     core: &CoordCore,
     caller: &Caller,
@@ -126,7 +124,7 @@ pub async fn handle_attachments_direct_status(
 }
 
 /// Bridge one attachment-peer negotiation into its owner with the
-/// authenticated device and exact tab. v2 `sessionsNegotiateAttachmentPeer`.
+/// authenticated device and exact tab.
 pub async fn handle_sessions_negotiate_attachment_peer(
     core: &CoordCore,
     caller: &Caller,

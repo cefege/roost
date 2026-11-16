@@ -2,8 +2,7 @@
 //! read built on it: a job's buffered lines, then its live lines, until `done`.
 //! Called by `deploy::rpc_deploy` (the `WorkersDeployOutput` stream) and by
 //! `deploy::catchup` (the outcome watcher). Depends on `events::bus` and
-//! `deploy::jobs`. Ports apps/coord/src/sync/sse.ts and the `deployOutput`
-//! generator of apps/coord/src/deploy/deploy-jobs.ts.
+//! `deploy::jobs`.
 //!
 //! THE QUEUE IS BOUNDED BY FRAMES AND BYTES, as the Sync application window is:
 //! a stalled HTTP reader must meet the same close-for-backpressure a stalled

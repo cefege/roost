@@ -3,10 +3,8 @@
 //! completed-capture cache that makes one CAPTURE idempotent. Arms and disarms
 //! the coordinator recorder so no lease transition can leave records behind.
 //! Used only by `terminal_capture::bridge`.
-//! Ports `apps/coord/src/terminal/capture/terminal-capture-lease.ts`, its
-//! `captureResult` included
-//! (`captureFailure` is `terminal_direct::grant_rpc::capture_failure`, and
-//! `captureOwnerKey` is `Principal::capture_owner_key`).
+//! Failures are built by `terminal_direct::grant_rpc::capture_failure`, and the
+//! owner key is `Principal::capture_owner_key`.
 //! The command and result types are `roost_protocol::terminal_capture::command`.
 
 use std::collections::HashMap;
@@ -310,7 +308,7 @@ pub struct CaptureResultFields {
     pub recent_worker_capture: Option<TerminalCaptureFileRef>,
 }
 
-/// v2 `captureResult`: the command's identity plus the outcome fields.
+/// The command's identity plus the outcome fields.
 #[must_use]
 pub fn capture_result(
     command: &TerminalCaptureCommand,

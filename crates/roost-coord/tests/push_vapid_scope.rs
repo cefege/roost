@@ -2,8 +2,8 @@
 //!
 //! Two properties, and both are silent when broken. The scope: the keypair
 //! lives in the `dashboard_id IS NULL` row of `app_settings` and nowhere else,
-//! because a per-dashboard row would shadow the coordinator-global identity
-//! (`apps/coord/src/push/vapid.ts:45-47`). The serialisation: a second
+//! because a per-dashboard row would shadow the coordinator-global identity.
+//! The serialisation: a second
 //! concurrent first use must observe the row the first one committed rather
 //! than minting a second identity.
 
@@ -158,10 +158,9 @@ async fn eight_concurrent_first_uses_mint_exactly_one_identity() {
     )
     .await;
 
-    // Eight callers, one empty settings table. v2 serialises this with a
-    // module-level in-flight promise (`vapid.ts:58-71`); this port serialises
-    // it with a `BEGIN IMMEDIATE` transaction, which has the same effect and
-    // also holds across processes. What must not happen is eight keypairs.
+    // Eight callers, one empty settings table. The first use is serialised with
+    // a `BEGIN IMMEDIATE` transaction, which also holds across processes. What
+    // must not happen is eight keypairs.
     let reads: Vec<_> = (0..8)
         .map(|_| {
             let push = fixture.push.clone();

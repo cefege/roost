@@ -2,17 +2,16 @@
 //! current-state seed cutover, the announcement fence, the weighted-lane
 //! round-robin, and the per-session removals.
 //!
-//! Owned by the Sync session. v2 kept this in `sync-ws-v2-queue.ts` and called
-//! it "not coupled to socket writes"; that separation is the reason the
-//! ordering is testable here, and it is preserved: every function in this file
-//! answers a question about ORDER, and none of them sends anything.
+//! Owned by the Sync session. Nothing here is coupled to socket writes; that
+//! separation is the reason the ordering is testable: every function in this
+//! file answers a question about ORDER, and none of them sends anything.
 //!
 //! THE WEIGHTED LANE IS A ROUND ROBIN WITH AN AGE OVERRIDE, NOT A PRIORITY
 //! QUEUE. A streaming terminal would starve every other domain if cells simply
 //! won, so the cursor visits each lane a fixed number of times per pass, and a
 //! non-cell frame that has waited past [`LOW_LANE_MAX_AGE_MS`] outranks cells
 //! among domain heads — within one domain it still waits behind the frames
-//! queued ahead of it, as v2 does (`sync-ws-v2-queue.ts:72-95`). The override is
+//! queued ahead of it. The override is
 //! one-directional on purpose: a cell that waited three seconds does not get to
 //! jump the line, because unbounded cell delay is exactly the state the age
 //! rule exists to bound.
@@ -291,8 +290,7 @@ fn is_eligible(
 /// Past this session's own queued frames and past every snapshot, and before
 /// everything else: a baseline queued behind another session's cells would
 /// paint a viewer onto the wrong screen, and a view-state queued behind an hour
-/// of cells would answer a command long after it was asked
-/// (`sync-ws-v2-queue.ts:31-49`).
+/// of cells would answer a command long after it was asked.
 pub(in crate::sync_ws) fn terminal_priority_insert_index(
     queue: &[RetainedFrame],
     session_id: Option<&str>,

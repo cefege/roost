@@ -1,9 +1,6 @@
 //! The register and rename writes: what a worker just said about itself, and
 //! the one label an operator may change.
 //!
-//! Ported from the `workersRegister` and `workersRename` arms of
-//! `apps/coord/src/workers/handlers-workers.ts:87-171`.
-//!
 //! IDEMPOTENCE IS THE POINT. A worker retries its register after a coordinator
 //! restart, and every field it sends is the same, so the second call must leave
 //! the row exactly as the first left it -- including `registered_at_ms`, which

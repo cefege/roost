@@ -2,12 +2,6 @@
 //! the requester confirms. Seven `Pair*` methods, each a `handle_*` the
 //! service impl delegates to.
 //!
-//! Ported from `apps/coord/src/auth/handlers-pairing.ts`. The facade that
-//! mounted it, `apps/coord/src/auth/handlers-auth.ts`, has no coordinator-side
-//! equivalent here: it exists only to keep v2's router auth-handler object in
-//! one literal, and `service_impl.rs` is already the one place these methods
-//! live.
-//!
 //! THE THREE PUBLIC METHODS TAKE THE REQUEST, NOT A CALLER. `PairCreate`,
 //! `PairPoll` and `PairConfirm` are `AuthRequirement::Public`, and the auth
 //! gate deliberately stores no `Caller` for a request that presented no
@@ -185,7 +179,7 @@ pub async fn handle_pair_poll(
 /// An approver lists the requests waiting on them.
 ///
 /// Device-authenticated, and also reachable by a direct on-host operator with
-/// no device key: v2's `pairList` takes either, and an operator approving the
+/// no device key: an operator approving the
 /// first browser of a fresh install has, by definition, no browser.
 pub async fn handle_pair_list(
     core: &CoordCore,

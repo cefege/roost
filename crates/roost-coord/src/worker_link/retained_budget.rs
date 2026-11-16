@@ -3,8 +3,7 @@
 //! the announced-channel barrier holds, and the parked semantic metadata.
 //!
 //! Owned by `worker_link::frame_queue` (one per socket, reached by
-//! `result_lane` and the announced lane). Ports `WorkerRetainedWorkBudget` of
-//! `apps/coord/src/workers/worker-frame-queue.ts`: charge before retaining,
+//! `result_lane` and the announced lane). Charge before retaining,
 //! release only once processing or delivery settled, and an overflow latches
 //! the budget closed before anything else can be charged.
 
@@ -98,7 +97,7 @@ impl RetainedWorkBudget {
 
     /// Give back one settled frame's charge.
     ///
-    /// v2 throws on an underflow; here it is a logged no-op, because a release
+    /// An underflow is a logged no-op rather than a panic, because a release
     /// larger than what is held means an owner double-released and the charge
     /// it would corrupt belongs to every other owner on the socket.
     pub fn release(&mut self, bytes: u64) {

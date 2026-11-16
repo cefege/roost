@@ -3,9 +3,7 @@
 //! until its interval is out, the aborts that reset the terminal domain, and
 //! a replay that yields to live publishers between batches.
 //!
-//! Ports `apps/coord/tests/sync/sync-backfill-priority.test.ts` against
-//! `sync_ws::session_replay` and `sync_ws::backfill::replay_since`; the v2
-//! hold rules come from `apps/coord/src/sync/sync-feed.ts:136-165, 334-345`.
+//! This pins `sync_ws::session_replay` and `sync_ws::backfill::replay_since`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod db_support;
@@ -30,10 +28,10 @@ fn live(event_id: u64) -> SessionBusMessage {
     SessionBusMessage::committed(closed(1), event_id)
 }
 
-// v2 sync-backfill-priority.test.ts "recovery dedupe keeps only its cutoff
-// boundary": a live event the v1 backfill overlapped goes out once; after the
-// backfill the cutoff drops its repeat, and later live ids are not remembered,
-// so a repeat of one of THOSE is delivered again.
+// Recovery dedupe keeps only its cutoff boundary: a live event the v1 backfill
+// overlapped goes out once; after the backfill the cutoff drops its repeat,
+// and later live ids are not remembered, so a repeat of one of THOSE is
+// delivered again.
 #[test]
 fn a_v1_backfill_delivers_its_boundary_once_and_then_stops_remembering() {
     let since = 10;
@@ -59,7 +57,7 @@ fn a_v1_backfill_delivers_its_boundary_once_and_then_stops_remembering() {
     );
 }
 
-// sync-feed.ts:136-165 and :334-345: a v2 recovery holds live events, replays
+// A v2 recovery holds live events, replays
 // the closed interval up to its cutoff, then releases only the held events
 // above the cutoff in id order, remembering them so a repeat is dropped.
 #[test]
@@ -98,7 +96,7 @@ fn live_events_wait_for_the_paced_tail_and_repeated_held_events_are_not_delivere
     assert_eq!(replay.admit_live(&live(11)), LiveVerdict::Emit);
 }
 
-// sync-feed.ts:138-145: an unstamped live event cannot be ordered against the
+// An unstamped live event cannot be ordered against the
 // log, so the recovery is abandoned (terminal reset) and the event is not sent.
 #[test]
 fn an_unstamped_live_event_abandons_a_v2_recovery() {
@@ -119,7 +117,7 @@ fn an_unstamped_live_event_abandons_a_v2_recovery() {
     assert_eq!(replay.admit_live(&live(6)), LiveVerdict::Emit);
 }
 
-// A browser that last synced against another coordinator (the v2 install this
+// A browser that last synced against another coordinator (an earlier install this
 // one replaced) resumes with a cursor beyond this log's end. Left there, every
 // live event below that cursor read as a duplicate and the socket went quiet:
 // the page showed "Coordinator unreachable" while the link was open.
@@ -133,7 +131,7 @@ fn a_cursor_ahead_of_the_log_does_not_swallow_later_live_events() {
     assert_eq!(replay.admit_live(&live(log_end)), LiveVerdict::Duplicate);
 }
 
-// sync-feed.ts:146-162: the hold is bounded at 512 distinct events and 4 MiB;
+// The hold is bounded at 512 distinct events and 4 MiB;
 // the event that overflows it abandons the recovery and goes out live.
 #[test]
 fn an_overflowing_hold_abandons_the_recovery_and_sends_the_event_live() {
@@ -185,8 +183,8 @@ fn an_overflowing_hold_abandons_the_recovery_and_sends_the_event_live() {
     ));
 }
 
-// v2 sync-backfill-priority.test.ts "a queued live session event lands between
-// sixteen-event replay batches": the replay yields after every batch, so a
+// A queued live session event lands between sixteen-event replay batches: the
+// replay yields after every batch, so a
 // publisher scheduled on the same runtime runs between the first sixteen and
 // the next.
 #[tokio::test]

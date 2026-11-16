@@ -155,7 +155,7 @@ pub fn input_route_refusal_frame(
 /// The probe's wire shape has no error field, so the ONLY way to answer "not
 /// here" without impersonating a worker is an empty `worker_epoch`: the client's
 /// correlator treats an empty epoch as explicitly unsuccessful, and a probe that
-/// went unanswered would leave it waiting (`sync-ws-v2-commands.ts:236-251`).
+/// went unanswered would leave it waiting.
 #[must_use]
 pub fn transport_probe_refusal_frame(request_id: &str, worker_fp: &str) -> FirehoseFrame {
     control_frame(FirehoseFrame {

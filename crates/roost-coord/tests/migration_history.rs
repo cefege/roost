@@ -4,11 +4,11 @@
 // heard of. A removed migration's row is TRUE — that file did apply it — so
 // reading it as corruption bricks a coordinator that was working minutes ago,
 // and the operator's next move is to delete the row, which is the one thing
-// `docs/FAILURE-INDEX.md` names as wrong. v2 declared the retirement and
-// compared the survivors; `sqlx` keys its history by version, so the retirement
+// `docs/FAILURE-INDEX.md` names as wrong. A retirement is declared and the
+// survivors compared; `sqlx` keys its history by version, so the retirement
 // is a version here and `db::RETIRED_MIGRATIONS` is where it is declared.
 //
-// Every comparison is by version, never by position in the raw history: v2's
+// Every comparison is by version, never by position in the raw history: the
 // retired `0017_agent_ui_frames` sorts BEFORE the migration that reused its
 // slot, so an ordinal comparison diverges at the position it reads from. A
 // version comparison has no such failure mode, and these tests would not catch a
@@ -207,7 +207,7 @@ async fn the_history_this_build_wrote_is_admitted_and_keeps_booting() {
 #[test]
 fn a_declared_retirement_is_not_corruption_and_the_rest_of_the_chain_still_applies() {
     let embedded: HashSet<i64> = HashSet::from([1, 2, 3]);
-    // v2's shape: the retired version sorts BEFORE the migration that reused its
+    // The retired version sorts BEFORE the migration that reused its
     // slot, so anything comparing the raw history by position diverges here.
     let applied = [1_i64, 2, 3, 4];
     let retired = [4_i64];

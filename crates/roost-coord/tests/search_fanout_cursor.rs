@@ -1,8 +1,6 @@
 //! Global-search cursor continuation through fake routable worker
 //! generations: an offline session is kept for retry, and every cursor session
 //! is reauthorized against session close and worker deletion.
-//!
-//! Ported from `apps/coord/tests/workers/worker-ws-transport-global-search-cursor.test.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

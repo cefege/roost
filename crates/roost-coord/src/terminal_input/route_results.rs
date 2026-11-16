@@ -3,7 +3,6 @@
 //! exact worker generation, and only that generation's typed result settles it.
 //! The browser nonce is restored only after every worker and result fence
 //! passes. Built once on `TerminalInputRuntime`; the slot table is `route_slots`.
-//! Ports `apps/coord/src/terminal/input/terminal-input-route-results.ts`.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 

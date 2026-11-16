@@ -3,9 +3,7 @@
 //! the link ignores, and the frames it writes for the rest of the coordinator.
 //!
 //! Every test dials the REAL router on an ephemeral loopback port, because the
-//! properties here are what a worker observes on the wire. Ports
-//! `apps/coord/tests/workers/worker-ws-transport{,-lifecycle}.test.ts` and
-//! `worker-conn-pending-supersession.test.ts`.
+//! properties here are what a worker observes on the wire.
 //!
 //! `expect` and `unwrap` are denied outside `#[cfg(test)]`, and an integration
 //! test is its own crate rather than a module of one, so the exemption has to
@@ -56,8 +54,8 @@ async fn routable_becomes(fixture: &WireFixture, want: bool) {
     panic!("the worker never became routable={want}");
 }
 
-// v2: worker-ws-transport.test.ts "dial + hello → helloAck, worker registered
-// in the hub" — plus the echoed marker of `worker-ws-upgrade.ts:112-117`.
+// Dial + hello → hello acknowledgement, worker registered in the hub, plus
+// the echoed marker.
 #[tokio::test]
 async fn an_admitted_worker_upgrades_and_its_hello_is_acknowledged_before_it_is_routable() {
     let fixture = WireFixture::start("hello").await;
@@ -98,8 +96,8 @@ async fn an_admitted_worker_upgrades_and_its_hello_is_acknowledged_before_it_is_
     routable_becomes(&fixture, true).await;
 }
 
-// v2: worker-conn-pending-supersession.test.ts "tracks worker boot and socket
-// generations without retaining superseded capabilities".
+// Worker boot and socket generations are tracked without retaining superseded
+// capabilities.
 #[tokio::test]
 async fn a_hello_is_acknowledged_with_only_the_capabilities_this_coordinator_serves() {
     let fixture = WireFixture::start("capabilities").await;
@@ -125,7 +123,7 @@ async fn a_hello_is_acknowledged_with_only_the_capabilities_this_coordinator_ser
     assert_eq!(handle.process_epoch.as_deref(), Some("worker-epoch-1"));
 }
 
-// Standing ruling (v2 `worker-ws-handler.ts:209-212`): an undecodable frame is
+// Standing ruling: an undecodable frame is
 // logged `decode_failed` and ignored; the link stays open.
 #[tokio::test]
 async fn an_undecodable_frame_is_ignored_and_the_next_frame_is_still_dispatched() {
@@ -144,9 +142,9 @@ async fn an_undecodable_frame_is_ignored_and_the_next_frame_is_still_dispatched(
     );
 }
 
-// v2: worker-ws-transport.test.ts "downstream command + upstream rpc-ok
-// resolves the pending RPC", the downstream half: what the rest of the
-// coordinator sends through the registered handle reaches the socket.
+// Downstream command + upstream rpc-ok resolves the pending RPC; this is the
+// downstream half: what the rest of the coordinator sends through the
+// registered handle reaches the socket.
 #[tokio::test]
 async fn a_frame_sent_through_the_registered_handle_reaches_the_worker() {
     let fixture = WireFixture::start("send").await;
@@ -166,8 +164,8 @@ async fn a_frame_sent_through_the_registered_handle_reaches_the_worker() {
     );
 }
 
-// v2: worker-conn-pending-supersession.test.ts "a replacement worker
-// generation rejects predecessor RPCs", plus v2's `superseded.close()`.
+// A replacement worker generation rejects predecessor RPCs and closes the
+// superseded socket.
 #[tokio::test]
 async fn a_replacement_hello_rejects_predecessor_requests_and_closes_the_old_socket() {
     let fixture = WireFixture::start("supersede").await;
@@ -213,8 +211,8 @@ async fn a_replacement_hello_rejects_predecessor_requests_and_closes_the_old_soc
     );
 }
 
-// v2: worker-conn.ts `hello` — "Worker must announce the same fp that authed
-// the JWT", else the socket closes.
+// A worker must announce the same fp that authed the JWT in its hello, else the
+// socket closes.
 #[tokio::test]
 async fn a_hello_for_another_fingerprint_closes_the_socket_unregistered() {
     let fixture = WireFixture::start("fp-mismatch").await;

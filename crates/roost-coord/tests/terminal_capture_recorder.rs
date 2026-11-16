@@ -2,9 +2,7 @@
 //! send-state reporting, renewal versus a new recording, and the entry bound
 //! that keeps the retained head a complete checkpoint.
 //!
-//! Ports the record cases of
-//! `apps/coord/tests/terminal/capture/terminal-capture-recorder.test.ts`; its
-//! freeze cases are `terminal_capture_freeze.rs`. Hub admission runs through
+//! The freeze cases are `terminal_capture_freeze.rs`. Hub admission runs through
 //! the real hub harness so the hook wiring is proven, not simulated.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

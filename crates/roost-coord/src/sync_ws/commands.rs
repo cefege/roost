@@ -1,10 +1,10 @@
 //! What one authenticated client frame did, decided here and applied by the
 //! caller.
 //!
-//! Owned by the Sync session. v2 kept this in `sync-ws-v2-commands.ts` plus
-//! `sync-ws-client-ingress.ts`; both are here because both answer the same
+//! Owned by the Sync session. The command gate and the client-frame ingress
+//! rules are both here because both answer the same
 //! question -- is this frame legal for THIS socket, and what does it change --
-//! and splitting them in Rust would put the socket-identity fence on one side of
+//! and splitting them would put the socket-identity fence on one side of
 //! a boundary and the command gate on the other.
 //!
 //! EVERY REFUSAL IS A FRAME, NOT A SILENCE. A command this socket may not issue
@@ -154,11 +154,10 @@ pub enum CommandOutcome {
 /// The transport decodes; this decides whether the decode is trustworthy. A
 /// frame with trailing junk, a non-minimal varint, or an unknown field would
 /// otherwise be accepted with the unknown parts silently dropped, which is how a
-/// client and a coordinator end up disagreeing about what was sent
-/// (`sync-ws-client-ingress.ts:44-52`).
+/// client and a coordinator end up disagreeing about what was sent.
 ///
-/// CANONICAL MEANS FIELD-NUMBER ORDER. v2's canonical bytes are protobuf-es's,
-/// which writes a message's fields in ascending field number; buffa writes
+/// CANONICAL MEANS FIELD-NUMBER ORDER. Protobuf's canonical bytes write a
+/// message's fields in ascending field number; buffa writes
 /// them in declaration order. `SyncClientFrame` declares its `command` oneof
 /// before `socket_id = 10`, yet two cases (`input_route_claim = 11`,
 /// `terminal_transport_probe = 12`) number after it, so comparing against
@@ -166,7 +165,7 @@ pub enum CommandOutcome {
 /// socket `1008` (terminal-peer smoke, "disabled peer capability"). The
 /// re-encoding's top-level fields are put in field-number order before the
 /// comparison; every message nested in a client frame declares its fields in
-/// ascending order, so buffa's bytes for them are already protobuf-es's.
+/// ascending order, so buffa's bytes for them are already canonical.
 #[must_use]
 pub fn is_canonical_client_frame(frame: &SyncClientFrame, raw: &[u8]) -> bool {
     let mut encoded = Vec::new();
@@ -240,8 +239,8 @@ pub fn handle_client_frame(
     if frame.socket_id != session.socket_id {
         return CommandOutcome::Nothing;
     }
-    // An acknowledgement and a command may ride one frame, and v2 applies the
-    // ack and THEN the command (`sync-ws-client-ingress.ts:69-76`). Only a
+    // An acknowledgement and a command may ride one frame, and the ack is
+    // applied and THEN the command. Only a
     // frame with neither is a violation: a stale or repeated ack releases
     // nothing and is harmless.
     let ack = frame.ack_delivery_seq.unwrap_or_default();

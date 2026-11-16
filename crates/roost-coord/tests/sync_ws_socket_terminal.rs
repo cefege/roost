@@ -2,11 +2,6 @@
 //! view whose lease lapses closes its socket `1013` once, and a subscriber that
 //! arrives after a title changed is seeded with the retained, displayed title
 //! of the sessions still open.
-//!
-//! Ports `apps/coord/tests/sync/sync-ws-keepalive.test.ts` "live terminal lease
-//! expiry closes the owning v2 socket once", and the retained-title replay of
-//! `apps/coord/src/terminal/terminal-title-hub.ts` (`getTitleSnapshot`,
-//! released on `closed`) at the socket boundary.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod db_support;
@@ -76,8 +71,8 @@ async fn terminal_socket(
     (socket, subscribed.socket_id, generation)
 }
 
-// v2 sync-ws-keepalive.test.ts "live terminal lease expiry closes the owning
-// v2 socket once": two live views of one socket lapse in one sweep; the socket
+// Live terminal lease expiry closes the owning v2 socket once:
+// two live views of one socket lapse in one sweep; the socket
 // is closed 1013 with the lease reason, and nothing follows the close.
 #[tokio::test]
 async fn a_lapsed_live_view_lease_closes_its_socket_once() {
@@ -143,9 +138,9 @@ async fn a_lapsed_live_view_lease_closes_its_socket_once() {
     );
 }
 
-// v2 terminal-title-hub.ts `getTitleSnapshot` ("replayed to each new Sync
-// subscriber so a fresh page load reflects the live title immediately") and
-// `startTerminalTitleHub` (a closed session's title is released).
+// The retained title is replayed to each new Sync subscriber so a fresh page
+// load reflects the live title immediately, and a closed session's title is
+// released.
 #[tokio::test]
 async fn a_late_subscriber_is_seeded_with_the_retained_title_of_open_sessions_only() {
     let fixture = SyncFixture::start("late-title").await;

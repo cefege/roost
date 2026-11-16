@@ -1,6 +1,6 @@
 //! `CoordinatorService.AuditList` — the operator's window onto `audit_log`.
 //!
-//! Ported from `handlers-system.ts:311-337`. The handler's shape is a keyset
+//! The handler's shape is a keyset
 //! page, not an offset page: rows come back newest-first and the cursor is the
 //! last row's own id, so a page boundary is a value rather than a count and
 //! rows inserted while an operator is reading cannot shift the window under
@@ -11,12 +11,11 @@
 //! second COUNT over a table that reaches fifty million rows — and it is why
 //! the limit the statement binds is `limit + 1`.
 //!
-//! THE CURSOR IS NOT VALIDATED, AND THAT IS v2's ANSWER. `parseInt` on a
-//! non-numeric cursor yields `NaN`, `id < NaN` is false in SQLite, and the page
-//! comes back empty rather than refused. The only writer of this cursor is this
-//! method — it is `String(lastRow.id)` — so a caller that sends anything else
-//! has a bug in its own paging loop, and an empty page stops that loop where an
-//! error would only be logged and retried.
+//! THE CURSOR IS NOT VALIDATED. A non-numeric cursor parses to nothing and is
+//! ignored, so the page restarts from the newest row rather than the request
+//! being refused. The only writer of this cursor is this method -- it is the
+//! last row's own id -- so a caller that sends anything else has a bug in its
+//! own paging loop.
 
 use connectrpc::{ConnectError, ErrorCode, ServiceResult};
 use roost_proto as proto;
@@ -26,10 +25,10 @@ use crate::auth::principal::require_account_device;
 use crate::coord_core::{Caller, CoordCore};
 use crate::rpc::service::ok_response;
 
-/// The page a caller gets when it names no size. v2's `req.limit || 100`.
+/// The page a caller gets when it names no size.
 const DEFAULT_LIMIT: u32 = 100;
 
-/// The largest page a caller may ask for. v2's `Math.min(…, 500)`: a page is
+/// The largest page a caller may ask for: a page is
 /// for a human reading a settings pane, not for exporting the table.
 const MAX_LIMIT: u32 = 500;
 

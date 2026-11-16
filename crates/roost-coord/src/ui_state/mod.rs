@@ -2,10 +2,10 @@
 //!
 //! The four Connect methods are `ui_report_state`, `ui_list_states`,
 //! `ui_dispatch` and `ui_apply_layout`; `rpc` mounts them and the Sync feed
-//! reads the same state. Two process singletons live here -- the retained
-//! reports and the reserved applies -- because v2 kept both as module-level
-//! `Map`s in a codebase that had no other option, and `services.rs`'s own rule
-//! is that nothing in this crate reaches for a global.
+//! reads the same state. Two process-wide owners live here -- the retained
+//! reports and the reserved applies -- each held by `CoordServices`, since
+//! `services.rs`'s own rule is that nothing in this crate reaches for a
+//! global.
 
 pub mod fence;
 pub mod identity_rate;

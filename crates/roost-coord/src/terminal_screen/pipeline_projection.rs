@@ -1,8 +1,6 @@
 //! The JSON-safe, content-free projection of a validated terminal-pipeline
 //! reply, scoped to the sessions the asking tenant may see. Every u64 counter
 //! becomes a decimal string so a JSON reader cannot round it.
-//! Ports `terminalPipelineDiagnosticSnapshot` of
-//! `apps/coord/src/terminal/screen/worker-terminal-pipeline-snapshot.ts`.
 //! Read by the DiagSnapshot worker-results projection.
 
 use std::collections::HashSet;

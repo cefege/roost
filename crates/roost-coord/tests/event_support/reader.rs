@@ -1,6 +1,6 @@
 //! The second connection the ordering assertions depend on.
 //!
-//! See the parent module's header: `LiveEffects` is synchronous, as it is in v2,
+//! See the parent module's header: `LiveEffects` is synchronous,
 //! so the visibility probe cannot await and the reader owns its connection on a
 //! dedicated thread instead.
 

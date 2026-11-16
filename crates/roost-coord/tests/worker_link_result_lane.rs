@@ -2,9 +2,6 @@
 //! is parked, a typed input result still settles its waiter, and every other
 //! frame keeps its place behind the append.
 //!
-//! Ports the `inputResult` bypass of `apps/coord/src/workers/worker-ws-handler.ts:235-254`
-//! as `apps/coord/tests/workers/worker-ws-result-dispatch.test.ts` "settles
-//! input and stream results without waiting for a durable handler" drives it.
 //! The append is parked by holding the coordinator's one pooled database
 //! connection. `unwrap`/`expect` are denied outside `#[cfg(test)]`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]

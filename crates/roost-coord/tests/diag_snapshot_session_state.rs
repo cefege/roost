@@ -2,9 +2,7 @@
 //! was minimized over, the route and where it came from, and a route withheld
 //! for a worker the caller was not admitted to.
 //!
-//! Ports `apps/coord/tests/diagnostics/diag-snapshot-session-viewers.test.ts`
-//! against `apps/coord/src/diagnostics/diag-snapshot-session-state.ts`. The
-//! viewer set is the owner-mode worker's published projection: this
+//! The viewer set is the owner-mode worker's published projection: this
 //! coordinator runs no stream controller of its own (`terminal_view` header).
 //!
 //! `expect` and `unwrap` are denied outside `#[cfg(test)]`, and an integration

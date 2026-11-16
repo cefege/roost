@@ -4,9 +4,8 @@
 //!
 //! Reached as `services.feed`; `sync_ws::socket` registers and unregisters each
 //! v2 socket here, `sync_ws::ingress` consumes tokens, and the `SessionsList`
-//! RPC binds them. Ports `apps/coord/src/sync/sync-snapshot-registry.ts`
-//! (`bindSyncSessionSnapshot`) and the process-scoped `SYNC_PROCESS_EPOCH` and
-//! generation allocator of `sync-ws-handler.ts` / `sync-ws-v2-state.ts`.
+//! RPC binds them. The process-scoped `SYNC_PROCESS_EPOCH` and generation
+//! allocator live here too.
 //!
 //! ONE REGISTRY FOR THE PROCESS, BECAUSE THE BINDER IS NOT THE SOCKET. The RPC
 //! that issues a snapshot runs on a Connect request with no handle on the Sync
@@ -65,7 +64,7 @@ impl FeedRuntime {
     /// browser named a socket that is gone or is not its own -- or when no
     /// token could be minted. The caller answers without a token, and the
     /// browser reconnects rather than hydrating against a socket it does not
-    /// hold (`sync-snapshot-registry.ts:29-45`).
+    /// hold.
     pub fn bind_session_snapshot(
         &self,
         socket_id: &str,
@@ -114,13 +113,12 @@ pub fn mint_socket_id() -> std::io::Result<String> {
 }
 
 /// The generation source, seeded from the wall clock so a generation minted
-/// before a restart cannot be mistaken for one minted after it
-/// (`sync-ws-v2-state.ts:78`).
+/// before a restart cannot be mistaken for one minted after it.
 pub(in crate::sync_ws::feed) fn process_generations() -> DomainGenerations {
     DomainGenerations::new(u64::try_from(crate::serve::now_ms()).unwrap_or(0))
 }
 
-/// This process's Sync epoch: random, as v2's `randomUUID()`.
+/// This process's Sync epoch: random.
 ///
 /// The one property a client relies on is that two processes never announce
 /// the same epoch. When the kernel CSPRNG cannot be read, the pid and the

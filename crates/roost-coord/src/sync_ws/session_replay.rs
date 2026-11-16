@@ -4,9 +4,7 @@
 //!
 //! Owned by `sync_ws::driver::LinkState` (`replay`); `sync_ws::live_feed` asks it
 //! about every live session event and `sync_ws::backfill` about every durable
-//! row. Ports the recovery half of `startSyncFeed` in
-//! `apps/coord/src/sync/sync-feed.ts` (`emitLiveSessionNow`,
-//! `emitRecoveredSession`, `emitSession` and the tail flush of `backfill`).
+//! row.
 //!
 //! ONE SCALAR CUTOFF, AND A SET THAT NEVER GROWS AFTER RECOVERY. Every event at
 //! or below the cutoff was already delivered, so it is dropped wherever it
@@ -18,12 +16,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::events::bus_messages::SessionBusMessage;
 
-/// Live session events a v2 recovery may hold before it gives up
-/// (`sync-feed.ts:152`).
+/// Live session events a v2 recovery may hold before it gives up.
 pub const RECOVERY_HOLD_MAX_EVENTS: usize = 512;
 
-/// Estimated bytes of live session events a v2 recovery may hold
-/// (`sync-feed.ts:153`).
+/// Estimated bytes of live session events a v2 recovery may hold.
 pub const RECOVERY_HOLD_MAX_BYTES: usize = 4 * 1024 * 1024;
 
 /// What to do with one live session event.
@@ -47,7 +43,7 @@ pub enum LiveVerdict {
     /// independently — keeps painting: a client showing an empty session list
     /// beside a live terminal, with no way for the reader to tell them apart.
     Abort {
-        /// The `domain_reset` reason v2 sends.
+        /// The `domain_reset` reason sent.
         reason: &'static str,
         /// Whether the event that caused the abort is delivered anyway.
         emit: bool,
@@ -71,8 +67,7 @@ pub struct SessionReplay {
 impl SessionReplay {
     /// A socket resuming from `since` (zero for a fresh one). A v1 socket with
     /// a cursor delivers live events at once and remembers them as the
-    /// boundary; a v2 one holds them until its recovery finishes
-    /// (`sync-feed.ts:92-98`).
+    /// boundary; a v2 one holds them until its recovery finishes.
     #[must_use]
     pub fn new(since: u64, v2: bool) -> Self {
         Self {
@@ -86,7 +81,7 @@ impl SessionReplay {
         }
     }
 
-    /// Decide one live session event (`sync-feed.ts:123-165`).
+    /// Decide one live session event.
     pub fn admit_live(&mut self, message: &SessionBusMessage) -> LiveVerdict {
         if !self.recovering {
             return self.live_now(message.event_id.unwrap_or(0));
@@ -118,8 +113,8 @@ impl SessionReplay {
     }
 
     /// Whether a durable row above the cursor is delivered: `false` when it is
-    /// at or below the cutoff or a live boundary event already carried it
-    /// (`sync-feed.ts:130-135`). Either way the cutoff advances to it.
+    /// at or below the cutoff or a live boundary event already carried it.
+    /// Either way the cutoff advances to it.
     pub fn admit_recovered(&mut self, event_id: u64) -> bool {
         if event_id <= self.cutoff {
             return false;
@@ -174,8 +169,7 @@ impl SessionReplay {
         None
     }
 
-    /// The v1 backfill is over: later live events are no longer remembered
-    /// (`sync-feed.ts:372`).
+    /// The v1 backfill is over: later live events are no longer remembered.
     pub fn finish_backfill(&mut self) {
         self.collecting_boundary = false;
     }
@@ -201,7 +195,7 @@ impl SessionReplay {
     }
 }
 
-/// v2's `JSON.stringify(event).length`: the event's JSON text, which is what
+/// The estimated size of an event: its JSON text length, which is what
 /// the hold is bounded by.
 fn estimated_bytes(message: &SessionBusMessage) -> usize {
     serde_json::to_string(&message.event).map_or(0, |text| text.len())

@@ -2,9 +2,6 @@
 //! session's entry means for the page: matches, a typed partial, and where
 //! the session resumes.
 //!
-//! Ports `validateGlobalSearchGroupResult`, `outcomeForGlobalSearchEntry` and
-//! their helpers from `apps/coord/src/search/global-search-fanout.ts`, over
-//! v2's `WorkerGlobalSearchResultSchema` (`packages/protocol/src/terminal-search.ts`).
 //! Each per-session result is decoded by the ONE schema decoder,
 //! `terminal_screen::scrollback_result::decode_worker_search_result`. Called by
 //! `search::rpc_search`; any lie turns the whole batch into malformed partials.
@@ -264,7 +261,7 @@ fn outcome_for_search_result(
     }
 }
 
-/// v2's strict `WorkerGlobalSearchResultSchema`: `{ entries }` only, at most a
+/// The strict worker result shape: `{ entries }` only, at most a
 /// page of entries, each strict, session ids uuid-shaped and unique.
 fn decode_global_search_result(raw: &Value) -> Option<Vec<WorkerGlobalSearchEntry>> {
     let object = raw.as_object()?;
@@ -311,7 +308,7 @@ fn decode_entry(raw: &Value) -> Option<WorkerGlobalSearchEntry> {
     Some(WorkerGlobalSearchEntry::Failed { session_id, error })
 }
 
-/// zod's `.uuid()`: 8-4-4-4-12 hex, any version.
+/// A uuid-shaped string: 8-4-4-4-12 hex, any version.
 fn is_uuid_shape(value: &str) -> bool {
     let groups: Vec<&str> = value.split('-').collect();
     groups.len() == 5

@@ -1,18 +1,14 @@
 //! The one call Web Push delivery makes, as the sender sees it, and the
 //! production transport that makes it.
 //!
-//! Owned by the push domain. v2's `PushNotificationTransport` is
-//! `Pick<typeof webpush, "sendNotification">` and the tests substitute a fake;
-//! here that substitution is a trait, which is the same seam with a name a
-//! reader can grep for. [`WebPushTransport`] is the production half, ported
-//! from `ensureConfigured` and the `webpush.sendNotification` call in
-//! `push-sender.ts:22-37,99-112`; `serve.rs` builds it once at boot.
+//! Owned by the push domain. The sender sees the transport as a trait, so a
+//! test can substitute a fake; [`WebPushTransport`] is the production half, and
+//! `serve.rs` builds it once at boot.
 //!
-//! WHY THE ERROR CARRIES A STATUS AND NOT AN ENUM. `push-sender.ts:52-61`
-//! reaches for `statusCode` on whatever the transport threw, because the
-//! decision that follows is a status comparison and nothing else. An enum would
-//! move that comparison to the transport and make every new status a change in
-//! two files.
+//! WHY THE ERROR CARRIES A STATUS AND NOT AN ENUM. The decision that follows a
+//! failed delivery is a status comparison and nothing else. An enum would move
+//! that comparison to the transport and make every new status a change in two
+//! files.
 //!
 //! THE STATUS IS THE ONE THE PUSH SERVICE ANSWERED, NOT A GUESS. `web-push`
 //! encrypts (RFC 8291) and signs (RFC 8292) the message, and `reqwest` sends
@@ -34,9 +30,8 @@ use crate::push::vapid::{VapidKeyStore, VapidKeys};
 
 /// The VAPID `sub` claim: who a push service contacts about this sender.
 ///
-/// `mailto:roost@local` (`push-sender.ts:27`). A self-hosted coordinator has no
-/// operator address to publish, and the claim is required, so this is the same
-/// placeholder v2 signs with.
+/// `mailto:roost@local`. A self-hosted coordinator has no operator address to
+/// publish, and the claim is required, so this is a fixed placeholder.
 pub const VAPID_SUBJECT: &str = "mailto:roost@local";
 
 /// How long a push service may hold a message for an offline device.
@@ -46,7 +41,7 @@ pub const TTL_SECONDS: u32 = 60;
 
 /// How long one delivery attempt may take before it is abandoned.
 ///
-/// 10 seconds (`push-sender.ts:13`). This is the per-attempt ceiling inside
+/// 10 seconds. This is the per-attempt ceiling inside
 /// [`MAX_CONCURRENT_SENDS`], so the whole batch's worst case is
 /// `ceil(n / 4) * 10s`, and a hung push service cannot hold the dispatch open
 /// for the fleet's whole session list.
@@ -54,7 +49,7 @@ pub const REQUEST_TIMEOUT: Duration = Duration::from_millis(10_000);
 
 /// How many deliveries may be in flight at once.
 ///
-/// 4 (`push-sender.ts:14`). A push service rate-limits by endpoint, and a
+/// Limit 4: a push service rate-limits by endpoint, and a
 /// fleet-wide fan-out that opened one connection per subscription would turn a
 /// busy transition into a self-inflicted outage. Four is also the width that
 /// keeps a 20-subscription fleet inside one timeout window.
@@ -161,9 +156,8 @@ pub trait PushNotificationTransport: Send + Sync {
 ///
 /// Holds the coordinator's [`VapidKeyStore`] rather than a keypair, so the
 /// identity is the one `PushGetConfig` handed the browser and is loaded (or
-/// minted) on first use exactly as v2's `ensureConfigured` did. A failure to
-/// load it fails that one delivery, and the next one tries again, as v2 reset
-/// its configure promise (`push-sender.ts:31-36`).
+/// minted) on first use. A failure to load it fails that one delivery, and the
+/// next one tries again.
 #[derive(Debug, Clone)]
 pub struct WebPushTransport {
     client: reqwest::Client,
@@ -174,9 +168,9 @@ pub struct WebPushTransport {
 impl WebPushTransport {
     /// A transport over the coordinator's database and VAPID identity.
     ///
-    /// REDIRECTS ARE NEVER FOLLOWED. `web-push` issues one request and rejects
-    /// every non-2xx (`push-sender.ts:97-98`); a push service answering 3xx is
-    /// a failed delivery, not an instruction to post the payload elsewhere.
+    /// REDIRECTS ARE NEVER FOLLOWED. A delivery is one request and every non-2xx
+    /// is a failure; a push service answering 3xx is a failed delivery, not an
+    /// instruction to post the payload elsewhere.
     pub fn new(database: CoordDb, vapid: VapidKeyStore) -> Result<Self, reqwest::Error> {
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
@@ -240,14 +234,14 @@ impl PushNotificationTransport for WebPushTransport {
 
 /// The RFC 8291 `aes128gcm` message, signed with the coordinator's VAPID key.
 ///
-/// `aes128gcm` is `web-push`'s default in v2 too; the older `aesgcm` exists
+/// `aes128gcm` is `web-push`'s default; the older `aesgcm` exists
 /// only for browsers that predate the RFC. A TTL too wide for the header is
 /// held at `u32::MAX` rather than wrapped to a short one.
 ///
-/// THE AUDIENCE IS THE ENDPOINT'S ORIGIN, PORT INCLUDED. v2's `web-push` signs
-/// `protocol//host` of the WHATWG URL, which keeps a non-default port; the
-/// Rust crate's default drops it, and a push service on a non-default port
-/// would then refuse every token as addressed to someone else.
+/// THE AUDIENCE IS THE ENDPOINT'S ORIGIN, PORT INCLUDED. A WHATWG origin keeps
+/// a non-default port; the Rust crate's default drops it, and a push service
+/// on a non-default port would then refuse every token as addressed to someone
+/// else.
 fn encrypted_message(
     keys: &VapidKeys,
     request: &PushDeliveryRequest,

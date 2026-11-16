@@ -197,7 +197,7 @@ async fn a_zero_sequence_is_refused_rather_than_admitted_as_sequence_zero() {
     );
 }
 
-// v2 `handleEvent` appends any positive `clientSeq`: a worker resuming its
+// Any positive `client_seq` is appended: a worker resuming its
 // outbox against a restarted coordinator is written and ACKed.
 #[tokio::test]
 async fn a_resumed_sequence_on_a_fresh_cursor_is_written_and_acked() {

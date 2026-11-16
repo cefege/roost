@@ -1,7 +1,6 @@
 //! What a worker is allowed to have answered to a scrollback search.
 //!
-//! Ported from `validateSearchRequest` and `parseWorkerSearchResult` in
-//! `apps/coord/src/terminal/screen/handlers-sessions-scrollback.ts`. Both are
+//! `validate_search_request` and `parse_worker_search_result` are
 //! pure, and both exist because the reply is the ONLY thing standing between a
 //! buggy or older worker and a browser that pages forever: a result that
 //! scanned more rows than were asked for, or that claims a match outside the
@@ -108,7 +107,7 @@ pub enum SearchStop {
 }
 
 impl SearchStop {
-    /// The wire spelling, from `packages/protocol/src/terminal-search.ts`.
+    /// The wire spelling.
     #[must_use]
     pub fn as_wire(self) -> &'static str {
         match self {
@@ -158,7 +157,7 @@ pub struct WorkerSearchResult {
     pub stop_reason: SearchStop,
 }
 
-/// The fields a worker search result may carry: v2's schema is `.strict()`, so
+/// The fields a worker search result may carry: the schema is strict, so
 /// a result naming anything else is malformed rather than half-read.
 const RESULT_FIELDS: [&str; 10] = [
     "matches",
@@ -186,8 +185,8 @@ pub fn parse_worker_search_result(
     Ok(result)
 }
 
-/// Decode one worker search result against the wire schema alone (v2's
-/// `WorkerSearchScrollbackResultSchema`, refinements included), with no
+/// Decode one worker search result against the wire schema alone, refinements
+/// included, with no
 /// request to compare it to. Global search checks the request itself, per
 /// session, in `search::worker_result`.
 pub fn decode_worker_search_result(

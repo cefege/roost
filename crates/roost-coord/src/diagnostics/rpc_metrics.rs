@@ -1,6 +1,6 @@
 //! `CoordinatorService.MiscMetrics` — the counters this process keeps.
 //!
-//! Ported from `handlers-system.ts:122-135` over `diagnostics::telemetry`,
+//! Over `diagnostics::telemetry`,
 //! which owns the numbers. The handler's whole job is the authority check and
 //! the conversion: the counts are already bounded, already folded, and already
 //! per-process, so there is nothing here for a caller to influence except by

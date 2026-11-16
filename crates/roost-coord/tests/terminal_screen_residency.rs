@@ -1,6 +1,6 @@
 //! The residency budget, and what a screen past it does.
 //!
-//! `terminal-screen-budget.ts` is 79 lines of limits, and every one of them is
+//! Each of the budget's limits is
 //! the difference between a screen that degrades and a screen that corrupts.
 //! The assertion these tests exist for is the DEGRADE: a baseline the pool
 //! cannot pay for is dropped, named unavailable, and signalled -- never trimmed

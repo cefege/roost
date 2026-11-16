@@ -47,8 +47,7 @@ fn a_fresh_gate_holds_nothing_and_admits_a_lease() {
 
 #[test]
 fn an_exclusive_drain_refuses_shared_leases_with_the_canonical_message() {
-    // The exact strings are the contract a handler surfaces
-    // (`apps/coord/src/coordinator-write-gate.ts:31-38`).
+    // The exact strings are the contract a handler surfaces.
     let gate = WriteGate::new();
     let drain = gate.acquire_exclusive().expect("no drain is running");
     assert!(gate.exclusive_held());
@@ -115,8 +114,7 @@ fn a_panic_cannot_leave_the_gate_closed() {
 fn terminal_input_and_prompt_are_deliberately_not_in_the_lease_list() {
     // "Terminal writes acquire their lease only after entering the per-sender/
     // session FIFO. Taking one here would let queued input or a prompt hold the
-    // exclusive keeper-update drain open"
-    // (`apps/coord/src/auth/auth-interceptor.ts:114-116`). A port that adds
+    // exclusive keeper-update drain open". Adding
     // either reintroduces exactly that.
     assert!(!method_holds_lease("SessionsInput"));
     assert!(!method_holds_lease("SessionsPrompt"));
@@ -194,7 +192,7 @@ fn the_lease_list_holds_the_declared_methods() {
 fn pair_poll_never_persists_an_audit_row_on_either_outcome() {
     // "Requester polling is token-bound but anonymous. Its valid and invalid
     // outcomes are high-volume, carry no caller identity, and must never create
-    // an unsweepable audit row." (`auth-interceptor.ts:142-145`.)
+    // an unsweepable audit row."
     assert!(method_never_persists_audit("PairPoll"));
     assert!(!should_persist_method_audit("PairPoll", 200, false));
     assert!(!should_persist_method_audit("PairPoll", 401, false));
@@ -213,8 +211,7 @@ fn pair_poll_never_persists_an_audit_row_on_either_outcome() {
 #[test]
 fn a_skipped_success_still_persists_its_failure() {
     // The skip list is about forensic signal in SUCCESSES. "when was this device
-    // authorised, and by whom" has to survive a year
-    // (`db/audit-retention.ts:21-45`).
+    // authorised, and by whom" has to survive a year.
     for method in [
         "PairList",
         "MiscHealth",
@@ -232,9 +229,8 @@ fn a_skipped_success_still_persists_its_failure() {
 
 #[test]
 fn a_failed_pair_confirm_persists_even_though_a_successful_one_does_not() {
-    // The one special case, and it is a test seam in the source
-    // (`auth-interceptor.ts:155`): "who tried to authorize which device, and
-    // failed" is the row an operator actually needs.
+    // The one special case, and it is a test seam in the source: "who tried to
+    // authorize which device, and failed" is the row an operator actually needs.
     assert!(method_audit_skips_success("PairConfirm"));
     assert!(!should_persist_method_audit("PairConfirm", 200, false));
     assert!(should_persist_method_audit("PairConfirm", 200, true));
@@ -274,8 +270,7 @@ fn a_worker_row_resolves_to_a_worker_and_cannot_act_as_a_browser() {
 
 #[test]
 fn a_tombstoned_worker_is_refused_rather_than_deleted() {
-    // The row survives because sessions still reference it
-    // (`apps/coord/migrations/0025_worker_tombstones.sql`), so the row is not
+    // The row survives because sessions still reference it, so the row is not
     // authority.
     let facts = PrincipalFacts {
         authorized_key: true,
@@ -289,8 +284,7 @@ fn a_tombstoned_worker_is_refused_rather_than_deleted() {
 
 #[test]
 fn a_key_that_is_both_a_worker_and_a_device_is_refused_rather_than_picked() {
-    // "A key must never acquire two kinds of authority"
-    // (`apps/coord/src/auth/auth-principal.ts:66`). Picking one would make the
+    // "A key must never acquire two kinds of authority". Picking one would make the
     // answer depend on row order, and the answer decides whether a socket may
     // write. The self-hosted-tenant boot invariant refuses the same condition
     // before any RPC runs, so reaching this at runtime means the database changed

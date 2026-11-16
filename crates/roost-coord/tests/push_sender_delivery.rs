@@ -1,7 +1,7 @@
 //! Web Push delivery outcomes: which failure prunes a subscription and which
 //! one is merely recorded.
 //!
-//! This is half of what `push-sender.ts` decides; the concurrency ceiling and
+//! This is half of what the sender decides; the concurrency ceiling and
 //! the supersession fence are in `push_sender_bounds.rs`. The split is along
 //! the rule rather than along the file: a prune that also fires on a 500
 //! unsubscribes a whole fleet the first time a push provider has a bad
@@ -101,7 +101,7 @@ async fn a_404_prunes_too_because_providers_do_not_distinguish_it_from_410() {
 
 #[tokio::test]
 async fn every_other_status_is_recorded_and_the_row_survives() {
-    // The distinction IS the point of `push-sender.ts`. Each of these is a
+    // The distinction IS the point of the sender. Each of these is a
     // status a push provider returns while the subscription is perfectly
     // alive, and pruning on any of them would unsubscribe a working fleet.
     for status in [400_u16, 401, 403, 413, 429, 500, 502, 503] {

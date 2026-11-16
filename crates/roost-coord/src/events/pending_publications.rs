@@ -2,7 +2,7 @@
 //! lost a connection-generation race.
 //!
 //! Owned by the coordinator. One store per process, constructed at boot and
-//! injected (`apps/coord/src/main.ts:93`) -- never a lazy static, because the
+//! injected -- never a lazy static, because the
 //! key-revocation path reaches into it from a handler and a test needs to hold a
 //! store of its own.
 //!
@@ -71,8 +71,8 @@ pub struct RetainedPublication {
     pub dashboard_id: String,
     /// Workspaces a `closed` orphaned, republished when the claim publishes.
     ///
-    /// v2's `CommittedEventPublication` carries these
-    /// (`pending-event-publications.ts:24-30`) and the claim path republishes
+    /// The committed publication carries these
+    /// and the claim path republishes
     /// them. Without them a claim would publish the session event and silently
     /// drop the workspace deletion, and a browser that missed the live delta
     /// would keep a workspace in its sidebar that no longer exists.
@@ -220,8 +220,8 @@ impl PendingPublicationStore {
 
     /// Drop every slot for a fingerprint.
     ///
-    /// Called on key revocation (`apps/coord/src/main.ts:103-106`) and on worker
-    /// delete (`apps/coord/src/workers/handlers-workers.ts:242-243`): a revoked
+    /// Called on key revocation and on worker
+    /// delete: a revoked
     /// worker's retained effect must not be publishable by anything, including a
     /// retry that was already in flight.
     pub fn clear_worker(&mut self, worker_fp: &str) {

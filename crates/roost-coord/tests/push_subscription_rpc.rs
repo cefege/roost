@@ -2,20 +2,18 @@
 //! per-device cap, the endpoint and key admission rules, and the push-disabled
 //! state.
 //!
-//! The cap is the load-bearing thing here. v2 enforces it inside the
-//! `INSERT ... SELECT ... WHERE` rather than counting and then inserting
-//! (`apps/coord/src/push/handlers-push.ts:88-109`), because a count-then-insert
-//! has a window between the two decisions that a device opening two tabs walks
+//! The cap is the load-bearing thing here. It is enforced inside the
+//! `INSERT ... SELECT ... WHERE` rather than by counting and then inserting,
+//! because a count-then-insert has a window between the two decisions that a
+//! device opening two tabs walks straight into. The race case at the bottom is
+//! what pins that shape: it fails against a count-then-insert and passes
+//! against the single statement.
 //!
 //! What a subscribe or unsubscribe request has to look like: the endpoint
-//! admission rules, the key alphabet, and the disabled state.
-//!
-//! These are the four rules `handlers-push.ts:validateEndpoint` states, and
-//! each is a rule a tidier port drops: without the allowlist check a
-//! browser can name any host it likes as a push receiver; without the key
-//! alphabet a malformed key reaches the crypto layer as an opaque error.
-//! straight into. The race case at the bottom is what pins that shape: it fails
-//! against a count-then-insert and passes against the single statement.
+//! admission rules, the key alphabet, and the disabled state. Each is a rule a
+//! tidier implementation drops: without the allowlist check a browser can name
+//! any host it likes as a push receiver; without the key alphabet a malformed
+//! key reaches the crypto layer as an opaque error.
 
 // A test that cannot say what it expected is not a test. `expect` is denied
 // outside `#[cfg(test)]`, and an integration test is its own crate, so the

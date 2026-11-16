@@ -3,13 +3,13 @@
 //!
 //! Owned by the coordinator's terminal-screen domain. One value, constructed at
 //! boot beside the other process singletons, because all three of these are
-//! process state that v2 kept in module-level `Map`s and `services.rs`'s own
+//! process state, and `services.rs`'s own
 //! header forbids: *"nothing in this crate reaches for a global."*
 //!
 //! The relay also owns the ONE thing a scrollback read is really made of: the
 //! join from a session to the worker that runs it, and the refusal wording when
-//! that join finds nothing. v2 spread that preamble across every forwarding
-//! handler with drifted wordings ("unknown session" vs "session not found");
+//! that join finds nothing. A preamble repeated in every forwarding handler
+//! would drift into different wordings ("unknown session" vs "session not found");
 //! two wordings are not two facts, so they live here once.
 
 use std::sync::{Arc, Mutex};

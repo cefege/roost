@@ -44,7 +44,7 @@ async fn a_retry_is_a_dedupe_and_does_not_move_the_cursor() {
 
 #[tokio::test]
 async fn a_fresh_cursor_adopts_a_worker_resuming_above_one() {
-    // v2 appends every positive sequence (`worker-frame-dispatch.ts:62-71`). A
+    // The cursor admits every positive sequence. A
     // worker's outbox deletes each ACKed row, so after a coordinator restart
     // the first sequence a fresh cursor sees is N > 1. Refusing it left the
     // worker unacknowledged and never routable.

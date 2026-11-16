@@ -2,8 +2,8 @@
 //! acknowledged `terminal-peer-webrtc-v1` only while the carrier is enabled and
 //! this owner exists, and a superseded, revoked or closed generation's pending
 //! offers fail at once instead of waiting out their answer deadline.
-//! Registered on `CoordServices::worker_lifecycle`. Ports the terminal-peer calls
-//! `apps/coord/src/workers/worker-conn.ts` makes at hello, supersede, revoke and close.
+//! Registered on `CoordServices::worker_lifecycle`; it makes the terminal-peer
+//! calls at hello, supersede, revoke and close.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;

@@ -19,7 +19,7 @@ use crate::ui_state::limits::{UI_STATE_MAX_TABS_PER_FINGERPRINT, UI_STATE_MAX_TA
 use crate::ui_state::rejected_reason::sanitized_rejected_reason;
 
 impl UiLayoutApplyOwner {
-    /// An owner over the real clock, with v2's timeout and bounds.
+    /// An owner over the real clock, with the production timeout and bounds.
     #[must_use]
     pub fn new() -> Self {
         Self::with_clock(Arc::new(crate::serve::now_ms))
@@ -233,10 +233,9 @@ impl UiLayoutApplyOwner {
 
     /// Retire every reservation whose deadline has passed.
     ///
-    /// v2 arms one timer per reservation; here the deadline is a timestamp and
-    /// every entry point reaps first, so a reservation whose awaiting task was
-    /// dropped -- or whose owner was never reached again -- cannot outlive its
-    /// timeout by more than one call.
+    /// The deadline is a timestamp and every entry point reaps first, so a
+    /// reservation whose awaiting task was dropped -- or whose owner was never
+    /// reached again -- cannot outlive its timeout by more than one call.
     fn expire_due(&self) {
         let now = (self.now_ms)();
         let mut ledger = self.lock();

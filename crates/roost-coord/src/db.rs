@@ -9,30 +9,28 @@
 //! — `PRAGMA`, `VACUUM`, the backup and export file — branch on
 //! [`CoordDb::backend`] or refuse with [`DbError::SqliteOnly`].
 //!
-//! **THE COORDINATOR NEVER OPENS A v2 DATABASE.** It has its own data
+//! **THE COORDINATOR OPENS ONLY ITS OWN DATABASE.** It has its own data
 //! directory, its own database name, and its own squashed migration, and there
-//! is no code path by which it could read a file the previous product wrote.
+//! is no code path by which it could read a file another product wrote.
 //!
-//! ONE CONNECTION, NOT A POOL, ON EITHER BACKEND. v2 opens a single
-//! `bun:sqlite` handle and Kysely reads and writes through it
-//! (`apps/coord/src/db/connection.ts:26-49`); concurrency comes from WAL plus a
-//! busy timeout plus the in-process write gate. Modelling a reader/writer pool
-//! would be a behavioural change, not an optimisation — and on Postgres it is
-//! a correctness change: see [`POSTGRES_POOL_SIZE`].
+//! ONE CONNECTION, NOT A POOL, ON EITHER BACKEND. Reads and writes go through a
+//! single connection; concurrency comes from WAL plus a busy timeout plus the
+//! in-process write gate. Modelling a reader/writer pool would be a behavioural
+//! change, not an optimisation — and on Postgres it is a correctness change:
+//! see [`POSTGRES_POOL_SIZE`].
 //!
-//! `synchronous = NORMAL` IS DELIBERATE AND MUST NOT BE "FIXED" TO FULL. The
-//! comment that settles it (`connection.ts:26-33`): "WAL + synchronous=NORMAL is
-//! SQLite's documented pairing -- commits stop fsyncing (only checkpoints do).
-//! synchronous=FULL (the default this replaces) put a WAL fsync on the
-//! event-loop thread inside writeAuditLog, which runs for every SessionsInput
+//! `synchronous = NORMAL` IS DELIBERATE AND MUST NOT BE "FIXED" TO FULL. WAL +
+//! synchronous=NORMAL is SQLite's documented pairing -- commits stop fsyncing
+//! (only checkpoints do). synchronous=FULL would put a WAL fsync on the
+//! event-loop thread inside the audit write, which runs for every SessionsInput
 //! RPC, i.e. once per keystroke batch; that fsync starves the cell fan-out
-//! exactly while the user is typing." The cost is the last transaction or two
+//! exactly while the user is typing. The cost is the last transaction or two
 //! on an OS crash or power loss, not a process crash, and the `events` table is
 //! re-derivable from the worker snapshot every worker emits on reconnect.
 //!
 //! The schema is `migrations/sqlite/0001_init.sql` and its lockstep Postgres
 //! translation `migrations/postgres/0001_init.sql`; every domain owns its row
-//! type. `db/migration_validation.rs` ports `migration-validation.ts`.
+//! type. `db/migration_validation.rs` holds the checks around a migration.
 
 mod backend;
 mod in_list;
@@ -127,21 +125,20 @@ pub enum DbError {
 /// How long a statement waits for a write lock, or a caller for a pooled
 /// connection, before giving up.
 ///
-/// 5 s (`connection.ts:30`): "prevents SQLITE_BUSY under light write
-/// contention". Above the write gate's own hold time, so a mutation queued behind
-/// an exclusive keeper-update drain waits rather than failing.
+/// 5 s: prevents SQLITE_BUSY under light write contention. Above the write
+/// gate's own hold time, so a mutation queued behind an exclusive keeper-update
+/// drain waits rather than failing.
 pub const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Migrations that shipped and were then removed, by version.
 ///
 /// A removed migration's row is TRUE — that database did apply it — so reading
 /// it as a corrupt history bricks a coordinator that was working minutes ago,
-/// which is the incident `docs/FAILURE-INDEX.md` records. v2 solved it by
-/// listing the retired NAME; `sqlx` keys its history by VERSION, so the
-/// retirement is a version here and the comparison is on the version rather
-/// than on a position in the raw history. A reused slot number therefore
-/// cannot make a survivor look out of order, because no survivor is ever
-/// compared by position.
+/// which is the incident `docs/FAILURE-INDEX.md` records. `sqlx` keys its
+/// history by VERSION, so a retirement is declared as a version and the
+/// comparison is on the version rather than on a position in the raw history.
+/// A reused slot number therefore cannot make a survivor look out of order,
+/// because no survivor is ever compared by position.
 ///
 /// EMPTY, and it stays empty for as long as the embedded set is the one squashed
 /// migration: `sqlx` checksums every applied file, so `0001_init.sql` is frozen
@@ -160,7 +157,7 @@ pub const RETIRED_MIGRATIONS: &[i64] = &[];
 /// the mistake behind a name that reads as deliberate.
 ///
 /// Comparison is by version, never by position in the raw history: a retired
-/// version sorts wherever it sorts, and v2's reused slot 0017 is the shape that
+/// version sorts wherever it sorts, and a reused slot number is the shape that
 /// made an ordinal comparison diverge at the position it read from.
 pub fn validate_migration_history<'a>(
     applied: impl IntoIterator<Item = &'a i64>,
@@ -217,8 +214,8 @@ pub async fn open(location: &DatabaseLocation) -> Result<CoordDb, DbError> {
     };
     let backend = database.backend.label();
 
-    // v2 verifies enforcement before it reads its migration history
-    // (`migrate.ts:292-293`); a migration never runs on an unenforced handle.
+    // Foreign-key enforcement is verified before the migration history is read;
+    // a migration never runs on an unenforced handle.
     migration_validation::enable_and_verify_foreign_keys(&database).await?;
     let mut migrator = match database.backend {
         DbBackend::Sqlite => sqlx::migrate!("./migrations/sqlite"),
@@ -240,13 +237,12 @@ pub async fn open(location: &DatabaseLocation) -> Result<CoordDb, DbError> {
     }
 
     // Boot step 3 (contract §1.1): the pre-migration backup, ONLY if the file
-    // already existed (`main.ts:60`, backing up a file the connect just created
-    // is theatre) AND a migration is pending (`migrate.ts:319`, a restart that
-    // migrates nothing must not spend one of the fourteen kept archives).
+    // already existed (backing up a file the connect just created is theatre)
+    // AND a migration is pending (a restart that migrates nothing must not
+    // spend one of the fourteen kept archives).
     //
-    // A failure here STOPS the open. v2 passes this as a hook into
-    // `runMigrations` (`main.ts:64`), so a backup that cannot be taken fails
-    // the migration with it -- if there is no recoverable copy, a destructive
+    // A failure here STOPS the open: a backup that cannot be taken fails the
+    // migration with it -- if there is no recoverable copy, a destructive
     // migration must not proceed.
     if existed && !pending.is_empty() && database.backend == DbBackend::Sqlite {
         crate::maintenance::backup::run_backup(
@@ -262,9 +258,9 @@ pub async fn open(location: &DatabaseLocation) -> Result<CoordDb, DbError> {
         migration_validation::validate_integrity(&database, final_migration).await?;
         tracing::info!(backend, applied = pending.len(), "database migrated");
     }
-    // Every open, not only after a migration as v2 gates it (`migrate.ts:343`):
-    // with one squashed migration that gate would only ever check a file that
-    // was empty a moment ago.
+    // Every open, not only after a migration: with one squashed migration a
+    // post-migration-only gate would only ever check a file that was empty a
+    // moment ago.
     migration_validation::validate_foreign_keys(&database).await?;
     Ok(database)
 }
@@ -332,8 +328,7 @@ impl CoordDb {
     /// Run `PRAGMA integrity_check` and require exactly `ok`.
     ///
     /// Used before an export snapshot is published, so a corrupt file is never
-    /// handed to an operator as a backup
-    /// (`apps/coord/src/db/snapshot.ts:24-26`).
+    /// handed to an operator as a backup.
     pub async fn integrity_check(&self) -> Result<bool, DbError> {
         self.require_sqlite("integrity_check")?;
         let row: (String,) = sqlx::query_as("PRAGMA integrity_check")
@@ -345,7 +340,7 @@ impl CoordDb {
     /// Take a consistent, compacted copy of the database into `destination`.
     ///
     /// `VACUUM INTO` produces a standalone, transactionally consistent copy
-    /// without blocking readers (`apps/coord/src/db/snapshot.ts:19`). The caller
+    /// without blocking readers. The caller
     /// is responsible for the mode, the integrity check and removing a partial
     /// file on failure -- all three are steps, not options, and a snapshot that
     /// skipped any of them is the failure this ordering exists to prevent.

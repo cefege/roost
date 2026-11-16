@@ -5,11 +5,10 @@
 //! The second connection is the point of the whole module. A WAL reader sees only
 //! committed transactions, so asking it "is this event row visible?" *during* a
 //! publication answers the ordering question directly rather than by inspecting
-//! the code. `apps/coord/tests/durable-publication-fixture.ts` uses the same pair
-//! of handles for the same reason.
+//! the code.
 //!
 //! WHY THAT READER IS A THREAD AND NOT AN AWAIT. `LiveEffects::index_durable_channel`
-//! is synchronous, as it is in v2, so the probe cannot await. The reader therefore
+//! is synchronous, so the probe cannot await. The reader therefore
 //! owns a raw `SqliteConnection` on a dedicated OS thread with its own
 //! current-thread runtime, and the recorder hands it a question over a channel and
 //! blocks for the answer. `Handle::block_on` inside a runtime worker would have

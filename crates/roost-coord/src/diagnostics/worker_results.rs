@@ -1,10 +1,8 @@
 //! The `workers` section of a DiagSnapshot: the generic `diag-snapshot` answer
 //! and the typed terminal-pipeline sample of every dispatchable worker, both
 //! cut down to the session ids the caller's durable scope admitted.
-//! Ports `apps/coord/src/diagnostics/diag-snapshot-worker-results.ts`
-//! (`createScopedWorkerDiagnosticCollector`). Called by
-//! `diagnostics::diag_snapshot`; the pipeline cache is the handler-lifetime
-//! one v2 creates beside the handlers.
+//! Called by `diagnostics::diag_snapshot`; the pipeline cache is
+//! `services.diag_pipelines`.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
@@ -109,7 +107,7 @@ pub fn scoped_worker_diagnostic(
         _ => Map::new(),
     };
     let mut scoped = Map::new();
-    // v2 spreads `undefined` for an absent key, which JSON.stringify omits.
+    // An absent key stays absent from the scoped copy.
     for key in ["captured_at_ms", "build"] {
         if let Some(value) = snapshot.get(key) {
             scoped.insert(key.to_owned(), value.clone());

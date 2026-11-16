@@ -2,8 +2,7 @@
 //! writes that turn an anonymous browser's ask into a request an operator can
 //! decide.
 //!
-//! Owned by the pairing slice. Ported from
-//! `apps/coord/src/auth/pairing-account.ts`; the lifecycle rules it enforces
+//! Owned by the pairing slice. The lifecycle rules it enforces
 //! are types in [`super::status`], and this module is the SQL those types
 //! select. The account, device and revocation facts an approval depends on are
 //! [`super::authority`]'s.

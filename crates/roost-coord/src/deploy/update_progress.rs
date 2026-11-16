@@ -1,14 +1,11 @@
 //! A worker's `update-progress` frame: validated as the link's dispatcher
 //! validates it, then offered to the deploy job it names. Called by
-//! `worker_link::live_frames`; depends on `deploy::jobs`. Ports the
-//! `updateProgress` arm of apps/coord/src/workers/worker-frame-dispatch.ts and
-//! the admission of its only consumer, `handleWorkerUpdateProgress` in
-//! apps/coord/src/deploy/windows-update-deploy-jobs.ts.
+//! `worker_link::live_frames`; depends on `deploy::jobs`.
 //!
 //! ONLY A SIGNED WINDOWS UPDATE CONSUMES PROGRESS. A POSIX job's output is its
-//! subprocess, so progress naming one is ignored, exactly as v2 ignores it; the
-//! signed Windows updater is not carried by this coordinator, so progress for
-//! one is refused aloud rather than dropped as if nothing asked for it.
+//! subprocess, so progress naming one is ignored; the signed Windows updater is
+//! not carried by this coordinator, so progress for one is refused aloud rather
+//! than dropped as if nothing asked for it.
 
 use roost_protocol::wire::WorkerFp;
 use roost_protocol::wire::coord_worker::UpdateProgress;

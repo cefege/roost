@@ -2,8 +2,7 @@
 //! and worker coalesces concurrent demand into one worker install, re-checks
 //! route authority before and after the worker's ACK, and commits the lease
 //! only while the exact generation it was installed on is still current.
-//! Called by `terminal_direct::grant_rpc`. Ports the `grant`/`runRefresh`/
-//! `issueGrant` half of `apps/coord/src/terminal/direct/terminal-grant-owner.ts`.
+//! Called by `terminal_direct::grant_rpc`.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -57,8 +56,8 @@ struct RefreshDemand {
 }
 
 impl TerminalGrantOwner {
-    /// Join (or open) the tuple's refresh. Admission is decided NOW, as v2's
-    /// synchronous `grant` decides it; only the install is awaited.
+    /// Join (or open) the tuple's refresh. Admission is decided NOW; only the
+    /// install is awaited.
     pub fn grant(&self, request: TerminalGrantRequest) -> PendingTerminalGrant {
         PendingTerminalGrant {
             wait: self.admit_grant(request),

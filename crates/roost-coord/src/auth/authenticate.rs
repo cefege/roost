@@ -9,8 +9,8 @@
 //!
 //! THE FOUR GENERATION CHECKS LIVE INSIDE, NOT AROUND, THIS FUNCTION. A caller
 //! that verified the signature itself and then asked for a principal would have
-//! nowhere to put them, and the revocation race in
-//! `apps/coord/src/auth/jwt.ts:108,117,181,222` would reopen.
+//! nowhere to put them, and the revocation race between verification and
+//! principal resolution would reopen.
 
 use crate::auth::authorized_keys::{load_authorized_key, public_key_of, resolve_key_principal};
 use crate::auth::jwt_crypto::PublicKey;
@@ -119,8 +119,7 @@ impl Authenticator<'_> {
     /// signature and the claims, re-check the generation, then resolve the
     /// principal. A failure at any step is a `401` for the peer and a precise
     /// reason for the log -- never both a refusal and a socket close, because the
-    /// close is the oracle the worker upgrade exists to withhold
-    /// (`apps/coord/src/workers/worker-ws-upgrade.ts:84-102`).
+    /// close is the oracle the worker upgrade exists to withhold.
     pub async fn authenticate(&self, token: &str) -> Result<AuthenticatedCaller, AuthFailure> {
         let parts = crate::auth::jwt_claims::JwtParts::split(token).map_err(map_malformed)?;
         let header = parts.header().map_err(map_malformed)?;

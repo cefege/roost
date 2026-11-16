@@ -1,10 +1,6 @@
 //! The `workers` row: the columns every worker read needs, and the three reads
 //! that find one. The projections live in the sibling `projection`.
 //!
-//! Ported from the row half of `packages/protocol/src/wire/row-proto.ts` and
-//! from the `selectFrom("workers")` reads in
-//! `apps/coord/src/workers/handlers-workers*.ts`.
-//!
 //! `os` IS TEXT, NOT AN ENUM, because a column is text and no `CHECK`
 //! constraint decides what this build understands; `worker_os` resolves it
 //! through the one platform vocabulary in `roost-platform` rather than a second

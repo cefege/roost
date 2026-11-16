@@ -11,8 +11,7 @@
 //! during upgrade and changes as sessions open and close, so the client cannot
 //! simply assert which sessions it hydrated. Instead the client calls the
 //! authoritative list RPC, the coordinator binds the result to the socket that
-//! asked, and `domain_ready` consumes the binding exactly once
-//! (`sync-ws-v2-commands.ts:115-147`).
+//! asked, and `domain_ready` consumes the binding exactly once.
 //!
 //! WHY THE TOKEN IS CONSUMED, NOT READ. A token that could be replayed would
 //! re-open the fence the client already closed, re-admitting a session list from
@@ -77,8 +76,7 @@ impl SnapshotTokenRegistry {
     ///
     /// Identity-safe on purpose: a socket that closes twice, or a teardown that
     /// races a re-registration under the same id, must not delete the binding
-    /// the live socket will consume its token from
-    /// (`sync-snapshot-registry.ts:16-27`).
+    /// the live socket will consume its token from.
     pub fn unregister_socket(&mut self, socket_id: &str, registration: u64) -> bool {
         if self
             .sockets

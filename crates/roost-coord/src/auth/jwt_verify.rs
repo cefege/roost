@@ -9,14 +9,14 @@
 //!
 //! WHY THE FOUR GENERATION CHECKS AND NOT ONE. The steps are: look the `kid`
 //! up, verify the signature, validate the claims, resolve the principal. A key
-//! can be revoked between any two. v2 re-reads the generation at four points
-//! (`apps/coord/src/auth/jwt.ts:108,117,181,222`) and this file keeps all four,
+//! can be revoked between any two. Verification re-reads the generation at four
+//! points and this file keeps all four,
 //! because dropping one does not slow an attack down, it silently widens the
 //! window in which a revoked credential completes.
 //!
 //! WHY THE MAX-AGE CEILING IS SERVER-SIDE. `valid_until_ms` is
-//! `min(exp, iat + jwt_max_age_secs)`, never `exp` alone
-//! (`apps/coord/src/auth/jwt.ts:225-228`): "Both timestamps are bounded by this
+//! `min(exp, iat + jwt_max_age_secs)`, never `exp` alone: "Both timestamps are
+//! bounded by this
 //! verifier: `exp` is the credential's explicit deadline and max-age remains a
 //! server-side ceiling even when a signer asks for longer." A signer asking for
 //! a week is not trusted to have a week.
@@ -61,10 +61,7 @@ pub struct VerifiedToken {
     ///
     /// This is `min(exp, iat + jwt_max_age_secs)`, NOT `exp` alone. A long-lived
     /// socket closes `4003 reauth required` at this instant
-    /// (`apps/coord/src/auth/ws-auth-deadline.ts:42`). v2 computes this and
-    /// logs it without wiring it to the timer
-    /// (`apps/coord/src/auth/jwt.ts:225-228`,
-    /// `apps/worker/src/transport/coord-link.ts:376-377`); see §4.10 of
+    /// (`auth::ws_auth_deadline`); see §4.10 of
     /// `docs/phase3-coord-contract.md`.
     pub valid_until_ms: i64,
 }

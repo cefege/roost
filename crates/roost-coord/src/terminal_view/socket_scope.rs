@@ -1,8 +1,7 @@
 //! The LIVE session scope of a registered Sync socket, read by the owner-mode
 //! relay at the moment a command or an owner decision arrives.
 //!
-//! Ports the `allowsSession` closure `sync-ws-handler.ts:269` registers, which
-//! reads the socket's current scope rather than the one it opened with: a
+//! It reads the socket's current scope rather than the one it opened with: a
 //! session spawned after the socket opened must be viewable on it. The
 //! registry's `SocketRecord` holds the upgrade-time set; the relay paths here
 //! consult this instead.

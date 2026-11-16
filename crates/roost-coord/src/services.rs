@@ -3,22 +3,20 @@
 //! Owned by the coordinator. `serve` constructs one of these and every transport
 //! takes a handle to it; nothing in this crate reaches for a global.
 //!
-//! WHY BUILT AND INJECTED RATHER THAN LAZY STATICS. v2 makes every one of these
-//! a `const` local in `main.ts` and passes it down as a dependency -- the write
-//! gate at `main.ts:88-89`, the pending-publication store at `:93`, the JWT cache
-//! at `:87`. The reason is visible in the test surface rather than the runtime:
-//! v2's unit tests construct an `AnnouncedChannelBarrier` directly with an
-//! explicit `onDrop` (`apps/coord/src/workers/worker-ws-upgrade.ts:21-28`)
-//! precisely because no global hub exists at construction time. That is a design
+//! WHY BUILT AND INJECTED RATHER THAN LAZY STATICS. Each of these is a value
+//! `serve` builds and passes down as a dependency. The reason is visible in the
+//! test surface rather than the runtime: tests construct an
+//! `AnnouncedChannelBarrier` directly with an explicit drop callback precisely
+//! because no global hub exists at construction time. That is a design
 //! constraint, not an accident, and a lazy static would make every one of these
 //! untestable in isolation.
 //!
 //! WHAT IS PER-PROCESS AND WHAT IS PER-CONNECTION. The split matters because
 //! getting it wrong is a security bug, not a style choice: the write gate and the
 //! key cache are per process (a second instance would be a second fence, and
-//! "keeper-update exclusivity is meaningless if a mutation path can reach a
-//! second instance" -- `main.ts:88-89`), while the announced-channel barrier is
-//! **per worker connection** (`worker-ws-upgrade.ts:110`).
+//! keeper-update exclusivity is meaningless if a mutation path can reach a
+//! second instance), while the announced-channel barrier is **per worker
+//! connection**.
 
 //!
 //! ONE FIELD PER DOMAIN, BUILT BY A ZERO-ARGUMENT `new()`. A domain's runtime
@@ -115,16 +113,14 @@ pub struct CoordServices {
     /// cancel tombstone ledger the three scrollback RPCs share.
     ///
     /// Process state rather than per-request state for the reason this file's
-    /// header states -- nothing in this crate reaches for a global -- and for
-    /// the one v2 got wrong: its `pending-rpcs` table was a module-level
-    /// `Map`, so a `search_id` cancelled in one test could retire another
-    /// test's search. It holds the SAME `Arc<WorkerRegistry>` as `workers`, so
-    /// a route and its correlation namespace cannot drift apart.
+    /// header states -- nothing in this crate reaches for a global -- and
+    /// because a global table would let a `search_id` cancelled in one test
+    /// retire another test's search. It holds the SAME `Arc<WorkerRegistry>` as
+    /// `workers`, so a route and its correlation namespace cannot drift apart.
     pub scrollback: ScrollbackRelay,
     /// The DiagSnapshot pipeline-sample cache over `scrollback`: one worker is
     /// asked for its terminal pipelines at most once per cache window however
-    /// many dumps arrive (`worker-terminal-pipeline-cache.ts`). Read only by
-    /// `diagnostics::diag_snapshot`.
+    /// many dumps arrive. Read only by `diagnostics::diag_snapshot`.
     pub diag_pipelines: WorkerTerminalPipelineSnapshotCache,
     /// Opt-in terminal incident capture: the leases and the coordinator
     /// recorder they arm. The screen hub feeds the recorder; DiagSnapshot's

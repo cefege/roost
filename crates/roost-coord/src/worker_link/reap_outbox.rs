@@ -3,9 +3,7 @@
 //! ends.
 //!
 //! Owned by `worker_link::link_session`, which drains it once the generation is
-//! routable and sends each kill through `workers::send::reap_orphan_pty`. The
-//! delivery half of v2's `dispatchSnapshotOrphanReaps`
-//! (`apps/coord/src/events/event-transaction.ts:329-348`).
+//! routable and sends each kill through `workers::send::reap_orphan_pty`.
 
 use std::sync::{Arc, Mutex, PoisonError};
 

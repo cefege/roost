@@ -1,8 +1,7 @@
 //! The audited-input pump: FIFO batches of at most 64 rows, no outcome reported
 //! before its row is durable, all 1,024 slots held through a failed write, and
 //! a failed write turning each outcome into what it can still truthfully be.
-//! The single pooled connection is held to stand in for v2's commit gate.
-//! Ports the "input audit pump" cases of `apps/coord/tests/input-audit-batching.test.ts`.
+//! The single pooled connection is held to stand in for the commit gate.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -69,7 +68,7 @@ async fn yield_to_tasks() {
     }
 }
 
-// v2: "commits same-database FIFO prefixes of 64 before moving to another database"
+// Commits same-database FIFO prefixes of 64 before moving to another database.
 #[tokio::test]
 async fn audits_commit_in_fifo_batches_of_at_most_64() {
     let harness = InputHarness::new("audit-prefix").await;
@@ -119,7 +118,7 @@ async fn audits_commit_in_fifo_batches_of_at_most_64() {
     );
 }
 
-// v2: "holds all 1,024 audit slots through rollback and preserves rejected and ambiguous outcomes"
+// Holds all 1,024 audit slots through rollback and preserves rejected and ambiguous outcomes.
 #[tokio::test]
 async fn a_failed_batch_holds_its_slots_until_it_settles_and_keeps_rejections_rejected() {
     let harness = InputHarness::new("audit-capacity").await;

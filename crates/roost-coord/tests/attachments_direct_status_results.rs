@@ -1,7 +1,6 @@
 //! Typed receipt-status correlation: only the exact current generation settles
 //! a request, a missing or mismatched receipt is a worker failure, and the
 //! deadline is measured on a paused clock rather than a wall-clock sleep.
-//! Ports `apps/coord/tests/attachments/attachment-direct-status-results.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod attachments_direct_support;
@@ -72,7 +71,6 @@ async fn request(
     (task, request_id)
 }
 
-// v2 "accepts only a current exact worker handle and matching upload receipt".
 #[tokio::test]
 async fn only_the_exact_generation_and_matching_upload_settle_a_receipt() {
     let workers = Arc::new(WorkerRegistry::new());
@@ -103,7 +101,6 @@ async fn only_the_exact_generation_and_matching_upload_settle_a_receipt() {
     assert_eq!(status.abs_path, "/attachment/path");
 }
 
-// v2 "does not accept a stale worker replacement or missing optional status".
 #[tokio::test]
 async fn a_replaced_generation_and_a_missing_receipt_settle_nothing_as_success() {
     let workers = Arc::new(WorkerRegistry::new());
@@ -131,7 +128,6 @@ async fn a_replaced_generation_and_a_missing_receipt_settle_nothing_as_success()
     );
 }
 
-// v2 "times out a pending status request deterministically".
 #[tokio::test(start_paused = true)]
 async fn an_unanswered_request_expires_at_the_status_deadline() {
     let workers = Arc::new(WorkerRegistry::new());

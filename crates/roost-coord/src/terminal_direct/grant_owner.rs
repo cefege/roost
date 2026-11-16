@@ -2,7 +2,7 @@
 //! live-lease lookup for signaling, device revocation, worker retirement,
 //! expiry, and the invalidation fan-out peer negotiation subscribes to.
 //! Built once on `terminal_direct::TerminalDirectRuntime`; minting a lease is
-//! `grant_refresh`. Ports `apps/coord/src/terminal/direct/terminal-grant-owner.ts`.
+//! `grant_refresh`.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};

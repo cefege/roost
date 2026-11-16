@@ -1,7 +1,7 @@
 //! The one durable write in the coordinator: admit, insert, project, and then --
 //! strictly after the commit -- publish.
 //!
-//! Ported from `apps/coord/src/events/event-transaction.ts`. This file is the
+//! This file is the
 //! orchestration and the shapes; `append_transaction` is the transaction body and
 //! `append_publication` is the strictly-after-commit half. The three-way split is
 //! the contract: `docs/phase3-coord-contract.md` §3.1 pins the order inside the
@@ -38,8 +38,7 @@
 //! agreement; `Caller::worker_fp` is what the transport authenticated. A
 //! `respawned` from a producer with no authenticated fingerprint binds no channel
 //! at all, because inferring the worker from the route cache could bind on a
-//! worker that has already been replaced
-//! (`apps/coord/tests/durable-publication.test.ts:98-107`).
+//! worker that has already been replaced.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -61,8 +60,7 @@ use crate::events::projection::ProjectionError;
 ///
 /// A worker caller carries a fingerprint and its outbox sequence; a coordinator
 /// caller -- the synthetic ghost close, the deploy-line path -- carries neither,
-/// and the partial unique index ignores rows with a null on either side
-/// (`event-transaction.ts:29-38`).
+/// and the partial unique index ignores rows with a null on either side.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Caller {
     /// The authenticated worker fingerprint, never a worker-frame claim. `None`
@@ -222,7 +220,7 @@ pub trait LiveEffects: Send + Sync {
 ///
 /// It runs inside the transaction and **after** ownership admission, so a foreign
 /// request cannot make an auxiliary mutation -- that ordering is the whole reason
-/// this is a callback and not a second transaction (`event-transaction.ts:71-74`).
+/// this is a callback and not a second transaction.
 ///
 /// **`Sync` IS LOAD-BEARING AND NOT A NICETY.** `AppendOptions` is held across
 /// the `append_event` await, so a non-`Sync` field makes the append future
@@ -303,7 +301,7 @@ pub async fn append_event(
     let committed = match run_in_transaction(&mut transaction, event, caller, options).await {
         Ok(committed) => committed,
         Err(error) => {
-            // v2 releases the reservation on a throw, so a failed append leaves no
+            // Release the reservation on an error, so a failed append leaves no
             // slot behind for the retry to trip over.
             release_reservation(options, caller);
             return Err(error);

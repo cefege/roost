@@ -2,7 +2,6 @@
 //! answers, cancellation on abort, revocation and replacement, duplicate
 //! floods, and the answer deadline, over a fake grant port and fake worker
 //! generations; SDP is fixture input only.
-//! Ports `apps/coord/tests/terminal/direct/terminal-peer-negotiations.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod terminal_direct_support;
@@ -95,7 +94,6 @@ async fn code_of(pending: PendingPeerNegotiation) -> ErrorCode {
         .code
 }
 
-// v2 "rejects tab, grant, SDP, epoch, and capability failures before an offer".
 #[tokio::test]
 async fn rejects_tab_grant_sdp_epoch_and_capability_failures_before_an_offer() {
     let harness = Harness::new(PeerOptions::default());
@@ -138,7 +136,6 @@ async fn rejects_tab_grant_sdp_epoch_and_capability_failures_before_an_offer() {
     assert!(unsupported.frames().is_empty());
 }
 
-// v2 "accepts only an answer from the exact current worker handle".
 #[tokio::test]
 async fn accepts_only_an_answer_from_the_exact_current_worker_handle() {
     let harness = Harness::new(PeerOptions::default());
@@ -156,7 +153,6 @@ async fn accepts_only_an_answer_from_the_exact_current_worker_handle() {
     assert_eq!(response.worker_epoch, EPOCH);
 }
 
-// v2 "ignores a late old-handle answer after replacement and cancels its pending offer".
 #[tokio::test]
 async fn ignores_a_late_old_handle_answer_after_replacement_and_cancels_its_pending_offer() {
     let harness = Harness::new(PeerOptions::default());
@@ -178,7 +174,6 @@ async fn ignores_a_late_old_handle_answer_after_replacement_and_cancels_its_pend
     assert!(replacement.frames().is_empty());
 }
 
-// v2 "sends cancellation on browser abort and grant revocation".
 #[tokio::test]
 async fn sends_cancellation_on_browser_abort_and_grant_revocation() {
     let harness = Harness::new(PeerOptions::default());
@@ -211,7 +206,6 @@ async fn sends_cancellation_on_browser_abort_and_grant_revocation() {
     );
 }
 
-// v2 "rejects a duplicate in-flight flood before extra authorization or offers".
 #[tokio::test]
 async fn rejects_a_duplicate_in_flight_flood_before_extra_authorization_or_offers() {
     let calls = Arc::new(AtomicUsize::new(0));
@@ -249,7 +243,6 @@ async fn rejects_a_duplicate_in_flight_flood_before_extra_authorization_or_offer
     assert_eq!(code_of(first).await, ErrorCode::Unavailable);
 }
 
-// v2 "times out and disposes pending offers without retaining them".
 #[tokio::test(start_paused = true)]
 async fn times_out_and_disposes_pending_offers_without_retaining_them() {
     let harness = Harness::new(PeerOptions {

@@ -83,7 +83,7 @@ pub fn apply_request(
     }
 }
 
-/// A legacy `selectTab` command naming one session.
+/// A legacy `select_tab` command naming one session.
 pub fn select_tab_command(session_id: &str) -> proto::UiCommand {
     proto::UiCommand {
         command: Some(Command::SelectTab(Box::new(proto::UiSelectTab {

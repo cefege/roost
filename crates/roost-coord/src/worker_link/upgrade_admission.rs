@@ -7,7 +7,7 @@
 //! security property, and an order that lives in a handler is an order nobody
 //! reviews.
 //!
-//! THE ORDER IS THE CONTRACT (`apps/coord/src/workers/worker-ws-upgrade.ts:37-117`):
+//! THE ORDER IS THE CONTRACT:
 //!
 //! 1. the path must match `/ws/coord-worker/<64-hex>`;
 //! 2. **the entire query string must be empty**;
@@ -17,11 +17,11 @@
 //! 5. the URL fingerprint, the JWT fingerprint, the principal kind, the
 //!    principal fingerprint and the key generation must ALL agree.
 //!
-//! WHY THE WHOLE QUERY IS REJECTED AND NOT JUST A KNOWN PARAMETER. Step 2's
-//! comment: "This endpoint has no query contract. Rejecting the entire query
-//! surface guarantees an old `?token=` client cannot leak a credential into
-//! access logs while still authenticating successfully by subprotocol." A denylist
-//! of `token=` would be a denylist of the credential spelling v2 shipped, and the
+//! WHY THE WHOLE QUERY IS REJECTED AND NOT JUST A KNOWN PARAMETER. This
+//! endpoint has no query contract. Rejecting the entire query surface
+//! guarantees an old `?token=` client cannot leak a credential into
+//! access logs while still authenticating successfully by subprotocol. A
+//! denylist of `token=` would cover only one credential spelling, and the
 //! next spelling would be a leak. This is the one place "no query" is a real
 //! rule rather than a convention -- note the Sync endpoint legitimately does
 //! take a query, so this is per-transport, not global.
@@ -159,7 +159,7 @@ pub fn admit_worker_upgrade(
         return UpgradeDecision::Refused(UpgradeRefusal::JwtInvalid);
     };
 
-    // Rule 5. All four comparisons, in the order the source evaluates them.
+    // Rule 5. All four comparisons, in the order the contract lists them.
     if caller.fingerprint != fingerprint
         || !principal_is_worker
         || current_generation != Some(caller.key_generation)

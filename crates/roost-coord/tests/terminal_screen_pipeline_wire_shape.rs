@@ -2,11 +2,8 @@
 //! pending pipeline sample settles, and the JSON-safe projection of an accepted
 //! reply.
 //!
-//! Ports the wire-shape bounds of `isTerminalPipelineSnapshotWireShape` and the
-//! `terminalPipelineDiagnosticSnapshot` projection of
-//! `apps/coord/src/terminal/screen/worker-terminal-pipeline-snapshot.ts`, which the
-//! v2 suite (`worker-terminal-pipeline-snapshot.test.ts`, "response validation
-//! boundary") reaches only through a collected reply.
+//! The wire-shape bounds and the projection are checked here directly rather
+//! than only through a collected reply.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

@@ -1,7 +1,7 @@
 //! The browser-only UI stream: a tab's reported state, a legacy command, and
 //! the acknowledged apply that is addressed to exactly one socket.
 //!
-//! Ported from `apps/coord/src/sync/sync-feed-ui.ts`. This is the adapter whose
+//! This is the adapter whose
 //! fan-out rule is NOT "everyone watching", and the difference is the whole
 //! file: a worker socket and a read-only feed stay subscribed for delivery
 //! counts while dropping every live UI frame, and an `Apply` goes to the one
@@ -51,7 +51,7 @@ impl UiViewer {
 /// The two refusals are different and both load-bearing. A non-browser drops
 /// everything. A browser drops an `Apply` addressed to a different socket but
 /// still receives a legacy `Command`, which by construction has no addressee
-/// and is a broadcast (`sync-feed-ui.ts:36-39`).
+/// and is a broadcast.
 pub fn ui_bus_frame(message: &UiBusMsg, viewer: &UiViewer) -> Option<FeedFrame> {
     if !viewer.browser_ui {
         return None;
@@ -96,7 +96,7 @@ pub fn ui_bus_frame(message: &UiBusMsg, viewer: &UiViewer) -> Option<FeedFrame> 
 /// zero), so this snapshot is the only way a browser that has been away learns
 /// which tabs exist. It is also the reason the seed is a control: it precedes
 /// any command, and a client that applied it to a socket would be applying a
-/// state nobody asked for (`sync-feed-ui.ts:54-64`).
+/// state nobody asked for.
 #[must_use]
 pub fn ui_state_seed_frames(states: &UiStateOwner) -> Vec<FeedFrame> {
     states

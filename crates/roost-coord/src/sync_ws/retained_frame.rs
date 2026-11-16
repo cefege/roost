@@ -1,18 +1,12 @@
 //! One frame as a single Sync socket owns it: its payload, its byte estimate,
 //! and the per-recipient scalars that are stamped on at send time.
 //!
-//! Ports `apps/coord/src/sync/sync-ws-v2-terminal-payload.ts`: `OwnedFrame` is
-//! its `ownTerminalApplicationFrame`, `conservative_bytes` is its
-//! `conservativeTerminalApplicationFrameBytes`, and `ChunkTransfer` is its
-//! `TerminalChunkTransfer`.
-//!
 //! Owned by the Sync session's queues. The important decision here is that a
 //! canonical terminal full is held as an `Arc` and COPIED only when it is
 //! stamped for one recipient, because that is what makes a five-viewer session
-//! cost one grid in coordinator memory instead of five. v2 reached the same
-//! shape with a hand-written "shallow message shell" (`sync-ws-v2-terminal-
-//! payload.ts:38-44`) that shared the row and span arrays between recipients;
-//! `Arc` is the same sharing with the aliasing rule enforced by the compiler.
+//! cost one grid in coordinator memory instead of five. `Arc` shares the row
+//! and span arrays between recipients, with the aliasing rule enforced by the
+//! compiler.
 //!
 //! WHY THE SEND-TIME COPY IS NOT WASTED. The alternative -- a hand-rolled
 //! partial encoder for the two cell oneof cases -- would be a second
@@ -59,9 +53,9 @@ impl SharedCellFrame {
 /// taken with them at zero.
 ///
 /// `delivery_seq` is field 31, so its tag is two bytes and a `u64` varint is
-/// ten: twelve. v2 charged a flat ten here (`sync-ws-v2-state.ts:148`), which
-/// is one byte short of a `u64` sequence; the port charges the exact bound
-/// because a byte of headroom here is a byte of queue that never fills.
+/// ten: twelve. A flat ten would be one byte short of a `u64` sequence, so
+/// the exact bound is charged because a byte of headroom here is a byte of
+/// queue that never fills.
 pub const DELIVERY_SCALAR_HEADROOM_BYTES: u64 = 12;
 
 /// One frame, as this socket holds it, before its send-time scalars are set.
@@ -126,8 +120,7 @@ impl OwnedFrame {
     ///
     /// The one cell-lane frame that is semantic state rather than cells, and
     /// the one that is not fenced behind a session announcement: it answers a
-    /// command this socket sent, so the client already asked about the session
-    /// (`sync-ws-v2-state.ts:323-333`).
+    /// command this socket sent, so the client already asked about the session.
     #[must_use]
     pub fn is_view_state(&self) -> bool {
         match &self.payload {
@@ -142,8 +135,7 @@ impl OwnedFrame {
     ///
     /// The one predicate the whole terminal half turns on, because cell
     /// material is droppable under pressure while everything else in the
-    /// terminal domain is semantic state a client cannot rebuild
-    /// (`sync-ws-v2-state.ts:93-95`).
+    /// terminal domain is semantic state a client cannot rebuild.
     #[must_use]
     pub fn is_cell_material(&self) -> bool {
         match &self.payload {
@@ -197,8 +189,7 @@ impl OwnedFrame {
     ///
     /// `fanout_ms` is the snapshot's own stamp for every part of a chunked
     /// baseline, so a browser can tell how much of its own latency the
-    /// coordinator spent queueing the REST of that snapshot
-    /// (`sync-ws-v2-terminal-payload.ts:88-110`).
+    /// coordinator spent queueing the REST of that snapshot.
     #[must_use]
     pub fn outbound_copy(&self, delivery_seq: u64, fanout_ms: u64) -> FirehoseFrame {
         let mut frame = match &self.payload {
@@ -307,8 +298,7 @@ impl RetainedFrame {
     /// Give the budget back, once.
     ///
     /// Taking the charge out of the frame is what makes a double release
-    /// impossible; v2 flipped a boolean on the charge object, which is the same
-    /// rule with a wider blast radius (`sync-ws-v2-state.ts:201-218`).
+    /// impossible.
     pub(in crate::sync_ws) fn take_charge(&mut self) -> Option<AggregateCharge> {
         self.charge.take()
     }

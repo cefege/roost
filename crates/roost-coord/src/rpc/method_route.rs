@@ -1,25 +1,21 @@
 //! Every `CoordinatorService` method, the domain that owns it, and what it requires
 //! to be called.
 //!
-//! The 78 rows live in `method_route_rows`, one table per v2 domain folder, so
+//! The 78 rows live in `method_route_rows`, one table per domain, so
 //! this file is the vocabulary and the accessors rather than 700 lines of data.
 //! `all_method_routes` concatenates them in the proto's declaration order, which is
 //! the order `tests/method_route_coverage.rs` asserts.
 //!
-//! Owned by the coordinator's RPC layer. This table is the coverage guard that
-//! replaces v2's "a second `router.service()` call shadows the rest" hazard, and
-//! it is data rather than code so a test can assert it against the proto's own
-//! service block.
+//! Owned by the coordinator's RPC layer. This table is the coverage guard for
+//! the service block, and it is data rather than code so a test can assert it
+//! against the proto's own service block.
 //!
-//! WHY A TABLE AND NOT A CONVENTION. v2's guard was two tests that built the
-//! real router and asserted each `requestPath` appeared exactly once in
-//! `router.handlers` (`apps/coord/tests/agents/agent-status-handlers.test.ts:169-185`,
-//! `apps/coord/tests/attachments/attachment-direct-handlers.test.ts:198-210`).
-//! In Rust the shadowing failure is a **compile error**, because the generated
-//! trait requires every method -- so the guard that is still needed is
-//! different: it must catch a method in the proto that no table row names, and a
-//! table row naming a method the proto does not declare. Both directions are
-//! covered by `tests/method_route_coverage.rs`, which parses
+//! WHY A TABLE AND NOT A CONVENTION. In Rust a method the service impl omits is
+//! a **compile error**, because the generated trait requires every method -- so
+//! the guard that is still needed is different: it must catch a method in the
+//! proto that no table row names, and a table row naming a method the proto
+//! does not declare. Both directions are covered by
+//! `tests/method_route_coverage.rs`, which parses
 //! `protocol/proto/roost/v1/coordinator.proto`.
 //!
 //! WHY AUTH IS A COLUMN AND NOT A FUNCTION. The requirement is a per-method
@@ -38,27 +34,28 @@ pub enum AuthRequirement {
     Device,
     /// A browser key **and** a request that arrived on the host.
     ///
-    /// **THE REQUIREMENT IS REAL IN v2 AND THE GATE DOES NOT ENFORCE IT.**
+    /// **THE REQUIREMENT IS REAL AND THE GATE DOES NOT ENFORCE IT.**
     /// `principal_satisfies` answers `is_browser` for this variant and for
     /// [`AuthRequirement::Device`] alike, so a row carrying it records a
     /// restriction nothing checks. That is not a reason to stop using it — it is
-    /// the reason the table records what v2 requires and the gate is a separate
-    /// question. **A row that under-claims is the same defect as one that
-    /// over-claims**: narrowing `MiscDbExportUrl` to `Device` would have made
-    /// the table agree with the gate by recording less than v2 enforces.
+    /// the reason the table records what a method requires and the gate is a
+    /// separate question. **A row that under-claims is the same defect as one
+    /// that over-claims**: narrowing `MiscDbExportUrl` to `Device` would have
+    /// made the table agree with the gate by recording less than the method
+    /// enforces.
     ///
-    /// v2 asserts on-host in FIVE places, and they are TWO SHAPES which must
-    /// not be conflated — only the first is what this variant means:
+    /// On-host is asserted in two shapes which must not be conflated — only the
+    /// first is what this variant means:
     ///
-    /// - **UNGUARDED `assertOnHost(...)`** — a credentialed device AND
-    ///   on-host. One site, `handlers-system.ts:115`. This is `DeviceOnHost`.
-    /// - **`if (!caller) assertOnHost(...)`** — on-host as an UNCREDENTIALED
-    ///   FALLBACK, admitting a caller holding no key at all. Four sites:
-    ///   pairing ×3 and `handlers-devices.ts:72`. This is NOT this variant and
-    ///   the table has no way to say it; those rows record what their handlers
-    ///   enforce, and the credential-less path is currently unreachable because
-    ///   `AuthGate::admit` only inserts a `Caller` for a request that carried
-    ///   one.
+    /// - **A credentialed device AND on-host.** One site, the DB export route
+    ///   (`http/db_export.rs`). This is `DeviceOnHost`.
+    /// - **On-host as an UNCREDENTIALED FALLBACK**, admitting a caller holding
+    ///   no key at all: the pairing approver check and device revocation
+    ///   (`auth/rpc_pairing.rs`, `auth/rpc_devices.rs`). This is NOT this
+    ///   variant and the table has no way to say it; those rows record what
+    ///   their handlers enforce, and the credential-less path is currently
+    ///   unreachable because `AuthGate::admit` only inserts a `Caller` for a
+    ///   request that carried one.
     ///
     /// Whoever implements the gate's half has to pick which shape each row
     /// means. `the_on_host_requirement_matches_v2_and_the_gate_does_not_yet_
@@ -86,11 +83,9 @@ impl AuthRequirement {
     /// it is a true answer, while `Worker` is excluded because telling a
     /// machine to present a device key names a credential it may not hold.
     ///
-    /// v2 asked exactly this, in the handler: `handlers-sessions.ts:79-95`
-    /// takes its device branch whenever the principal is absent, so a browser
-    /// that had never been paired and a worker whose key the coordinator does
-    /// not know both received `x-roost-auth-layer: device`
-    /// (`auth-interceptor.ts:256-262`).
+    /// The same answer reaches the caller: a browser that had never been paired
+    /// and a worker whose key the coordinator does not know both receive
+    /// `x-roost-auth-layer: device`.
     #[must_use]
     pub const fn admits_browser_key(self) -> bool {
         matches!(

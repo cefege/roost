@@ -5,13 +5,11 @@
 //!
 //! Owned by `sync_ws::v1_delivery::V1Delivery` (a `flow=1` socket's `seed`);
 //! `sync_ws::driver::LinkState::flush_turn` advances it on every socket turn.
-//! Ports `apps/coord/src/sync/sync-feed-v1-seed.ts` and `pushPacedSeed` /
-//! `waitForDeliveryChange` of `sync-ws-v1-delivery.ts`.
 //!
 //! ACK-COUPLED, NOT CHUNKED. A seed frame goes out only when everything sent
 //! before it was acknowledged, and the next waits for its own acknowledgement,
 //! so an arbitrarily large seed cannot outrun the 512-frame / 4 MiB window while
-//! live frames wait behind it (`sync-ws-v1-delivery.ts:245-248`).
+//! live frames wait behind it.
 
 use std::collections::VecDeque;
 
@@ -29,8 +27,8 @@ use crate::sync_ws::v1_delivery::V1SendRefusal;
 pub enum SeedHalt {
     /// The window or the outbox refused the frame.
     Refused(V1SendRefusal),
-    /// The frame could not be put on the wire at all; v2 closes `1013` for a
-    /// seed frame its guarded send did not carry (`sync-ws-v1-delivery.ts:254-261`).
+    /// The frame could not be put on the wire at all; the socket closes `1013`
+    /// for a seed frame its guarded send did not carry.
     Unsent(&'static str),
 }
 
@@ -79,7 +77,7 @@ impl V1PacedSeed {
 
     /// Hold one live frame behind the seed, or refuse it: the FIFO is bounded
     /// by the same 512 frames / 4 MiB as the window, counting the head that is
-    /// on the wire (`sync-feed-v1-seed.ts:43-58`).
+    /// on the wire.
     pub fn queue_live(&mut self, frame: FirehoseFrame) -> Result<(), V1SendRefusal> {
         let kind = frame_kind(&frame);
         let in_flight_live = usize::from(matches!(self.in_flight, Some((_, Some(_)))));

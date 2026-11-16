@@ -2,8 +2,8 @@
 //! refused before any worker command, ambiguous failures wait for the durable
 //! `opened`, and definite failures, deadlines and revocations reject.
 //!
-//! Ports `apps/coord/tests/sessions/pending-spawns.test.ts`. Time is paused, so
-//! the thirty-second deadlines are crossed without waiting them out.
+//! Time is paused, so the thirty-second deadlines are crossed without waiting
+//! them out.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -56,7 +56,6 @@ async fn ready_now<F: Future + Unpin>(future: &mut F) -> Option<F::Output> {
     tokio::time::timeout(Duration::ZERO, future).await.ok()
 }
 
-// v2: "exact caller and parameters join one caller-minted spawn".
 #[tokio::test(start_paused = true)]
 async fn an_exact_retry_joins_the_first_spawn_and_opened_waits_for_the_reply() {
     let table = Arc::new(PendingSpawns::new());
@@ -88,7 +87,6 @@ async fn an_exact_retry_joins_the_first_spawn_and_opened_waits_for_the_reply() {
     assert_eq!(answered.unwrap(), opened(SID, 17));
 }
 
-// v2: "conflicting caller or parameters fail before sharing the pending result".
 #[tokio::test(start_paused = true)]
 async fn a_different_caller_or_geometry_conflicts() {
     let table = Arc::new(PendingSpawns::new());
@@ -111,7 +109,6 @@ async fn a_different_caller_or_geometry_conflicts() {
     ));
 }
 
-// v2: "one global session UUID cannot dispatch to two workers".
 #[tokio::test(start_paused = true)]
 async fn one_uuid_cannot_dispatch_to_two_workers() {
     let table = Arc::new(PendingSpawns::new());
@@ -129,7 +126,6 @@ async fn one_uuid_cannot_dispatch_to_two_workers() {
     assert!(!table.resolve_opened(&"bb".repeat(32), SID, 3));
 }
 
-// v2: "ambiguous failures reconcile with durable opened while definite failures reject".
 #[tokio::test(start_paused = true)]
 async fn ambiguous_failures_reconcile_and_definite_failures_reject() {
     let table = Arc::new(PendingSpawns::new());
@@ -157,8 +153,8 @@ async fn ambiguous_failures_reconcile_and_definite_failures_reject() {
     let _again = new_waiter(table.reserve(OTHER_SID, signature()));
 }
 
-// v2 `reservePendingSpawn`'s timer: a spawn that never durably opens fails
-// with DeadlineExceeded and releases its UUID.
+// A spawn that never durably opens fails with DeadlineExceeded and releases
+// its UUID.
 #[tokio::test(start_paused = true)]
 async fn a_spawn_that_never_opens_times_out_and_frees_its_uuid() {
     let table = Arc::new(PendingSpawns::new());
@@ -181,8 +177,8 @@ async fn a_spawn_that_never_opens_times_out_and_frees_its_uuid() {
     let _again = new_waiter(table.reserve(SID, signature()));
 }
 
-// v2 COMPLETED_SPAWN_RETENTION_MS: a resolved answer is retained for retries,
-// then released so the table does not grow without bound.
+// A resolved answer is retained for retries, then released so the table does
+// not grow without bound.
 #[tokio::test(start_paused = true)]
 async fn a_resolved_spawn_is_retained_for_retries_and_then_released() {
     let table = Arc::new(PendingSpawns::new());
@@ -195,7 +191,7 @@ async fn a_resolved_spawn_is_retained_for_retries_and_then_released() {
     let _released = new_waiter(table.reserve(SID, signature()));
 }
 
-// v2 MAX_PENDING_SPAWNS.
+// The table's reservation bound.
 #[tokio::test(start_paused = true)]
 async fn the_table_refuses_past_its_capacity() {
     let table = Arc::new(PendingSpawns::new());
@@ -212,8 +208,8 @@ async fn the_table_refuses_past_its_capacity() {
     ));
 }
 
-// v2 `rejectPendingSpawnsForWorker`: a revoked credential rejects that worker's
-// pending spawns and drops its retained ones; another worker's are untouched.
+// A revoked credential rejects that worker's pending spawns and drops its
+// retained ones; another worker's are untouched.
 #[tokio::test(start_paused = true)]
 async fn a_revoked_worker_loses_its_spawns_and_no_other_worker_does() {
     let table = Arc::new(PendingSpawns::new());

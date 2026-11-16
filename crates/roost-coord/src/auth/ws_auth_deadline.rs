@@ -2,12 +2,12 @@
 //! reauth required` once the verified credential's deadline passes.
 //!
 //! Called by the Sync socket loop (`sync_ws::socket`), which races
-//! [`sleep_until_reauth`] against its socket. The worker link arms no deadline:
-//! v2 never schedules one there. Ports `apps/coord/src/auth/ws-auth-deadline.ts`.
+//! [`sleep_until_reauth`] against its socket. The worker link arms no deadline.
 //!
-//! THE WAIT IS RE-CHECKED, NOT TRUSTED. v2 arms `min(deadline - now, 2^31 - 1)`
-//! and re-arms on every fire, because a platform timer silently truncates a
-//! longer delay. The port keeps the re-check for a second reason: the wait is
+//! THE WAIT IS RE-CHECKED, NOT TRUSTED. A wait is capped at
+//! `min(deadline - now, 2^31 - 1)` and re-armed on every fire, because a
+//! platform timer silently truncates a longer delay. The re-check also
+//! matters for a second reason: the wait is
 //! slept on the monotonic clock but the deadline is a wall-clock instant, and
 //! only a re-read of the wall clock says whether the two still agree.
 
@@ -20,13 +20,13 @@ pub const REAUTH_CLOSE_CODE: u16 = 4003;
 pub const REAUTH_CLOSE_REASON: &str = "reauth required";
 
 /// The longest single wait before the deadline is re-read
-/// (`ws-auth-deadline.ts:8`, the 32-bit platform timer maximum).
+/// (the 32-bit platform timer maximum).
 pub const MAX_TIMER_DELAY_MS: u64 = 2_147_483_647;
 
 /// Whether a socket whose deadline is `deadline_ms` must close at `now_ms`.
 ///
-/// Inclusive, as v2's `remaining <= 0` and the open-time `reauthAtMs <= now`
-/// both are: a credential is not acceptable AT its deadline.
+/// Inclusive: a credential is not acceptable AT its deadline, whether it is
+/// checked against the remaining wait or at open time.
 #[must_use]
 pub const fn reauth_expired(deadline_ms: i64, now_ms: i64) -> bool {
     deadline_ms <= now_ms

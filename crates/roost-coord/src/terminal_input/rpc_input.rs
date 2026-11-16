@@ -2,7 +2,6 @@
 //! write control as Sync input, carrying no browser route authority and no
 //! audit of its own. A coordinator-minted sequence stands in for the one a
 //! Sync client supplies. Called from the arm in `rpc/service_impl.rs`.
-//! Ports the `sessionsInput` handler of `apps/coord/src/sessions/handlers-sessions.ts`.
 
 use connectrpc::{Response, ServiceResult};
 use roost_proto::{SessionsInputRequest, SessionsInputResponse};

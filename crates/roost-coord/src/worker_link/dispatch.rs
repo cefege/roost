@@ -160,9 +160,9 @@ impl ChargedFrame<'_> {
 /// the close that follows from one it cannot recover from.
 ///
 /// Split because they are different promises to the peer: one says "resend
-/// that", the other says "stop". v2's transport is explicit about the
-/// distinction and collapsing it is how a worker ends up in a reconnect loop
-/// against a coordinator that is merely confused by one frame.
+/// that", the other says "stop". Collapsing the distinction is how a worker ends
+/// up in a reconnect loop against a coordinator that is merely confused by one
+/// frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrameRefusal {
     /// A dedupe replay carried a different payload than the row it replayed.

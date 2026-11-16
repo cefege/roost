@@ -1,8 +1,7 @@
 //! Membership rules: which declaration is accepted, which is refused, and what
 //! each refusal costs the client.
 //!
-//! Ported from the v2 guards `terminal-view-hub.test.ts` and
-//! `terminal-view-registry-membership.test.ts`. The questions here are the ones
+//! The questions here are the ones
 //! where a wrong answer is silent: a stale revision accepted, a session moved
 //! under a live handle, a revoked device keeping a claim.
 

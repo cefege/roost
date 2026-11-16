@@ -1,11 +1,10 @@
 //! The seam the new-tab-identity budget is admitted through.
 //!
-//! v2 spends `UI_STATE_NEW_IDENTITIES_PER_WINDOW` per fingerprint per window
-//! through `middleware/rate-limit.ts`'s `RateLimiter`, which belongs to the auth
-//! slice and is not built yet. The UI owner therefore takes the limiter as a
-//! trait with an allow-all value, rather than counting in a second place: two
-//! limiters over one budget is a budget nobody can reason about.
-//! Called by `state_owner`; the production limiter is the auth slice's.
+//! The budget is `UI_STATE_NEW_IDENTITIES_PER_WINDOW` per fingerprint per
+//! window. The UI owner takes the limiter as a trait with an allow-all value,
+//! rather than counting in a second place: two limiters over one budget is a
+//! budget nobody can reason about. Called by `state_owner`, which accepts a
+//! shared limiter through `with_identity_rate_limiter`.
 
 /// One fixed-window budget decision.
 ///
@@ -25,14 +24,15 @@ pub trait IdentityRateLimiter: Send + Sync {
     ) -> bool;
 }
 
-/// The limiter a coordinator runs with until the auth slice mounts its own.
+/// The limiter a coordinator runs with unless one is attached through
+/// `with_identity_rate_limiter`.
 ///
-/// It admits everything, and that is a real difference from v2 rather than a
-/// convenience: until the shared limiter exists, a paired device may introduce
-/// unbounded distinct tab ids. The cardinality caps in `state_owner` still
-/// bound how many of those are RETAINED, which is the memory-shaped half of the
-/// problem, and the identity window is a second half this seam is here to hand
-/// back rather than to reimplement.
+/// It admits everything, and that is a real difference from a budgeted
+/// limiter: a paired device may introduce unbounded distinct tab ids. The
+/// cardinality caps in `state_owner` still bound how many of those are
+/// RETAINED, which is the memory-shaped half of the problem; the identity
+/// window is the half this seam hands to a shared limiter rather than
+/// reimplementing.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AllowEveryIdentityRateLimiter;
 

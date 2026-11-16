@@ -1,8 +1,7 @@
 //! The vocabulary of terminal-peer signaling: the peer settings, the grant
 //! port negotiation reads leases through, the request shape and grant checks,
 //! the bounded refusals, and the worker-failure classification. Holds no
-//! registry and never retains SDP. Ports
-//! `apps/coord/src/terminal/direct/terminal-peer-negotiation-state.ts`.
+//! registry and never retains SDP.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -25,15 +24,15 @@ pub const TERMINAL_PEER_MAX_IDENTIFIER_UTF8_BYTES: usize = 128;
 /// Whether the direct WebRTC carrier is offered, and where it gathers.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TerminalPeerSettings {
-    /// v2 `cfg.terminalPeerEnabled`.
+    /// Whether the carrier is offered (`terminal_peer_enabled`).
     pub enabled: bool,
-    /// v2 `cfg.terminalPeerStunUrls`.
+    /// The STUN URLs gathering uses (`terminal_peer_stun_urls`).
     pub stun_urls: Vec<String>,
 }
 
 impl TerminalPeerSettings {
     /// The settings a resolved config declares. A process with no config
-    /// offers no peer, as v2's `deps.cfg?.terminalPeerEnabled === true` reads.
+    /// offers no peer.
     #[must_use]
     pub fn from_config(config: Option<&CoordConfig>) -> Self {
         config.map_or_else(Self::default, |config| Self {
@@ -46,20 +45,20 @@ impl TerminalPeerSettings {
 /// Who is negotiating: the owner key leases are held under, and the device.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalPeerCaller {
-    /// v2 `captureOwnerKey(caller)`.
+    /// The caller's capture owner key.
     pub owner_key: String,
     /// The browser device's fingerprint.
     pub device_fingerprint: String,
 }
 
-/// Durable route authority over one worker's sessions (v2
-/// `authorizeTerminalGrantSessions`), injectable so a test can gate it.
+/// Durable route authority over one worker's sessions, injectable so a test
+/// can gate it.
 pub type TerminalGrantSessionAuthorizer =
     Arc<dyn Fn(String, Vec<String>) -> AuthorizationFuture + Send + Sync>;
 
 /// The two lease operations signaling needs from the grant owner.
 pub trait TerminalPeerGrantPort: Send + Sync {
-    /// v2 `ownedGrant`: the exact live lease, or `None`.
+    /// The exact live lease, or `None`.
     fn owned_grant(
         &self,
         owner_key: &str,
@@ -68,10 +67,10 @@ pub trait TerminalPeerGrantPort: Send + Sync {
         grant_id: &str,
     ) -> Option<TerminalGrantLeaseSnapshot>;
 
-    /// v2 `subscribeInvalidation`; `None` once the owner is disposed.
+    /// Subscribe to invalidations; `None` once the owner is disposed.
     fn subscribe_invalidation(&self, listener: InvalidationListener) -> Option<u64>;
 
-    /// The returned unsubscribe of v2's `subscribeInvalidation`.
+    /// Remove a subscription by the id `subscribe_invalidation` returned.
     fn unsubscribe_invalidation(&self, id: u64);
 }
 
@@ -133,7 +132,7 @@ pub fn has_valid_terminal_peer_grant_sessions(session_ids: &[String]) -> bool {
         })
 }
 
-/// A versioned (1-8), RFC 4122 variant uuid, either case (v2 `TERMINAL_PEER_UUID`).
+/// A versioned (1-8), RFC 4122 variant uuid, either case.
 fn is_terminal_peer_uuid(value: &str) -> bool {
     let bytes = value.as_bytes();
     bytes.len() == 36
@@ -148,37 +147,37 @@ fn is_terminal_peer_uuid(value: &str) -> bool {
 /// The owner/tab/worker tuple one admission and one pending offer live under.
 pub(crate) type PeerKey = (String, String, String);
 
-/// `InvalidArgument`, with v2's wording.
+/// A refusal with code `InvalidArgument`.
 pub(crate) fn terminal_peer_invalid(message: &str) -> ConnectError {
     ConnectError::new(ErrorCode::InvalidArgument, message)
 }
 
-/// `PermissionDenied`, with v2's wording.
+/// A refusal with code `PermissionDenied`.
 pub(crate) fn terminal_peer_denied(message: &str) -> ConnectError {
     ConnectError::new(ErrorCode::PermissionDenied, message)
 }
 
-/// `Unavailable`, with v2's wording.
+/// A refusal with code `Unavailable`.
 pub(crate) fn terminal_peer_unavailable(message: &str) -> ConnectError {
     ConnectError::new(ErrorCode::Unavailable, message)
 }
 
-/// `ResourceExhausted`, with v2's wording.
+/// A refusal with code `ResourceExhausted`.
 pub(crate) fn terminal_peer_exhausted(message: &str) -> ConnectError {
     ConnectError::new(ErrorCode::ResourceExhausted, message)
 }
 
-/// `AlreadyExists`, with v2's wording.
+/// A refusal with code `AlreadyExists`.
 pub(crate) fn terminal_peer_already_exists(message: &str) -> ConnectError {
     ConnectError::new(ErrorCode::AlreadyExists, message)
 }
 
-/// `Canceled`, with v2's wording.
+/// A refusal with code `Canceled`.
 pub(crate) fn terminal_peer_cancelled() -> ConnectError {
     ConnectError::new(ErrorCode::Canceled, "terminal peer negotiation cancelled")
 }
 
-/// `DeadlineExceeded`, with v2's wording.
+/// A refusal with code `DeadlineExceeded`.
 pub(crate) fn terminal_peer_deadline_exceeded() -> ConnectError {
     ConnectError::new(
         ErrorCode::DeadlineExceeded,

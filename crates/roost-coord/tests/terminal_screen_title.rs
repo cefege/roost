@@ -1,9 +1,6 @@
 //! Retained terminal titles: normalized and capped before fan-out, published
 //! only on a meaningful change, deduplicated across spinner animation, and
 //! retained as displayed; and the worker metadata frame that feeds them.
-//!
-//! Ports `apps/coord/tests/terminal/terminal-title-hub.test.ts` and the
-//! metadata-frame cases of `terminal-metadata-adapter.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod db_support;
@@ -54,7 +51,6 @@ fn observed(session_id: &str, raw_titles: &[&str]) -> (Vec<String>, TerminalTitl
     (got, hub)
 }
 
-// v2 "normalizes an incoming semantic title before publication".
 #[test]
 fn control_characters_are_removed_before_publication() {
     assert_eq!(
@@ -63,7 +59,6 @@ fn control_characters_are_removed_before_publication() {
     );
 }
 
-// v2 "caps an oversized semantic title before fan-out".
 #[test]
 fn an_oversized_title_is_capped_before_fan_out() {
     assert_eq!(
@@ -72,7 +67,6 @@ fn an_oversized_title_is_capped_before_fan_out() {
     );
 }
 
-// v2 "publishes only meaningful title changes".
 #[test]
 fn a_repeated_title_is_published_once() {
     assert_eq!(
@@ -81,7 +75,6 @@ fn a_repeated_title_is_published_once() {
     );
 }
 
-// v2 "collapses spinner animation while preserving state and label edges".
 #[test]
 fn spinner_animation_collapses_but_state_and_label_changes_publish() {
     let raw = [
@@ -96,7 +89,6 @@ fn spinner_animation_collapses_but_state_and_label_changes_publish() {
     );
 }
 
-// v2 "retains the displayed title rather than its deduplication key".
 #[test]
 fn the_retained_title_is_the_displayed_one_not_its_dedup_key() {
     let (_, hub) = observed("title-snapshot", &["π ⠸ shipping"]);
@@ -133,8 +125,7 @@ fn bound_generation(fixture: &LinkFixture) -> WorkerFrameDispatcher {
     fixture.services.worker_dispatcher(handle)
 }
 
-// v2 terminal-metadata-adapter.test.ts "projects negotiated title and activity
-// metadata through the same hubs".
+// A negotiated title and activity metadata frame projects through the same hubs.
 #[tokio::test]
 async fn a_negotiated_metadata_frame_feeds_the_title_and_activity_hubs() {
     let fixture = LinkFixture::new("metadata-semantic").await;

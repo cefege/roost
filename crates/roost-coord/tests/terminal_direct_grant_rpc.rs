@@ -1,7 +1,6 @@
 //! The `SessionsGrantLocalTerminal` boundary: authenticated tab binding,
 //! durable session-route checks, digest-only worker install and ACK fencing,
 //! and the capability fields a browser chooses its direct carrier from.
-//! Ports `apps/coord/tests/local-terminal-grant.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod db_support;
@@ -65,7 +64,6 @@ impl Fixture {
     }
 }
 
-// v2 "requires the request tab to equal the authenticated interceptor tab".
 #[tokio::test]
 async fn requires_the_request_tab_to_equal_the_authenticated_interceptor_tab() {
     let fixture = Fixture::new("tab", true).await;
@@ -80,7 +78,6 @@ async fn requires_the_request_tab_to_equal_the_authenticated_interceptor_tab() {
     assert_eq!(fixture.installs(), 0);
 }
 
-// v2 "caps request strings and unique session membership before worker install".
 #[tokio::test]
 async fn caps_request_strings_and_unique_session_membership_before_worker_install() {
     let fixture = Fixture::new("caps", true).await;
@@ -101,7 +98,6 @@ async fn caps_request_strings_and_unique_session_membership_before_worker_instal
     assert_eq!(fixture.installs(), 0);
 }
 
-// v2 "refuses closed or cross-worker sessions without installing a grant".
 #[tokio::test]
 async fn refuses_closed_or_cross_worker_sessions_without_installing_a_grant() {
     let fixture = Fixture::new("routes", true).await;
@@ -119,7 +115,6 @@ async fn refuses_closed_or_cross_worker_sessions_without_installing_a_grant() {
     assert_eq!(fixture.installs(), 0);
 }
 
-// v2 "returns a secret only after digest-only worker install and exposes supported capabilities".
 #[tokio::test]
 async fn returns_a_secret_only_after_a_digest_only_install_and_exposes_capabilities() {
     let fixture = Fixture::new("secret", true).await;
@@ -154,7 +149,6 @@ async fn returns_a_secret_only_after_a_digest_only_install_and_exposes_capabilit
     assert_eq!(leases[0].session_ids, vec![session]);
 }
 
-// v2 "keeps input-route support independent when peer setup is disabled".
 #[tokio::test]
 async fn keeps_input_route_support_independent_when_peer_setup_is_disabled() {
     let fixture = Fixture::new("peer-off", false).await;
@@ -169,7 +163,6 @@ async fn keeps_input_route_support_independent_when_peer_setup_is_disabled() {
     assert!(response.input_route_supported);
 }
 
-// v2 "keeps rolling workers on unchanged base response fields".
 #[tokio::test]
 async fn keeps_rolling_workers_on_unchanged_base_response_fields() {
     let fixture = Fixture::new("rolling", true).await;
@@ -189,7 +182,6 @@ async fn keeps_rolling_workers_on_unchanged_base_response_fields() {
     assert_eq!(rolling.grants()[0].worker_epoch, "");
 }
 
-// v2 "rechecks durable authorization after the worker ACK before returning a secret".
 #[tokio::test]
 async fn rechecks_durable_authorization_after_the_worker_ack_before_returning_a_secret() {
     let fixture = Fixture::new("recheck", true).await;

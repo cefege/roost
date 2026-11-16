@@ -1,7 +1,7 @@
 //! `CoordinatorService.AuthCoordIdentity` — what a client learns about a
 //! coordinator before it has any credential at all.
 //!
-//! Ported from `handlers-auth-bootstrap.ts:54-60`. It is the ONE RPC a pairing
+//! It is the ONE RPC a pairing
 //! ceremony cannot proceed without and the one `roost quickstart` blocks on, so
 //! its shape is a product decision rather than an implementation detail: a
 //! browser reads `public_url` to learn which origin its keys belong to, and an
@@ -12,8 +12,8 @@
 //! per-caller: the fields are this process's build, this deployment's own
 //! declared origin, and the direct carrier's static STUN settings (hostnames,
 //! not secrets), which let a browser start gathering before its first grant.
-//! The relocation, SaaS-mode and listener fields stay at their defaults, which
-//! is what v2 sends — they describe a managed deployment and a self-hosted
+//! The relocation, SaaS-mode and listener fields stay at their defaults:
+//! they describe a managed deployment and a self-hosted
 //! install has none of them to report.
 //!
 //! `public_url` FALLS BACK TO `web_public_url` AND THEN TO THE EMPTY STRING,
@@ -48,7 +48,7 @@ pub fn handle_auth_coord_identity(
         },
         // A self-hosted install was never relocated, is not a managed
         // deployment, and is not a public listener. Left absent rather than
-        // filled in, which is what v2 sends and what a client reads as "this
+        // filled in, which is what a client reads as "this
         // deployment has nothing to report".
         ..Default::default()
     })

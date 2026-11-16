@@ -2,9 +2,8 @@
 //! implementation signed.
 //!
 //! Covers: the fingerprint derivation, the SPKI framing, the signature check, and
-//! the four refusals a v2 coordinator also refuses. The vectors in
-//! `fixtures/v2_jwt_vectors.json` were minted by v2's own
-//! `apps/worker/src/host/jwt.ts mintJwt` run under Bun, so a round-trip test
+//! the four refusals. The vectors in `fixtures/v2_jwt_vectors.json` were minted
+//! by an independent signer run under Bun, so a round-trip test
 //! against this crate's own signer would prove nothing -- both sides would be
 //! wrong in the same way. `docs/phase3-coord-contract.md` §4.3 is the prose
 //! version of what these bytes are.
@@ -114,9 +113,9 @@ fn the_fingerprint_is_sha256_of_the_raw_32_byte_key_and_nothing_else() {
 
 #[test]
 fn the_spki_framing_is_the_twelve_bytes_v2_prepends() {
-    // Byte-for-byte from `apps/coord/src/auth/jwt.ts:15-17`. The verifier does
+    // The prefix is fixed byte for byte. The verifier does
     // not need this -- `ed25519-dalek` takes raw bytes -- so nothing else would
-    // catch a port that changed it.
+    // catch a change to it.
     assert_eq!(
         SPKI_ED25519_PREFIX,
         [
@@ -192,9 +191,9 @@ fn a_token_signed_by_one_key_and_naming_another_does_not_verify() {
 #[test]
 fn the_wrong_audience_is_refused_even_though_the_signature_is_good() {
     // The signature covers the audience, so this token is genuinely signed; it is
-    // the CLAIM check that refuses it. A port that verified the signature and
-    // stopped would accept a worker-direct token, which v2 mints no longer but a
-    // stale fleet may still hold.
+    // the CLAIM check that refuses it. A verifier that checked the signature and
+    // stopped would accept a worker-direct token, which is no longer minted but
+    // a stale fleet may still hold.
     for vector in fixture().vectors {
         let parts = JwtParts::split(&vector.wrong_audience_token).expect("three segments");
         assert_eq!(parts.header().expect("header").kid, vector.fingerprint);

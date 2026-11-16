@@ -1,10 +1,9 @@
 //! audit_log retention: the one high-volume, low-signal method ages out, and
 //! everything else is kept forever.
 //!
-//! Owned by the coordinator. The reason this module exists, from v2
-//! (`audit-retention.ts:1-11`): audit_log had no retention at all and reached
-//! 7,026,358 rows / 1.0 GB before a one-off manual prune cut it to ~174k.
-//! Without a sweep it regrows.
+//! Owned by the coordinator. audit_log once had no retention at all and
+//! reached 7,026,358 rows / 1.0 GB before a one-off manual prune cut it to
+//! ~174k; without a sweep it regrows.
 
 use std::time::Duration;
 
@@ -13,10 +12,10 @@ use crate::serve::now_ms;
 
 /// One day. The retention window is counted in these, the sweep runs once per
 /// one, and `backup` schedules on the same value -- one definition so the
-/// three cannot silently drift apart (`audit-retention.ts:17`).
+/// three cannot silently drift apart.
 pub const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
-/// Rows per DELETE statement (`audit-retention.ts:19`).
+/// Rows per DELETE statement.
 pub const AUDIT_BATCH_SIZE: i64 = 10_000;
 
 /// The ONLY methods this sweep may delete.
@@ -29,8 +28,7 @@ pub const AUDIT_BATCH_SIZE: i64 = 10_000;
 /// here because it is the remaining top contributor: ~42k rows of "who typed
 /// into which session", which is real audit data and so has to age out rather
 /// than be skipped at write time. To extend: add a name here. Never add
-/// anything authorization, pairing, deletion or lifecycle-related
-/// (`audit-retention.ts:21-48`).
+/// anything authorization, pairing, deletion or lifecycle-related.
 pub const AUDIT_SWEEP_METHODS: &[&str] = &["SessionsInput"];
 
 /// The window, and the batch size, for one sweep.
@@ -61,8 +59,7 @@ impl AuditSweepOptions {
 /// `ts` is epoch MILLISECONDS (`migrations/sqlite/0001_init.sql`), and `path` is
 /// `/<service>/<Method>` with a service prefix that varies across proto
 /// packages -- so the match is on the trailing segment, and NEVER on the
-/// `method` column, which the interceptor fills with the literal HTTP verb
-/// (`audit-retention.ts:98-104`).
+/// `method` column, which the interceptor fills with the literal HTTP verb.
 pub async fn sweep_audit_log(
     database: &CoordDb,
     options: AuditSweepOptions,
@@ -82,8 +79,7 @@ pub async fn sweep_audit_log(
         }
         // The coordinator's audit inserts run on this connection, so a tight
         // loop over a multi-million-row backlog would block every RPC until it
-        // finished -- the batching alone buys nothing without an explicit yield
-        // (`audit-retention.ts:132-136`).
+        // finished -- the batching alone buys nothing without an explicit yield.
         tokio::task::yield_now().await;
     }
 
@@ -91,7 +87,7 @@ pub async fn sweep_audit_log(
     // lock over the whole file and rewrites it end to end; on a live coord that
     // stalls every RPC for as long as it takes. The freed pages are reused by
     // subsequent inserts, so the file stops growing without one, and shrinking
-    // it is a manual, out-of-hours operation (`audit-retention.ts:141-146`).
+    // it is a manual, out-of-hours operation.
     Ok(deleted)
 }
 
@@ -101,7 +97,7 @@ async fn run_batch(cutoff: i64, batch_size: i64, pool: &sqlx::AnyPool) -> Result
     // Bounded batches, not one unbounded DELETE: a first run against a large
     // backlog must not hold the write lock for its whole duration on a live
     // coordinator. The LIMIT rides on a subselect, and `audit_log_ts` turns
-    // `ts < ?` into a bounded index range scan (`audit-retention.ts:105-118`).
+    // `ts < ?` into a bounded index range scan.
     let mut statement =
         SqlBuilder::new("DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log WHERE ts < ");
     statement.push_bind(cutoff).push(" AND (");
@@ -126,9 +122,9 @@ async fn run_batch(cutoff: i64, batch_size: i64, pool: &sqlx::AnyPool) -> Result
 /// Remove the pre-hardening backlog of anonymous successful SPA/static reads.
 /// Returns the count.
 ///
-/// Startup-only: the recurring task keeps the narrow forensic sweep
-/// (`audit-retention.ts:56-58, 170-171`). Sweeping these on a schedule would
-/// mean paying an INSERT per RPC to delete the row days later.
+/// Startup-only: the recurring task keeps the narrow forensic sweep. Sweeping
+/// these on a schedule would mean paying an INSERT per RPC to delete the row
+/// days later.
 pub async fn cleanup_anonymous_static_audit_log(
     database: &CoordDb,
     batch_size: Option<i64>,

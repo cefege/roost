@@ -11,14 +11,13 @@
 //! `IS NULL` predicate is therefore not decoration on these three statements --
 //! it is what keeps the read from finding a tenant row and the insert from
 //! colliding with one. A per-dashboard VAPID row would silently shadow the
-//! global identity (`vapid.ts:45-47`).
+//! global identity.
 //!
-//! WHY FIRST USE IS SERIALISED BY THE DATABASE. v2 held a module-level
-//! in-flight promise, which serialises one process and nothing else. A
-//! write transaction (`CoordDb::begin_write`) serialises the read-then-generate-then-insert
+//! WHY FIRST USE IS SERIALISED BY THE DATABASE. An in-process lock would
+//! serialise one process and nothing else. A write transaction
+//! (`CoordDb::begin_write`) serialises the read-then-generate-then-insert
 //! against every writer, so the second first-use observes the committed row
-//! instead of minting a second identity. It is the same guarantee with a wider
-//! scope, and it needs no promise to hold.
+//! instead of minting a second identity.
 
 use std::sync::{Arc, Mutex};
 
@@ -29,7 +28,7 @@ use crate::db::CoordDb;
 
 /// The `app_settings` key the identity is stored under.
 ///
-/// `push.vapid` (`vapid.ts:9`). The prefix is there so a future setting beside
+/// `push.vapid`. The prefix is there so a future setting beside
 /// it cannot collide, and so an operator reading the table can tell what the
 /// row is without decoding it.
 pub const VAPID_SETTING_KEY: &str = "push.vapid";
@@ -55,14 +54,13 @@ pub enum VapidError {
 
 /// A VAPID keypair, both halves unpadded base64url.
 ///
-/// The same shape `web-push`'s `generateVAPIDKeys` returns, so a row written by
-/// v2 is readable here and a row written here is readable there: the public
-/// half is the uncompressed P-256 point, the private half is the raw scalar.
+/// The same shape `web-push`'s `generateVAPIDKeys` returns: the public half is
+/// the uncompressed P-256 point, the private half is the raw scalar.
 ///
 /// THE JSON FIELD NAMES ARE `publicKey` AND `privateKey`, camelCase, and they
-/// are a WIRE COMPATIBILITY CONTRACT, not a style choice. v2 stores
-/// `JSON.stringify({publicKey, privateKey})` (`vapid.ts:38`), so a row written
-/// by v2 must deserialize here. Rust's default would be `public_key` and the
+/// are a STORAGE COMPATIBILITY CONTRACT, not a style choice. The stored row is
+/// `{"publicKey": ..., "privateKey": ...}`, so a row already in a database must
+/// deserialize here. Rust's default would be `public_key` and the
 /// row would parse into a struct of two absent fields, which `from_str` reports
 /// as a missing field rather than as a shape mismatch -- so the failure would
 /// present as "stored VAPID keypair is invalid" on a database that is perfectly
@@ -126,8 +124,8 @@ impl VapidKeyGenerator for P256KeypairGenerator {
 /// The coordinator's VAPID identity: one cached keypair over one database.
 ///
 /// A value, never a crate global. `services.rs` forbids global mutable state
-/// and the reason is visible in v2's own test surface: two coordinators, or
-/// two tests over two temporary databases, must not share one identity.
+/// and the reason shows in the tests: two coordinators, or two tests over two
+/// temporary databases, must not share one identity.
 #[derive(Clone)]
 pub struct VapidKeyStore {
     generator: Arc<dyn VapidKeyGenerator>,

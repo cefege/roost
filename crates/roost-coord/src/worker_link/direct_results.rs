@@ -2,9 +2,7 @@
 //! for them together with the exact worker generation that sent them, so a
 //! late frame from a replaced connection cannot settle its successor's control.
 //! Called by `worker_link::live_frames::handle_rpc` after its fence and
-//! readiness checks. Ports `apps/coord/src/terminal/direct/
-//! worker-frame-dispatch-direct-results.ts` and `-direct-terminal.ts`, and
-//! `apps/coord/src/attachments/worker-frame-dispatch-direct-attachment.ts`.
+//! readiness checks.
 
 use std::sync::Arc;
 

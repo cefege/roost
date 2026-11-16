@@ -2,8 +2,6 @@
 //! the per-socket sinks over the shared link, and the rebaseline hub the
 //! socket's own lanes ask from inside the link lock.
 //!
-//! Ports the `registerSocket` sink closures, `requestTerminalRebaseline` and
-//! `setOnLiveViewExpired` of `apps/coord/src/sync/sync-ws-handler.ts:109-113,160-179,266-297`.
 //! `socket_open` builds one per v2 socket; `driver` settles the rebaselines.
 
 use std::sync::{Arc, Weak};
@@ -22,8 +20,7 @@ use crate::terminal_screen::hub_state::ScreenCheckpoint;
 use crate::terminal_screen::replica::ScreenHub;
 use crate::terminal_view::{SocketRegistration, SocketScope};
 
-/// The close a socket gets when one of its live views stopped heartbeating
-/// (`sync-ws-handler.ts:173`).
+/// The close a socket gets when one of its live views stopped heartbeating.
 pub const TERMINAL_VIEW_LEASE_EXPIRED: LinkClose = LinkClose {
     code: 1013,
     reason: "terminal view lease expired",
@@ -302,8 +299,7 @@ impl std::fmt::Debug for SyncScreenSocket {
 }
 
 /// Register a v2 socket with the screen hub (as a watcher) and the view hub
-/// (as a view holder with a live scope), as v2's `open` does
-/// (`sync-ws-handler.ts:266`).
+/// (as a view holder with a live scope).
 pub(in crate::sync_ws) fn register_terminal_socket(
     link: &Arc<SyncLink>,
     socket_id: &str,
@@ -345,7 +341,7 @@ pub(in crate::sync_ws) fn release_terminal_socket(socket_id: &str, services: &Co
     services.byte_hub.screens().unregister_socket(socket_id);
 }
 
-/// A fresh snapshot id for one recipient's cursor, as v2's `randomUUID()`.
+/// A fresh snapshot id for one recipient's cursor.
 fn mint_snapshot_id() -> Option<String> {
     match crate::coord_core::ids::draw::<16>() {
         Ok(bytes) => Some(crate::coord_core::ids::render_v4(bytes)),

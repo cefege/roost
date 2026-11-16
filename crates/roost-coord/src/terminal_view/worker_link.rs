@@ -1,6 +1,5 @@
 //! The production owner-view transport: the relay's writes to the worker link.
 //!
-//! Ported from `apps/coord/src/terminal/view/worker-send-terminal-view.ts`.
 //! It exists as its own file because it is the one place the view hub names the
 //! workers domain, and the direction of that dependency is worth seeing in a
 //! single screen: everything else here talks to the sink, the owner index and
@@ -23,10 +22,9 @@ use super::relay::{OwnerViewTransport, RelayIdentity};
 
 /// The control window a relayed command is budgeted, in milliseconds.
 ///
-/// v2 quotes the legacy stream-state hop's window here
-/// (`worker-send.ts:117`): the coordinator holds no waiter for a relayed
-/// command, because the worker answers with its own view state whenever its
-/// reconciliation settles, so the whole control window is available to it.
+/// The coordinator holds no waiter for a relayed command, because the worker
+/// answers with its own view state whenever its reconciliation settles, so the
+/// whole control window is available to it.
 pub const TERMINAL_VIEW_RELAY_BUDGET_MS: u32 = 8_000;
 
 /// The owner-view transport over a live worker registry.

@@ -3,8 +3,7 @@
 //! LOCAL owns one more), and fake worker sockets that answer the
 //! `diag-snapshot` browser command and the typed pipeline sample.
 //!
-//! Ports `apps/coord/tests/diagnostics/diag-snapshot-harness.ts`. Shared by
-//! `diag_snapshot_filters.rs`, `diag_snapshot_fanout.rs` and
+//! Shared by `diag_snapshot_filters.rs`, `diag_snapshot_fanout.rs` and
 //! `diag_snapshot_session_state.rs`, which are separate crates.
 //!
 //! `expect` and `unwrap` are denied outside `#[cfg(test)]`, and an integration

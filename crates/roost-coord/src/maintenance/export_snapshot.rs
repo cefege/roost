@@ -1,10 +1,8 @@
 //! The temporary copies `/api/db-export` streams, and the two bounds that stop
 //! them from filling the disk.
 //!
-//! Owned by `http::listener`, which serves the export route. v2's
-//! `_sweepExportSnapshots` and its per-response expiry timer
-//! (`bun-coordinator-listeners.ts:49-95, 206-252`), ported whole: an export is
-//! a FULL COPY of the database, so a count bound alone lets a caller pin disk
+//! Owned by `http::listener`, which serves the export route. An export is a
+//! FULL COPY of the database, so a count bound alone lets a caller pin disk
 //! with concurrent downloads, and an age bound alone lets N exports inside one
 //! window do it. Both bounds run before a new copy is taken, so the keep count
 //! always has room for the one being made.
@@ -12,8 +10,7 @@
 //! THE FILE OUTLIVES THE RESPONSE. The body is streamed from disk after the
 //! handler returns, so unlinking at the end of the request truncates the
 //! download. The reclaim is a timer on a detached task, never an abort listener:
-//! a cancelled download is exactly the event that would fire one, and v2's note
-//! records what that path cost.
+//! a cancelled download is exactly the event that would fire one.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -28,18 +25,16 @@ pub const EXPORT_SNAPSHOT_PREFIX: &str = ".coord-export-";
 /// The suffix, and what makes a sweep's name filter total.
 pub const EXPORT_SNAPSHOT_SUFFIX: &str = ".db";
 
-/// How long one export copy may sit on disk. v2's `EXPORT_SNAPSHOT_TTL_MS`:
+/// How long one export copy may sit on disk:
 /// long enough for a multi-hundred-megabyte download over a slow link, short
 /// enough that an abandoned one is not a disk incident by morning.
 pub const EXPORT_SNAPSHOT_TTL: Duration = Duration::from_secs(15 * 60);
 
-/// Newest export copies a directory may keep. v2's
-/// `EXPORT_SNAPSHOT_MAX_RESIDENT`, and each one is a full database.
+/// Newest export copies a directory may keep; each one is a full database.
 pub const EXPORT_SNAPSHOT_MAX_RESIDENT: usize = 2;
 
-/// The download name the browser is offered. v2 hard-codes the v2 generation's
-/// filename and so does this: the file IS a coordinator database, and the
-/// import command reads it whatever it is called.
+/// The download name the browser is offered. It is fixed, and the file IS a
+/// coordinator database, so it opens under any name.
 pub const EXPORT_DOWNLOAD_NAME: &str = "coordinator_v2.db";
 
 /// One export copy, named for the response that is streaming it.
@@ -89,8 +84,7 @@ pub async fn prepare_export_snapshot(database: &CoordDb) -> Result<ExportSnapsho
 
 /// Remove this copy once the download window closes.
 ///
-/// Detached and unref'd by construction: a tokio task does not keep the process
-/// alive, which is the whole of what v2's `.unref()` bought.
+/// Detached by construction: a tokio task does not keep the process alive.
 pub fn schedule_reclaim(path: PathBuf) {
     tokio::spawn(async move {
         tokio::time::sleep(EXPORT_SNAPSHOT_TTL).await;

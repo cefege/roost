@@ -3,10 +3,8 @@
 //! changes under its cursor; a stream whose baseline never arrives climbs the
 //! same repair ladder a lost baseline does.
 //!
-//! Ports `apps/coord/tests/terminal/screen/terminal-screen-hub-snapshot.test.ts`
-//! and `terminal-screen-frames.test.ts`. v2 defers frame production from source
-//! creation to the first cursor; the Rust hub plans at the first seed demand
-//! instead, so the frames test's observable half -- one source per cache
+//! The Rust hub plans a source at the first seed demand rather than at source
+//! creation, so the observable half -- one source per cache
 //! version, however many sockets it seeds -- is asserted here.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -100,9 +98,8 @@ fn deferred(
     sink
 }
 
-// v2 terminal-screen-hub-snapshot.test.ts "defers accepted full and delta
-// snapshots until cursor demand", and terminal-screen-frames.test.ts "defers
-// snapshot frame production until a cursor is created".
+// Accepted full and delta snapshots are deferred until cursor demand, and
+// snapshot frame production waits until a cursor is created.
 #[test]
 fn a_source_is_planned_on_demand_and_shared_by_every_seed_of_one_version() {
     let h = harness();
@@ -134,8 +131,7 @@ fn a_source_is_planned_on_demand_and_shared_by_every_seed_of_one_version() {
     assert_eq!(whole_frame(&second), encoded);
 }
 
-// v2 "keeps a leased predecessor cursor immutable after the canonical cache
-// advances".
+// A leased predecessor cursor stays immutable after the canonical cache advances.
 #[test]
 fn a_leased_predecessor_cursor_is_unchanged_after_the_cache_advances() {
     let h = harness();
@@ -170,7 +166,6 @@ fn a_leased_predecessor_cursor_is_unchanged_after_the_cache_advances() {
     );
 }
 
-// v2 "escalates a minted stream whose baseline never arrives".
 #[test]
 fn a_stream_whose_baseline_never_arrives_climbs_the_repair_ladder() {
     let h = harness();
@@ -204,7 +199,6 @@ fn a_stream_whose_baseline_never_arrives_climbs_the_repair_ladder() {
     );
 }
 
-// v2 "asks for nothing when the baseline lands before the deadline".
 #[test]
 fn a_baseline_that_lands_before_the_deadline_asks_for_nothing() {
     let h = harness();
@@ -221,7 +215,6 @@ fn a_baseline_that_lands_before_the_deadline_asks_for_nothing() {
     assert!(h.fresh_streams().is_empty());
 }
 
-// v2 "a re-minted stream deadline replaces the superseded one".
 #[test]
 fn a_reminted_stream_deadline_replaces_the_superseded_one() {
     let h = harness();
@@ -241,7 +234,6 @@ fn a_reminted_stream_deadline_replaces_the_superseded_one() {
     assert_eq!(h.requests(), [request(OTHER_STREAM)]);
 }
 
-// v2 "leaves a chunked baseline mid-transfer to the chunk stall deadline".
 #[test]
 fn a_baseline_mid_transfer_is_left_to_the_chunk_stall_deadline() {
     let h = harness();

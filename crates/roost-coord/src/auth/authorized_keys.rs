@@ -3,26 +3,24 @@
 //! `authorized_keys` file into those tables at boot.
 //!
 //! Owned by the coordinator's auth layer; `serve` calls the import once, after
-//! migrations and before the tenancy invariant. Ports
-//! `apps/coord/src/auth/authorized-keys.ts`. This is the only place a bearer
+//! migrations and before the tenancy invariant. This is the only place a bearer
 //! token meets the database, so it is the only place the `authorized_keys ->
 //! account_devices -> accounts` and `authorized_keys -> workers` joins live.
 //!
-//! **NO v2 DATABASE IS EVER READ FROM HERE.** The keys this module resolves
-//! are the ones this install paired; the coordinator never opens another
-//! product's database, and no auth path has to understand a file belonging to
-//! a product that is being replaced.
+//! **NO OTHER PRODUCT'S DATABASE IS EVER READ FROM HERE.** The keys this module
+//! resolves are the ones this install paired; the coordinator never opens a
+//! database it did not create, so no auth path has to understand a foreign file.
 //!
-//! WHY THE JOINS ARE SEPARATE QUERIES AND NOT ONE. `resolveCallerPrincipal`
-//! left-joins both and then refuses a key that has BOTH
-//! (`apps/coord/src/auth/auth-principal.ts:66`): "A key must never acquire two
-//! kinds of authority." Two queries and a rule in Rust make that refusal
-//! explicit; one combined query makes it a column that is quietly `NULL` for
+//! WHY THE JOINS ARE SEPARATE QUERIES AND NOT ONE. Principal resolution
+//! left-joins both and then refuses a key that has BOTH: "A key must never
+//! acquire two kinds of authority." Two queries and a rule in Rust make that
+//! refusal explicit; one combined query makes it a column that is quietly
+//! `NULL` for
 //! half the rows, and the difference is invisible until a key is somehow both.
 //!
 //! WHY A TOMBSTONED WORKER IS REFUSED RATHER THAN DELETED. `workers` keeps a
 //! `deleted_at_ms` because a deleted worker's sessions are still referenced by
-//! rows that must survive it (`apps/coord/migrations/0025_worker_tombstones.sql`).
+//! rows that must survive it.
 //! A tombstoned worker therefore still has a row, and the row is not authority.
 
 use std::path::Path;
@@ -172,8 +170,8 @@ pub fn fingerprint_of_raw_public_key(public_key: &[u8; 32]) -> String {
 /// Parse one `ssh-ed25519 <blob> [label…]` line; `None` for anything else.
 ///
 /// Blank lines, `#` comments, other key types and undecodable blobs are all
-/// skipped rather than refused, as v2's `parseSshEd25519Line` skips them: one
-/// bad line in an operator's file must not cost every good one after it.
+/// skipped rather than refused: one bad line in an operator's file must not
+/// cost every good one after it.
 #[must_use]
 pub fn parse_ssh_ed25519_line(line: &str) -> Option<ParsedAuthorizedKey> {
     let trimmed = line.trim();
@@ -198,12 +196,12 @@ pub fn parse_ssh_ed25519_line(line: &str) -> Option<ParsedAuthorizedKey> {
 
 /// Upsert every key the file at `file_path` names; returns how many lines did.
 ///
-/// v2's `importAuthorizedKeys`. A revoked fingerprint is skipped, never
-/// resurrected. A re-listed key keeps its row and takes the file's label. When
-/// the database holds exactly one account and it is active, each imported key
+/// A revoked fingerprint is skipped, never resurrected. A re-listed key keeps
+/// its row and takes the file's label. When the database holds exactly one
+/// account and it is active, each imported key
 /// that is not a worker also becomes that account's device -- the one account
 /// a self-hosted install has is the only owner the key can mean. The count is
-/// of imported LINES, so a key listed twice counts twice, as in v2.
+/// of imported LINES, so a key listed twice counts twice.
 pub async fn import_authorized_keys(
     database: &CoordDb,
     file_path: &Path,

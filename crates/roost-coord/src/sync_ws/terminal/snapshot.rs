@@ -2,10 +2,9 @@
 //! full a socket walks one part at a time, and the one call the session makes
 //! back into the hub.
 //!
-//! Owned by the Sync session's terminal half. The hub is a different slice
-//! (`apps/coord/src/terminal/screen` in v2), so the dependency is a trait here
-//! and a parameter at every call site rather than an import into a module this
-//! crate does not own.
+//! Owned by the Sync session's terminal half. The hub is a different slice,
+//! so the dependency is a trait here and a parameter at every call site rather
+//! than an import into a module this crate does not own.
 //!
 //! WHY A TRAIT AND NOT THE HUB'S TYPE. The session must be testable without a
 //! screen replica, a worker, or a real 80x24 grid, and a 256 KiB frame per
@@ -14,11 +13,9 @@
 //! `roost-protocol` and therefore cannot drift from the planner the worker
 //! side uses, and whatever the terminal-view hub's owner writes.
 //!
-//! `release()` from v2 is gone, and that is the point. v2's cursor held a lease
-//! that had to be dropped by hand, and `materialize` after a release threw
-//! (`terminal-screen-frames.ts:37-40`). Here a cursor is an `Arc` and dropping
-//! it releases the source, so a use-after-release is a compile error rather
-//! than a runtime one and there is no flag to keep honest.
+//! THERE IS NO `release()`: a cursor is an `Arc` and dropping it releases the
+//! source, so a use-after-release is a compile error rather than a runtime one
+//! and there is no flag to keep honest.
 
 use std::sync::Arc;
 
@@ -61,13 +58,12 @@ pub trait TerminalSnapshotHub {
     /// RETURN `true` ONLY when a fresh source is now installed for that
     /// socket's session, because `false` is what tells the session the socket
     /// must wait for a snapshot rather than retry forever. A hub with nothing
-    /// resident answers `false`, which is the v2 default
-    /// (`sync-ws-v2-terminal.ts:47-49`).
+    /// resident answers `false`, which is the default.
     fn request_rebaseline(&mut self, socket_id: &str, session_id: &str) -> bool;
 }
 
 /// A hub that never has a source, so a session without a screen replica
-/// rebaselines into a request that goes nowhere. The v2 default, kept as a
+/// rebaselines into a request that goes nowhere. The default, kept as a
 /// value so a caller does not have to write an empty impl.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NoTerminalSnapshotHub;
@@ -88,7 +84,7 @@ pub struct ProtocolCellSnapshot {
 impl ProtocolCellSnapshot {
     /// Plan `frame` into a source, refusing anything that is not a complete
     /// full before a byte of it is shared. A full that fits one part stays one
-    /// frame, as v2's `createCellGridSnapshotSource` default does.
+    /// frame.
     pub fn plan(frame: &roost_proto::PbCellGridFrame) -> Result<Self, CellGridSnapshotPlanError> {
         let source =
             roost_protocol::cell::frame_chunks::create_cell_grid_snapshot_source(frame, false)

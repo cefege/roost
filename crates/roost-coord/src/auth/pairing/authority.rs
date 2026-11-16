@@ -2,8 +2,8 @@
 //! belongs to, whether an account may still act, whether a key is revoked, and
 //! whether a key is already a machine.
 //!
-//! Owned by the pairing slice. Ported from the account, device and revocation
-//! reads in `apps/coord/src/auth/pairing-account.ts:260-347`.
+//! Owned by the pairing slice. The reads here are the account, device and
+//! revocation facts an approval depends on.
 //!
 //! WHY THESE FOUR FACTS ARE RE-READ INSTEAD OF TRUSTED. An approval is a
 //! decision taken up to ten minutes ago about the account, the key and the

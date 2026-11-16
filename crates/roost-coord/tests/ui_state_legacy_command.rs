@@ -5,8 +5,8 @@
 //!
 //! The legacy command path is reachable in v3 and is NOT dropped: `UiCommand`
 //! still carries all nine oneof arms in the wire contract, eight of them are
-//! fire-and-forget, and `UiDispatch` still accepts them. What v2 called "legacy"
-//! is a naming choice about the acknowledged apply, not a retired shape.
+//! fire-and-forget, and `UiDispatch` still accepts them. "Legacy" here is a
+//! naming choice about the acknowledged apply, not a retired shape.
 
 // A test that cannot say what it expected is not a test. `expect` is denied
 // outside `#[cfg(test)]`, and an integration test is its own crate, so the

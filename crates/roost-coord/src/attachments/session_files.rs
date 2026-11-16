@@ -1,9 +1,7 @@
 //! The four session-keyed attachment RPCs: the content-dedup probe, the
 //! listing, the delete, and the chunked upload.
 //!
-//! Ported from v2 `apps/coord/src/attachments/handlers-attachments.ts`
-//! (`attachFileChunk`, `attachmentProbe`, `listAttachments`,
-//! `deleteAttachment`). Called by `rpc_files`; the relay is `attachments::relay`.
+//! Called by `rpc_files`; the relay is `attachments::relay`.
 
 use serde_json::Value;
 
@@ -18,14 +16,12 @@ use roost_protocol::wire::coord_worker::CoordWorkerDownstream;
 
 use connectrpc::{ConnectError, ErrorCode};
 
-/// The v2 deadline for a probe, a listing and a delete: `10_000` ms at v2
-/// `:131`, `:141`.
+/// The deadline for a probe, a listing and a delete: `10_000` ms.
 const DEADLINE_MS: u64 = 10_000;
-/// The final upload chunk's deadline, "5 min covers a multi-GB tailnet upload"
-/// (v2 `:99`).
+/// The final upload chunk's deadline: 5 min covers a multi-GB tailnet upload.
 const UPLOAD_DEADLINE_MS: u64 = 300_000;
 
-/// v2 `:151` truncates the float the worker sends, because the proto field is
+/// The float the worker sends is truncated, because the proto field is
 /// an integer and a fractional mtime would not encode.
 pub fn attachment_entries(reply: &Value) -> Result<Vec<AttachmentEntry>, ConnectError> {
     let mut entries = Vec::new();
@@ -71,7 +67,6 @@ pub fn probe_hit(reply: &Value) -> Result<(bool, String), ConnectError> {
 }
 
 /// The content-dedup probe, so the SPA skips a byte upload it already has.
-/// v2 `:126-140`.
 pub async fn attachment_probe(
     relay: &ScrollbackRelay,
     worker_fp: &WorkerFp,
@@ -99,7 +94,7 @@ pub async fn attachment_probe(
     probe_hit(&reply)
 }
 
-/// What a session's attachment directory already holds. v2 `:142-156`.
+/// What a session's attachment directory already holds.
 pub async fn list_attachments(
     relay: &ScrollbackRelay,
     worker_fp: &WorkerFp,
@@ -123,7 +118,7 @@ pub async fn list_attachments(
     attachment_entries(&reply)
 }
 
-/// v2 `:158-172`.
+/// Delete one attachment from a session's directory.
 pub async fn delete_attachment(
     relay: &ScrollbackRelay,
     worker_fp: &WorkerFp,
@@ -155,25 +150,24 @@ pub async fn delete_attachment(
 ///
 /// Stateless across calls: every chunk resolves the session's worker and is
 /// relayed raw, and the worker assembles by `upload_id` into a temp file. Memory
-/// here is O(chunk), not O(file) — v2 `:85-88`.
+/// here is O(chunk), not O(file).
 ///
-/// **THE PENDING IS REGISTERED BEFORE THE FINAL CHUNK IS SENT.** v2's own words
-/// at `:96-98`: "so the worker's rpc-ok can't race ahead of the pending entry."
-/// Invisible when it is right; it loses the last chunk when it is wrong.
+/// **THE PENDING IS REGISTERED BEFORE THE FINAL CHUNK IS SENT**, so the worker's
+/// rpc-ok can't race ahead of the pending entry. Invisible when it is right; it
+/// loses the last chunk when it is wrong.
 ///
-/// **AND ONLY THE FINAL CHUNK GETS ONE.** v2 registers the pending for `last`
-/// and fires every earlier chunk without one, which is what makes
-/// "non-last chunks are fire-and-forget and answer `{absPath: ""}`" (v2 `:112`)
-/// true rather than aspirational. It is also forced: the correlation is on
+/// **AND ONLY THE FINAL CHUNK GETS ONE.** The pending is registered for `last`
+/// and every earlier chunk is fired without one, which is what makes
+/// "non-last chunks are fire-and-forget and answer `{absPath: ""}`" true rather
+/// than aspirational. It is also forced: the correlation is on
 /// `upload_id`, the worker echoes it, and `PendingRpcs::create` REFUSES a
 /// duplicate with `AlreadyExists` — so one entry per chunk would be a refusal on
-/// chunk two. Rust refuses where v2 silently re-points the completion: the first
-/// caller owns it, and re-pointing would let a replayed request steal another
-/// call's result.
+/// chunk two. The first caller owns the completion, and silently re-pointing it
+/// would let a replayed request steal another call's result.
 ///
 /// The request is taken by value so its bytes move into the downstream frame
 /// instead of being copied; `upload_id` and `session_id` were checked by the
-/// handler before the session's worker was resolved, as v2 `:116-118` orders it.
+/// handler before the session's worker was resolved.
 pub async fn attach_file_chunk(
     relay: &ScrollbackRelay,
     worker_fp: &WorkerFp,
@@ -213,7 +207,7 @@ pub async fn attach_file_chunk(
         }),
     );
     if let SendOutcome::Refused(refusal) = outcome {
-        // `Unavailable`, not `Internal` — v2 `:138` throws the same. An upload
+        // `Unavailable`, not `Internal`. An upload
         // interrupted mid-flight is retryable, so it is neither the caller's
         // fault nor a statement failure.
         tracing::info!(%worker_fp, %upload_id, %refusal, "attachments: an upload chunk was not sent");

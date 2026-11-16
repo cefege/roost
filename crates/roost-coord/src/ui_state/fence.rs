@@ -2,9 +2,9 @@
 //! caller text, a persisted row for every session it names, and the operator
 //! label of each reporting key.
 //!
-//! None of the four `ui_state` methods is fenced to the caller's tab: v2's
-//! `handlers-ui.ts` calls only `requireAccountDevice`, and the tab a method acts
-//! on is the one the request BODY names. A request naming a session with no
+//! None of the four `ui_state` methods is fenced to the caller's tab: each
+//! requires only the account device, and the tab a method acts on is the one
+//! the request BODY names. A request naming a session with no
 //! `sessions` row would put a command on the bus for a pane the fleet has never
 //! heard of, so that half is refused here.
 

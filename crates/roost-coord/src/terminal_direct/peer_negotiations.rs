@@ -2,8 +2,7 @@
 //! state, and one negotiation run from authorization to an offer on an exact
 //! worker generation and back; `peer_settle` is how the offer ends. Session
 //! authority stays with the grant owner; SDP is never retained or logged.
-//! Built once on `terminal_direct::TerminalDirectRuntime`. Ports
-//! `apps/coord/src/terminal/direct/terminal-peer-negotiations.ts`.
+//! Built once on `terminal_direct::TerminalDirectRuntime`.
 
 use std::num::NonZeroU64;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
@@ -140,10 +139,9 @@ impl TerminalPeerNegotiations {
         &self.settings
     }
 
-    /// Admit a negotiation NOW (v2 runs `negotiate` synchronously up to its
-    /// first await), then run it to the worker's answer on its own task, so a
-    /// dropped caller still keeps its admission charged until authorization
-    /// exits. `abort` is the browser's cancellation.
+    /// Admit a negotiation NOW, then run it to the worker's answer on its own
+    /// task, so a dropped caller still keeps its admission charged until
+    /// authorization exits. `abort` is the browser's cancellation.
     pub fn negotiate(
         &self,
         caller: TerminalPeerCaller,

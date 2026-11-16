@@ -18,8 +18,7 @@ use roost_proto::buffa::Message as _;
 /// buffa encodes a message's fields in DECLARATION order, and
 /// `SyncClientFrame` declares its `command` oneof before `socket_id = 10`
 /// while `input_route_claim = 11` and `terminal_transport_probe = 12` number
-/// after it. Every real client -- the browser, and v2's own
-/// `sync-ws-client-ingress.ts:41-45` -- encodes with protobuf-es, which writes
+/// after it. Every real client -- the browser -- encodes with protobuf-es, which writes
 /// ascending field number, and the coordinator refuses any frame that is not
 /// the canonical encoding of what it decoded to (see
 /// `tests/sync_client_frame_canonical.rs`, whose fixture is a route claim

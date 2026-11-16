@@ -1,10 +1,9 @@
 //! Which live browser generation a layout apply may reach, and what a
 //! generation that has died is answered instead of being left on the bus.
 //!
-//! These are the coordinator's half of `smoke/terminal/ui-layout-apply.spec.ts`
-//! ("acknowledged layout apply targets one live browser generation"). The spec
-//! proves the same answers against two real browser tabs; this file pins them
-//! where a regression would be a one-line change away. The generation an apply
+//! This pins the answers for "acknowledged layout apply targets one live
+//! browser generation" where a regression would be a one-line change away. The
+//! generation an apply
 //! reaches is the TARGET's live socket reservation; the caller carries no tab.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]

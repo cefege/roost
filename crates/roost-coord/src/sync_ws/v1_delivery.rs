@@ -3,11 +3,8 @@
 //! `flow=1`, and checked against the same cumulative-ACK window v2 uses.
 //!
 //! Owned by `sync_ws::driver` (the `Delivery::V1` arm); `sync_ws::ingress`
-//! applies a v1 client's acknowledgements here. Ports the LIVE half of
-//! `apps/coord/src/sync/sync-ws-v1-delivery.ts` (`sendGuarded`,
-//! `applyCumulativeAck`, `closeForInvalidAck`), its seed pacing
-//! (`pushPacedSeed`, whose queue is `sync_ws::v1_seed`), and the v1 branch of
-//! `sync-ws-client-ingress.ts`.
+//! applies a v1 client's acknowledgements here; the paced seed's queue is
+//! `sync_ws::v1_seed`.
 //!
 //! WHY UNQUEUED. v1 has no domains, no generations and no flush turn: the
 //! client (the CLI's headless sync among them) folds frames in arrival order,
@@ -52,8 +49,7 @@ impl V1Delivery {
     }
 
     /// A `flow=1` socket whose `retained` seed is paced by acknowledgements
-    /// before any live frame is sent, and the signal fired when it is done
-    /// (`sync-feed.ts:76-84`).
+    /// before any live frame is sent, and the signal fired when it is done.
     #[must_use]
     pub fn with_paced_seed(retained: Vec<FirehoseFrame>) -> (Self, oneshot::Receiver<()>) {
         let (seed, seeded) = V1PacedSeed::new(retained);
@@ -138,9 +134,9 @@ impl V1Delivery {
     ///
     /// The sequence is stamped BEFORE the frame is measured, because the
     /// window is charged the bytes the wire carries and the varint is part of
-    /// them. A frame that cannot be encoded is logged and not sent, as v2's
-    /// `encode_failed` path: nothing reached the socket, so the window is not
-    /// charged and a live frame closes nothing.
+    /// them. A frame that cannot be encoded is logged and not sent: nothing
+    /// reached the socket, so the window is not charged and a live frame closes
+    /// nothing.
     pub fn send_guarded(
         &mut self,
         mut frame: FirehoseFrame,
@@ -176,7 +172,7 @@ impl V1Delivery {
     /// `Err` is a protocol violation and closes `1008`: a v1 frame carrying a
     /// command or a socket id is a v2 frame on a socket that never negotiated
     /// v2, and an ACK above the last sent sequence acknowledges something that
-    /// was never sent (`sync-ws-client-ingress.ts:54-66`).
+    /// was never sent.
     pub fn accept_ack(
         &mut self,
         frame: &SyncClientFrame,

@@ -1,5 +1,5 @@
-//! The per-domain method tables behind `METHOD_ROUTES`, split by v2's own
-//! `apps/coord/src/<domain>/` folders so each table reads on its own.
+//! The per-domain method tables behind `METHOD_ROUTES`, one per domain so each
+//! table reads on its own.
 //!
 //! The tables are concatenated in the proto's declaration order, which is what
 //! `tests/method_route_coverage.rs` asserts -- so the split costs navigability
@@ -39,26 +39,21 @@ pub const ROWS_WORKERS: &[MethodRoute] = &[
 
 /// keeper-update preparation, the host-local change that replaces the binary every live PTY depends on.
 ///
-/// `Device`, and NOT `DeviceOnHost`, which is what this row claimed until the
-/// C1 integration read the handler rather than the plan. This is the one method
-/// in the table where the convenient value and the enforced one differ in
-/// *permission*, so it is worth the paragraph:
+/// `Device`, and NOT `DeviceOnHost`, which this row once claimed. This is the
+/// one method in the table where the convenient value and the enforced one
+/// differ in *permission*, so it is worth the paragraph:
 ///
 /// - the auth gate treats `Device` and `DeviceOnHost` identically
 ///   (`service.rs::principal_satisfies` answers `is_browser` for both), so the
 ///   "on host" half was never enforced at the gate;
 /// - `deploy::keeper_update::handle_workers_prepare_keeper_update` calls
 ///   `require_account_device` and re-authorizes inside the drain, and never
-///   reads `caller.on_host` (`keeper_update.rs:158`);
-/// - v2's handler does the same — `handlers-workers-update.ts:83` is
-///   `requireAccountDevice(ctx.values)` with no `assertOnHost`, unlike the four
-///   pairing and device methods that do call it.
+///   reads `caller.on_host` (`keeper_update.rs:158`).
 ///
-/// So `DeviceOnHost` was a claim no code in either tree provided, on the one
-/// method that can replace the binary under every live PTY. The truthful value
-/// is `Device`, and it matches v2. Recorded rather than quietly corrected
-/// because a narrowing here would be a parity regression and a widening would
-/// be a new one, and neither is mine to decide at an integration gate.
+/// So `DeviceOnHost` was a claim no code provided, on the one method that can
+/// replace the binary under every live PTY. The truthful value is `Device`:
+/// widening it to `DeviceOnHost` would claim a restriction nothing enforces,
+/// and enforcing one would be a new gate rule rather than a table edit.
 #[rustfmt::skip]
 pub const ROWS_DEPLOY: &[MethodRoute] = &[route(
     "WorkersPrepareKeeperUpdate",
@@ -131,9 +126,8 @@ pub const ROWS_CLIENT_STATE: &[MethodRoute] = &[
 
 /// auth, pairing and device lifecycle.
 ///
-/// TWO OF THESE ROWS LOOK LIKE MISTAKES AND ARE NOT. Both were audited at the
-/// C1 integration against the handler rather than against what reads well, and
-/// the audit changed one value and confirmed the other four:
+/// TWO OF THESE ROWS LOOK LIKE MISTAKES AND ARE NOT. Both were audited against
+/// the handler rather than against what reads well:
 ///
 /// - **`PairList`, `PairApprove`, `PairDeny` and `PairApprovalStatus` keep
 ///   `DeviceOrOwnWorkerRecovery`, which reads as if a machine could approve a
@@ -144,9 +138,9 @@ pub const ROWS_CLIENT_STATE: &[MethodRoute] = &[
 ///   refused, and the same worker on the host is admitted. That file is the
 ///   defence of this column; do not narrow it without a replacement for it.
 /// - **`DevicesRevoke` is `Device`, and the handler's on-host arm is therefore
-///   unreachable.** v2 lets an operator with no credential at all run it
-///   (`handlers-devices.ts:71-72` — `if (!caller) assertOnHost(...)`), and the
-///   port keeps that rule at `auth/rpc_devices.rs:143` so the handler is right
+///   unreachable.** An operator with no credential at all may run it from the
+///   host (on-host as an uncredentialed fallback), and the handler keeps that
+///   rule at `auth/rpc_devices.rs:143` so the handler is right
 ///   the moment the gate widens. Recorded here because this table is where an
 ///   auditor looks, and "the row says Device while the handler says Device OR
 ///   on-host" is exactly the kind of mismatch that reads as a lie in one
@@ -180,9 +174,8 @@ pub const ROWS_RPC: &[MethodRoute] = &[
     // stopped being a stub and this row is the only place that says what it
     // costs:
     //
-    // - v2 asserts locality in the HANDLER, unguarded
-    //   (`handlers-system.ts:114-115`): `requireAccountDevice` AND
-    //   `assertOnHost`, so a remote browser is refused the URL itself.
+    // - the requirement recorded is a credentialed device AND on-host: a
+    //   remote browser is meant to be refused the URL itself.
     // - `service::principal_satisfies` answers `is_browser` for this
     //   variant and for `Device` alike, so the auth GATE still does not
     //   enforce locality, and a remote browser is still handed the path.
@@ -195,7 +188,7 @@ pub const ROWS_RPC: &[MethodRoute] = &[
     // So what a remote browser can learn from this row is a path string, and
     // what the gate does not do is hide that string. Narrowing the row to
     // `Device` would make the table agree with the gate by recording LESS
-    // than v2 requires — an under-claiming row is the same defect as an
+    // than the method requires — an under-claiming row is the same defect as an
     // over-claiming one, and the fix is a gate change, not a table change.
     // `no_row_claims_a_locality_the_auth_gate_does_not_enforce` is the test
     // that holds both halves of this sentence.
@@ -212,10 +205,10 @@ pub const ROWS_RPC: &[MethodRoute] = &[
 
 /// ui-cc typed state and layout application.
 ///
-/// ALL FOUR TAKE THE DEVICE PRINCIPAL ONLY. v2 fences none of them:
-/// `apps/coord/src/ui-state/handlers-ui.ts:91,148,173,214` call only
-/// `requireAccountDevice`, and the tab a method acts on is the request body's
-/// `tabId`/`targetTabId`, never the caller's own tab header. The apply's
+/// ALL FOUR TAKE THE DEVICE PRINCIPAL ONLY. None is fenced to the caller's tab:
+/// each calls only `require_account_device`, and the tab a method acts on is
+/// the request body's `tabId`/`targetTabId`, never the caller's own tab
+/// header. The apply's
 /// socket-generation fence is the live reservation it takes on the TARGET tab,
 /// not a requirement on the caller.
 #[rustfmt::skip]

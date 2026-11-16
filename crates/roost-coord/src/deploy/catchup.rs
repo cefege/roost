@@ -2,9 +2,8 @@
 //! behind the coordinator's own SHA attaches, the coordinator starts the same
 //! POSIX `roost deploy <host>` job the Settings button drives, so a laptop that
 //! slept through `roost push` catches up by itself instead of staying behind.
-//! Called by the worker lifecycle's `on_ready` (v2 `main.ts` onWorkerConnected);
-//! depends on `deploy::{jobs,start,output_stream,catchup_decision}`. Ports
-//! apps/coord/src/deploy/worker-catchup-deploy.ts.
+//! Called by the worker lifecycle's `on_ready`; depends on
+//! `deploy::{jobs,start,output_stream,catchup_decision}`.
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Mutex, MutexGuard, PoisonError};

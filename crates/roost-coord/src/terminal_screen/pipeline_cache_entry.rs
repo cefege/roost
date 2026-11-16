@@ -1,7 +1,6 @@
 //! One worker generation's slice of the terminal-pipeline cache: its live
 //! samples, cached error, waiting collections, and the projection that answers
-//! a collection from cache alone. Split from `pipeline_cache` (which ports
-//! `apps/coord/src/terminal/screen/worker-terminal-pipeline-cache.ts`) at the
+//! a collection from cache alone. Split from `pipeline_cache` at the
 //! entry boundary; only `pipeline_cache` reads it.
 
 use std::collections::{HashMap, HashSet};

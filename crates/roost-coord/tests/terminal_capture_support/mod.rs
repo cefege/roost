@@ -3,8 +3,7 @@
 //! acknowledgements over the real pending-RPC table, and the migrated
 //! single-tenant database the bridge resolves its session scope from.
 //!
-//! Ports `apps/coord/tests/terminal/capture/terminal-capture-harness.ts` and
-//! `terminal-capture-evidence.ts`. Shared by `terminal_capture_lease.rs`,
+//! Shared by `terminal_capture_lease.rs`,
 //! `terminal_capture_admission.rs` and `terminal_capture_recorder.rs`.
 #![allow(dead_code, clippy::unwrap_used, clippy::expect_used)]
 

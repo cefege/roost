@@ -62,8 +62,7 @@ async fn archive_count(database_path: &Path) -> usize {
     list_archives(&backups_dir(database_path)).await.len()
 }
 
-/// Ports `apps/coord/src/main.ts:60-65` (the hook is passed only when
-/// `existsSync(cfg.dbPath)`): a file the connect itself created is not backed up.
+/// A file the connect itself created is not backed up.
 #[tokio::test]
 async fn a_fresh_database_is_migrated_without_a_backup() {
     let scratch = Scratch::new("fresh");
@@ -75,9 +74,9 @@ async fn a_fresh_database_is_migrated_without_a_backup() {
     assert_eq!(archive_count(&scratch.database_path()).await, 0);
 }
 
-/// Ports `apps/coord/tests/db/backup.test.ts` "migration callback receives all
-/// pending names exactly once before applying" and `migrate.ts:319`: the hook
-/// runs only when something is pending, so a restart spends no archive.
+/// The migration callback receives all pending names exactly once before
+/// applying, and runs only when something is pending, so a restart spends no
+/// archive.
 #[tokio::test]
 async fn reopening_a_migrated_database_takes_no_backup() {
     let scratch = Scratch::new("reopen");
@@ -96,9 +95,7 @@ async fn reopening_a_migrated_database_takes_no_backup() {
     );
 }
 
-/// Ports `apps/coord/tests/db/backup.test.ts` "scheduled and pre-migration
-/// archives are consistent during WAL activity" (the pre-migration half): an
-/// existing file with a pending migration is archived before it is migrated,
+/// An existing file with a pending migration is archived before it is migrated,
 /// and the archive holds the rows the file had before the migration.
 #[tokio::test]
 async fn an_existing_file_with_a_pending_migration_is_backed_up_first() {
@@ -145,10 +142,8 @@ async fn an_existing_file_with_a_pending_migration_is_backed_up_first() {
     restored_pool.close().await;
 }
 
-/// Ports `apps/coord/tests/workers/worker-tombstone-migration.test.ts`
-/// ("0025 foreign key check failed") and `migration-validation.ts`
-/// `validateForeignKeys`: an orphan row refuses the open and the refusal names
-/// the violating table and its parent.
+/// An orphan row (foreign key check failed in migration 0025) refuses the open
+/// and the refusal names the violating table and its parent.
 #[tokio::test]
 async fn a_database_with_a_foreign_key_violation_refuses_to_open() {
     let scratch = Scratch::new("fk-violation");

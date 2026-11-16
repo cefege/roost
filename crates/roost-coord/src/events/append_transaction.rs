@@ -1,11 +1,11 @@
 //! The transaction body of the append path, and nothing that happens after it.
 //!
-//! Ported from `apps/coord/src/events/event-transaction.ts:76-283`. This module
+//! This module
 //! cannot publish: the publisher is private to `append_publication` and takes
 //! committed state the caller does not hold until `commit()` has resolved. That
 //! is the whole point of the split -- `docs/phase3-coord-contract.md` §3.2
-//! records that v2 enforces "publish strictly after commit" structurally, and a
-//! port that put the bus call in this file would have the same shape and none of
+//! records that "publish strictly after commit" is enforced structurally, and
+//! code that put the bus call in this file would have the same shape and none of
 //! the guarantee.
 //!
 //! The order inside is the contract and is not rearranged:
@@ -59,7 +59,7 @@ impl CommittedState {
     ///
     /// A dedupe hit and a fold that produced no row leave this `None`, and neither
     /// may reach the channel index or the bus. The decision is taken here, inside
-    /// the transaction, rather than after it (`event-transaction.ts:113-117`).
+    /// the transaction, rather than after it.
     pub(crate) fn publication_effect(
         &self,
         authenticated_worker_fp: Option<WorkerFp>,
@@ -183,7 +183,7 @@ async fn insert_event(
 ///
 /// Deliberately harsher than admission: the workspace does not exist, so a retry
 /// cannot help and a silent refusal would leave the session's junction pointing at
-/// nothing (`event-transaction.ts:123-131`).
+/// nothing.
 async fn require_workspace(
     connection: &mut AnyConnection,
     event: &SessionEvent,
@@ -210,7 +210,7 @@ async fn require_workspace(
 /// A `closed` is a tombstone, not a status: a returning worker that re-announces a
 /// force-closed session in its snapshot must not resurrect it. The filter runs
 /// before the event is serialized, so the log, the projection, the route index and
-/// the Sync publication all see the same set (`event-transaction.ts:132-152`).
+/// the Sync publication all see the same set.
 async fn force_closed_ids(
     connection: &mut AnyConnection,
     event: &SessionEvent,

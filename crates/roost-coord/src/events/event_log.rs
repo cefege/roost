@@ -1,10 +1,9 @@
 //! The stable event-log surface every other coordinator module imports.
 //!
-//! Ported from `apps/coord/src/events/event-log.ts`, which is sixteen lines of
-//! re-exports and exists so that session handlers, worker connections and Sync
-//! feeds all reach the event store through one import. Here the four operations
-//! are four methods on one injected value instead, which is the same stability with
-//! one fewer way to reach the database by mistake.
+//! Session handlers, worker connections and Sync
+//! feeds all reach the event store through this one value. The four operations
+//! are four methods on one injected value, which gives one
+//! fewer way to reach the database by mistake.
 //!
 //! WHAT IS BEHIND IT. [`EventLog::append_event`] is the only durable write in the
 //! coordinator; the three readers are the recovery windows in
@@ -12,8 +11,8 @@
 //! else reads one for anything but recovery.
 //!
 //! WHY IT IS INJECTED. Every process singleton in this crate is a field on the
-//! services struct (`services.rs`), built once at boot, because v2 makes each of
-//! them a `const` local in `main.ts` and passes it down as a dependency. This type
+//! services struct (`services.rs`), built once at boot and passed down as a
+//! dependency. This type
 //! is the bundle of the four of them an event needs: the database, the buses, the
 //! bounded publication store, and the live effects the terminal and worker domains
 //! own. A test builds its own over a temporary database, which is why the

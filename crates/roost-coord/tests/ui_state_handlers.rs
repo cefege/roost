@@ -1,12 +1,12 @@
 //! The report, list and dispatch methods over a real migrated database: who
 //! they admit, the persisted-session fence, and the bus messages each publishes.
 //!
-//! None of them is fenced to the caller's own tab. v2 calls only
-//! `requireAccountDevice` on all four (`apps/coord/src/ui-state/handlers-ui.ts`),
-//! and the headless callers -- `roost ui`, the smoke oracle -- carry no tab. A
+//! None of them is fenced to the caller's own tab. All four require only an
+//! account device, and the headless callers -- `roost ui`, the smoke oracle --
+//! carry no tab. A
 //! request naming a session with no `sessions` row would put a command on the
 //! bus for a pane the fleet has never heard of, so that refusal is asserted per
-//! method, because "all four" is exactly the property a per-method port drops.
+//! method, because "all four" is exactly the property a per-method implementation drops.
 
 // A test that cannot say what it expected is not a test. `expect` is denied
 // outside `#[cfg(test)]`, and an integration test is its own crate, so the

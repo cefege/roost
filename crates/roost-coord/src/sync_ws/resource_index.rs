@@ -3,9 +3,7 @@
 //! and kept current by the live feed for the socket's lifetime.
 //!
 //! Owned by `sync_ws::socket`, which loads it, and mutated only by
-//! `sync_ws::live_feed` under the socket's link lock. Ports
-//! `loadSyncResourceIndex` and `SyncResourceIndex` from
-//! `apps/coord/src/sync/sync-feed-seed.ts`; the retained seeds in that file are
+//! `sync_ws::live_feed` under the socket's link lock. The retained seeds are
 //! not here.
 //!
 //! A BROWSER SEES THE INSTALL, A WORKER SEES ITSELF. `owner_worker_fp` is `None`

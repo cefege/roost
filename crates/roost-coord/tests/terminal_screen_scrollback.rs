@@ -83,9 +83,8 @@ fn served_rows_must_be_one_ascending_contiguous_run_from_the_served_start() {
     ));
 }
 
-// The browser pages history 250 rows at a time (smoke "streaming sequence
-// repair leaves an off-bottom reader fixed"); v2 relays the worker's page whole
-// (`handlers-sessions-scrollback.ts:216-226`), so a full page is served whole.
+// The browser pages history 250 rows at a time; the worker's page is relayed
+// whole, so a full page is served whole.
 #[test]
 fn a_full_browser_page_of_history_is_served_whole() {
     let window = ScrollbackWindow::for_request(1_397, 250, "scrollback cells end_row").unwrap();

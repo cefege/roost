@@ -1,8 +1,7 @@
 //! The worker registry's two frames: registration, heartbeat and removal on
 //! one stream, and the live routable set on the other.
 //!
-//! Ported from `apps/coord/src/sync/sync-feed-frames.ts:245-291` and
-//! `sync-feed.ts:265-271`. They are a file of their own because they are the
+//! They are a file of their own because they are the
 //! only frames whose payload is a STORED machine record: a worker row read here
 //! and the same row read by `workers::projection` must not disagree, or a
 //! browser's fleet view contradicts itself one heartbeat later.
@@ -85,7 +84,7 @@ pub fn worker_live_metrics_frame(frame: &WorkerLiveMetricsFrame) -> Result<FeedF
 
 /// The live routable set, narrowed to the machines this socket may see.
 ///
-/// The narrowing is v2's (`sync-feed.ts:268`): a worker-owned socket is shown
+/// The narrowing: a worker-owned socket is shown
 /// its own reachability and nothing else, and the set is published in FULL on
 /// every connect and disconnect precisely so a browser replaces its set
 /// wholesale. The empty `snapshot_id` marks that live full-set replacement, as
@@ -108,13 +107,12 @@ pub fn worker_routable_frame(
     })
 }
 
-/// How many fingerprints one retained routable chunk carries
-/// (`sync-feed-seed.ts:134`).
+/// How many fingerprints one retained routable chunk carries.
 pub const ROUTABLE_SEED_CHUNK_FPS: usize = 256;
 
 /// The retained routable set as the chunks a `domain_ready` seed replays: one
 /// `snapshot_id` across them, and at least one chunk even for an empty set so
-/// the client still learns the snapshot is complete (`sync-feed-seed.ts:131-149`).
+/// the client still learns the snapshot is complete.
 pub fn worker_routable_seed_frames(fps: &[WorkerFp], snapshot_id: &str) -> Vec<FeedFrame> {
     let chunks: Vec<&[WorkerFp]> = if fps.is_empty() {
         vec![&[]]

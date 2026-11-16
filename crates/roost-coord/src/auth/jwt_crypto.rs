@@ -1,26 +1,24 @@
-//! The Ed25519 signature check, and the SPKI framing v2 hand-rolls.
+//! The Ed25519 signature check, and the SPKI framing browsers and workers use.
 //!
 //! Owned by the coordinator's auth layer; `jwt_claims` owns a token's shape and
 //! `jwt_verify` owns the time and revocation bounds. Splitting them is what lets
 //! a test prove the primitive against a token an **independent** implementation
 //! signed -- see `tests/jwt_parity.rs` and
-//! `tests/fixtures/v2_jwt_vectors.json`, which are minted by v2's own
-//! `apps/worker/src/host/jwt.ts` under Bun.
+//! `tests/fixtures/v2_jwt_vectors.json`, which are minted by an independent
+//! WebCrypto signer.
 //!
 //! WHY THE SPKI PREFIX IS HAND-WRITTEN RATHER THAN DERIVED. A raw 32-byte
-//! Ed25519 public key is not a DER document. v2 prepends twelve fixed bytes to
-//! reach a minimal `SubjectPublicKeyInfo` (`apps/coord/src/auth/jwt.ts:15-17`),
-//! and that is the shape the browser's WebCrypto and the worker's
-//! `crypto.subtle` accept. `ed25519-dalek` takes the raw 32 bytes directly, so
-//! the verifier does not need the prefix -- it is kept as a documented constant
-//! and asserted byte-for-byte in a test, because a port that "cleaned it up"
-//! and then fed a raw key to a DER parser elsewhere would fail pairing with no
-//! obvious cause.
+//! Ed25519 public key is not a DER document. Twelve fixed bytes prepended to
+//! it reach a minimal `SubjectPublicKeyInfo`, and that is the shape the
+//! browser's WebCrypto and the worker's `crypto.subtle` accept.
+//! `ed25519-dalek` takes the raw 32 bytes directly, so the verifier does not
+//! need the prefix -- it is kept as a documented constant and asserted
+//! byte-for-byte in a test, because a "cleanup" that then fed a raw key to a
+//! DER parser elsewhere would fail pairing with no obvious cause.
 //!
-//! WHY `ed25519-dalek` IS THE ONLY CRYPTO DEPENDENCY ADDED. v2's coordinator
-//! verifies with Bun's `crypto.subtle` built-in and therefore imports no
-//! third-party package at all; Rust has no such built-in, so parity REQUIRES an
-//! implementation. Everything else the token needs is already owned exactly
+//! WHY `ed25519-dalek` IS THE ONLY CRYPTO DEPENDENCY ADDED. Rust has no
+//! built-in Ed25519 verifier, so the check REQUIRES an implementation.
+//! Everything else the token needs is already owned exactly
 //! once elsewhere: the SHA-256 digest is `sha2`, the hex rendering is
 //! `roost_protocol::fingerprint::fingerprint_hex`, and the base64url codec is
 //! `roost_host::jwt_base`.
@@ -32,14 +30,13 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 
 use super::jwt_claims::JwtParts;
 
-/// The 12-byte `SubjectPublicKeyInfo` prefix v2 prepends to a raw Ed25519
+/// The 12-byte `SubjectPublicKeyInfo` prefix for a raw Ed25519
 /// public key: `SEQUENCE(0x2a) { SEQUENCE(5) { OID(3) 2b 65 70 } BIT STRING
 /// (0x21) 0 unused-bits + 32 key bytes }`.
 ///
-/// Byte-for-byte from `apps/coord/src/auth/jwt.ts:15-17`. The signing side uses
-/// the sibling 16-byte PKCS#8 prefix for the private seed
-/// (`apps/worker/src/host/jwt.ts:14-17`); both are literals in wire terms, and
-/// neither is derivable without a DER encoder.
+/// The signing side uses
+/// the sibling 16-byte PKCS#8 prefix for the private seed; both are literals
+/// in wire terms, and neither is derivable without a DER encoder.
 pub const SPKI_ED25519_PREFIX: [u8; 12] = [
     0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
 ];
@@ -58,7 +55,7 @@ pub const PUBLIC_KEY_BYTES: usize = 32;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum SignatureFailure {
     /// The stored public key was not 32 bytes. A database fault, not a peer
-    /// fault -- `apps/coord/src/auth/jwt.ts:114` answers
+    /// fault -- the answer is
     /// `stored pubkey wrong length`.
     #[error("stored pubkey wrong length")]
     StoredKeyLength,
@@ -66,7 +63,7 @@ pub enum SignatureFailure {
     #[error("bad signature encoding")]
     SignatureEncoding,
     /// The signature is well-formed and does not verify: the signature, the
-    /// signed bytes, or the key are not the three v2 would have used.
+    /// signed bytes, or the key are not the three the signer used.
     #[error("signature invalid")]
     Invalid,
 }
@@ -96,9 +93,9 @@ impl PublicKey {
     }
 }
 
-/// The minimal `SubjectPublicKeyInfo` document v2 feeds to WebCrypto.
+/// The minimal `SubjectPublicKeyInfo` document WebCrypto accepts.
 ///
-/// Kept so a test can assert this crate frames a key exactly as v2 does; the
+/// Kept so a test can assert this crate frames a key as WebCrypto expects; the
 /// verifier itself does not use it.
 #[must_use]
 pub fn spki_document(key: &PublicKey) -> [u8; SPKI_ED25519_PREFIX.len() + PUBLIC_KEY_BYTES] {

@@ -1,7 +1,6 @@
 //! Attachment-peer signaling against an in-memory grant port: separate grant
 //! ownership, exact worker-generation correlation, the fixed worker failure
 //! vocabulary, and cancellation at the answer deadline.
-//! Ports `apps/coord/tests/attachments/attachment-peer-negotiations.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod attachments_direct_support;
@@ -86,7 +85,6 @@ fn code_of(result: Result<SessionsNegotiateAttachmentPeerResponse, ConnectError>
     result.expect_err("the negotiation is refused").code
 }
 
-// v2 "requires the exact separate grant, device, tab, worker epoch, and handle".
 #[tokio::test]
 async fn admission_requires_the_exact_grant_device_tab_epoch_and_handle() {
     let fixture = PeerFixture::new();
@@ -132,7 +130,6 @@ async fn admission_requires_the_exact_grant_device_tab_epoch_and_handle() {
     );
 }
 
-// v2 "sends and accepts only the exact current handle, epoch, peer, and request correlation".
 #[tokio::test]
 async fn only_the_exact_generation_epoch_peer_and_request_settle_an_offer() {
     let fixture = PeerFixture::new();
@@ -173,7 +170,6 @@ async fn only_the_exact_generation_epoch_peer_and_request_settle_an_offer() {
     );
 }
 
-// v2 "does not let a stale replacement answer or cancellation settle another negotiation".
 #[tokio::test]
 async fn a_replaced_generation_neither_answers_nor_cancels_its_successors_offer() {
     let fixture = PeerFixture::new();
@@ -211,7 +207,6 @@ async fn a_replaced_generation_neither_answers_nor_cancels_its_successors_offer(
     );
 }
 
-// v2 "sends a cancel at timeout and maps only fixed worker errors".
 #[tokio::test(start_paused = true)]
 async fn the_deadline_cancels_on_the_worker_and_only_fixed_reasons_map() {
     let fixture = PeerFixture::new();
@@ -256,7 +251,7 @@ async fn the_deadline_cancels_on_the_worker_and_only_fixed_reasons_map() {
     }
 }
 
-// v2 `claimAdmission`: one negotiation per document and worker; a second offer
+// Admission: one negotiation per document and worker; a second offer
 // is `AlreadyExists`, and reusing the in-flight peer id with a different offer
 // is `InvalidArgument`. Neither reaches the worker.
 #[tokio::test]

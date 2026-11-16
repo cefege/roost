@@ -4,8 +4,7 @@
 //! Held once on `FeedRuntime` (`services.feed.open_sockets()`); a socket
 //! registers in `sync_ws::socket_open::open_socket` and leaves in
 //! `release_socket`. The revocation hooks are `auth::key_revocation` and the
-//! worker delete in `workers::rpc`. Ports `sockets`, `closeForFingerprint` and
-//! `removeWorkerFromResourceIndexes` of `apps/coord/src/sync/sync-ws-handler.ts`.
+//! worker delete in `workers::rpc`.
 //!
 //! WEAK, SO THE REGISTRY NEVER KEEPS A SOCKET ALIVE. The socket task owns its
 //! link; an entry here is only a way to reach it while it lives, and a link
@@ -46,8 +45,7 @@ impl OpenSyncSockets {
         self.lock().links.remove(&handle);
     }
 
-    /// Close every open socket `fingerprint` holds with `4001 revoked`
-    /// (`sync-ws-handler.ts:354-361`).
+    /// Close every open socket `fingerprint` holds with `4001 revoked`.
     pub fn close_for_fingerprint(&self, fingerprint: &str) {
         let links = self.links_for(|owner| owner == fingerprint);
         for link in &links {
@@ -66,7 +64,7 @@ impl OpenSyncSockets {
     }
 
     /// Drop a deleted worker from every open socket's resource index before
-    /// its removal is published (`sync-ws-handler.ts:349-353`).
+    /// its removal is published.
     pub fn remove_worker_from_resource_indexes(&self, worker_fp: &str) {
         for link in self.links_for(|_| true) {
             link.lock()

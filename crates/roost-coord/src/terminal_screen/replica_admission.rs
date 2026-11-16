@@ -1,9 +1,7 @@
 //! Baseline and delta admission for a session's screen replica, and the
 //! fan-out each admission owes the sockets watching it.
 //!
-//! Split out of `replica` (the port of
-//! `apps/coord/src/terminal/screen/terminal-screen-hub.ts`, `acceptFull`,
-//! `acceptDelta`, `installCache`) for the size cap. Every refusal here fails
+//! Split out of `replica` for the size cap. Every refusal here fails
 //! closed and asks for a repair; a wrong grid is never served.
 
 use std::sync::Arc;
@@ -252,7 +250,7 @@ impl ScreenHub {
     }
 
     /// The capture hook after an accepted full or folded delta, with the
-    /// canonical just installed (`terminal-screen-hub.ts:323,373`).
+    /// canonical just installed.
     fn record_capture(
         &self,
         session_id: &SessionId,
@@ -314,7 +312,7 @@ impl ScreenHub {
 }
 
 /// Resident spans are counted over the viewport only, even for an older
-/// worker's history-bearing frame (`countTerminalScreenCacheSpans`). Saturating
+/// worker's history-bearing frame. Saturating
 /// rather than `as u64`: a wrapped count would pass the ceiling.
 fn viewport_spans(frame: &CellGridFrame) -> u64 {
     frame

@@ -3,10 +3,8 @@
 //! requests escalate to a fresh stream, and a landed full or a new stream
 //! leaves every older deadline with nothing to do.
 //!
-//! Ports the "bounded chunk assembly" cases of
-//! `apps/coord/tests/terminal/screen/terminal-screen-hub-chunks.test.ts`; its
-//! delta-hold cases are `terminal_screen_hub_hold.rs`. A deadline is never
-//! cancelled here, so v2's "the timer was cleared" is asserted as "firing it
+//! The delta-hold cases are `terminal_screen_hub_hold.rs`. A deadline is never
+//! cancelled here, so "the timer was cleared" is asserted as "firing it
 //! does nothing".
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -25,7 +23,6 @@ use terminal_screen_hub_support::{
 
 const FIRST_BYTE: u64 = TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS;
 
-// v2 "latches out-of-order, missing-row, and chunk-count failures once".
 #[test]
 fn a_malformed_chunk_run_latches_exactly_one_request_and_installs_nothing() {
     let source = baseline(1, &[]);
@@ -59,7 +56,6 @@ fn a_malformed_chunk_run_latches_exactly_one_request_and_installs_nothing() {
     }
 }
 
-// v2 "rejects an oversized unchunked baseline without exposing a cache".
 #[test]
 fn an_unchunked_full_larger_than_one_part_is_refused() {
     let h = harness();
@@ -70,7 +66,6 @@ fn an_unchunked_full_larger_than_one_part_is_refused() {
     assert_eq!(h.replica(), None);
 }
 
-// v2 "redrives a latched request when a partial stalls at the exact boundary".
 #[test]
 fn a_partial_that_stalls_at_the_exact_boundary_redrives_the_request() {
     let h = harness();
@@ -107,7 +102,6 @@ fn a_partial_that_stalls_at_the_exact_boundary_redrives_the_request() {
     assert_eq!(h.replica(), None);
 }
 
-// v2 "retries no-first-byte repair once then requests a fresh stream".
 #[test]
 fn two_silent_snapshot_requests_escalate_to_a_fresh_stream() {
     let h = harness();
@@ -142,7 +136,6 @@ fn two_silent_snapshot_requests_escalate_to_a_fresh_stream() {
     );
 }
 
-// v2 "valid full and stream supersession cancel request-time repair timers".
 #[test]
 fn a_landed_full_or_a_new_stream_leaves_the_request_deadline_nothing_to_do() {
     let full = harness();
@@ -171,7 +164,6 @@ fn a_landed_full_or_a_new_stream_leaves_the_request_deadline_nothing_to_do() {
     assert!(superseded.fresh_streams().is_empty());
 }
 
-// v2 "post-first-byte chunk failure starts a new bounded request".
 #[test]
 fn a_chunk_failure_after_the_first_byte_starts_a_new_bounded_request() {
     let h = harness();

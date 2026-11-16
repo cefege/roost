@@ -2,8 +2,7 @@
 //! tokio clock: one ping per delay, only its exact pong beats the deadline, and
 //! a superseded socket's deadline cannot touch its replacement.
 //!
-//! Ports `apps/coord/tests/workers/worker-ws-transport-heartbeat.test.ts`. The
-//! upgrade and the first hello run on the real clock (they read the database);
+//! The upgrade and the first hello run on the real clock (they read the database);
 //! the clock is paused only once every remaining step is socket traffic. While
 //! paused, the client NEVER waits on a timer: an idle paused runtime
 //! auto-advances to its next timer before real loopback bytes are observed, so
@@ -93,7 +92,6 @@ async fn nothing_arrived(socket: &mut WsClient) -> bool {
     socket.next().now_or_never().is_none()
 }
 
-// v2: "sends one ping and lets only its exact pong beat the deadline".
 #[tokio::test]
 async fn one_ping_is_sent_and_only_its_exact_pong_beats_the_deadline() {
     let fixture = WireFixture::start("heartbeat-exact").await;
@@ -124,7 +122,6 @@ async fn one_ping_is_sent_and_only_its_exact_pong_beats_the_deadline() {
     );
 }
 
-// v2: "an exact late pong cancels its deadline and starts a fresh 30s delay".
 #[tokio::test]
 async fn an_exact_late_pong_cancels_its_deadline_and_starts_a_fresh_delay() {
     let fixture = WireFixture::start("heartbeat-late").await;
@@ -154,7 +151,6 @@ async fn an_exact_late_pong_cancels_its_deadline_and_starts_a_fresh_delay() {
     assert!(fixture.services.workers.current(&fixture.fp()).is_some());
 }
 
-// v2: "a superseded socket's captured deadline cannot close its replacement".
 #[tokio::test]
 async fn a_superseded_sockets_deadline_cannot_close_its_replacement() {
     let fixture = WireFixture::start("heartbeat-supersede").await;

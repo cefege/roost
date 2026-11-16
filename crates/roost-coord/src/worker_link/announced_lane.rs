@@ -4,11 +4,8 @@
 //! invalidates the session's screen replica.
 //!
 //! Held by `worker_link::result_lane` beside the backlog whose budget it
-//! charges; `link_session` reaches it through the lane. Ports
-//! `createAnnouncedChannelBarrier` of `apps/coord/src/workers/worker-ws-upgrade.ts:21-28`
-//! and the barrier paths of `apps/coord/src/workers/worker-ws-handler.ts`:
-//! the queue's commit and failure (`:97-114`), `message`'s announce and
-//! terminal fast path (`:281-338`).
+//! charges; `link_session` reaches it through the lane. It covers the queue's
+//! commit and failure, and a received frame's announce and terminal fast path.
 
 use std::sync::Arc;
 
@@ -61,7 +58,7 @@ impl Announcement {
     }
 }
 
-/// Whether a frame takes v2's terminal fast path rather than the ordered lane.
+/// Whether a frame takes the terminal fast path rather than the ordered lane.
 pub(super) fn is_terminal_frame(frame: &CoordWorkerUpstream) -> bool {
     matches!(
         frame,
@@ -132,7 +129,7 @@ impl AnnouncedLane {
             .announce(announcement.channel_id, session_id, now, budget);
     }
 
-    /// v2's terminal fast path: hold a frame for an announced channel, retain
+    /// The terminal fast path: hold a frame for an announced channel, retain
     /// a metadata fact whose route is not bound yet (or sits behind its own
     /// session's recovery), and hand everything else back to publish now.
     pub(super) fn route_terminal(
@@ -143,8 +140,8 @@ impl AnnouncedLane {
         budget: &mut RetainedWorkBudget,
     ) -> Option<InboundFrame> {
         let now = Instant::now();
-        // A wait that ran out while an append was in flight ends first, as
-        // v2's timer would have ended it before this frame arrived.
+        // A wait that ran out while an append was in flight ends first, before
+        // this frame is considered.
         self.barrier.expire(now, budget);
         let channel_id = inbound.channel;
         if self.barrier.is_announced(channel_id) {
@@ -184,7 +181,7 @@ impl AnnouncedLane {
 
     /// After a durable append settled: drain the announced channel when the
     /// durable index bound it to this session, or drop it when the append
-    /// failed. A dedupe mismatch still commits, as v2's `requestClose` does.
+    /// failed. A dedupe mismatch still commits.
     pub(super) fn commit_after_append(
         &mut self,
         announcement: Option<Announcement>,

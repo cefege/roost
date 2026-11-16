@@ -2,14 +2,10 @@
 //! the database or the network.
 //!
 //! Owned by the push domain. Both the subscribe RPC and the dispatch filter
-//! call `endpoint_origin`, because v2's `handlers-push.ts:validateEndpoint` and
-//! its `push-dispatch.ts` filter are the same four rules written twice, and two
-//! copies of one admission rule is how one surface silently keeps accepting
-//! what the other refuses.
+//! call `endpoint_origin`, because the same four rules written twice would let
+//! one surface silently keep accepting what the other refuses.
 //!
-//! The userinfo rule is v2's `apps/coord/src/auth/url-user-info.ts`, inlined
-//! here as `ParsedEndpoint::has_userinfo`: its other v2 importer is the
-//! Windows deploy path, which is not ported.
+//! The userinfo rule is `ParsedEndpoint::has_userinfo`.
 //!
 //! PARSED BY HAND, NOT WITH A URL CRATE, for the reason
 //! `http_admission.rs:normalize_host_origins` gives: the accepted grammar is
@@ -20,7 +16,7 @@
 
 /// The longest endpoint accepted.
 ///
-/// 4096 (`handlers-push.ts:20`). A push endpoint is a service-issued URL, and a
+/// Limit 4096: a push endpoint is a service-issued URL, and a
 /// browser's own `pushManager.subscribe` will not produce one anywhere near
 /// this long; the bound exists so a caller cannot park a megabyte in a column
 /// the coordinator then hands to an HTTP client.
@@ -28,7 +24,7 @@ pub const ENDPOINT_MAX_LENGTH: usize = 4_096;
 
 /// The longest subscription key accepted.
 ///
-/// 512 (`handlers-push.ts:21`). A base64url P-256 public key is 87 characters
+/// Limit 512: a base64url P-256 public key is 87 characters
 /// and an auth secret is 16, so this is generous by an order of magnitude and
 /// still bounded.
 pub const KEY_MAX_LENGTH: usize = 512;
@@ -95,8 +91,7 @@ fn parse_endpoint(endpoint: &str) -> Option<ParsedEndpoint> {
 
     // WHATWG puts userinfo before the LAST `@` of the authority and
     // percent-encodes any `@` inside it, and a host can never contain a
-    // literal `@`, so a literal one ahead of the path is proof -- the same
-    // argument `auth/url-user-info.ts` makes.
+    // literal `@`, so a literal one ahead of the path is proof.
     let (credentials, host_port) = match authority.rsplit_once('@') {
         Some((before, after)) => (Some(before), after),
         None => (None, authority),
@@ -113,10 +108,9 @@ fn parse_endpoint(endpoint: &str) -> Option<ParsedEndpoint> {
         // An authority of `user:@host` declares an empty user and an empty
         // password, which is no credential at all; `user@host` is one.
         has_userinfo: !matches!(credentials, None | Some("") | Some(":")),
-        // An empty fragment is not a fragment: v2 compares `url.hash` against
-        // `""`, and WHATWG's `hash` getter returns `""` for a bare trailing
-        // `#`. Porting the comparison rather than the character keeps a
-        // browser-spelled endpoint admissible on both sides.
+        // An empty fragment is not a fragment: WHATWG's `hash` getter returns
+        // `""` for a bare trailing `#`, so comparing the fragment text rather
+        // than the character keeps a browser-spelled endpoint admissible.
         has_fragment: tail
             .split_once('#')
             .is_some_and(|(_, fragment)| !fragment.is_empty()),
@@ -180,9 +174,9 @@ pub fn endpoint_origin(endpoint: &str) -> Option<String> {
 
 /// Require an endpoint whose origin the operator declared.
 ///
-/// This is `handlers-push.ts:validateEndpoint` in full: length, parse, scheme,
-/// userinfo, fragment, membership. An empty allowlist refuses everything,
-/// which is the v2 "Push is unavailable" state rather than a silent accept.
+/// This is the whole subscribe-time endpoint check: length, parse, scheme,
+/// userinfo, fragment, membership. An empty allowlist refuses everything:
+/// Push is unavailable rather than a silent accept.
 pub fn validate_endpoint(
     endpoint: &str,
     allowed_origins: &[String],
@@ -200,7 +194,7 @@ pub fn validate_endpoint(
 /// Require a subscription key to be unpadded base64url within the bound.
 ///
 /// `^[A-Za-z0-9_-]+$` with a length floor of one and a ceiling of
-/// [`KEY_MAX_LENGTH`] (`handlers-push.ts:22,53-59`). Checked byte-wise rather
+/// [`KEY_MAX_LENGTH`]. Checked byte-wise rather
 /// than through a regex: the alphabet is 64 characters and the check runs on
 /// every subscribe, so a compiled matcher would be a dependency bought for
 /// one alternation.
@@ -244,8 +238,8 @@ mod tests {
     fn userinfo_and_a_non_empty_fragment_are_refused_where_a_bare_hash_is_not() {
         assert_eq!(endpoint_origin("https://user@push.example/x"), None);
         assert_eq!(endpoint_origin("https://push.example/x#fragment"), None);
-        // v2 compares `url.hash` to `""`, and WHATWG reports `""` for a bare
-        // trailing `#`, so this one is admissible on both sides.
+        // WHATWG reports `""` for a bare trailing `#`, so this one is
+        // admissible.
         assert_eq!(
             endpoint_origin("https://push.example/x#").as_deref(),
             Some("https://push.example")

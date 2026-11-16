@@ -1,8 +1,7 @@
 //! Session-scoped presence: re-keying a worker's opaque presence payload by
 //! session, and the one viewer that must not receive its own echo.
 //!
-//! Ported from `apps/coord/src/sync/presence-hub.ts` plus the payload filter
-//! at `sync-feed.ts:234-248`. A worker's `presence` frame names a CHANNEL, not
+//! A worker's `presence` frame names a CHANNEL, not
 //! a session, and the SPA has one Sync subscription rather than one presence
 //! EventSource per terminal -- so the coordinator resolves the channel to its
 //! session here and republishes onto the global presence bus. A payload whose
@@ -63,8 +62,8 @@ pub fn presence_is_viewer_addressed(data: &Value, viewer_key: Option<&str>) -> b
 /// must not receive back: echoing a viewer's own cursor to it makes its own tab
 /// appear to join and leave.
 ///
-/// This is the whole of the subscriber's presence refusal
-/// (`sync-feed.ts:236-242`): the single condition under which a session's
+/// This is the whole of the subscriber's presence refusal: the single
+/// condition under which a session's
 /// presence is not pushed to a socket watching that session. Another viewer's
 /// notice is the feature and is delivered to every viewer.
 ///

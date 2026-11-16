@@ -1,15 +1,15 @@
 //! The two projections of a `workers` row: the protobuf a browser renders, and
 //! the wire presence a Sync socket folds.
 //!
-//! Ported from `packages/protocol/src/wire/row-proto.ts:45-129`. They read the
+//! They read the
 //! SAME row and must not drift: a field that reaches the browser but not the
 //! presence frame is a fleet view that disagrees with itself one heartbeat later.
 //!
-//! AN UNREADABLE STORED FIELD IS ABSENT, NOT AN ERROR, and the reason is v2's
-//! `safeJsonParse(row.host_metrics_json, null, ...)`: a row whose JSON no longer
-//! decodes renders without that field rather than failing the whole list. The
-//! re-validation inside the protobuf projection IS an error, because v2's
-//! `keeperRuntimeToProto` re-parses the already-decoded value and throws.
+//! AN UNREADABLE STORED FIELD IS ABSENT, NOT AN ERROR: a row whose JSON no
+//! longer decodes renders without that field rather than failing the whole list.
+//! The re-validation inside the protobuf projection IS an error, because the
+//! keeper runtime is re-parsed from the already-decoded value and a failure
+//! there is a real inconsistency.
 
 use roost_proto::buffa::MessageField;
 use roost_protocol::json::safe_json_parse;

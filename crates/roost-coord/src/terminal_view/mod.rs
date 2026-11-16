@@ -15,26 +15,10 @@
 //! (`roost_protocol::viewport::minimum_terminal_geometry`). It does NOT own a
 //! session's stream: an owner-mode worker mints the stream id and the geometry,
 //! this hub relays browser decisions to it, adopts what it published, and asks
-//! it for a repair full (`screen_repair`). Ports `terminal-view-hub.ts` minus
-//! the stream controller.
-//!
-//! DROPPED v2 FILES, NO PORT AND NO STUB. v2's coordinator-owned stream
-//! authority runs only for a session whose worker did NOT advertise
-//! `terminal-view-owner-v1`; the v2 worker (`coord-link-deps.ts:96-100`) and
-//! the Rust worker (`runtime/capabilities.rs`) always do, so for every session
-//! the controller holds no entry and its screen callbacks fall through to
-//! `repairUnownedSession`, which `screen_repair` ports. Dropped:
-//! `terminal/view/terminal-view-stream-controller.ts` and `-types.ts` (the
-//! desire, redrive and unavailable policy of unowned sessions),
-//! `terminal-view-stream-snapshot-request.ts` (its owned-session half),
-//! `terminal-view-stream-worker-generations.ts`, and
-//! `terminal/screen/terminal-stream-dispatcher.ts` with its `-lane`,
-//! `-settler`, `-types` and `-worker-lifecycle` siblings (the stream-state RPC
-//! queue only that controller drives). Measured against this coordinator with
-//! the TypeScript worker: `terminal-delivery.spec.ts` passes 4/4 and
-//! `terminal-render.spec.ts` 3/5; its two history cases ("streaming sequence
-//! repair leaves an off-bottom reader fixed", "main screen history survives
-//! width and height perturbations") fail with browser history missing.
+//! it for a repair full (`screen_repair`). There is no coordinator-owned
+//! stream controller: every worker advertises `terminal-view-owner-v1`
+//! (`roost-worker/src/runtime/capabilities.rs`), so a screen replica's repair
+//! callbacks always resolve to `screen_repair`.
 //!
 //! WHY ONE MINIMIZER PER SESSION. A session either has an owner-mode worker, in
 //! which case every browser decision is relayed and the worker's registry
@@ -308,7 +292,7 @@ impl TerminalViewHub {
     }
 
     /// A session closed: its membership, its claims, its owner row and its
-    /// screen replica go (`terminal-view-hub.ts` `closeSession`).
+    /// screen replica go.
     pub fn close_session(&self, session_id: &SessionId, now_ms: u64) {
         let outcome = self.locked().close_session(session_id);
         self.owners.drop_projection(session_id);

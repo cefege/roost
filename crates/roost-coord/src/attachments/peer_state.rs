@@ -2,7 +2,6 @@
 //! worker fences an offer passes before and after it is sent -- without mutable
 //! registry state: `AttachmentPeerNegotiations` owns lifecycle and correlation.
 //! Nothing here retains SDP, and signaling reuses only the grant lease tuple.
-//! Ports `apps/coord/src/attachments/attachment-peer-negotiation-state.ts`.
 
 use std::sync::Arc;
 
@@ -112,7 +111,7 @@ pub fn assert_attachment_peer_request_shape(
     Ok(())
 }
 
-/// v2's `/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu`.
+/// A UUID with a version nibble of 1-8 and an RFC variant, case-insensitive.
 fn is_peer_uuid(value: &str) -> bool {
     let groups: Vec<&str> = value.split('-').collect();
     let shaped = groups.len() == 5

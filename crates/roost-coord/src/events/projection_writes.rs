@@ -1,8 +1,7 @@
 //! The four statements an append transaction projects with, and the order they
 //! run in.
 //!
-//! Ported from the statement half of `apps/coord/src/events/event-projection.ts`
-//! and the projection arms of `event-transaction.ts:185-272`. Every one of them
+//! Every one of them
 //! takes the transaction's own connection: a projection write that reached the
 //! pool instead would commit on its own and break the ordering the whole
 //! subsystem exists to keep.
@@ -14,8 +13,7 @@
 //! dead route on the next coordinator restart, and lies to the pre-reconcile
 //! route fallback -- while the coordinator-owned and user-owned columns are
 //! immutable across a worker snapshot: original creation/spawn time, workspace
-//! grouping, custom title, and the retained dashboard scope
-//! (`event-projection.ts:171-186`).
+//! grouping, custom title, and the retained dashboard scope.
 //!
 //! THE BREADCRUMB MODEL. Sessions open in the coordinator but **absent** from a
 //! worker's snapshot are not pruned: a worker restart kills the PTY, and the row
@@ -44,14 +42,14 @@ use crate::events::projection::{ProjectionError, load_session, session_to_row};
 ///
 /// The ownership read happens **first**: `workspace_sessions` cascades away with
 /// the session, so capturing the evidence and then deleting it in the other order
-/// loses the answer (`event-projection.ts:96-99`). The caller publishes the
+/// loses the answer. The caller publishes the
 /// returned ids as workspace deletions *after* the transaction commits.
 ///
 /// This is the ONLY deletion trigger in the projection, and it is shared by the
 /// `closed` event and by the synthetic ghost-close path inside a snapshot --
 /// which is why a worker restart that snapshotted without a session no longer
 /// leaves an orphaned junction row and parent workspace behind until the next
-/// coordinator-startup janitor (`event-projection.ts:83-86`).
+/// coordinator-startup janitor.
 pub async fn cascade_closed_session(
     connection: &mut AnyConnection,
     session_id: &str,
@@ -91,7 +89,7 @@ pub async fn cascade_closed_session(
 ///
 /// `None` means the session row was already there and did not belong to this
 /// append's caller, which the append answers by deleting its own `events` row so a
-/// losing insert leaves no phantom log row (`event-transaction.ts:208-227`).
+/// losing insert leaves no phantom log row.
 pub async fn project_snapshot_sessions(
     connection: &mut AnyConnection,
     sessions: &[Session],
@@ -141,8 +139,7 @@ pub async fn project_snapshot_sessions(
 ///
 /// `None` is the lost race: the row already existed. The caller compares that
 /// against whether the row existed *before* the transaction, because only the
-/// combination "it did not exist, and the insert lost" is a refusal
-/// (`event-transaction.ts:208-227`).
+/// combination "it did not exist, and the insert lost" is a refusal.
 pub async fn insert_opened_session(
     connection: &mut AnyConnection,
     session: &Session,
@@ -200,7 +197,7 @@ pub async fn delete_session(
 ///
 /// `None` means the fold produced no row for this session, which is a no-op event
 /// on a projection that does not hold the session -- the same answer the fold
-/// itself gives (`event-transaction.ts:243-256`).
+/// itself gives.
 pub async fn fold_and_update_session(
     connection: &mut AnyConnection,
     event: &SessionEvent,
@@ -227,7 +224,7 @@ pub async fn fold_and_update_session(
 /// `sessions.workspace_id` and the `workspace_sessions` junction are two
 /// representations of one fact and the browser reads both, so writing only the
 /// column leaves a session out of the junction and double-counts it as both a
-/// member and an orphan (`apps/coord/src/sessions/handlers-sessions.ts:277-281`).
+/// member and an orphan.
 pub async fn set_workspace_membership(
     connection: &mut AnyConnection,
     session_id: &str,

@@ -308,8 +308,8 @@ async fn a_verified_assertion_becomes_provenance_and_nothing_else() {
 }
 
 /// A signed assertion whose address is structurally absurd is REFUSED, not
-/// recorded. v2 accepts anything non-empty under 320 bytes, and that text
-/// reaches `DevicesList.pairedEdgeIdentity` in every browser.
+/// recorded. Anything non-empty under 320 bytes would otherwise pass, and that
+/// text reaches `DevicesList.pairedEdgeIdentity` in every browser.
 #[tokio::test]
 async fn an_absurdly_shaped_address_is_refused_rather_than_recorded() {
     install_ring();
@@ -331,7 +331,7 @@ async fn an_absurdly_shaped_address_is_refused_rather_than_recorded() {
 }
 
 /// The bound is a length bound as well as a shape bound: 320 UTF-8 bytes is the
-/// ceiling v2 set, and a longer address is refused rather than truncated into
+/// ceiling, and a longer address is refused rather than truncated into
 /// something a different person would recognise as theirs.
 #[tokio::test]
 async fn an_address_past_the_length_bound_is_refused() {

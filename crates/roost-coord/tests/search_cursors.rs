@@ -1,9 +1,7 @@
 //! Global-search cursor binding, expiry, eviction and cancellation ordering,
 //! per device and per process.
 //!
-//! Ported from the "global search cursor owner" block of
-//! `apps/coord/tests/search/global-search-cursors.test.ts`. Every test owns
-//! its owner and clock, so no cursor leaks between cases.
+//! Every test owns its owner and clock, so no cursor leaks between cases.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

@@ -1,8 +1,8 @@
 //! The Sync client frame's canonical-encoding check against the bytes the
 //! browser really sends.
 //!
-//! v2 refuses a client frame whose protobuf-es re-encoding differs from its
-//! bytes (`sync-ws-client-ingress.ts:41-45`), and protobuf-es writes fields in
+//! The coordinator refuses a client frame whose protobuf-es re-encoding differs
+//! from its bytes, and protobuf-es writes fields in
 //! ascending field number. The fixture below is a `TerminalInputRouteClaim`
 //! frame captured from the smoke browser: `socket_id = 10` precedes
 //! `input_route_claim = 11`, the order buffa's declaration-order encoder does
@@ -52,7 +52,7 @@ fn a_browser_route_claim_after_its_socket_id_is_canonical() {
 #[test]
 fn the_same_fields_out_of_number_order_are_not_canonical() {
     // buffa's own bytes put the oneof first: the same frame, but not the one a
-    // protobuf-es client can send, so v2 refuses it too.
+    // protobuf-es client can send, so it is refused too.
     let frame = decode(&bytes(BROWSER_ROUTE_CLAIM));
     let mut declaration_order = Vec::new();
     frame.try_encode(&mut declaration_order).unwrap();

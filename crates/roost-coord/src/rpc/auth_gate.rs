@@ -1,10 +1,10 @@
 // The one place a Connect request is authenticated, authorized and stamped.
 //
-// Before this existed, `write_gate::method_holds_lease`,
-// `method_audit_skips_success` and `should_persist_method_audit` had no caller
-// at all: the policy was ported, the gate was not, so every method was
-// reachable without a credential and the `AuthRequirement` column of the route
-// table was documentation rather than enforcement.
+// `write_gate::method_holds_lease`, `method_audit_skips_success` and
+// `should_persist_method_audit` are called only from here: without this gate
+// every method would be reachable without a credential and the
+// `AuthRequirement` column of the route table would be documentation rather
+// than enforcement.
 //
 // `connectrpc::Router` has no interceptor hook -- interceptors exist only on
 // `Service<D>` -- so the listener mounts the generated server directly and
@@ -154,7 +154,7 @@ impl AuthGate {
 /// The refusal for a method whose requirement no credential on this request
 /// satisfied.
 ///
-/// `Unauthenticated` is v2's code and the marker is what makes it actionable:
+/// `Unauthenticated` is the code and the marker is what makes it actionable:
 /// a browser that reads `device` on a method it needs a device key for shows
 /// the pairing page, and one that reads an unmarked `Unauthenticated` has
 /// nothing to act on but a retry. The bootstrap probe that decides which of

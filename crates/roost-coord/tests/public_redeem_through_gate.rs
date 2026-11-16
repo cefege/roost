@@ -1,8 +1,7 @@
 //! A bootstrap redemption driven through the PRODUCTION auth gate, over HTTP.
 //!
-//! Ports the enrollment half of `apps/coord/src/auth/handlers-auth-bootstrap.ts`
-//! (`authRedeemWorker`/`authRedeemBrowser` ignore `_ctx`: the token in the body
-//! is the credential), which `rpc/auth_gate.rs` admits with NO caller stamped.
+//! The enrollment half: the token in the body is the credential, so
+//! `rpc/auth_gate.rs` admits these calls with NO caller stamped.
 //! A handler-level test with a fabricated caller cannot see an arm that reads one.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -120,9 +119,9 @@ fn enrolling_key() -> (String, String, String) {
     (fingerprint, STANDARD_NO_PAD.encode(public_key), jwt)
 }
 
-/// v2 `bootstrap-token-handlers.test.ts` "worker redemption permits only an exact
-/// same-key lost-response retry" (first redemption + `workers` row scoped to the
-/// tenant's dashboard), driven over the wire as `coord-e2e.test.ts` drives Connect.
+/// Worker redemption permits only an exact same-key lost-response retry (first
+/// redemption + `workers` row scoped to the tenant's dashboard), driven over the
+/// wire as a real client drives Connect.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_worker_redeems_with_no_credential_and_its_key_then_registers() {
     let scratch = Scratch::new("redeem-worker-gate").await;
@@ -172,9 +171,9 @@ async fn a_worker_redeems_with_no_credential_and_its_key_then_registers() {
     assert_eq!(registered["worker"]["fp"], json!(fingerprint));
 }
 
-/// v2 `bootstrap-token-handlers.test.ts` "browser redemption permits retry but
-/// not a competitor or a new grant for that principal" (first redemption answers
-/// the empty response), driven over the wire as `coord-e2e.test.ts` drives Connect.
+/// Browser redemption permits retry but not a competitor or a new grant for that
+/// principal (first redemption answers the empty response), driven over the
+/// wire as a real client drives Connect.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_browser_redeems_with_no_credential_and_its_key_then_lists_devices() {
     let scratch = Scratch::new("redeem-browser-gate").await;

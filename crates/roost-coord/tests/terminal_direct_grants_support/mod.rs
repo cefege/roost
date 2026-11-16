@@ -1,7 +1,6 @@
 //! The grant-owner harness: one registry with two ready workers, the
 //! production pending-RPC table the owner correlates ACKs through, and the
 //! helpers that start a grant, observe its install, and acknowledge it.
-//! Ports the fixture half of `apps/coord/tests/terminal/direct/terminal-grant-owner.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used, dead_code)]
 
 use std::sync::Arc;

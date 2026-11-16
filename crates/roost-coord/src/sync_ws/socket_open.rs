@@ -4,13 +4,11 @@
 //! place.
 //!
 //! Called only by `sync_ws::socket`, which owns the loop between the two.
-//! Ports `open` and `cleanupSocket` of `apps/coord/src/sync/sync-ws-handler.ts`
-//! and `createSyncV2SocketState` of `sync-ws-v2-state.ts`.
 //!
 //! THE FEED IS LISTENING BEFORE THE BARRIER GOES OUT. A frame published between
 //! `subscribed` and the first listener would be a frame no socket ever sees and
 //! the client could never tell was missing; installing first and announcing
-//! second makes that window empty (`sync-ws-handler.ts:207-236`).
+//! second makes that window empty.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -57,8 +55,7 @@ pub(in crate::sync_ws) const REVOKED: LinkClose = LinkClose {
     reason: "revoked",
 };
 
-/// The barrier could not be written, so no generation was ever announced
-/// (`sync-ws-handler.ts:241-246`).
+/// The barrier could not be written, so no generation was ever announced.
 const SUBSCRIBED_SEND_FAILED: LinkClose = LinkClose {
     code: 1011,
     reason: "subscribed send failed",
@@ -70,8 +67,7 @@ const OPEN_FAILED: LinkClose = LinkClose {
     reason: "sync open failed",
 };
 
-/// No layout-apply target could be registered for this tab
-/// (`sync-ws-handler.ts:247-266`).
+/// No layout-apply target could be registered for this tab.
 const CONNECTION_REJECTED: LinkClose = LinkClose {
     code: CONNECTION_REJECTION_CLOSE_CODE,
     reason: CONNECTION_REJECTION_REASON,
@@ -207,8 +203,7 @@ pub(in crate::sync_ws) async fn open_socket(
     };
     let mut feed = LiveFeed::install(&link, &services.buses, viewer, scope.viewer_key.clone());
     if !v2 {
-        // v1 has no domain commands, so its audit source is eager
-        // (`sync-feed.ts:204-205`).
+        // v1 has no domain commands, so its audit source is eager.
         feed.set_audit_subscribed(&link, &services.buses, true);
     }
     refresh_scope_after_subscribe(&link, &services.db, scope.owner_worker_fp.as_deref()).await;
@@ -294,7 +289,7 @@ async fn announce_subscribed(
     Ok(opened)
 }
 
-/// Release everything an open socket holds, in v2's `cleanupSocket` order:
+/// Release everything an open socket holds, in this order:
 /// listeners first, so nothing more can reach the link, then the queues, the
 /// snapshot binding, the socket's input routes and queued input, the terminal
 /// views and the layout target.

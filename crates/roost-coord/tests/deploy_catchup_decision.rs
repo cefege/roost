@@ -3,9 +3,6 @@
 //! coordinator, database or subprocess. The runtime bookkeeping around it is
 //! `tests/deploy_catchup.rs`.
 //!
-//! Ported from `apps/coord/tests/deploy/worker-catchup-deploy.test.ts`; each
-//! test names the v2 case it ports.
-//!
 //! `unwrap` and `expect` are denied outside `#[cfg(test)]`, and an integration
 //! test is its own crate rather than a module of one, so the exemption has to be
 //! stated here. Every panic names a value the test just built.
@@ -21,7 +18,7 @@ use roost_coord::deploy::catchup_decision::{
     CatchUpWorkerRow, catch_up_deploy_decision,
 };
 
-/// v2's `decisionInputs()`, owned so a test can override one field.
+/// The decision inputs, owned so a test can override one field.
 struct Scenario {
     worker: CatchUpWorkerRow,
     coord_git_sha: Option<&'static str>,

@@ -8,8 +8,7 @@
 //! `coord_core::ListenerTrust` and `CoordConfig`; it decides nothing either of
 //! them does not already say.
 //!
-//! THE TRUST PROFILE IS CHOSEN AT BOOT AND NEVER SNIFFED
-//! (`apps/coord/src/middleware/caller-origin.ts:8-10`). A profile read out of a
+//! THE TRUST PROFILE IS CHOSEN AT BOOT AND NEVER SNIFFED. A profile read out of a
 //! request header is a profile the client wrote, and the profile decides
 //! whether a remote caller may claim to be on the host -- so a header that
 //! turned `direct` into `trusted-proxy` would hand every remote caller the
@@ -39,8 +38,8 @@ pub const UNKNOWN_PEER: &str = "unknown";
 
 /// The peer addresses that are this host, as a listener spells them.
 ///
-/// The three spellings are the three an IPv4-mapped IPv6 peer can arrive in
-/// (`caller-origin.ts:22-26`). A peer address is a bare IP: the port is not
+/// The three spellings are the three an IPv4-mapped IPv6 peer can arrive in. A
+/// peer address is a bare IP: the port is not
 /// part of the identity, and keying a bucket on it would hand every ephemeral
 /// port its own budget.
 #[must_use]
@@ -210,7 +209,7 @@ fn forwarded_for(headers: &HeaderMap) -> Option<String> {
 }
 
 /// Stamp the two wire-contract headers a front door's log and the browser's
-/// interceptor can read (`rpc/bun-handler.ts:61-62`).
+/// interceptor can read.
 ///
 /// The listener-trust header is deliberately NOT stamped: its contract value is
 /// the `1` sentinel of the browser-to-coordinator direction

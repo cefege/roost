@@ -1,8 +1,7 @@
 //! Coordinator-owned last-activity timestamps, and the throttle that decides
 //! when one is worth a frame.
 //!
-//! Ported from `apps/coord/src/sync/last-activity-hub.ts`. The hub is the
-//! coordinator's own retained state -- reached as
+//! The hub is the coordinator's own retained state -- reached as
 //! `core.services.feed.last_activity()` -- and it is the reason this adapter is
 //! not a plain bus-to-frame function: a worker's activity observation arrives on
 //! every byte of output, and fanning a frame out for each one is how a busy
@@ -12,7 +11,7 @@
 //! observation, because that is what a sidebar ages sessions by and worker clock
 //! skew cannot make it go backwards. The throttle is measured against LOCAL
 //! receipt time, so a worker whose clock runs fast is throttled exactly like one
-//! whose clock runs slow. v2 states the same rule at `last-activity-hub.ts:10-12`.
+//! whose clock runs slow.
 //!
 //! THE HUB IS NOT SEEDED FROM THE BUS. `last_activity_bus` is volatile and never
 //! replayed, so the retained map is what a fresh subscriber is seeded from; a
@@ -184,7 +183,7 @@ impl LastActivityHub {
 
     /// Release every closed session for as long as this handle lives.
     ///
-    /// v2's `startLastActivityHub`, and the ONE bus subscription in this
+    /// This is the hub's start, and the ONE bus subscription in this
     /// directory: it exists because the retained map is this hub's own state,
     /// not because the feed is fanning anything out. The socket shell or `serve`
     /// holds the returned handle; dropping it ends the subscription.

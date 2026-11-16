@@ -1,7 +1,6 @@
 //! `SessionsAssignWorkspace`: move one session into a workspace, or out of every
 //! workspace, and publish the junction of each workspace the move touched.
-//! Called from the arm in `rpc/service_impl.rs`. Ports the `sessionsAssignWorkspace`
-//! handler of `apps/coord/src/sessions/handlers-sessions.ts`.
+//! Called from the arm in `rpc/service_impl.rs`.
 //!
 //! BOTH MEMBERSHIP REPRESENTATIONS MOVE TOGETHER, inside the append's own
 //! transaction (`events::projection_writes::set_workspace_membership`), because

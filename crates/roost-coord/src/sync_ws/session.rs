@@ -7,17 +7,14 @@
 //! bounds, the queue cutovers and the fences are the properties worth testing
 //! and none of them is observable through a live socket without flakiness.
 //!
-//! WHY THE SHARED PRIVATE STATE IS ONE STRUCT AND NOT SEVERAL TYPES. v2 kept
-//! this in seven files whose closures all reached back into one `ws.data`
-//! record, and the interesting invariants -- a charge is held by exactly one of
+//! WHY THE SHARED PRIVATE STATE IS ONE STRUCT AND NOT SEVERAL TYPES. The
+//! interesting invariants -- a charge is held by exactly one of
 //! {a domain queue, a lane cursor's materialization, a lane's delta tail, a
 //! lane's pending states}, and every release passes through one counter -- are
 //! invariants of that ONE record. Splitting the record would move the invariant
-//! to a protocol between the halves, which is the shape
-//! `apps/web/src/renderer/cellRenderer.ts` is not allowed to take for exactly
-//! the opposite reason. The methods are split across files by CONCEPT (queue
-//! ordering in `send_queue`, egress in `egress`, terminal fan-out in `terminal/`)
-//! and the type is not.
+//! to a protocol between the halves. The methods are split across files by
+//! CONCEPT (queue ordering in `send_queue`, egress in `egress`, terminal
+//! fan-out in `terminal/`) and the type is not.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -254,7 +251,7 @@ impl SyncV2Session {
     /// streaming terminal cannot consume the workspace feed's budget; cell
     /// material has a smaller bound again so state frames always have room;
     /// and the two halves sum to a socket-wide bound. The order of the tests is
-    /// not observable, the decision is (`sync-ws-v2-state.ts:154-199`).
+    /// not observable, the decision is.
     pub(in crate::sync_ws) fn try_charge(&mut self, frame: &OwnedFrame) -> Option<AggregateCharge> {
         let estimated_bytes = frame.conservative_bytes();
         let terminal = frame.domain() == SyncDomain::Terminal;
@@ -347,8 +344,7 @@ impl SyncV2Session {
 
     /// Record a frame the socket accepted, consuming its delivery sequence.
     ///
-    /// The flush turn charges for itself, because v2's `flushV2` charges inside
-    /// its own loop (`sync-ws-v2-egress.ts:307-313`) and a caller that repeated
+    /// The flush turn charges for itself, and a caller that repeated
     /// the charge would spend two sequences on one frame. This is the charge for
     /// a frame written outside a flush turn.
     pub fn record_sent(&mut self, encoded_bytes: u64, now_ms: u64) -> u64 {

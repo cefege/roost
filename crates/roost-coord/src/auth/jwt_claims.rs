@@ -26,8 +26,7 @@ use serde_json::Value;
 
 /// How far into the future an `iat` may be before the token is refused.
 ///
-/// Forward only, with **no** backward allowance
-/// (`apps/coord/src/auth/jwt.ts:218`). A stale-but-not-yet-max-age `iat` is
+/// Forward only, with **no** backward allowance. A stale-but-not-yet-max-age `iat` is
 /// accepted without tolerance, because the max-age bound is what refuses a
 /// stale token; adding a second backward bound would only create a window where
 /// neither check explains a refusal.
@@ -74,7 +73,7 @@ impl JwtParts {
     /// Split a compact JWS into its three segments.
     ///
     /// Fails when the token is not exactly three dot-separated non-empty
-    /// segments (`bad jwt format`, `apps/coord/src/auth/jwt.ts:148`). An empty
+    /// segments (`bad jwt format`). An empty
     /// segment is refused here rather than decoded to zero bytes, so a
     /// truncated token cannot reach a decoder that would call it valid.
     pub fn split(token: &str) -> ProtocolResult<Self> {
@@ -129,10 +128,9 @@ impl JwtParts {
     /// Decode the four claims.
     ///
     /// `aud` may be a string or an array of strings and both spellings are on
-    /// the wire (`apps/coord/src/auth/jwt.ts:194-197`). An **absent** `aud`
-    /// must fail, and v2 fails it as `wrong aud: undefined` because it coerces
-    /// the field into a one-element array before comparing -- so a missing
-    /// audience is deliberately indistinguishable from a wrong one.
+    /// the wire. An **absent** `aud` must fail, as `wrong aud: undefined`: the
+    /// field is coerced into a one-element array before comparing -- so a
+    /// missing audience is deliberately indistinguishable from a wrong one.
     pub fn claims(&self) -> ProtocolResult<JwtClaims> {
         let object = decode_object(&self.payload_segment, "jwt.payload", "bad jwt payload")?;
         let Some(sub) = object.get("sub").and_then(Value::as_str) else {
@@ -176,11 +174,11 @@ fn decode_object(
 
 /// Read a numeric timestamp claim.
 ///
-/// JSON has one number type, so a fractional `iat` arrives as a float. v2
-/// requires the value to be finite and then compares it directly
-/// (`apps/coord/src/auth/jwt.ts:206-211`), which accepts a fractional second
-/// and lets the comparison truncate it. Refusing a non-integer instead would
-/// reject a token v2 accepts, so the value truncates the same way.
+/// JSON has one number type, so a fractional `iat` arrives as a float. The
+/// value must be finite and is then compared directly, which accepts a
+/// fractional second and lets the comparison truncate it. Refusing a
+/// non-integer instead would reject a token the browser, worker and CLI mint,
+/// so the value truncates.
 fn seconds(
     value: Option<&Value>,
     field: &'static str,

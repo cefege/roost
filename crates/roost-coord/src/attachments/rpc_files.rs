@@ -2,8 +2,7 @@
 //! `FilesRead`, `FilesReadChunk`, `FilesListDir`, `FilesMkdir`,
 //! `AttachFileChunk`, `AttachmentProbe`, `ListAttachments`, `DeleteAttachment`.
 //!
-//! Ported from v2 `apps/coord/src/attachments/handlers-attachments.ts`: each
-//! checks the caller, resolves the worker, and hands off to `files` or
+//! Each checks the caller, resolves the worker, and hands off to `files` or
 //! `session_files`, which own the frame and the reply decode.
 
 use connectrpc::{ConnectError, ErrorCode, Response, ServiceResult};
@@ -25,7 +24,7 @@ use crate::auth::principal::require_account_device;
 use crate::coord_core::{Caller, CoordCore};
 use crate::terminal_screen::scrollback_relay::SessionWorkerBinding;
 
-/// Whole-file read. v2 `filesRead`.
+/// Whole-file read.
 pub async fn handle_files_read(
     core: &CoordCore,
     caller: &Caller,
@@ -48,7 +47,7 @@ pub async fn handle_files_read(
     )
 }
 
-/// One page of a download. v2 `filesReadChunk`: the worker is resolved before
+/// One page of a download: the worker is resolved before
 /// the length is checked, so an offline worker answers first.
 pub async fn handle_files_read_chunk(
     core: &CoordCore,
@@ -73,7 +72,7 @@ pub async fn handle_files_read_chunk(
     )
 }
 
-/// List a directory. v2 `filesListDir`.
+/// List a directory.
 pub async fn handle_files_list_dir(
     core: &CoordCore,
     caller: &Caller,
@@ -86,7 +85,7 @@ pub async fn handle_files_list_dir(
     Response::ok(files_list_dir(relay, &worker_fp, viewer_id, &req.path, &request_id).await?)
 }
 
-/// Create a directory. v2 `filesMkdir`.
+/// Create a directory.
 pub async fn handle_files_mkdir(
     core: &CoordCore,
     caller: &Caller,
@@ -99,7 +98,7 @@ pub async fn handle_files_mkdir(
     Response::ok(files_mkdir(relay, &worker_fp, viewer_id, &req.path, &request_id).await?)
 }
 
-/// One chunk of an upload. v2 `attachFileChunk` checks `upload_id`, then
+/// One chunk of an upload. It checks `upload_id`, then
 /// `session_id`, then resolves the session's worker, in that order.
 pub async fn handle_attach_file_chunk(
     core: &CoordCore,
@@ -122,7 +121,7 @@ pub async fn handle_attach_file_chunk(
     })
 }
 
-/// The content-dedup probe. v2 `attachmentProbe`.
+/// The content-dedup probe.
 pub async fn handle_attachment_probe(
     core: &CoordCore,
     caller: &Caller,
@@ -147,7 +146,7 @@ pub async fn handle_attachment_probe(
     })
 }
 
-/// A session's attachment directory. v2 `listAttachments`.
+/// A session's attachment directory.
 pub async fn handle_list_attachments(
     core: &CoordCore,
     caller: &Caller,
@@ -169,7 +168,7 @@ pub async fn handle_list_attachments(
     })
 }
 
-/// Delete one attachment. v2 `deleteAttachment`.
+/// Delete one attachment.
 pub async fn handle_delete_attachment(
     core: &CoordCore,
     caller: &Caller,

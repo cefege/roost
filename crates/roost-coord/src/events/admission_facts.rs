@@ -1,9 +1,8 @@
 //! The database reads that fill `AdmissionFacts`, and nothing else.
 //!
 //! The twelve admission *rules* are pure and already live in
-//! `crate::events::admission`. This file is the other half of v2's
-//! `resolveEventAdmission` (`apps/coord/src/events/event-admission.ts:32-123`):
-//! the queries that answer each question the rules ask, in the order the rules
+//! `crate::events::admission`. This file is the other half: the queries that
+//! answer each question the rules ask, in the order the rules
 //! ask them, so a rule can be read and tested without a database.
 //!
 //! WHY THE ORDER OF THESE QUERIES IS THE SAME AS THE ORDER OF THE RULES. The
@@ -31,8 +30,8 @@ use crate::events::admission::AdmissionFacts;
 /// Read every fact the admission rules need for this event and caller.
 ///
 /// The reads are issued in rule order and each one is skipped when an earlier
-/// rule has already decided the answer, exactly as v2 returned early from each
-/// branch (`event-admission.ts:35-122`).
+/// rule has already decided the answer, so a read never runs after a rule
+/// that returned early.
 pub async fn load_admission_facts(
     connection: &mut AnyConnection,
     event: &SessionEvent,
@@ -111,8 +110,7 @@ pub async fn load_admission_facts(
 ///
 /// Only those two kinds may claim a worker, so no other variant reports one --
 /// a `respawned` has no `worker_fp` field to claim, and inventing one from the
-/// route cache is the mistake the durable-publication suite pins
-/// (`apps/coord/tests/durable-publication.test.ts:98-107`).
+/// route cache is the mistake the durable-publication suite pins.
 fn event_claimed_worker_fp(event: &SessionEvent) -> Option<String> {
     match event {
         SessionEvent::Opened { worker_fp, .. } | SessionEvent::Snapshot { worker_fp, .. } => {
@@ -170,9 +168,8 @@ async fn session_row_owner(
 
 /// The owner of every existing row among the announced ids.
 ///
-/// Ids with no row contribute nothing, which is what v2's
-/// `currentRows.some(...)` did: the check is "is any row that exists owned by
-/// somebody else", not "does every announced id exist".
+/// Ids with no row contribute nothing: the check is "is any row that exists
+/// owned by somebody else", not "does every announced id exist".
 async fn session_row_owners(
     connection: &mut AnyConnection,
     announced_ids: &[String],

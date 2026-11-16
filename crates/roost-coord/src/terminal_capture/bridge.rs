@@ -3,7 +3,6 @@
 //! the order of operations -- validate, resolve the durable session and its
 //! worker, check lease ownership, admit the capture, freeze coordinator
 //! evidence, dispatch. Called by `diagnostics::diag_snapshot`.
-//! Ports `apps/coord/src/terminal/capture/terminal-capture.ts`.
 
 use std::sync::Arc;
 

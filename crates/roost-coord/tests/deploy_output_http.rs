@@ -3,10 +3,6 @@
 //! credential is refused before the handler, and a paired browser's stream
 //! carries the job's frames to its end.
 //!
-//! Pins `requireAccountDevice(ctx.values)` of `workersDeployOutput` in
-//! `apps/coord/src/deploy/handlers-workers-deploy.ts`, which v2's interceptor
-//! ran for every streaming method too.
-//!
 //! `unwrap` and `expect` are denied outside `#[cfg(test)]`, and an integration
 //! test is its own crate rather than a module of one, so the exemption has to be
 //! stated here. Every panic names a value the test just built.

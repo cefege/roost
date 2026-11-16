@@ -164,8 +164,7 @@ impl LiveFeed {
 
     /// Start or stop the audit source. Only an install-wide viewer is ever
     /// subscribed: a worker socket's audit domain may be toggled, but the rows
-    /// are install-wide and it is not one of their viewers
-    /// (`sync-feed.ts:188-203`).
+    /// are install-wide and it is not one of their viewers.
     pub fn set_audit_subscribed(&mut self, link: &Arc<SyncLink>, buses: &Buses, subscribed: bool) {
         if !subscribed {
             self.audit = None;
@@ -190,7 +189,7 @@ fn observes(state: &LinkState, session_id: &str) -> bool {
 ///
 /// The scope moves FIRST and whether or not the frame is admitted, so the
 /// title or presence that follows an `opened` finds its session already in
-/// scope (`sync-feed.ts:210-222`).
+/// scope.
 fn route_session(state: &mut LinkState, message: &SessionBusMessage) -> Option<FeedFrame> {
     let index = &mut state.index;
     match &message.event {
@@ -239,7 +238,7 @@ fn route_session(state: &mut LinkState, message: &SessionBusMessage) -> Option<F
 }
 
 /// One durable session event as this socket's frame, if the socket carries it
-/// at all (`sync-feed.ts:119-122`, `emitSessionFrame`). The live feed and the
+/// at all. The live feed and the
 /// backfill both deliver through here, so a worker socket's narrowing is the
 /// same for a replayed row as for a live one.
 pub(in crate::sync_ws) fn emit_session_frame(
@@ -253,7 +252,7 @@ pub(in crate::sync_ws) fn emit_session_frame(
 }
 
 /// A worker socket carries only its own sessions, and keeps knowing them after
-/// they close so a late `closed` still reaches it (`sync-feed.ts:96-114`).
+/// they close so a late `closed` still reaches it.
 fn admit_owned_session_event(state: &mut LinkState, event: &SessionEvent) -> bool {
     let owner = state.index.owner_worker_fp.as_deref();
     let Some(owned) = state.owned_session_ids.as_mut() else {
@@ -313,8 +312,7 @@ fn route_worker_presence(state: &mut LinkState, event: &WorkerPresenceEvent) -> 
     refused_as_none("presence_bus", worker_presence_frame(event))
 }
 
-/// A workspace change, narrowed to the workspaces this socket observes
-/// (`sync-feed.ts:233-245`).
+/// A workspace change, narrowed to the workspaces this socket observes.
 fn route_workspace(state: &mut LinkState, delta: &WorkspaceDelta) -> Option<FeedFrame> {
     let index = &mut state.index;
     let owned = match delta {

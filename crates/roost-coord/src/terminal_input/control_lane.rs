@@ -3,7 +3,6 @@
 //! session-route resolution every write takes inside that FIFO. View membership
 //! and SCD never enter this lane; they are the terminal view hub's.
 //! Owned by `TerminalInputRuntime`; entered by `terminal_input::write_control`.
-//! Ports `apps/coord/src/terminal/input/terminal-control-lane.ts`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};

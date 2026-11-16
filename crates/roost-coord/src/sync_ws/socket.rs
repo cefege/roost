@@ -5,14 +5,11 @@
 //! Called by `http::upgrade::sync_upgrade` once the upgrade is admitted; the
 //! open and the release are `sync_ws::socket_open`, the shared state is
 //! `sync_ws::driver`, the bus listeners `sync_ws::live_feed`, the client frames
-//! `sync_ws::ingress`. Ports the `message`/`close` handlers and the keepalive
-//! of `apps/coord/src/sync/sync-ws-handler.ts` and the scheduling of
-//! `scheduleV2`/`flushV2` in `sync-ws-v2-egress.ts`.
+//! `sync_ws::ingress`.
 //!
-//! ONE TASK WRITES. v2's listeners wrote the socket themselves because Bun
-//! buffered for them; here every writer is this loop, so frame order on the
-//! wire is the order the link's outbox received them, and a write that blocks
-//! blocks the one place that could have produced the next frame.
+//! ONE TASK WRITES. Every writer is this loop, so frame order on the wire is
+//! the order the link's outbox received them, and a write that blocks blocks
+//! the one place that could have produced the next frame.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -29,15 +26,14 @@ use crate::sync_ws::socket_open::{OpenedSocket, REAUTH, open_socket, release_soc
 use crate::sync_ws::upgrade_admission::{SyncScope, VerifiedSyncCaller};
 
 /// The keepalive cadence every long-lived coordinator socket shares, because
-/// an idle timeout resets only on received traffic (`sync-ws-handler.ts:57-60`).
+/// an idle timeout resets only on received traffic.
 pub const KEEPALIVE_INTERVAL_MS: u64 = 30_000;
 
 /// Serve one admitted Sync socket until it closes.
 ///
 /// `reauth_at_ms` is the credential's hard deadline: an already-passed one
 /// closes `4003` before anything is sent, and a future one closes `4003` when
-/// it passes. The production upgrade passes `None`, as v2 does
-/// (`bun-coordinator-listeners.ts:328`).
+/// it passes. The production upgrade passes `None`.
 pub async fn serve_socket(
     mut socket: WebSocket,
     caller: VerifiedSyncCaller,
@@ -118,7 +114,7 @@ async fn serve_until_closed(
         }
         if more {
             // A full batch went out and more is eligible: yield, then run the
-            // next turn without waiting for a wake (`sync-ws-v2-egress.ts:355-359`).
+            // next turn without waiting for a wake.
             tokio::task::yield_now().await;
             continue;
         }
@@ -207,7 +203,7 @@ fn carry_out(effect: IngressEffect, opened: &mut OpenedSocket, services: &Arc<Co
 
 /// Write one encoded frame, or name why the socket must close: a write that
 /// failed dropped the frame, and one that blocked past the timeout is a
-/// client that stopped reading (`sync-ws-v1-delivery.ts:196-226`).
+/// client that stopped reading.
 pub(in crate::sync_ws) async fn write_frame(
     socket: &mut WebSocket,
     encoded: Vec<u8>,

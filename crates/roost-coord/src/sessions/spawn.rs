@@ -1,12 +1,12 @@
 //! `SessionsSpawn`: reserve the session UUID, send the worker one spawn command,
 //! and answer with the identity the worker opened. Called from the arm in
-//! `rpc/service_impl.rs`. Ports `apps/coord/src/sessions/handler-session-spawn.ts`.
+//! `rpc/service_impl.rs`.
 //!
-//! THE WORKER REPLY IS SETTLED OFF THE REQUEST. v2 attaches the reply handler to
-//! the pending RPC and lets the HTTP request await only the reservation; the
-//! same split here is a spawned task, so a caller that disconnects mid-spawn
-//! still leaves an answer an exact retry of the same UUID can join, instead of
-//! a reservation that can only time out.
+//! THE WORKER REPLY IS SETTLED OFF THE REQUEST. The reply handler hangs off
+//! the pending RPC and the HTTP request awaits only the reservation; that split
+//! is a spawned task, so a caller that disconnects mid-spawn still leaves an
+//! answer an exact retry of the same UUID can join, instead of a reservation
+//! that can only time out.
 //!
 //! A reply names `session_id` and `channel_id`; one that names another session
 //! or no positive channel is `DataLoss`, a definite failure.

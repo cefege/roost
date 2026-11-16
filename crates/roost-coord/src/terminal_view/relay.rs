@@ -2,9 +2,6 @@
 //! views: authorize a browser view or resync command exactly as the membership
 //! machine would, then forward it instead of admitting local membership.
 //!
-//! Ported from `apps/coord/src/terminal/view/terminal-view-owner-relay.ts` and
-//! `worker-send-terminal-view.ts`.
-//!
 //! IT HOLDS NO GEOMETRY AND MINTS NO STREAM. The worker is the only minimizer
 //! for these sessions, so a relay that also computed an effective geometry here
 //! would be the second minimizer `docs/FAILURE-INDEX.md` warns about ("route a
@@ -303,8 +300,7 @@ impl OwnerRelay {
     }
 
     /// The replica lost a baseline and the coordinator owns no stream for the
-    /// session, so the owning worker is the only source of a fresh full
-    /// (`repairSession`, `terminal-view-owner-relay.ts:188-192`).
+    /// session, so the owning worker is the only source of a fresh full.
     pub fn repair_session(
         &self,
         owner: &WorkerFp,

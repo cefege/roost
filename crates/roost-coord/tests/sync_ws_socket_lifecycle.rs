@@ -2,9 +2,7 @@
 //! opens the terminal domain, the lazy audit domain, and the definite answer a
 //! terminal command always gets.
 //!
-//! Ports `apps/coord/tests/sync/sync-ws-v2-snapshot-lease.test.ts`,
-//! `sync-audit-subscription.test.ts` and `sync-ws-v2-terminal-command-gate.test.ts`
-//! at the socket boundary. The fences at open are `sync_ws_socket_fences.rs`.
+//! The fences at open are `sync_ws_socket_fences.rs`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod db_support;
@@ -54,7 +52,7 @@ fn terminal_ready(generation: u64, token: &str) -> Command {
     }))
 }
 
-// v2 sync-ws-v2-snapshot-lease.test.ts: the token `SessionsList` binds to the
+// The token `SessionsList` binds to the
 // live socket opens the terminal domain once; the held session frames then
 // flow in order. A token bound for another key, or never bound, resets the
 // domain instead (`snapshot_token_invalid`).
@@ -165,9 +163,8 @@ fn audit_row(id: i64) -> AuditRow {
     }
 }
 
-// v2 sync-audit-subscription.test.ts "Sync v2 subscribes to audit only on
-// command and holds live rows through the snapshot barrier", and the
-// unsubscribe's `unsubscribed` reset.
+// Sync v2 subscribes to audit only on command and holds live rows through the
+// snapshot barrier; the unsubscribe's `unsubscribed` reset ends the flow.
 #[tokio::test]
 async fn audit_rows_flow_only_between_subscribe_ready_and_unsubscribe() {
     let fixture = SyncFixture::start("audit").await;
@@ -231,9 +228,9 @@ async fn audit_rows_flow_only_between_subscribe_ready_and_unsubscribe() {
     assert!(next_firehose(&mut socket, QUIET).await.is_none());
 }
 
-// v2 sync-ws-v2-terminal-command-gate.test.ts "an input command for a
-// resubscribing terminal domain is rejected, not dropped" (FAILURE-INDEX, "A
-// terminal domain reset is treated as the input fence"): a terminal `input` is never
+// An input command for a resubscribing terminal domain is rejected, not dropped
+// (FAILURE-INDEX, "A terminal domain reset is treated as the input fence"): a
+// terminal `input` is never
 // silently dropped -- before the terminal domain is ready and after it, the
 // client gets an `input_rejected` echoing its own session, sequence and
 // generation.

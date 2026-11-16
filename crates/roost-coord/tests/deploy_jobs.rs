@@ -3,11 +3,9 @@
 //! the output a reader gets -- buffered lines, live lines, the end at `done`,
 //! and the bounded queue a stalled reader trips.
 //!
-//! The URL cases are ported from `apps/coord/tests/deploy-jobs-url.test.ts`;
-//! the invocation case is the Rust guard of the FAILURE-INDEX entry
+//! The invocation case is the Rust guard of the FAILURE-INDEX entry
 //! "Coordinator-started worker deploys exit 7 from a detached release worktree".
-//! The output cases pin `deployOutput` of `apps/coord/src/deploy/deploy-jobs.ts`
-//! against a real subprocess.
+//! The output cases run against a real subprocess.
 //!
 //! `unwrap` and `expect` are denied outside `#[cfg(test)]`, and an integration
 //! test is its own crate rather than a module of one, so the exemption has to be
@@ -126,7 +124,7 @@ fn a_coordinator_started_deploy_pins_the_coordinators_own_release() {
     );
 }
 
-// `deployOutput` of a running job: the lines written before the reader
+// A running job's output: the lines written before the reader
 // arrived, then each new line, CR stripped and a trailing partial line
 // flushed, ending at `done`.
 #[tokio::test]
@@ -149,7 +147,7 @@ async fn a_reader_gets_the_buffered_and_live_output_and_ends_at_done() {
     assert_eq!(drain(open_deploy_output(&journal, &job_id)).await, expected);
 }
 
-// `deployOutput` of a job id the journal does not hold, or that is not a job
+// Output for a job id the journal does not hold, or that is not a job
 // id at all: one `done` naming the unknown id.
 #[tokio::test]
 async fn an_unknown_or_malformed_job_id_reads_as_one_done() {
@@ -184,8 +182,8 @@ async fn a_known_signal_sentinel_is_lifted_and_an_unknown_one_is_printed() {
     );
 }
 
-// sse.ts's bound: a reader that stops reading past the frame cap is ended with
-// an overflow instead of buffering the rest, while a reader keeping up is not.
+// A reader that stops reading past the frame cap is ended with an overflow
+// instead of buffering the rest, while a reader keeping up is not.
 #[tokio::test]
 async fn a_stalled_reader_overflows_and_a_live_one_still_reads_to_done() {
     let journal = Arc::new(DeployJournal::new());

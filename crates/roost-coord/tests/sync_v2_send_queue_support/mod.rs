@@ -122,8 +122,8 @@ pub(crate) fn hydrated_terminal() -> (SyncV2Session, SnapshotTokenRegistry) {
 /// A hydrated socket watching a session the snapshot seed did NOT cover.
 ///
 /// `hydrated_terminal` binds the token over `SESSION_A`, and
-/// `handle_domain_ready` seeds `announced_sessions` from the covered set exactly
-/// as v2 does (`sync-ws-v2-commands.ts:127-130`) — so on that fixture the cells
+/// `handle_domain_ready` seeds `announced_sessions` from the covered set — so
+/// on that fixture the cells
 /// are already unfenced when the test queues them. **The fence is correct; the
 /// fixture was wrong.** Binding over a DIFFERENT session is the shape a real
 /// socket is in: hydration has happened, and the session under test is one the

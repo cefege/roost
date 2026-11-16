@@ -2,7 +2,6 @@
 //! its cursor binding, one session's resume position, and the shapes a cursor
 //! is issued from and claimed as.
 //!
-//! Ports the exported types of `apps/coord/src/search/global-search-cursors.ts`.
 //! Split from `search::cursors` (the owner) so the owner stays under the file
 //! cap; `search::fanout`, `search::worker_result`, `search::cancel` and
 //! `search::rpc_search` all name these.

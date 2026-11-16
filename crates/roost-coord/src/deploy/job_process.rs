@@ -1,7 +1,6 @@
 //! The subprocess behind one deploy job: spawn it, pump its stdout and stderr
 //! into the job line by line, bound it by the deploy timeout, and finish the job
-//! with its exit. Called by `deploy::start` for every job it opens. Ports the
-//! `Bun.spawn` half of `startDeploy` in apps/coord/src/deploy/deploy-jobs.ts.
+//! with its exit. Called by `deploy::start` for every job it opens.
 //!
 //! WHY TWENTY MINUTES. A real POSIX deploy fetches the commit, runs a frozen
 //! install and builds the SPA on the target, which routinely passes three
@@ -57,8 +56,8 @@ pub fn spawn_deploy_process(
 /// Pump both pipes and await the exit, then finish the job with the outcome.
 ///
 /// A pipe that fails to read finishes the job at once with that error, without
-/// waiting for the exit -- v2's `Promise.all` rejection -- and the process is
-/// left to end on its own rather than killed on a read failure.
+/// waiting for the exit -- and the process is left to end on its own rather
+/// than killed on a read failure.
 async fn supervise(journal: Arc<DeployJournal>, job: Arc<DeployJob>, mut child: Child) {
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -133,8 +132,8 @@ async fn pump_lines(pipe: Option<impl AsyncRead + Unpin>, job: &DeployJob) -> st
     Ok(())
 }
 
-/// An exit code as v2's template rendered it: a signal death has no code and
-/// read as `null` there.
+/// An exit code rendered as text: a signal death has no code and reads as
+/// `null`.
 fn render_exit(exit: Option<i32>) -> String {
     exit.map_or_else(|| "null".to_owned(), |code| code.to_string())
 }

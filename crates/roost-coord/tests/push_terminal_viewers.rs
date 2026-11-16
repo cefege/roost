@@ -2,13 +2,9 @@
 //! coordinator's `TerminalViewHub` answering `ActiveTerminalViewers`
 //! (`push/viewers.rs`).
 //!
-//! Ports `activeTerminalViewerFingerprints` in
-//! `apps/coord/src/terminal/view/terminal-view-hub.ts:113-117`, which has no v2
-//! unit test of its own (v2 exercises it only through "suppresses only devices
-//! actively viewing the session", ported in `push_transition_delivery.rs`). The
-//! precedence is the case worth pinning: v2 reads `owner ?? hub`, so an owner
-//! row answers ALONE, even an empty one, and every production session is
-//! owner-mode.
+//! The precedence is the case worth pinning: the hub is read only when there is
+//! no owner, so an owner row answers ALONE, even an empty one, and every
+//! production session is owner-mode.
 //!
 //! `unwrap` and `expect` are denied outside `#[cfg(test)]`, and an integration
 //! test is its own crate rather than a module of one, so the exemption has to
@@ -77,7 +73,7 @@ fn an_owner_row_answers_alone_parked_viewers_included_even_when_empty() {
     harness.hub.register_owner(&harness.worker);
 
     // A parked viewer has the terminal open in a background tab: it has seen
-    // the session, and v2 counts every viewer the owner admitted.
+    // the session, and every viewer the owner admitted counts.
     harness
         .hub
         .apply_owner_projection(&harness.worker, &projection(&[(OTHER_FINGERPRINT, true)]));

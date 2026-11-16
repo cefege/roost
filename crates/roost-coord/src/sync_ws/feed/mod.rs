@@ -14,10 +14,9 @@
 //! nothing and must keep taking nothing: the retention bounds and the clock are
 //! read at call time or supplied by the caller.
 //!
-//! Ported from `apps/coord/src/sync/sync-feed-frames.ts` (the typed bus
-//! adapters it exports), `sync-feed-ui.ts`, `sync/presence-hub.ts` and
-//! `sync/last-activity-hub.ts`. The subscription ENGINE that installs these on
-//! the live buses and narrows each frame to the sockets that may see it is
+//! The subscription ENGINE that installs the typed bus adapters in this
+//! directory on the live buses and narrows each frame to the sockets that may
+//! see it is
 //! `sync_ws::live_feed`, and the retained seed is `sync_ws::seed`: nothing
 //! in this directory
 //! subscribes to a bus except the one lifecycle subscription `last_activity`
@@ -119,8 +118,7 @@ impl FeedFrame {
     /// Classify `frame` and bind it to that classification.
     ///
     /// The classification is read back off the finished frame rather than
-    /// declared by the adapter, which is v2's `push(frame, meta = frameMeta(
-    /// frame))` default (`sync-feed.ts:85`) made explicit: a session frame's
+    /// declared by the adapter: a session frame's
     /// `announces`/`closes` are facts about the encoded event, so a feed that
     /// computed them from the wire value would have two sources for one answer.
     pub(in crate::sync_ws::feed) fn of(frame: FirehoseFrame) -> Self {
@@ -150,7 +148,7 @@ impl FeedFrame {
 
     /// The frame alone, for the v1 live path, which has no queue to place it
     /// in and so no use for its meta: it stamps a delivery sequence onto the
-    /// frame and sends it at once (`sync-ws-v1-delivery.ts:164-172`).
+    /// frame and sends it at once.
     #[must_use]
     pub fn into_frame(self) -> FirehoseFrame {
         self.frame

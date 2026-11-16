@@ -2,8 +2,7 @@
 //! deltas keep flowing in order after the first one, and view-states queued
 //! back to back all reach the client.
 //!
-//! Ports the delivery cases of `apps/coord/tests/sync/sync-ws-v2-scheduler.test.ts`
-//! against `crates/roost-coord/src/sync_ws/terminal/{ready_ring,delivery}.rs`.
+//! These pin `crates/roost-coord/src/sync_ws/terminal/{ready_ring,delivery}.rs`.
 //! A lane that sends one delta and then waits forever for a delivery match is
 //! the smoke failure "main screen history survives width and height
 //! perturbations": the browser sees no deltas, only the fulls its own resync
@@ -183,7 +182,6 @@ fn drain(session: &mut SyncV2Session, hub: &mut RecordingHub) -> Vec<String> {
     sent
 }
 
-// v2 "a delta-only lane exposes one head and drains its retained FIFO in order".
 #[test]
 fn a_delta_only_lane_drains_every_buffered_delta_in_order() {
     let mut session = hydrated_session();
@@ -202,7 +200,6 @@ fn a_delta_only_lane_drains_every_buffered_delta_in_order() {
     );
 }
 
-// v2 "terminal state precedes snapshot parts and delta tail after an ACK restart".
 #[test]
 fn a_view_state_goes_ahead_of_the_baseline_and_the_deltas_behind_it() {
     let mut session = hydrated_session();
@@ -223,9 +220,9 @@ fn a_view_state_goes_ahead_of_the_baseline_and_the_deltas_behind_it() {
     );
 }
 
-// v2 keeps each view-state at the head of its lane until it is delivered
-// (`sync-ws-v2-terminal-ready.ts:75-90,175-178`): a second decision queued
-// behind the first is the answer the client is waiting for.
+// Each view-state stays at the head of its lane until it is delivered: a
+// second decision queued behind the first is the answer the client is waiting
+// for.
 #[test]
 fn view_states_queued_back_to_back_all_reach_the_client() {
     let mut session = hydrated_session();
@@ -271,9 +268,8 @@ fn a_long_stream_never_exhausts_its_lane_or_the_sockets_cell_budget() {
     assert!(hub.requested.is_empty());
 }
 
-// v2 "a delta-only lane exposes one head and drains its retained FIFO in order"
-// keeps the queued head IN the tail, so the delta in flight still counts
-// against the lane's frame bound (`sync-ws-v2-terminal.ts:290`).
+// A lane keeps the queued head IN the tail, so the delta in flight still counts
+// against the lane's frame bound.
 #[test]
 fn the_delta_in_flight_still_counts_against_the_lane_bound() {
     let mut session = hydrated_session();

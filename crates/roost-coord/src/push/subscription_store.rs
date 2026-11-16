@@ -4,9 +4,9 @@
 //! Owned by the push domain. Every statement here binds its values; none
 //! interpolates a caller's endpoint into SQL text.
 //!
-//! THE CAP IS ONE STATEMENT, AND IT MUST STAY ONE. v2's
-//! `handlers-push.ts:88-109` does not count and then insert -- it puts the
-//! count, the existence check and the write in the same `INSERT ... SELECT ...
+//! THE CAP IS ONE STATEMENT, AND IT MUST STAY ONE. The write does not count
+//! and then insert -- it puts the count, the existence check and the write in
+//! the same `INSERT ... SELECT ...
 //! WHERE`, so the cap and the row are one decision. A count-then-insert is two
 //! decisions with a window between them, and a device that opens two tabs at
 //! once takes that window every time. A test asserts the shape by racing two
@@ -20,7 +20,7 @@ use crate::push::endpoint_policy::PushInputError;
 
 /// How many distinct endpoints one account device may hold.
 ///
-/// 4 (`handlers-push.ts:23`). A browser re-subscribes on a new profile and
+/// Limit 4: a browser re-subscribes on a new profile and
 /// leaves the old endpoint behind, so the number is a bound on accumulated
 /// dead endpoints rather than on tabs; four is enough for a device that has
 /// genuinely been re-provisioned twice.

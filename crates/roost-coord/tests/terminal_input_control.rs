@@ -1,8 +1,6 @@
 //! One input batch through its sender lane to exactly one keeper write: the
 //! monotonic hop budget, phase-proven rejection, lane order, stale-route
 //! refusal, Sync-generation cancellation, and the unary `SessionsInput` answer.
-//! Ports the input cases of `apps/coord/tests/terminal/terminal-hop-deadline.test.ts`
-//! and "input cannot repopulate a stale route" of `durable-publication-snapshot.test.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -26,7 +24,7 @@ use terminal_input_support::{
     CALLER_FP, InputHarness, WORKER_FP, batch, identity, written_in_full,
 };
 
-// v2: "a budget too short to survive the hop is refused rather than half-spent"
+// A budget too short to survive the hop is refused rather than half-spent.
 #[tokio::test]
 async fn a_budget_too_short_to_survive_the_hop_is_refused_before_send() {
     let harness = InputHarness::new("presend").await;
@@ -43,7 +41,7 @@ async fn a_budget_too_short_to_survive_the_hop_is_refused_before_send() {
     assert!(harness.input_requests().is_empty());
 }
 
-// v2: "an expired budget stays expired no matter what the wall clock says"
+// An expired budget stays expired no matter what the wall clock says.
 #[tokio::test]
 async fn an_expired_budget_is_refused_before_send() {
     let harness = InputHarness::new("expired").await;
@@ -59,7 +57,7 @@ async fn an_expired_budget_is_refused_before_send() {
     assert!(harness.input_requests().is_empty());
 }
 
-// v2: "a healthy remaining budget still sends, and the worker slice is strictly smaller"
+// A healthy remaining budget still sends, and the worker slice is strictly smaller.
 #[tokio::test]
 async fn a_healthy_budget_sends_a_strictly_smaller_worker_slice_and_the_actor() {
     let harness = InputHarness::new("nested").await;
@@ -86,7 +84,7 @@ async fn a_healthy_budget_sends_a_strictly_smaller_worker_slice_and_the_actor() 
     assert_eq!(requests[0].input_route_epoch, "route-epoch-nested");
 }
 
-// v2: "input REJECTED without a pre-write phase is ambiguous, so it is never retried"
+// Input REJECTED without a pre-write phase is ambiguous, so it is never retried.
 #[tokio::test]
 async fn a_rejection_without_pre_write_proof_is_ambiguous_and_never_retried() {
     let harness = InputHarness::new("unproven").await;
@@ -113,7 +111,7 @@ async fn a_rejection_without_pre_write_proof_is_ambiguous_and_never_retried() {
     assert_eq!(harness.input_requests().len(), 1);
 }
 
-// v2 terminal-write-control.ts workerResultAccepted: raw input is accepted only
+// Raw input is accepted only
 // when the keeper wrote EXACTLY the batch; a short write is ambiguous.
 #[tokio::test]
 async fn an_acceptance_that_wrote_fewer_bytes_than_sent_is_ambiguous() {
@@ -132,7 +130,7 @@ async fn an_acceptance_that_wrote_fewer_bytes_than_sent_is_ambiguous() {
     assert_eq!(result.written_bytes, 1);
 }
 
-// v2: "caller buffer mutation cannot change a same-lane queued request"
+// Caller buffer mutation cannot change a same-lane queued request.
 #[tokio::test]
 async fn same_lane_batches_reach_the_worker_in_the_order_they_entered() {
     let harness = InputHarness::new("owned").await;
@@ -166,7 +164,7 @@ async fn same_lane_batches_reach_the_worker_in_the_order_they_entered() {
     assert_eq!(payloads, vec![b"a".to_vec(), b"bc".to_vec()]);
 }
 
-// v2 (durable-publication-snapshot.test.ts): "input cannot repopulate a stale route from the open breadcrumb"
+// Input cannot repopulate a stale route from the open breadcrumb.
 #[tokio::test]
 async fn input_cannot_repopulate_a_stale_route_from_the_open_breadcrumb() {
     let harness = InputHarness::new("stale-route").await;
@@ -195,7 +193,7 @@ async fn input_cannot_repopulate_a_stale_route_from_the_open_breadcrumb() {
     assert_eq!(hub.cached_route(&stale_id), None);
 }
 
-// v2 (terminal-control-lane.ts cancelTerminalControlGeneration): a closing Sync
+// A closing Sync
 // generation cancels the queued batches that have not begun.
 #[tokio::test]
 async fn a_closed_sync_generation_cancels_its_input_that_has_not_begun() {
@@ -229,7 +227,7 @@ async fn a_closed_sync_generation_cancels_its_input_that_has_not_begun() {
     assert_eq!(harness.input_requests().len(), 1);
 }
 
-// v2 (handlers-sessions.ts sessionsInput): unary input is accepted only when
+// Unary input is accepted only when
 // the keeper proved the write, and a guessed session is simply not accepted.
 #[tokio::test]
 async fn sessions_input_is_accepted_only_for_a_proven_write() {

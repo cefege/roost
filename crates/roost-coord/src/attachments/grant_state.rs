@@ -2,8 +2,7 @@
 //! invalidation vocabulary, the request shape it admits, and the exact-worker
 //! predicate every grant, peer and status fence shares. `AttachmentGrantOwner`
 //! owns the mutations; attachment grants never share a registry, secret or lease
-//! identity with terminal grants. Ports
-//! `apps/coord/src/attachments/attachment-grant-owner-state.ts`.
+//! identity with terminal grants.
 
 use std::sync::Arc;
 
@@ -29,7 +28,7 @@ pub enum AttachmentGrantRetireReason {
 }
 
 impl AttachmentGrantRetireReason {
-    /// v2's spelling, for the retirement log line.
+    /// The spelling used in the retirement log line.
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -146,9 +145,8 @@ pub struct AttachmentGrantResult {
 }
 
 /// Whether `handle` is still the routable generation for its worker and still
-/// the process epoch a fence captured. v2 writes this predicate twice
-/// (`isExactAttachmentGrantWorker` and `isCurrentAttachmentPeerWorker`), and
-/// both reduce to the same registry question here.
+/// the process epoch a fence captured. Grants, peers and statuses all ask the
+/// same registry question.
 #[must_use]
 pub fn is_exact_attachment_worker(
     workers: &WorkerRegistry,
@@ -204,25 +202,25 @@ pub fn assert_attachment_grant_request(
     Ok(())
 }
 
-/// `InvalidArgument`, v2's grant-shape refusal.
+/// `InvalidArgument`: the grant-shape refusal.
 #[must_use]
 pub fn attachment_grant_invalid(message: &str) -> ConnectError {
     ConnectError::new(ErrorCode::InvalidArgument, message)
 }
 
-/// `PermissionDenied`, v2's grant-authority refusal.
+/// `PermissionDenied`: the grant-authority refusal.
 #[must_use]
 pub fn attachment_grant_denied(message: &str) -> ConnectError {
     ConnectError::new(ErrorCode::PermissionDenied, message)
 }
 
-/// `Unavailable`, v2's retryable grant refusal.
+/// `Unavailable`: the retryable grant refusal.
 #[must_use]
 pub fn attachment_grant_unavailable(message: &str) -> ConnectError {
     ConnectError::new(ErrorCode::Unavailable, message)
 }
 
-/// `ResourceExhausted`, v2's grant-capacity refusal.
+/// `ResourceExhausted`: the grant-capacity refusal.
 #[must_use]
 pub fn attachment_grant_exhausted(message: &str) -> ConnectError {
     ConnectError::new(ErrorCode::ResourceExhausted, message)

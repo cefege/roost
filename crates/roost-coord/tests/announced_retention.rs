@@ -2,13 +2,10 @@
 //! cell loss belongs to exactly one session and lives at most 30 s, an early
 //! fact at most 3 s, and every retention owner charges the one socket budget.
 //!
-//! Ports `apps/coord/tests/events/announced-channel-recovery-order.test.ts`
-//! ("a pre-commit replacement recovery remains for its replacement session");
-//! its three other cases interleave a recovery delivery with later facts, which
-//! a synchronous drain on the socket's one task cannot do. Also ports the pure
-//! halves of `apps/coord/tests/announce-barrier-handler.test.ts` ("a stale
-//! recovery cannot absorb metadata after exact route replacement", and the two
-//! socket-cap cases) over `FrameQueue`, whose budget the barrier shares.
+//! A synchronous drain on the socket's one task cannot interleave a recovery
+//! delivery with later facts, so this file pins the pre-commit replacement
+//! recovery, the stale recovery after exact route replacement, and the two
+//! socket-cap cases over `FrameQueue`, whose budget the barrier shares.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod announced_support;
@@ -43,7 +40,6 @@ fn park(b: &mut Barrier, session: &str, title: &str) -> Instant {
 
 #[test]
 fn a_pre_commit_replacement_recovery_remains_for_its_replacement_session() {
-    // v2: "a pre-commit replacement recovery remains for its replacement session"
     let mut b = Barrier::new();
     park(&mut b, SESSION, "older");
     park(&mut b, REPLACEMENT, "replacement");
@@ -58,10 +54,8 @@ fn a_pre_commit_replacement_recovery_remains_for_its_replacement_session() {
 
 #[test]
 fn a_stale_recovery_cannot_absorb_metadata_after_exact_route_replacement() {
-    // v2 (announce-barrier-handler): "a stale recovery cannot absorb metadata
-    // after exact route replacement" — the durable index now maps the channel
-    // to another session, so the old recovery is discarded and the new fact
-    // is published rather than retained.
+    // The durable index now maps the channel to another session, so the old
+    // recovery is discarded and the new fact is published rather than retained.
     let mut b = Barrier::new();
     park(&mut b, SESSION, "old-title");
     assert_eq!(b.barrier.stats().recovery_metadata, 1);
@@ -159,7 +153,6 @@ fn retention_holds_at_most_sixty_four_channels_and_refuses_a_non_compact_fact() 
 
 #[test]
 fn the_socket_frame_cap_counts_the_in_flight_append_and_every_announced_channel() {
-    // v2: "socket frame cap includes an in-flight append and every announced channel"
     let mut queue = FrameQueue::new();
     assert!(matches!(
         queue.push(QueuedFrame::new(vec![1; 8], 0)),
@@ -210,7 +203,6 @@ fn the_socket_frame_cap_counts_the_in_flight_append_and_every_announced_channel(
 
 #[test]
 fn the_socket_byte_cap_counts_the_in_flight_append_through_the_first_excess_byte() {
-    // v2: "socket byte cap retains an in-flight append through the first excess byte"
     let mut queue = FrameQueue::new();
     let append_bytes = 64_u64;
     queue.push(QueuedFrame::new(vec![0; append_bytes as usize], 0));

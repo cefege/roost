@@ -1,7 +1,7 @@
 //! What one worker socket's frames turn into: the three arms of `FrameDispatch`.
 //!
-//! Ported from `apps/coord/src/workers/worker-frame-dispatch.ts`. `dispatch.rs`
-//! owns the contract and `dispatcher_for` owns the construction; this file owns
+//! `dispatch.rs` owns the contract and `dispatcher_for` owns the construction;
+//! this file owns
 //! the decisions. Two of them are worth reading twice: the durable arm offers a
 //! `client_seq` BEFORE it appends, and the deferred reap of a committed snapshot
 //! is sent from here rather than from inside the append, which is what makes the
@@ -70,8 +70,7 @@ impl WorkerFrameDispatcher {
     }
 
     /// Whether this socket is still the worker's live generation: not revoked,
-    /// and not superseded by a newer one (v2 `worker-conn.ts`
-    /// `_isCurrentGeneration`).
+    /// and not superseded by a newer one.
     ///
     /// Identity, not readiness: a superseded socket is fenced even when it is
     /// perfectly ready, and a frame it appends under the old generation would
@@ -88,7 +87,7 @@ impl WorkerFrameDispatcher {
                 .is_some_and(|current| Arc::ptr_eq(&current, &self.handle))
     }
 
-    /// The v2 `fenced(what)` guard: a fenced frame is dropped with no ACK and
+    /// The fence guard: a fenced frame is dropped with no ACK and
     /// no close, because the worker that sent it will replay it on its new link.
     pub(super) fn fenced(&self, what: &'static str) -> bool {
         if self.is_current_generation() {
@@ -106,8 +105,7 @@ impl WorkerFrameDispatcher {
     ///
     /// Before the snapshot barrier only the five kinds that CAN establish or
     /// reconcile a session are admitted; everything else is dropped SILENTLY
-    /// with no ACK, so the worker replays it after its snapshot
-    /// (`worker-frame-dispatch.ts:107-121`).
+    /// with no ACK, so the worker replays it after its snapshot.
     pub(super) fn may_cross_barrier(&self, event: &SessionEvent) -> bool {
         self.handle.is_ready()
             || matches!(
@@ -121,8 +119,8 @@ impl WorkerFrameDispatcher {
 
     /// Tell the worker which exact sequence settled, best effort.
     ///
-    /// The handle's own `send`, not `send_frame_through`: v2's `sendBestEffort`
-    /// writes to the socket it holds and ignores the answer, and a first
+    /// The handle's own `send`, not `send_frame_through`: it writes to the
+    /// socket it holds and ignores the answer, and a first
     /// snapshot is ACKed BEFORE its generation is routable, so requiring
     /// routability here would withhold the ACK that releases the replay barrier.
     fn acknowledge(&self, client_seq: u64) {
@@ -142,7 +140,7 @@ impl WorkerFrameDispatcher {
     /// Kill the PTYs a committed snapshot force-closed while their worker was
     /// offline.
     ///
-    /// v2's `dispatchSnapshotOrphanReaps`, called from the same place: AFTER the
+    /// Called AFTER the
     /// barrier is crossed, never before. The append was told to defer, so the
     /// ids came back to us instead of being killed from inside the transaction;
     /// that is what makes the readiness barrier the release condition rather
@@ -166,7 +164,7 @@ impl FrameDispatch for WorkerFrameDispatcher {
             FrameClass::Live => self.handle_live(worker_fp, frame),
             FrameClass::Rpc => self.handle_rpc(worker_fp, frame),
             // A durable frame on the synchronous arm is a read loop that
-            // classified it wrong. REFUSED, NOT CLOSED, and the reason is v2's:
+            // classified it wrong. REFUSED, NOT CLOSED:
             // the event was neither appended nor acknowledged, so the worker
             // still holds it in its outbox and replays it. Closing would only
             // tell it to do the same thing more expensively.
@@ -232,15 +230,15 @@ impl WorkerFrameDispatcher {
         }
         // A held keeper-update fence withholds the ACK so the worker replays this
         // entry after the update: acking here loses the durable record of which
-        // PTYs are live (`worker-frame-dispatch.ts:122-127`).
+        // PTYs are live.
         let Ok(lease) = self.core.services.write_gate.acquire_shared() else {
             return DispatchOutcome::Refused;
         };
 
         // THE SLOT IS RECORDED BEFORE THE APPEND RUNS, under the write lease, so
         // the cursor and the durable row agree on the order sequences arrived.
-        // Nothing here refuses: v2 appends every positive sequence and lets the
-        // unique index dedupe (`worker-frame-dispatch.ts:62-71`), and a worker
+        // Nothing here refuses: every positive sequence is appended and the
+        // unique index dedupes, and a worker
         // resuming its outbox after a coordinator restart starts above 1.
         if let crate::worker_link::client_seq::SeqVerdict::Resumed { expected, offered } =
             self.cursor.offer(client_seq).await
@@ -296,8 +294,8 @@ impl WorkerFrameDispatcher {
             can_publish: Some(&fence),
             extra_work: None,
             // SET FOR EVERY WORKER CONNECTION, NOT ONLY FOR SNAPSHOTS. The append
-            // consults the flag only inside a `Snapshot` arm, so the narrowed
-            // form v2 passes reaches the same decision; and the field's own
+            // consults the flag only inside a `Snapshot` arm, so setting it for every
+            // frame reaches the same decision; and the field's own
             // contract is about the CALLER ("worker connections defer, direct
             // coordinator callers do not"). That is what makes the ids come back
             // to `drain_reaps` here instead of being killed from inside the
@@ -319,7 +317,7 @@ impl WorkerFrameDispatcher {
         result: AppendEventResult,
     ) -> DispatchOutcome {
         // A refusal is a DATA outcome: no ACK and no close, so a prober cannot
-        // tell "never existed" from "not yours" (`event-admission.ts`).
+        // tell "never existed" from "not yours".
         if !result.admitted {
             tracing::debug!(
                 worker_fp,

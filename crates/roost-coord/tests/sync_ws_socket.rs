@@ -2,9 +2,6 @@
 //! protocols with the marker echoed, a v2 domain's frames are held until
 //! `domain_ready` and then flow in order, an ACK releases a frame the full
 //! window held, and a v1 socket is sequenced and live.
-//!
-//! Ports the socket-level cases of `apps/coord/tests/sync/sync-ws-keepalive*.test.ts`
-//! and `sync-audit-subscription.test.ts` that the live path owns.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod db_support;
@@ -24,7 +21,7 @@ use ws_client_support::{Dialed, close_code};
 /// A pair-request label that fits the 4 MiB window three times and not four.
 const LARGE_PAYLOAD: usize = 1_200_000;
 
-// v2 sync-ws-keepalive-upgrade.test.ts: an admitted upgrade answers 101 and
+// An admitted upgrade answers 101 and
 // echoes `roost-auth`, never the credential; the v2 socket opens with the
 // `subscribed` barrier naming this process's epoch and all five domains.
 #[tokio::test]
@@ -54,8 +51,8 @@ async fn an_admitted_sync_upgrade_switches_protocols_and_echoes_only_the_marker(
     assert!(!audit.subscribed, "audit is the only lazy domain");
 }
 
-// v2 sync-ws-keepalive-upgrade.test.ts "rejects missing or malformed auth
-// subprotocols before upgrade": an unverifiable credential never switches.
+// Missing or malformed auth subprotocols are refused before upgrade: an
+// unverifiable credential never switches.
 #[tokio::test]
 async fn an_unverifiable_credential_is_refused_before_the_upgrade() {
     let fixture = SyncFixture::start("refused").await;
@@ -65,8 +62,8 @@ async fn an_unverifiable_credential_is_refused_before_the_upgrade() {
     }
 }
 
-// v2 sync-audit-subscription.test.ts "holds live rows through the snapshot
-// barrier", for the pair domain: frames published before `domain_ready` are
+// Live rows are held through the snapshot barrier, for the pair domain: frames
+// published before `domain_ready` are
 // held, and after it they flow in publication order under sequences 1, 2, 3
 // stamped with the domain's announced generation.
 #[tokio::test]
@@ -103,9 +100,9 @@ async fn a_domain_is_held_until_ready_and_then_flows_in_order() {
     }
 }
 
-// v2 sync-ws-keepalive-flow-control.test.ts "application byte preflight
-// accepts through 4 MiB and rejects the next candidate" and "cumulative ACK
-// releases records": on v2 the rejected candidate is HELD, not closed, and the
+// The application byte preflight accepts through 4 MiB and rejects the next
+// candidate, and a cumulative ACK releases records: on a v2 socket the
+// rejected candidate is HELD, not closed, and the
 // acknowledgement that frees the window sends it.
 #[tokio::test]
 async fn an_ack_releases_the_frame_a_full_window_held() {
@@ -147,7 +144,7 @@ async fn an_ack_releases_the_frame_a_full_window_held() {
         (4, "big-4")
     );
 
-    // v2 "equal and stale cumulative ACKs are idempotent": a repeated or
+    // Equal and stale cumulative ACKs are idempotent: a repeated or
     // older acknowledgement with no command releases nothing and keeps the
     // socket open, so the next frame still flows.
     send_client_frame(&mut socket, &subscribed.socket_id, Some(3), None).await;
@@ -162,8 +159,8 @@ async fn an_ack_releases_the_frame_a_full_window_held() {
     );
 }
 
-// v2 sync-ws-keepalive-flow-control.test.ts "future and malformed ACKs close
-// 1008": an acknowledgement above the last sent sequence is a violation.
+// Future and malformed ACKs close 1008: an acknowledgement above the last sent
+// sequence is a violation.
 #[tokio::test]
 async fn an_ack_above_the_last_sent_sequence_closes_1008() {
     let fixture = SyncFixture::start("future-ack").await;
@@ -174,8 +171,7 @@ async fn an_ack_above_the_last_sent_sequence_closes_1008() {
     assert_eq!(close_code(&mut socket, EXPECT).await, Some(Some(1008)));
 }
 
-// v2 sync-ws-keepalive-flow-control.test.ts "legacy sockets remain
-// unsequenced" and the v1 live path of sync-ws-v1-delivery.ts: a v1 socket
+// Legacy sockets remain unsequenced: a v1 socket
 // gets no barrier and no domain fence -- its retained seed, then live frames
 // -- a `flow=1` one is sequenced from 1, and a v2-shaped frame on it closes
 // 1008.

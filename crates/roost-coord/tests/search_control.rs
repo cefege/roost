@@ -1,9 +1,6 @@
 //! Continuation epoch semantics, strict worker-batch validation, cancel
 //! ordering and grouping, per-worker serialization, and pending cleanup for
 //! global terminal search, through the real handlers and pending table.
-//!
-//! Ported from `apps/coord/tests/search/global-search-control.test.ts`. A v2
-//! `AbortController.abort()` on the request is a dropped call here.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -242,7 +239,7 @@ async fn same_worker_pages_serialize_and_queue_time_is_charged_to_the_page() {
     assert_eq!(worker_a1.of_kind("search-scrollback-batch").len(), 1);
     assert_eq!(worker_a2.of_kind("search-scrollback-batch").len(), 1);
 
-    // The browser hanging up is the v2 abort: the dropped call tombstones the
+    // The browser hanging up aborts the request: the dropped call tombstones the
     // search, cancels its sessions on their workers, and frees its pending RPCs.
     first.abort();
     assert!(first.await.unwrap_err().is_cancelled());

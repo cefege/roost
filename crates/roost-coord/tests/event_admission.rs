@@ -1,8 +1,8 @@
 //! The twelve event-admission rules, their order, and the two that look like
 //! holes and are not.
 //!
-//! Covers: every rule in `apps/coord/src/events/event-admission.ts:29-122`,
-//! driven with no database at all -- which is the point of the split. Also
+//! Covers: every rule, driven with no database at all -- which is the point of
+//! the split. Also
 //! covers the one predicate that decides public versus private, because a
 //! divergence there is what makes a private recovery reference appear in a
 //! dashboard.
@@ -42,8 +42,7 @@ fn admitted(facts: &AdmissionFacts) -> bool {
 #[test]
 fn rule_one_a_non_worker_producer_always_passes_and_only_probes_for_existence() {
     // The ghost-close and deploy-line path. Fencing it would break the
-    // coordinator's recovery of its own records
-    // (`apps/coord/src/sessions/handlers-sessions.ts:163,201,283`).
+    // coordinator's recovery of its own records.
     let facts = AdmissionFacts {
         caller_worker_fp: None,
         event_kind: "closed".to_string(),
@@ -188,8 +187,7 @@ fn rule_ten_an_opened_for_a_genuinely_new_session_passes() {
 fn a_refusal_reports_no_session_existence_to_the_caller() {
     // The oracle property. `session_exists` is `false` on every refusal even when
     // the row is plainly there, so a prober cannot distinguish "absent" from
-    // "not yours" by reading the answer
-    // (`apps/coord/src/events/event-admission.ts:1-3`).
+    // "not yours" by reading the answer.
     let mut facts = live_worker();
     facts.event_kind = "cwd".to_string();
     facts.session_id = Some("s-1".to_string());

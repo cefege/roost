@@ -3,13 +3,10 @@
 //! bounded like the window, and a seed nobody acknowledges closed at the ACK
 //! deadline.
 //!
-//! Ports `apps/coord/tests/sync/sync-ws-keepalive-flow-control.test.ts` "ACK-paced
-//! retained seed crosses 512 frames and a stalled seed exits at 3 seconds" at
-//! the socket boundary; v3's ACK deadline is `ACK_TIMEOUT_MS`, not v2's 3 s.
-//! v2 filled the seed with 520 UI states by reaching into
-//! the owner's map; the owner here caps retained tabs at 256, so the seed is
-//! 520 retained last-activity observations instead -- the same frames-per-seed
-//! property through the owner's public API.
+//! The ACK deadline is `ACK_TIMEOUT_MS`. The seed is 520 retained
+//! last-activity observations (the owner caps retained tabs at 256, so it
+//! cannot hold 520 UI states), which gives the frames-per-seed property
+//! through the owner's public API.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod db_support;
@@ -69,7 +66,7 @@ fn kind_of(frame: &FirehoseFrame) -> &'static str {
     }
 }
 
-// v2 "ACK-paced retained seed crosses 512 frames" (healthy socket): each seed
+// On a healthy socket each seed
 // frame waits for the previous one's acknowledgement, the seed runs past the
 // 512-frame window, and a title published while it runs arrives after all of
 // it. Once the seed is acknowledged, live frames flow without waiting.
@@ -122,8 +119,8 @@ async fn an_ack_paced_retained_seed_crosses_the_window_and_then_goes_live() {
     }
 }
 
-// v2 "ACK-paced retained seed crosses 512 frames" (bounded and byte-bounded
-// sockets): live frames that arrive while a seed frame waits are held in a
+// On bounded and byte-bounded sockets, live frames that arrive while a seed
+// frame waits are held in a
 // FIFO bounded by 512 frames and 4 MiB; the frame past either bound closes
 // the socket 1013 instead of growing the queue.
 #[tokio::test]
@@ -149,8 +146,8 @@ async fn live_frames_held_behind_a_seed_are_bounded_like_the_window() {
     assert_eq!(close_code(&mut bytes, EXPECT).await, Some(Some(1013)));
 }
 
-// v2 "a stalled seed exits at 3 seconds": a seed frame nobody acknowledges
-// holds the window, and the ACK deadline closes the socket 1013.
+// A seed frame nobody acknowledges holds the window, and the ACK deadline
+// closes the socket 1013.
 #[tokio::test]
 async fn an_unacknowledged_seed_closes_at_the_ack_deadline() {
     let (fixture, token, _sessions) = crowded_install("paced-stalled").await;

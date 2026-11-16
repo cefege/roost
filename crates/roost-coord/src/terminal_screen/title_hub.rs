@@ -11,8 +11,7 @@ use crate::events::bus::Subscription;
 use crate::events::bus_domains::Buses;
 use crate::events::bus_messages::{SessionBusMessage, SessionTitleUpdate};
 
-/// The longest title retained, in UTF-16 code units as v2 counts
-/// (`TERMINAL_TITLE_MAX_LENGTH`, `packages/protocol/src/terminal-metadata.ts:8`).
+/// The longest title retained, in UTF-16 code units as a browser counts them.
 pub const TERMINAL_TITLE_MAX_LENGTH: usize = 256;
 
 /// One session's retained title and the key its repeats are compared by.
@@ -98,7 +97,7 @@ impl TerminalTitleHub {
 
     /// Release every closed session for as long as the returned handle lives.
     ///
-    /// v2's `startTerminalTitleHub`; `serve` holds the handle for the process.
+    /// `serve` holds the handle for the process.
     pub fn subscribe_session_close(
         self: &Arc<Self>,
         buses: &Buses,
@@ -121,9 +120,9 @@ impl TerminalTitleHub {
 
 /// A title with its control characters removed and its length capped, and the
 /// key a repeat is compared by: the same title with every braille spinner
-/// glyph collapsed to one (`normalizeTerminalTitle`, `terminal-metadata.ts:25`).
+/// glyph collapsed to one.
 ///
-/// The cap counts UTF-16 code units, as v2's `String.slice` does, and never
+/// The cap counts UTF-16 code units, as a browser's `String.slice` does, and never
 /// splits a character: a Rust string cannot hold half a surrogate pair.
 #[must_use]
 pub fn normalize_terminal_title(raw: &str) -> (String, String) {

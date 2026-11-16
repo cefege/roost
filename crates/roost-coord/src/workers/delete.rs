@@ -1,9 +1,6 @@
 //! The delete path: one transaction that makes the revocation irreversible, and
 //! a chain of best-effort cleanups that cannot undo it.
 //!
-//! Ported from the `workersDelete` arm of
-//! `apps/coord/src/workers/handlers-workers.ts:173-274`.
-//!
 //! THE COMMIT IS THE POINT, AND EVERYTHING AFTER IT IS VOLATILE. The
 //! transaction tombstones the row, revokes the credential, drops the keys and
 //! the unused tokens this worker minted. Nothing after that line can be rolled
@@ -136,8 +133,8 @@ async fn commit_deletion(
 /// Run one post-commit cleanup, isolating its failure from the retirement.
 ///
 /// The seams these steps call return unit, so the only way a collaborator can
-/// fail is by panicking; v2's `try { … } catch` around a thrown JS error is
-/// this. It matters because each step below is owned by a different object, and
+/// fail is by panicking, and that panic is caught here. It matters because
+/// each step below is owned by a different object, and
 /// one owner throwing must not leave the others' state half-retired.
 pub fn best_effort_cleanup(step: &str, worker_fp: &WorkerFp, work: impl FnOnce()) {
     if std::panic::catch_unwind(AssertUnwindSafe(work)).is_err() {

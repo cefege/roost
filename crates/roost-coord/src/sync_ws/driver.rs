@@ -4,20 +4,13 @@
 //!
 //! Owned by `sync_ws::socket`, which builds one per socket and is its only
 //! writer to the wire; `sync_ws::live_feed` delivers bus frames into it and
-//! `sync_ws::ingress` applies client frames to it. Ports the send half of
-//! `apps/coord/src/sync/sync-ws-v2-egress.ts` (`flushV2`, `enqueueV2Frame`,
-//! `resetV2Domain`), `sync-ws-v2-control.ts`, the close paths of
-//! `sync-ws-v1-delivery.ts`, and the per-socket record of
-//! `sync-ws-v2-state.ts` / `sync-ws-v2-state-types.ts` that the pure session
-//! does not already hold.
+//! `sync_ws::ingress` applies client frames to it.
 //!
-//! THE OUTBOX IS THE PORT OF BUN'S SEND BUFFER, NOT A SECOND QUEUE. v2 called
-//! `ws.send` from inside a bus listener and Bun buffered the bytes; its
-//! high-water check read that buffer after every send. A tokio socket is
-//! written by one task, so a listener appends encoded bytes here and wakes that
-//! task -- and the same high-water mark closes `1013` when the bytes pile up.
+//! THE OUTBOX IS THE SOCKET'S SEND BUFFER, NOT A SECOND QUEUE. A tokio socket
+//! is written by one task, so a listener appends encoded bytes here and wakes
+//! that task -- and the high-water mark closes `1013` when the bytes pile up.
 //! Application frames never reach it until a flush turn releases them, so the
-//! ACK window still bounds what is in flight, exactly as v2's did.
+//! ACK window still bounds what is in flight.
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
@@ -43,12 +36,10 @@ use crate::sync_ws::session_replay::SessionReplay;
 use crate::sync_ws::terminal::screen_socket::SocketScreenHub;
 use crate::sync_ws::v1_delivery::V1Delivery;
 
-/// Encoded bytes the outbox may hold before the socket closes `high_water`
-/// (`sync-ws-handler.ts:61`, `BACKPRESSURE_LIMIT_BYTES`).
+/// Encoded bytes the outbox may hold before the socket closes `high_water`.
 pub const SOCKET_HIGH_WATER_BYTES: u64 = 8 * 1024 * 1024;
 
-/// How long one write may block before the socket closes `timeout`
-/// (`sync-ws-handler.ts:62`, `BACKPRESSURE_TIMEOUT_MS`).
+/// How long one write may block before the socket closes `timeout`.
 pub const SOCKET_WRITE_TIMEOUT_MS: u64 = 10_000;
 
 /// A close the socket must perform: the first one decided wins.
@@ -56,7 +47,7 @@ pub const SOCKET_WRITE_TIMEOUT_MS: u64 = 10_000;
 pub struct LinkClose {
     /// The WebSocket close code.
     pub code: u16,
-    /// The close reason, exactly as v2 spells it.
+    /// The close reason the client sees.
     pub reason: &'static str,
 }
 
@@ -119,10 +110,10 @@ pub struct LinkState {
     /// What the socket may observe, kept current by the live feed.
     pub index: SyncResourceIndex,
     /// A worker socket's sessions, retained after close so a late `closed`
-    /// still reaches it (`sync-feed.ts:96-114`); `None` for a browser.
+    /// still reaches it; `None` for a browser.
     pub owned_session_ids: Option<std::collections::BTreeSet<String>>,
     /// Which durable session events the client already holds or still waits
-    /// for (`sync-feed.ts:90-98`), shared by the live feed and the backfill.
+    /// for, shared by the live feed and the backfill.
     pub replay: SessionReplay,
     /// Bytes for the socket task to write.
     pub outbox: Outbox,
@@ -208,7 +199,7 @@ impl LinkState {
     }
 
     /// Send one frame on the control lane: unsequenced, unqueued, and never
-    /// charged to the window (`sync-ws-v2-control.ts`). A v1 socket has no
+    /// charged to the window. A v1 socket has no
     /// control lane, so a control there is an ordinary guarded send.
     pub fn send_control(&mut self, frame: &FirehoseFrame, now_ms: u64) {
         if self.close.is_some() {
@@ -229,7 +220,7 @@ impl LinkState {
                 }
             }
             // A control that cannot be encoded is an answer the client will
-            // never get, which v2 treats as an ambiguous delivery.
+            // never get, which is an ambiguous delivery.
             Err(error) => {
                 tracing::warn!(event = "sync-ws", action = "control_send_failed", frame = kind, error = %error);
                 signal::emit(
@@ -251,7 +242,7 @@ impl LinkState {
     /// One flush turn: up to [`FLUSH_BATCH_FRAMES`] application frames from the
     /// session's queues into the outbox. Returns whether more are eligible,
     /// in which case the caller writes this batch and runs another turn
-    /// rather than waiting (`sync-ws-v2-egress.ts:355-359`).
+    /// rather than waiting.
     ///
     /// `take_flush_request` is the trigger: an admission, an ACK and a
     /// `domain_ready` all raise it, and a turn that finds it down sends
@@ -333,7 +324,7 @@ impl LinkState {
     }
 
     /// Close `age_limit` when the oldest unacknowledged frame waited out the
-    /// ACK deadline (`sync-ws-v1-delivery.ts:119-143`).
+    /// ACK deadline.
     pub fn enforce_ack_deadline(&mut self, now_ms: u64) {
         if self.ack_deadline_in_ms(now_ms) == Some(0) {
             self.decide_close(LinkClose::BACKPRESSURE, "age_limit", "age_deadline", now_ms);

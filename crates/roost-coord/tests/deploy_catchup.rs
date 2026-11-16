@@ -3,9 +3,6 @@
 //! signature, and the attach read. The pure admission rule's refusals are
 //! `tests/deploy_catchup_decision.rs`.
 //!
-//! Ported from `apps/coord/tests/deploy/worker-catchup-deploy.test.ts`; each
-//! test names the v2 case it ports.
-//!
 //! `unwrap` and `expect` are denied outside `#[cfg(test)]`, and an integration
 //! test is its own crate rather than a module of one, so the exemption has to be
 //! stated here. Every panic names a value the test just built.

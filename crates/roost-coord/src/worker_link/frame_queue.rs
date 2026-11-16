@@ -20,10 +20,10 @@
 
 use crate::worker_link::retained_budget::{RetainOutcome, RetainedWorkBudget};
 
-/// The frame ceiling, 256 (`worker-frame-queue.ts:5`).
+/// The frame ceiling, 256.
 pub const WORKER_FRAME_QUEUE_MAX_FRAMES: usize = 256;
 
-/// The byte ceiling, 16 MiB (`worker-frame-queue.ts:6`).
+/// The byte ceiling, 16 MiB.
 pub const WORKER_FRAME_QUEUE_MAX_BYTES: usize = 16 * 1024 * 1024;
 
 /// One queued frame and the size charged for it.
@@ -69,8 +69,8 @@ pub enum Queued {
 /// One socket's ordered, bounded, charged queue.
 ///
 /// The bounds are the socket's [`RetainedWorkBudget`], which this queue owns
-/// and lends to the announced-channel barrier (`budget_mut`): v2 binds the
-/// queue's budget into the barrier (`worker-ws-handler.ts:143`), so the 256
+/// and lends to the announced-channel barrier (`budget_mut`): the barrier
+/// charges the queue's budget, so the 256
 /// frames and 16 MiB are one socket's total, not one owner's.
 #[derive(Debug)]
 pub struct FrameQueue {

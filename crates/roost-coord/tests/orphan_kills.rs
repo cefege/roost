@@ -121,7 +121,7 @@ fn a_link_that_ends_goes_back_to_recording_rather_than_delivering_into_the_void(
 fn a_superseded_links_late_detach_leaves_its_replacement_attached() {
     // A reconnect whose old socket closes AFTER the new hello attached: the old
     // link's detach must not remove the new link's outbox, or the new link's
-    // kills are recorded as owed and never carried (v2 `_deleteIfStillMine`).
+    // kills are recorded as owed and never carried.
     let kills = LiveOrphanKills::new();
     let mine = worker('a');
     let superseded = outbox();

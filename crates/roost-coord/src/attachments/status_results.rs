@@ -3,7 +3,7 @@
 //! through; attachment bytes never enter this owner or the coordinator path, and
 //! a missing or malformed status is a worker protocol failure, never synthesized.
 //! Built once on `AttachmentsRuntime`; asked by `rpc_direct`, settled by
-//! `worker_link::direct_results`. Ports `apps/coord/src/attachments/attachment-direct-status-results.ts`.
+//! `worker_link::direct_results`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};

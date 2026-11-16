@@ -4,7 +4,7 @@
 //! terminal-grant authority, and a worker only ever receives the secret's digest.
 //! Built once on `AttachmentsRuntime`; minted by `rpc_direct`, read by `peer`,
 //! retired by the worker delete and key revocation paths; its table is
-//! `grant_table`. Ports `apps/coord/src/attachments/attachment-grant-owner.ts`.
+//! `grant_table`.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
@@ -51,7 +51,7 @@ impl std::fmt::Debug for AttachmentGrantOwner {
     }
 }
 
-/// Releases a minting grant's capacity however the mint ends (v2's `finally`).
+/// Releases a minting grant's capacity however the mint ends.
 struct PendingRelease<'a> {
     owner: &'a AttachmentGrantOwner,
     grant_id: String,

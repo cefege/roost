@@ -4,10 +4,8 @@
 //!
 //! Called by `worker_link::handshake` and `worker_link::connection` for every
 //! data message. Decodes through `roost_protocol::proto_adapters::
-//! coord_worker_proto::decode_upstream`, the link's one codec, and ports the
-//! frame routing of `apps/coord/src/workers/worker-ws-handler.ts` (`message`)
-//! with the arm table of `worker-conn.ts` (`handleUpstream`) and
-//! `worker-frame-dispatch.ts` (`handleLiveFrame`).
+//! coord_worker_proto::decode_upstream`, the link's one codec, and routes the
+//! frame to the link's own arms or the dispatcher.
 
 use axum::body::Bytes;
 use axum::extract::ws::Message;
@@ -58,8 +56,8 @@ impl LinkFrame {
 
     /// Whether this frame may pass before the generation's snapshot barrier.
     ///
-    /// v2 admits exactly `hello`, `event`, `pong` and `refreshJwt` early
-    /// (`worker-ws-handler.ts:222-234`): liveness and durable replay keep
+    /// Exactly `hello`, `event`, `pong` and the credential refresh pass early:
+    /// liveness and durable replay keep
     /// flowing, and nothing else bypasses the connection-level readiness gate.
     #[must_use]
     pub fn crosses_snapshot_barrier(&self) -> bool {
@@ -72,8 +70,8 @@ impl LinkFrame {
 
 /// The bytes a data message carries, or `None` for a control message.
 ///
-/// A text message is decoded from its UTF-8 bytes, as v2's `TextEncoder`
-/// path does; a binary message is used as it arrived, without a copy.
+/// A text message is decoded from its UTF-8 bytes; a binary message is used as
+/// it arrived, without a copy.
 #[must_use]
 pub fn message_bytes(message: Message) -> Option<Bytes> {
     match message {
@@ -92,8 +90,8 @@ pub fn decode_link_frame(bytes: &[u8]) -> ProtocolResult<LinkFrame> {
 ///
 /// **Live** is everything the terminal and status hubs consume synchronously;
 /// **Rpc** is every reply or progress record settling something the
-/// coordinator holds open (v2 routes all of them through the pending tables or
-/// their typed sinks); **Durable** is the event log alone.
+/// coordinator holds open (all of them go through the pending tables or their
+/// typed sinks); **Durable** is the event log alone.
 ///
 /// The three link arms are copied out of a borrowed frame: a hello and a
 /// credential refresh arrive once per connection or token lifetime, so the
@@ -148,8 +146,8 @@ fn classify(upstream: CoordWorkerUpstream) -> LinkFrame {
 }
 
 /// The channel a durable event binds, which is the one its first cells arrive
-/// on: `opened`'s channel and `respawned`'s new one (`worker-ws-handler.ts:
-/// 281-303`). Every other event names no channel.
+/// on: `opened`'s channel and `respawned`'s new one. Every other event names
+/// no channel.
 fn announced_channel(event: &SessionEvent) -> u32 {
     match event {
         SessionEvent::Opened { channel, .. } => channel.as_u32(),

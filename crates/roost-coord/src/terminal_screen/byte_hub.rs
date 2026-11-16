@@ -1,11 +1,11 @@
 //! The cell half of the terminal byte hub: the frames that arrive on a route.
 //!
-//! Split out of v2's `byte-hub.ts` (457 lines, over the 400 cap) on the seam
-//! `coord_core::seams::WorkerRouteIndex` draws. `route_index` owns the
+//! Split from `route_index` on the seam `coord_core::seams::WorkerRouteIndex`
+//! draws. `route_index` owns the
 //! `(worker, channel) -> session` mapping; this file owns what happens to a
 //! cell frame once that mapping has answered. Neither names a caller.
 //!
-//! v2 kept six module-level `Map`s. They are fields here, which is why this
+//! The hub's maps are fields, which is why this
 //! domain has no crate-global: `services.rs` states the rule, and a test that
 //! constructed its own hub would otherwise see another test's routes.
 
@@ -159,9 +159,9 @@ impl ByteHub {
     ) {
         if let Ok(mut routes) = self.routes.lock() {
             routes.bind(worker_fp, channel_id, session_id);
-            // v2 caches the session's worker on the same event
-            // (`byte-hub.ts:405-407`): the view owner lookup reads that cache
-            // before any exact snapshot has bound a freshly opened session.
+            // The session's worker is cached on the same event: the view owner
+            // lookup reads that cache before any exact snapshot has bound a
+            // freshly opened session.
             routes.cache_route(
                 session_id,
                 crate::terminal_screen::route_index::CachedRoute {

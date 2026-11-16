@@ -1,7 +1,7 @@
 //! The file and attachment RPCs end to end, over a real database and a worker
-//! generation whose socket admits frames: v2's refusal table, the per-method
+//! generation whose socket admits frames: the refusal table, the per-method
 //! deadline, the pending-before-send ordering, and the upload's final-chunk
-//! correlation (v2 `apps/coord/src/attachments/handlers-attachments.ts`).
+//! correlation.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

@@ -4,8 +4,8 @@
 //! Owned by the push domain; `serve.rs` supplies the view hub through this impl
 //! to suppress notifications to devices already looking at the terminal.
 //!
-//! THE OWNER ROW WINS, EVEN WHEN IT IS EMPTY. v2 answers
-//! `ownerTerminalViewerFingerprints(sessionId) ?? hub.activeViewerFingerprints`:
+//! THE OWNER ROW WINS, EVEN WHEN IT IS EMPTY. The answer is the owner's row if
+//! there is one, else the hub's active viewers:
 //! a session whose owner-mode worker published ANY membership row (an empty
 //! one included) is answered from that row alone, and only a session with no
 //! row falls back to the coordinator's own registry. The owner row lists every

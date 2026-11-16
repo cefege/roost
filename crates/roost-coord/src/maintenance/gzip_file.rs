@@ -12,7 +12,7 @@ use tokio::fs::OpenOptions;
 use tokio::io::{AsyncWriteExt, BufReader, BufWriter};
 
 /// The slice size on each side of the compressor, and the reason peak memory
-/// is bounded. v2's `GZIP_FILE_CHUNK_BYTES` (`gzip-file.ts:9`).
+/// is bounded.
 pub const GZIP_FILE_CHUNK_BYTES: usize = 1024 * 1024;
 
 /// How many bytes moved, for the archive's own log line.
@@ -37,7 +37,7 @@ pub async fn gzip_file_to_path(
     if outcome.is_err() {
         // A partial archive must never survive for a later reader to trust, and
         // an unremovable destination must not mask the failure that brought us
-        // here (`gzip-file.ts:80-81`).
+        // here.
         let _ = tokio::fs::remove_file(destination).await;
     }
     outcome
@@ -55,11 +55,8 @@ async fn compress_file(source: &Path, destination: &Path) -> Result<GzipFileResu
 
     // A single task drives both ends, so backpressure IS the bound: the next
     // slice is not read until the previous one has been compressed and
-    // written. v2 needed an explicit drain pump racing every await for the
-    // same reason -- a JS `CompressionStream` whose readable side nobody pulls
-    // stalls its writer once the queue fills -- and a pump that died on a full
-    // disk left an `await` that never settled, a silent hang holding the
-    // snapshot open. Here a failing destination stops the read instead.
+    // written, and a failing destination stops the read instead of leaving a
+    // writer stalled on a full queue.
     let mut encoder = GzipEncoder::new(&mut output);
     let bytes_in = tokio::io::copy(&mut input, &mut encoder).await?;
     // Writes the gzip trailer; a dropped encoder would leave a member that

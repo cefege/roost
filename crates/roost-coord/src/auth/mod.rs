@@ -7,8 +7,8 @@
 //! `authorized_keys` the only place a bearer meets the database.
 //!
 //! The split is not tidiness. `jwt_crypto` in particular is isolated so
-//! `tests/jwt_parity.rs` can prove the primitive against tokens v2's own signer
-//! produced, with no database and no clock in the way.
+//! `tests/jwt_parity.rs` can prove the primitive against tokens an independent
+//! signer produced, with no database and no clock in the way.
 
 pub mod authenticate;
 pub mod authorized_keys;

@@ -1,8 +1,7 @@
 //! Server-observed metadata about a pairing request, captured once at the
 //! request boundary and never taken from the request body.
 //!
-//! Owned by the pairing slice. Ported from
-//! `apps/coord/src/auth/pair-request-provenance.ts`, which exists because an
+//! Owned by the pairing slice. It exists because an
 //! unowned pair request is a standing credential: the operator who approves it
 //! is shown a device label, a browser, an operating system, a city and a
 //! country, and every one of those has to be something the COORDINATOR observed
@@ -19,8 +18,7 @@
 //! THE GEO HEADERS ARE ONLY READ UNDER A TRUSTED PROXY. `cf-ipcountry` and its
 //! siblings are client-settable, so honouring them on a direct listener would
 //! let anybody claim to be in any country. The trust profile is chosen at boot
-//! from config and never sniffed from the request
-//! (`apps/coord/src/middleware/caller-origin.ts:1-6`).
+//! from config and never sniffed from the request.
 
 use axum::http::HeaderMap;
 
@@ -116,8 +114,8 @@ pub fn capture_pair_request_provenance(
 /// The browser named by `sec-ch-ua`, or `None` when it names no real one.
 ///
 /// `sec-ch-ua` is GREASE-bearing, so entries beginning `Not` are planted
-/// decoys and are dropped before the table is consulted
-/// (`pair-request-provenance.ts:126`). An entry the table does not know is
+/// decoys and are dropped before the table is consulted. An entry the table
+/// does not know is
 /// still reported, truncated: "a browser we have never heard of" tells an
 /// operator more than a blank field.
 fn read_browser_hint(headers: &HeaderMap) -> Option<String> {

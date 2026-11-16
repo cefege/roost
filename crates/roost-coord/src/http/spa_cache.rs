@@ -1,9 +1,8 @@
 //! The memo of compressed SPA bodies, keyed on the file it came from.
 //!
-//! Owned by `http::spa`, which is the only reader. v2's `gzipCached` and its
-//! note — "source-run disk assets remain mutable, so their gzip bodies are
-//! memoized and invalidated on an mtime/size mismatch" (`spa.ts:32-51`) — is
-//! the reason this exists: a two-day deploy replaces the tree under a running
+//! Owned by `http::spa`, which is the only reader. Source-run disk assets
+//! remain mutable, so their gzip bodies are memoized and invalidated on an
+//! mtime/size mismatch: a two-day deploy replaces the tree under a running
 //! coordinator, and re-compressing four woff2 faces and every bundle on every
 //! page load costs the coordinator CPU that the terminal links need.
 //!
@@ -17,9 +16,9 @@ use std::sync::Mutex;
 
 use axum::body::Bytes;
 
-/// How many compressed bodies one process holds. v2's `GZIP_CACHE_MAX`, kept
-/// as the same number: the four faces, the shell and a session's bundles fit,
-/// and a 33rd entry is a build nobody is looking at any more.
+/// How many compressed bodies one process holds: the four faces, the shell and
+/// a session's bundles fit, and a 33rd entry is a build nobody is looking at
+/// any more.
 const CACHE_MAX: usize = 32;
 
 /// One memoized body, valid only for the file state it was taken from.

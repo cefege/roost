@@ -1,7 +1,6 @@
 //! A booted coordinator over a scratch database for the direct-terminal RPC
 //! and worker-link tests: a self-hosted tenant, a local and a remote worker
 //! row, a browser caller on one tab, and the resolved peer config.
-//! Ports the database and handler setup of `apps/coord/tests/local-terminal-grant.test.ts`.
 
 // Compiled into more than one test binary; each uses a subset.
 #![allow(clippy::unwrap_used, clippy::expect_used, dead_code)]

@@ -1,21 +1,18 @@
 //! The one gate every coordinator→worker frame passes, and the three senders
 //! the worker registry RPCs and the event path need.
 //!
-//! Ported from `apps/coord/src/workers/worker-send-target.ts` (the gate), the
-//! `sendBrowserCommand` arm of `apps/coord/src/workers/worker-send.ts:74-91`, and
-//! its `getWorkerHubSocket` shim (`:25-69`): the lookup is `current_routable_worker`
-//! and the write `send_frame_through`. The shim's raw-binary branch is not
-//! ported: no v2 caller sends PTY bytes through it (input is `InputRequest`).
+//! The lookup is `current_routable_worker` and the write is
+//! `send_frame_through`. No caller sends PTY bytes through here (input is
+//! `InputRequest`).
 //!
-//! WHY THE GATE IS HERE AND NOT IN THE HANDLE. v2 re-checks
-//! `connectWorkers.get(workerFp) !== myHandle` inside the transport's own
-//! `send`, because a browser command is sent from a router handler that resolved
-//! the handle one await earlier. In Rust the identity check is this function's,
+//! WHY THE GATE IS HERE AND NOT IN THE HANDLE. A browser command is sent from a
+//! handler that resolved the handle one await earlier, so the generation must
+//! be re-checked at send time. The identity check is this function's,
 //! because the registry -- not the socket -- is what knows which generation is
 //! current. The handle stays a dumb transport so a caller cannot forge one.
 //!
-//! A REFUSAL IS NAMED, NOT A BOOLEAN. v2 returns `false` and the caller logs
-//! "worker offline". Three different things produce that `false` -- no socket, a
+//! A REFUSAL IS NAMED, NOT A BOOLEAN. A bare `false` would read as "worker
+//! offline", but three different things produce it -- no socket, a
 //! superseded generation, a transport that dropped the write -- and only the
 //! second is a bug in the coordinator, so the reason travels with the answer.
 
@@ -30,7 +27,7 @@ use crate::coord_core::worker_handle::{WorkerHandle, WorkerRegistry};
 
 /// The `browser_id` a coordinator-originated kill carries.
 ///
-/// v2 uses `"coord-reap"` for both halves, and the worker treats them as opaque
+/// The same `"coord-reap"` is used for both halves, and the worker treats them as opaque
 /// strings it never learns from, so the pair only has to be stable and
 /// distinguishable from a browser's own.
 pub const COORD_REAP_BROWSER_ID: &str = "coord-reap";
@@ -232,7 +229,7 @@ pub fn reap_orphan_pty(
 
 /// The correlation id a coordinator-originated kill carries.
 ///
-/// v2 mints a fresh uuid per reap. The id is never consumed here -- the reap
+/// A fresh uuid is minted per reap. The id is never consumed here -- the reap
 /// registers no pending RPC, and the worker's reply is dropped -- so what it has
 /// to be is unique among the frames in flight on one socket, which the
 /// (worker, session) pair already is.

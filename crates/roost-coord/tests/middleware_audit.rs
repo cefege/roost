@@ -90,7 +90,7 @@ async fn a_refused_request_writes_its_row() {
 
 #[tokio::test]
 async fn an_anonymous_refusal_is_kept_except_on_the_front_door() {
-    // The four boundaries `apps/coord/tests/audit-policy.test.ts` pins.
+    // The four boundaries of the connect-audit persistence policy.
     assert!(!should_persist_connect_audit(
         ListenerTrust::Forwarded,
         401,

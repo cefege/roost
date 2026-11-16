@@ -1,6 +1,5 @@
 //! The bootstrap surface: minting a one-shot enrollment grant, and the worker
-//! and browser redemptions that spend one. Ported from
-//! `apps/coord/src/auth/handlers-auth-bootstrap.ts`.
+//! and browser redemptions that spend one.
 //!
 //! The claim and the principal it creates are ONE transaction in both
 //! redemptions: a grant spent without a principal behind it is a grant nobody

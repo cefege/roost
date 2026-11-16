@@ -1,8 +1,7 @@
 //! Shared fixtures for the direct-attachment tests: fake worker generations
-//! that record their downstream frames, an in-memory grant port, the v2 SDP
+//! that record their downstream frames, an in-memory grant port, the SDP
 //! fixture, and a booted coordinator with one open session. Shared by the
-//! `attachments_*` binaries; ports `apps/coord/tests/attachments/
-//! attachment-peer-negotiation-test-fixture.ts`.
+//! `attachments_*` binaries.
 
 #![allow(dead_code, clippy::unwrap_used, clippy::expect_used)]
 
@@ -46,7 +45,7 @@ pub fn owner_key() -> String {
     format!("account-device:{ACCOUNT_ID}:{DEVICE_FP}")
 }
 
-/// v2's fixture offer/answer: a data-channel-only SDP the inspector admits.
+/// The fixture offer/answer: a data-channel-only SDP the inspector admits.
 pub fn valid_sdp() -> String {
     let fingerprint: Vec<String> = (0..32).map(|index| format!("{index:02x}")).collect();
     [
@@ -136,7 +135,7 @@ pub fn install_peer_worker(workers: &WorkerRegistry, worker_fp: &str, epoch: &st
     )
 }
 
-/// An in-memory grant authority, as v2's `TestAttachmentGrants`.
+/// An in-memory grant authority.
 #[derive(Default)]
 pub struct TestAttachmentGrants {
     leases: Mutex<HashMap<String, AttachmentGrantLease>>,

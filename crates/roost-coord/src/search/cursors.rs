@@ -1,11 +1,10 @@
 //! Bounded, browser-bound continuation cursors, active-search selections, and
 //! cancellation ordering for install-wide terminal search.
 //!
-//! Ports `apps/coord/src/search/global-search-cursors.ts`
-//! (`GlobalSearchCursorOwner`). One owner per process lives on
-//! `services.search`; `search::rpc_search` and `search::cancel` share it. Expiry
-//! and per-device eviction are lazy, so cursors need no background timer. v2's
-//! `onCancel` listeners are one `CancellationToken` per active search here.
+//! One owner per process lives on `services.search`; `search::rpc_search` and
+//! `search::cancel` share it. Expiry and per-device eviction are lazy, so
+//! cursors need no background timer. Cancellation listeners are one
+//! `CancellationToken` per active search.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -59,7 +58,7 @@ struct CancellationTombstone {
 struct CursorState {
     cursors: HashMap<String, CursorRecord>,
     active: HashMap<GlobalSearchIdentity, ActiveSearchRecord>,
-    /// Insertion order is eviction order, as v2's `Map` iteration.
+    /// Insertion order is eviction order.
     tombstones: VecDeque<CancellationTombstone>,
     created_order: u64,
 }
@@ -171,7 +170,7 @@ impl GlobalSearchCursorOwner {
     }
 
     /// The token a completed cancellation fires; already fired when the
-    /// search is not active, exactly as v2 calls a late listener at once.
+    /// search is not active, so a late listener runs at once.
     #[must_use]
     pub fn on_cancel(&self, identity: &GlobalSearchIdentity) -> CancellationToken {
         let state = self.state();

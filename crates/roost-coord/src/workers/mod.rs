@@ -2,7 +2,7 @@
 //! RPCs. No socket: the WebSocket lifecycle, the handshake and the frame
 //! dispatcher are a separate slice, and this one is what that slice calls.
 //!
-//! Ported from `apps/coord/src/workers/`. The map of live worker sockets is
+//! The map of live worker sockets is
 //! `coord_core::worker_handle::WorkerRegistry` -- shared state, because a handle
 //! is replaced on every hello -- so what lives here is the policy around it:
 //! which generation may carry a frame, what becoming routable publishes, and

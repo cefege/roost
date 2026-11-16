@@ -2,10 +2,8 @@
 //! and the coordinator's deploy state, start a deploy of which host, or skip
 //! with which reason. Called by `deploy::catchup`; depends on
 //! `deploy::{start,rpc_deploy}` for the SHA shape and the host resolution, and
-//! on `roost_protocol::fleet_update` for the fleet classification v2's CLI
-//! status row shares (`packages/protocol/src/fleet-update.ts`). Ports
-//! `_catchUpDeployDecision` and `_keeperSignature` of
-//! apps/coord/src/deploy/worker-catchup-deploy.ts.
+//! on `roost_protocol::fleet_update` for the fleet classification the CLI
+//! status row shares.
 //!
 //! PURE SO EVERY REFUSAL IS TESTABLE without a coordinator, a database or a
 //! subprocess. Evaluated only from the attach hook, which is why the worker
@@ -84,7 +82,7 @@ pub enum CatchUpSkipReason {
     StartFailed,
     /// The fleet classification answered a state the attach hook cannot
     /// reach (both SHAs are full ids and the transport is live); refused
-    /// rather than guessed at, as v2's `update_state_<state>` default.
+    /// rather than guessed at.
     UnreachableUpdateState(WorkerUpdateState),
 }
 
@@ -137,7 +135,7 @@ pub fn worker_catch_up_host(worker: &CatchUpWorkerRow) -> String {
     worker_deploy_host(Some(&record), "")
 }
 
-/// The whole admission rule, in v2's order.
+/// The whole admission rule, in its fixed order of checks.
 #[must_use]
 pub fn catch_up_deploy_decision(inputs: &CatchUpDeployDecisionInputs<'_>) -> CatchUpDeployDecision {
     use CatchUpSkipReason as Skip;

@@ -3,8 +3,6 @@
 //! negotiation only through the exact current generation's dispatcher, a
 //! revoked generation's offers fail at once, and deleting a worker retires its
 //! direct grants while its generation still admits the retirement frame.
-//! Ports `apps/coord/tests/terminal/direct/terminal-peer-worker-integration.test.ts`
-//! (peer half) and the retirement call of `handlers-workers.ts:210-218`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod db_support;
@@ -91,9 +89,9 @@ fn rpc(frame: Up) -> InboundFrame {
     }
 }
 
-// v2 "acknowledges peer capability only with its result owner and route
-// capability only with its owner" and "acknowledges input route only when its
-// typed result owner is installed": the peer owner answers only while enabled.
+// The peer carrier is acknowledged only with its result owner, the route
+// capability only with its owner, and the input route only when its typed
+// result owner is installed: the peer owner answers only while enabled.
 #[tokio::test]
 async fn a_hello_is_acknowledged_the_peer_carrier_only_while_it_is_enabled() {
     let advertised: BTreeSet<String> = BOTH
@@ -124,7 +122,6 @@ async fn a_hello_is_acknowledged_the_peer_carrier_only_while_it_is_enabled() {
     );
 }
 
-// v2 "dispatches typed peer answer and error through the exact current handle".
 #[tokio::test]
 async fn a_typed_answer_and_error_settle_through_the_exact_current_dispatcher() {
     let (direct, worker, grant_id) = granted("dispatch").await;
@@ -164,7 +161,7 @@ async fn a_typed_answer_and_error_settle_through_the_exact_current_dispatcher() 
     );
 }
 
-// v2 `worker-conn.ts` revoke/close: the generation's pending offers fail at
+// A revoked or closed generation's pending offers fail at
 // once, and a late answer through its fenced dispatcher settles nothing.
 #[tokio::test]
 async fn a_revoked_generation_fails_its_pending_offer_and_its_late_answer_settles_nothing() {
@@ -193,7 +190,7 @@ async fn a_revoked_generation_fails_its_pending_offer_and_its_late_answer_settle
     );
 }
 
-// v2 `handlers-workers.ts:210-218`: retirement is sent while the deleted
+// Retirement is sent while the deleted
 // worker's generation still admits it, and every lease on it is dropped.
 #[tokio::test]
 async fn deleting_a_worker_retires_its_direct_grants_before_the_fence() {

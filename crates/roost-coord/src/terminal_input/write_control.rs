@@ -3,7 +3,6 @@
 //! classification of the worker's keeper-proven result. Once the worker
 //! transport admits a write, its outcome can only be accepted or ambiguous --
 //! the coordinator never retries it. Entered by `terminal_input::input_control`.
-//! Ports `apps/coord/src/terminal/input/terminal-write-control.ts`.
 
 use std::sync::Arc;
 

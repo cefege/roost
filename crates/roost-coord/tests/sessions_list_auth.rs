@@ -3,9 +3,8 @@
 //! their private recovery metadata, and a browser device reads the rows but
 //! never that metadata. Also the Sync snapshot binding a browser list asks for.
 //!
-//! Ports `apps/coord/tests/workers/worker-session-list-auth.test.ts` (the Guard
-//! of FAILURE-INDEX "A worker reconnects but respawns every terminal") and the
-//! `SessionsList` case of `apps/coord/tests/coord-bidi.test.ts`.
+//! This is the Guard of FAILURE-INDEX "A worker reconnects but respawns every
+//! terminal".
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -124,7 +123,7 @@ impl ListFixture {
     }
 }
 
-// v2: "worker JWT lists only its own open sessions through coord.fetch".
+// A worker JWT lists only its own open sessions.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_worker_lists_only_its_own_open_sessions() {
     let fixture = ListFixture::start("list-worker").await;
@@ -152,7 +151,7 @@ async fn a_worker_lists_only_its_own_open_sessions() {
     assert!(!body["sessions"].to_string().contains("private worker"));
 }
 
-// v2: "worker JWT cannot broaden its session-list scope".
+// A worker JWT cannot broaden its session-list scope.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_worker_cannot_broaden_its_list() {
     let fixture = ListFixture::start("list-broaden").await;
@@ -171,8 +170,7 @@ async fn a_worker_cannot_broaden_its_list() {
     }
 }
 
-// v2: "a browser device lists the sessions but never their recovery metadata",
-// and coord-bidi "SessionsList authenticated → 200 + sessions array".
+// A browser device lists the sessions but never their recovery metadata.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_browser_lists_sessions_but_never_their_recovery_metadata() {
     let fixture = ListFixture::start("list-browser").await;
@@ -213,8 +211,8 @@ async fn a_browser_lists_sessions_but_never_their_recovery_metadata() {
     );
 }
 
-// v2 `bindSyncSessionSnapshot`: a list naming the caller's own live Sync socket
-// is bound to it; a socket the caller does not hold gets no token.
+// A list naming the caller's own live Sync socket is bound to it; a socket the
+// caller does not hold gets no token.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_browser_list_binds_a_snapshot_only_to_its_own_sync_socket() {
     let fixture = ListFixture::start("list-snapshot").await;

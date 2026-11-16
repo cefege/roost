@@ -4,7 +4,6 @@
 //! (`terminal_screen::replica_admission`); frozen by `terminal_capture::freeze`
 //! before the bridge dispatches CAPTURE to a worker. Every bound comes from
 //! `roost_protocol::terminal_capture::TERMINAL_CAPTURE_LIMITS`.
-//! Ports the retention half of `apps/coord/src/terminal/capture/terminal-capture-recorder.ts`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};

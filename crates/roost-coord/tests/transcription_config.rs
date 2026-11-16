@@ -85,12 +85,12 @@ async fn a_written_key_comes_back_masked_and_never_whole() {
 /// A key shorter than the mask window is shown whole, and the window is what
 /// the mask is built from.
 ///
-/// `transcription.ts:51` masks with `key.slice(-4)`, which for a key shorter
-/// than four characters returns the key. So the invariant the neighbouring test
+/// The mask keeps the last four characters, which for a key shorter than four
+/// characters is the key. So the invariant the neighbouring test
 /// asserts is narrower than it reads: a LONG key never travels whole, and no
 /// key at all travels whole only once it is longer than the window. A Deepgram
-/// key is always far longer than four characters, so this is parity rather than
-/// a leak in practice -- but it is a bound derived from the element's own
+/// key is always far longer than four characters, so this is no leak in
+/// practice -- but it is a bound derived from the element's own
 /// length, and that is the shape that hides: `saturating_sub` is the only thing
 /// between this line and a subtraction overflow on every short key.
 #[tokio::test]

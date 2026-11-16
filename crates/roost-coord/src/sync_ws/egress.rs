@@ -1,34 +1,28 @@
 //! Bounded queue admission and the flush turn: which frame this socket sends
 //! next, and what the socket must be told when it cannot send any.
 //!
-//! Owned by the Sync session. v2 kept this in `sync-ws-v2-egress.ts` (396
-//! lines) plus `sync-ws-v2-scheduler.ts`, which existed only to re-export it.
-//! The scheduler earns no file here: the two things it named are the admission
-//! below and the flush turn below, on one type, with nothing in between to
-//! forward.
-//!
-//! `prepareTerminalApplicationFrame` from that same
-//! `apps/coord/src/sync/sync-ws-v2-terminal-payload.ts` is the send-time half:
-//! `snapshot_fanout_stamp`, the per-recipient `outbound_copy`, and
-//! `chunk_transfer_of`.
+//! Owned by the Sync session. The scheduler earns no file of its own: the
+//! admission below and the flush turn below live on one type, with nothing in
+//! between to forward. The send-time half is `snapshot_fanout_stamp`, the
+//! per-recipient `outbound_copy`, and `chunk_transfer_of`.
 //!
 //! THE FLUSH IS A TURN, NOT A LOOP, AND IT COMMITS BEFORE THE CALLER SENDS.
-//! v2's `flushV2` sent up to 64 frames in one turn with `ws.send` in the middle:
-//! it prepared the frame, checked the window, sent, and only then dequeued and
-//! charged. A Rust port has no socket, so the turn hands the caller the next
-//! frame. That is only sound because the turn keeps v2's ORDER -- prepare, then
+//! A flush sends up to 64 frames in one turn with the socket write in the
+//! middle: it prepares the frame, checks the window, sends, and only then
+//! dequeues and charges. This turn has no socket, so it hands the caller the
+//! next frame. That is only sound because the turn keeps the ORDER -- prepare,
 //! check the window, then dequeue -- and the one rule that goes with it:
 //! **a frame the turn returns must be delivered or the session retired.** There
 //! is no path that does neither, and a caller that finds one should retire the
 //! session rather than retry, because the terminal lane has already advanced.
 //!
-//! **THE TURN CHARGES THE WINDOW ITSELF.** v2 charges inside `flushV2`, right
-//! after `ws.send` and the dequeue, so a turn here charges too. A caller that
+//! **THE TURN CHARGES THE WINDOW ITSELF.** The charge comes right
+//! after the dequeue, so a turn here charges too. A caller that
 //! also called `record_sent` would spend two delivery sequences on one frame,
 //! and a turn that charged nowhere would leave every frame on the socket
 //! carrying sequence 1 forever.
 //!
-//! WHY A FULL WINDOW STALLS AND DOES NOT CLOSE. v2's v2 egress returns from the
+//! WHY A FULL WINDOW STALLS AND DOES NOT CLOSE. The egress returns from the
 //! flush when the unacknowledged window is full; it does not close, unlike the
 //! v1 send path. A browser tab that stopped dispatching gets a paused socket
 //! that resumes on the next acknowledgement, which is the difference between a
@@ -86,7 +80,7 @@ impl SendableFrame {
 impl SyncV2Session {
     /// The next frame this socket may send, or why it may send nothing.
     ///
-    /// This is one turn of v2's flush loop, and it does the loop's bookkeeping
+    /// This is one turn of the flush loop, and it does the loop's bookkeeping
     /// in the loop's order: select; if nothing was eligible, pump one deferred
     /// terminal lane and try again; check the window; stamp; dequeue; advance
     /// the lane; pump once more, so a lane that just delivered something can
@@ -119,10 +113,10 @@ impl SyncV2Session {
         };
         // The sequence the window is ABOUT to assign, read here so the copy
         // below is stamped with the number its own byte accounting will be
-        // measured against. v2 reads it once and uses that one local for the
-        // stamp, the announcement record and the in-flight queue
-        // (`sync-ws-v2-egress.ts:257,274,307-313`); here the charge below is
-        // what makes it authoritative, and the stamp is rewritten from it.
+        // measured against. The one local is used for the
+        // stamp, the announcement record and the in-flight queue; the charge
+        // below is what makes it authoritative, and the stamp is rewritten
+        // from it.
         let reserved = self.next_delivery_seq();
         // A terminal frame is measured against its CONSERVATIVE estimate, which
         // is at least its real encoded size because the estimate was taken with
@@ -149,7 +143,7 @@ impl SyncV2Session {
         // one varint, and the per-frame room check still governs.
         let encoded_len = u64::from(frame.encoded_len());
         let delivered = self.take_selected(candidate);
-        // The charge belongs HERE, where v2 puts it: after the frame has left
+        // The charge belongs HERE: after the frame has left
         // and the queue entry is gone, and for the bytes the wire actually took
         // rather than the estimate the room check used. A turn that does not
         // charge at all is what pins a whole socket -- `next_delivery_seq` is

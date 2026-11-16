@@ -3,9 +3,7 @@
 //! with a manual cooldown, unarmed one-shots, and the worker-failure mapping
 //! that must come back as a result the browser can retry.
 //!
-//! Ports the "terminal capture admission" cases of
-//! `apps/coord/tests/terminal/capture/terminal-capture-bridge.test.ts`; its
-//! lease cases are `terminal_capture_lease.rs`.
+//! The lease cases are `terminal_capture_lease.rs`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod db_support;

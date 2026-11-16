@@ -2,10 +2,7 @@
 //! correlates nothing, admission is transport only, and the typed result -- or
 //! a rejection, or the hop deadline -- is the only verdict.
 //!
-//! Ports `apps/coord/tests/terminal/terminal-hop-deadline.test.ts` (the sender
-//! half), `apps/coord/tests/workers/worker-ws-transport-send-failure.test.ts`
-//! (the sender's reaction to a dropped write) and the typed cases of
-//! `apps/coord/tests/pending-rpc-drop.test.ts`. `unwrap`/`expect` are denied
+//! `unwrap`/`expect` are denied
 //! outside `#[cfg(test)]`; an integration test is its own crate.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -38,7 +35,7 @@ fn fresh() -> HopDeadline {
     HopDeadline::start(INPUT_CONTROL_TIMEOUT_MS)
 }
 
-// v2 worker-send.ts `unsentTerminalWorkerRequest("worker offline", false)`.
+// An offline worker is refused as an unsent request: "worker offline".
 #[tokio::test]
 async fn an_offline_worker_is_refused_before_anything_is_correlated() {
     let link = TerminalLink::offline();
@@ -51,7 +48,7 @@ async fn an_offline_worker_is_refused_before_anything_is_correlated() {
     assert_eq!(message_of(&error), "worker offline");
 }
 
-// v2 "a budget too short to survive the hop is refused rather than half-spent".
+// A budget too short to survive the hop is refused rather than half-spent.
 #[tokio::test(start_paused = true)]
 async fn a_budget_too_short_to_survive_the_hop_is_refused_as_expired_and_never_written() {
     let link = TerminalLink::routable();
@@ -73,8 +70,8 @@ async fn a_budget_too_short_to_survive_the_hop_is_refused_as_expired_and_never_w
     );
 }
 
-// v2 "a healthy remaining budget still sends, and the worker slice is strictly
-// smaller", with the actor fields the input route is fenced on.
+// A healthy remaining budget still sends, and the worker slice is strictly
+// smaller, with the actor fields the input route is fenced on.
 #[tokio::test(start_paused = true)]
 async fn a_healthy_budget_sends_the_actor_and_a_strictly_smaller_worker_slice() {
     let link = TerminalLink::routable();
@@ -104,7 +101,7 @@ async fn a_healthy_budget_sends_the_actor_and_a_strictly_smaller_worker_slice() 
     );
 }
 
-// v2 worker-send.ts: the promise resolves exclusively from WInputResult.
+// The request resolves exclusively from the typed `WInputResult`.
 #[tokio::test]
 async fn the_typed_input_result_is_the_verdict() {
     let link = TerminalLink::routable();
@@ -120,7 +117,7 @@ async fn the_typed_input_result_is_the_verdict() {
     assert_eq!(link.pending_count(), 0);
 }
 
-// v2 worker-frame-dispatch.ts resolves with the AUTHENTICATED fingerprint, so a
+// The result is matched on the AUTHENTICATED fingerprint, so a
 // reply from another worker under the same id settles nothing.
 #[tokio::test]
 async fn a_result_from_another_worker_leaves_the_request_waiting() {
@@ -154,8 +151,8 @@ async fn a_result_of_another_kind_is_refused_rather_than_read_as_input() {
     assert!(message_of(&error).contains("terminal-pipeline-snapshot"));
 }
 
-// v2 worker-ws-transport-send-failure: a write the transport refuses is not
-// admission. worker-send.ts rejects the correlation Unavailable at once.
+// A write the transport refuses is not admission: the correlation is rejected
+// Unavailable at once.
 #[tokio::test]
 async fn a_dropped_write_is_unadmitted_and_rejects_retryably_at_once() {
     let link = TerminalLink::dropping();
@@ -175,7 +172,7 @@ async fn a_dropped_write_is_unadmitted_and_rejects_retryably_at_once() {
     );
 }
 
-// v2 pending-rpcs.ts timer: an unanswered admitted request expires as
+// An unanswered admitted request expires as
 // DeadlineExceeded at what the hop deadline had left when it was SENT -- never
 // a fresh budget, and not extended by a caller that awaits the result late.
 #[tokio::test(start_paused = true)]
@@ -193,8 +190,8 @@ async fn an_unanswered_request_expires_at_what_the_hop_deadline_had_left() {
     assert_eq!(link.pending_count(), 0, "the expired entry left the table");
 }
 
-// v2 pending-rpc-drop.test.ts "rejects only the dropped worker's RPCs": a
-// worker close fails an in-flight input fast and retryably.
+// A worker close rejects only the dropped worker's RPCs: an in-flight input
+// fails fast and retryably.
 #[tokio::test]
 async fn a_worker_close_rejects_the_in_flight_input_as_unavailable() {
     let link = TerminalLink::routable();

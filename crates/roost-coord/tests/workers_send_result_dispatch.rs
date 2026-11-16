@@ -2,9 +2,7 @@
 //! dispatcher: an input or pipeline result settles exactly its own request,
 //! and only from the ready, current, authenticated generation.
 //!
-//! Ports `apps/coord/tests/workers/worker-ws-result-dispatch.test.ts` and
-//! `apps/coord/tests/workers/worker-frame-dispatch-terminal-pipeline.test.ts`
-//! (`worker_link::live_frames::handle_rpc`). `unwrap`/`expect` are denied
+//! These drive `worker_link::live_frames::handle_rpc`. `unwrap`/`expect` are denied
 //! outside `#[cfg(test)]`; an integration test is its own crate.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -53,7 +51,7 @@ fn pipeline(request_id: &str) -> WTerminalPipelineSnapshot {
     }
 }
 
-// v2 "settles input and stream results" (the dispatcher half; the read loop's
+// An input result settles its request (the dispatcher half; the read loop's
 // bypass is `worker_link_result_lane.rs`).
 #[tokio::test]
 async fn an_input_result_settles_its_exact_request() {
@@ -74,7 +72,6 @@ async fn an_input_result_settles_its_exact_request() {
     assert_eq!(table.pending_count(), 1, "only the named request settled");
 }
 
-// v2 "leaves stale, unready, foreign, and unmatched results pending".
 #[tokio::test]
 async fn unready_foreign_unmatched_and_stale_results_leave_the_request_pending() {
     let fixture = LinkFixture::new("typed-results-fenced").await;
@@ -133,8 +130,8 @@ async fn unready_foreign_unmatched_and_stale_results_leave_the_request_pending()
     );
 }
 
-// v2 "requires a ready authenticated target and exact request correlation";
-// a requestId-only reply is well-shaped.
+// A ready authenticated target and exact request correlation are required; a
+// requestId-only reply is well-shaped.
 #[tokio::test]
 async fn a_pipeline_sample_needs_a_ready_authenticated_target_and_its_own_id() {
     let fixture = LinkFixture::new("pipeline-settle").await;
@@ -163,8 +160,8 @@ async fn a_pipeline_sample_needs_a_ready_authenticated_target_and_its_own_id() {
     assert_eq!(settled.request_id, pending.request_id());
 }
 
-// v2 worker-frame-dispatch.ts `invalid_terminal_pipeline_snapshot`: a sample
-// that fails the wire-shape check is dropped before it can settle anything.
+// A sample that fails the wire-shape check (`invalid_terminal_pipeline_snapshot`)
+// is dropped before it can settle anything.
 #[tokio::test]
 async fn a_malformed_pipeline_sample_is_refused_and_settles_nothing() {
     let fixture = LinkFixture::new("pipeline-malformed").await;

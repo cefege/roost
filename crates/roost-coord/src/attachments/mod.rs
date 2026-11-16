@@ -5,7 +5,7 @@
 //! One field on `CoordServices`, reached as `core.services.attachments`. Every
 //! owner is built once here, so the peer owner subscribes to the one grant
 //! registry the RPCs mint into, and the worker link settles and fences the same
-//! tables the RPCs wait on (v2 composes the same three in `coord-factory.ts`).
+//! tables the RPCs wait on.
 //!
 //! `new` takes the process's worker registry and pending-request table and
 //! nothing from configuration: what the domain needs from the operator's config

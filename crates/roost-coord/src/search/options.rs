@@ -1,8 +1,6 @@
 //! The page limits one global search binds to, normalized once before the
 //! cursor binding, and the split of a page's match budget across sessions.
 //!
-//! Ports `apps/coord/src/search/global-search-options.ts` and v2's
-//! `allocateGlobalSearchMatchLimits` (`packages/protocol/src/terminal-search.ts`).
 //! Called by `search::rpc_search` (authorization breadth, worker work, cursor
 //! identity) and `search::fanout` / `search::worker_result` (budgets), so the
 //! page semantics cannot drift between the request and its validation.
@@ -52,7 +50,7 @@ pub fn normalize_global_search_page_limits(
 
 /// Divide a page's match cap across `session_count` sessions so no selected
 /// session is starved: every session gets the floor, the first `remainder`
-/// sessions one more. Empty for zero sessions (v2 throws; no caller asks).
+/// sessions one more. Empty for zero sessions (no caller asks).
 #[must_use]
 pub fn allocate_global_search_match_limits(total_matches: u32, session_count: usize) -> Vec<u32> {
     let Ok(count) = u32::try_from(session_count) else {

@@ -1,13 +1,11 @@
 //! The three Web Push Connect methods: get-config, subscribe, unsubscribe.
 //!
 //! Owned by the push domain; `rpc/service_impl.rs` delegates to these by name.
-//! Ported from `apps/coord/src/push/handlers-push.ts`.
 //!
 //! PROVIDER ORIGINS ARE OPERATOR CONFIG AND AN EMPTY ALLOWLIST IS OFF. Not
 //! "allow anything": `PushGetConfig` reports `available: false` and
 //! `PushSubscribe` refuses, so a deployment with no push service never creates
-//! a VAPID identity and never accumulates subscription rows
-//! (`handlers-push.ts:67-71,82-83`).
+//! a VAPID identity and never accumulates subscription rows.
 //!
 //! THE SUBSCRIBE REFUSAL NAMES THE CAP. `ResourceExhausted` with a message
 //! carrying the number, because the browser shows it and a support report
@@ -29,7 +27,7 @@ use crate::rpc::service::ok_response;
 ///
 /// A device is required even though the answer is a public key: the method
 /// tells a paired browser whether Push is on, and an unpaired caller has no
-/// business asking (`handlers-push.ts:66`).
+/// business asking.
 pub async fn handle_push_get_config(
     core: &CoordCore,
     caller: &Caller,

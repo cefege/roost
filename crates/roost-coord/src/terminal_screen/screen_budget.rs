@@ -1,14 +1,13 @@
 //! The residency ceilings and the per-socket send slice, derived from a
 //! declared byte budget.
 //!
-//! Ported from `apps/coord/src/terminal/screen/terminal-screen-budget.ts`.
-//! `main.ts` derives these once at boot and hands them to the screen hub and the
+//! The boot path derives these once and hands them to the screen hub and the
 //! Sync listener; nothing here does I/O, so the arithmetic is directly testable.
 //! Depends only on the wire-level maxima in `roost-protocol` plus
 //! [`crate::terminal_screen::residency`]'s hard maxima.
 //!
 //! EVERY NUMBER HERE IS A LIMIT THAT DECIDES WHETHER A SCREEN DEGRADES OR
-//! CORRUPTS, so none of them is rounded for tidiness. Each carries v2's reason.
+//! CORRUPTS, so none of them is rounded for tidiness. Each carries its reason.
 
 use roost_protocol::cell::{CELL_GRID_PART_MAX_BYTES, CELL_GRID_SNAPSHOT_MAX_SPANS};
 use roost_protocol::viewport::TERMINAL_MAX_ROWS;

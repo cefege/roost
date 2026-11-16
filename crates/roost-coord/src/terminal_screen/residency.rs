@@ -1,7 +1,6 @@
 //! Row and span accounting for the canonical terminal caches the coordinator
 //! holds, plus the old versions an active snapshot cursor keeps alive.
 //!
-//! Ported from `apps/coord/src/terminal/screen/terminal-screen-residency.ts`.
 //! The replica asks this owner before replacing a cache, so a slow cursor
 //! cannot become an uncharged resident full -- the accounting is only worth
 //! having if nothing can add to the pool without passing through it.
@@ -10,9 +9,9 @@
 //! replica drops what it had, tells its sink the session is unavailable, and
 //! raises one capacity signal; it never serves a partially-copied screen.
 //!
-//! WHY THE PIN IS A CHARGE AND NOT A SECOND CACHE. v2's `pinnedCache` exists
-//! so the pool keeps counting a version a cursor is still walking; the frame
-//! itself is kept alive by the cursor's own source closure, not by that slot.
+//! WHY THE PIN IS A CHARGE AND NOT A SECOND CACHE. The pin exists so the pool
+//! keeps counting a version a cursor is still walking; the frame itself is kept
+//! alive by the cursor's own source closure, not by that slot.
 //! Pinning the size and the lease count is the whole of what residency needs,
 //! and copying a 256-row grid to hold a number would be the expensive way to
 //! learn it.
@@ -27,7 +26,7 @@ pub const TERMINAL_SCREEN_MAX_RESIDENT_SPANS: u64 = 2_097_152;
 ///
 /// `generation` is the identity a cursor's lease is held against: a cache is
 /// replaced wholesale, so two versions of one session are never equal, and
-/// comparing generations is what replaces v2's reference comparison.
+/// comparing generations tells them apart.
 #[derive(Debug)]
 pub struct ResidentCache {
     pub generation: u64,

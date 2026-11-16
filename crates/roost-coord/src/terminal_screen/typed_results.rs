@@ -1,8 +1,6 @@
 //! The typed worker results the pending-RPC table settles beside an `rpc-ok`
 //! body: input, pipeline sample, route claim, transport probe.
-//! Ports the typed `resolvePendingRpc(requestId, frame.value, workerFp)` calls of
-//! `apps/coord/src/workers/worker-frame-dispatch.ts:314-336` and the typed
-//! `createPendingRpc<T>` waits of `apps/coord/src/workers/worker-send.ts`. Filled by
+//! Filled by
 //! `worker_link::live_frames` and the route-result owner; read by `TerminalWorkerRequest`.
 
 use roost_proto::{

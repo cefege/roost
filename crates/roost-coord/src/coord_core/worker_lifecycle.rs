@@ -3,9 +3,8 @@
 //! one socket generation (acknowledged, ready, superseded, closed).
 //!
 //! Called by `worker_link::link_session` at each transition; observers are
-//! registered on `CoordServices::worker_lifecycle`. Ports the per-owner calls
-//! `apps/coord/src/workers/worker-conn.ts` makes inline at hello, supersede,
-//! revoke and close, so a later owner registers here instead of editing the link.
+//! registered on `CoordServices::worker_lifecycle`, so a later owner registers
+//! here instead of editing the link.
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, PoisonError, RwLock};
@@ -16,11 +15,10 @@ use crate::terminal_screen::pending_rpcs::PendingRpcs;
 /// How one socket generation ended, which decides what an owner releases.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkEnd {
-    /// The worker's credential was fenced under the open socket (v2 `revoke`).
+    /// The worker's credential was fenced under the open socket.
     Revoked,
     /// The socket closed. `replaced` is whether a newer generation already
-    /// claims the fingerprint, in which case it owns the worker's in-flight work
-    /// (v2 `close`, `worker-conn.ts:198-205`).
+    /// claims the fingerprint, in which case it owns the worker's in-flight work.
     Closed { replaced: bool },
 }
 
@@ -31,9 +29,9 @@ pub enum LinkEnd {
 /// guarantees each transition is announced.
 pub trait WorkerLifecycleObserver: Send + Sync {
     /// The capabilities this owner acknowledges out of a hello's advertised set.
-    /// v2 acknowledges a capability only when the owner that serves it exists
-    /// (`worker-conn.ts:310-321`), so an owner that is not registered is a
-    /// capability the worker is never told it may use.
+    /// A capability is acknowledged only when the owner that serves it exists,
+    /// so an owner that is not registered is a capability the worker is never
+    /// told it may use.
     fn acknowledge_capabilities(&self, _advertised: &BTreeSet<String>) -> Vec<&'static str> {
         Vec::new()
     }
@@ -129,8 +127,7 @@ impl WorkerLifecycle {
 }
 
 /// In-flight coordinator→worker requests fail fast when the generation that
-/// would have answered them is gone, instead of hanging to their deadline
-/// (v2 `rejectPendingRpcsForWorker`, `worker-conn.ts:183,202,272`).
+/// would have answered them is gone, instead of hanging to their deadline.
 impl WorkerLifecycleObserver for PendingRpcs {
     fn on_superseded(&self, superseded: &Arc<WorkerHandle>) {
         self.reject_pending_for(superseded, "worker connection superseded");

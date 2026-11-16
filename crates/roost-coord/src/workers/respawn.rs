@@ -1,11 +1,8 @@
 //! Respawn-if-missing dispatch: after a worker's hello grace period, every open
 //! session it still claims is offered back at the size its viewers already show.
 //!
-//! Ported from `apps/coord/src/workers/worker-respawn.ts`.
-//!
-//! WHY THE VIEW HUB IS ASKED FOR GEOMETRY AND NOTHING ELSE. v2 reads
-//! `terminalViewSnapshot(row.id)?.effective` and discards the other four fields
-//! (`worker-respawn.ts:67-68`), so this asks
+//! WHY THE VIEW HUB IS ASKED FOR GEOMETRY AND NOTHING ELSE. Only the effective
+//! geometry is needed, so this asks
 //! `TerminalViewLifecycle::effective_geometry` directly: a snapshot that also
 //! carried active views, parked views, a stream id and an unavailable flag would
 //! be a second answer to "what size is this session" that a view-hub change
@@ -13,8 +10,7 @@
 //!
 //! NOTHING IS WATCHING IS NOT AN ERROR. With no viewer the PTY is framed at the
 //! conventional default and the first view to attach reframes it; respawning at
-//! a size while views DO exist makes every attached TUI redraw twice
-//! (`worker-respawn.ts:22-24`).
+//! a size while views DO exist makes every attached TUI redraw twice.
 
 use std::str::FromStr;
 use std::sync::Arc;

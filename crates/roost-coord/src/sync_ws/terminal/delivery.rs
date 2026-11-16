@@ -13,10 +13,9 @@
 //! past, would otherwise rewind the baseline and re-send rows the client already
 //! has.
 //!
-//! A QUEUED STATE OR DELTA HAS ALREADY LEFT ITS LANE. v2 peeked the head and
-//! shifted it on delivery; here the queue owns the frame from enqueue on, so a
-//! delivery only lifts the lane's in-flight mark. Shifting again would drop the
-//! NEXT, unsent frame and leak its charge.
+//! A QUEUED STATE OR DELTA HAS ALREADY LEFT ITS LANE. The queue owns the
+//! frame from enqueue on, so a delivery only lifts the lane's in-flight mark.
+//! Shifting again would drop the NEXT, unsent frame and leak its charge.
 
 use crate::sync_ws::frame_meta::SyncFrameMeta;
 use crate::sync_ws::retained_frame::{RetainedFrame, SharedCellFrame};
@@ -194,8 +193,7 @@ impl SyncV2Session {
     }
 
     /// Put back a delta the queue refused, at the head of the tail, so it is
-    /// retried in order: v2 left it there, and a lost delta is a gap only a
-    /// full can close.
+    /// retried in order: a lost delta is a gap only a full can close.
     pub(in crate::sync_ws) fn restore_delta_tail_head(
         &mut self,
         session_id: &str,

@@ -4,22 +4,22 @@
 //! Owned by the coordinator's auth layer. `jwt_verify` reads this; the
 //! authorized-keys loader in `authorized_keys` fills it. Constructed once per
 //! process and injected, never a crate-root static, because boot builds it
-//! before any transport exists (`apps/coord/src/main.ts:87`).
+//! before any transport exists.
 //!
 //! THE RACE THIS EXISTS FOR. Verification is four steps and the key can be
 //! revoked between any two of them: look the `kid` up, verify the signature,
 //! validate the claims, resolve the principal. Without a generation, a socket
 //! that started verifying against a live key finishes minting a principal for a
 //! key revoked in the middle, and that principal then outlives the revocation on
-//! every long-lived socket. v2 re-checks the generation at **four** points --
-//! before and after key import, after signature verification, and after claim
-//! validation (`apps/coord/src/auth/jwt.ts:108,117,181,222`). A port that checks
-//! it once has a smaller hole; a port that never checks has the original one.
-//! This file makes the counter cheap so checking it four times costs nothing.
+//! every long-lived socket. Verification re-checks the generation at **four**
+//! points -- before and after key import, after signature verification, and
+//! after claim validation. Checking it once leaves a smaller hole; never
+//! checking has the original one. This file makes the counter cheap so
+//! checking it four times costs nothing.
 //!
 //! WHY `refresh` AND `invalidate` DIFFER. `invalidate_jwt_key` bumps the
-//! generation AND drops the cached row; `refresh_jwt_key` drops the row only
-//! (`apps/coord/src/auth/jwt.ts:79-89`). Refresh runs after mint, redeem and
+//! generation AND drops the cached row; `refresh_jwt_key` drops the row only.
+//! Refresh runs after mint, redeem and
 //! pair -- the key is still authorized, so a verifier that already loaded the row
 //! must stay valid. Invalidate runs on revoke, rotate and logout. Conflating them
 //! breaks enrollment (a new key never becomes usable) or revocation (an old key
@@ -39,7 +39,7 @@ use super::jwt_crypto::PublicKey;
 
 /// How long a cached key stays before it is re-read from the database.
 ///
-/// 60 s (`apps/coord/src/auth/jwt.ts:10`). Short enough that a direct edit to
+/// 60 s. Short enough that a direct edit to
 /// `authorized_keys` is picked up on its own, long enough that a keystroke-rate
 /// Connect call does not read a row per request.
 pub const CACHE_TTL: Duration = Duration::from_secs(60);
@@ -204,7 +204,7 @@ impl JwtKeyCache {
 
     /// Whether a generation observed earlier is still current.
     ///
-    /// All four check sites of `apps/coord/src/auth/jwt.ts` reduce to this.
+    /// All four generation checks in verification reduce to this.
     #[must_use]
     pub fn generation_is_current(&self, kid: &str, observed: u64) -> bool {
         self.generation(kid) == observed

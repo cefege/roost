@@ -2,8 +2,7 @@
 //! with three worker rows, fake routable worker generations that capture every
 //! browser command, and the real pending-RPC table the handlers settle through.
 //!
-//! Ports `apps/coord/tests/search/global-search-test-fixture.ts`. Each test
-//! builds its own `Harness`, so no cursor, lane, or pending entry leaks.
+//! Each test builds its own `Harness`, so no cursor, lane, or pending entry leaks.
 
 #![allow(dead_code, clippy::unwrap_used, clippy::expect_used)]
 
@@ -50,12 +49,12 @@ pub const WORKER_A1: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 pub const WORKER_A2: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 pub const WORKER_B: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 
-/// `globalSearchSessionId`.
+/// A deterministic session id for `sequence`.
 pub fn session_id(sequence: u32) -> String {
     format!("00000000-0000-4000-8000-{sequence:012}")
 }
 
-/// `globalSearchResult`: one complete page with one match at row 5.
+/// One complete page with one match at row 5.
 pub fn search_result(grid_epoch: &str, overrides: Value) -> Value {
     let mut result = json!({
         "matches": [{ "row": 5, "col": 1, "len": 6, "preview": "needle" }],
@@ -72,7 +71,7 @@ pub fn search_result(grid_epoch: &str, overrides: Value) -> Value {
     result
 }
 
-/// `globalSearchOkEntry`, epoch defaulting to `epoch-<last four>`.
+/// An ok entry, epoch defaulting to `epoch-<last four>`.
 pub fn ok_entry(id: &str, grid_epoch: Option<&str>, overrides: Value) -> Value {
     let default_epoch = format!("epoch-{}", &id[id.len() - 4..]);
     json!({
@@ -120,12 +119,12 @@ impl TestWorker {
             .collect()
     }
 
-    /// `throwOnSend`: the transport drops every frame.
+    /// The transport drops every frame.
     pub fn fail_sends(&self, value: bool) {
         self.fail_sends.store(value, Ordering::SeqCst);
     }
 
-    /// `waitForKind`: at least `count` commands of `kind`, within a second.
+    /// At least `count` commands of `kind`, within a second.
     pub async fn wait_for_kind(&self, kind: &str, count: usize) -> Vec<Captured> {
         for _ in 0..1_000 {
             let matching = self.of_kind(kind);
@@ -257,7 +256,7 @@ impl Harness {
             .unwrap();
     }
 
-    /// The global-browser caller on tab `global-tab`, as v2's fixture context.
+    /// The global-browser caller on tab `global-tab`.
     pub fn caller(&self) -> Caller {
         self.caller_for("global-browser", Some("global-tab"))
     }

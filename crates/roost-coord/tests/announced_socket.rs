@@ -3,13 +3,11 @@
 //! publish in arrival order, and a barrier drop invalidates the session's
 //! screen replica.
 //!
-//! Ports `apps/coord/tests/announce-barrier-handler.test.ts` ("a respawn's
-//! binary frames publish after the commit in arrival order" over cell frames,
-//! since raw PTY binary has no destination here; "semantic metadata preceding
-//! a respawn waits for the exact route binding"), the terminal fast path of
-//! `apps/coord/src/workers/worker-ws-handler.ts:306-338`, and the drop wiring of
-//! `apps/coord/src/workers/worker-ws-upgrade.ts:21-28`. The append is parked
-//! by holding the coordinator's one pooled database connection.
+//! Covers: a respawn's cell frames publishing after the commit in arrival
+//! order (raw PTY binary has no destination here), semantic metadata preceding
+//! a respawn waiting for the exact route binding, the terminal fast path, and
+//! the drop wiring. The append is parked by holding the coordinator's one
+//! pooled database connection.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod db_support;
@@ -214,8 +212,8 @@ async fn a_barrier_drop_invalidates_the_sessions_screen_replica() {
 
 #[tokio::test]
 async fn a_routed_channels_cells_overtake_an_append_still_in_flight() {
-    // v2 `message`: "terminal frames do not require a DB write" — only an
-    // announced channel waits; every other channel publishes past the append.
+    // Terminal frames do not require a DB write: only an announced channel
+    // waits; every other channel publishes past the append.
     let fixture = WireFixture::start("announced-fast-path").await;
     let mut socket = ready_link(&fixture).await;
     send_binary(&mut socket, opened(&fixture, SESSION, 5, 2)).await;

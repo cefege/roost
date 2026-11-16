@@ -6,10 +6,9 @@
 //! point: these are twelve ordered decisions and each has a written reason, so
 //! they belong somewhere a test can drive without a database.
 //!
-//! EVERY REFUSAL IS A DATA OUTCOME, NOT AN EXCEPTION. The source header
-//! (`apps/coord/src/events/event-admission.ts:1-3`): "Worker-originated
-//! resource probes fail as a data outcome, not an exception, so missing and
-//! foreign IDs receive neither an ACK nor a socket-close oracle." A rejected
+//! EVERY REFUSAL IS A DATA OUTCOME, NOT AN EXCEPTION. Worker-originated
+//! resource probes fail as a data outcome, so missing and foreign IDs receive
+//! neither an ACK nor a socket-close oracle. A rejected
 //! event gets **no acknowledgement and no close**, so a prober cannot tell
 //! "never existed" from "not yours" from how the coordinator behaves. An
 //! exception here would be a 1008 and an oracle for free.
@@ -118,12 +117,11 @@ pub enum AdmissionRefusal {
 
 /// Decide whether an event may be appended.
 ///
-/// The rules, in the order the source runs them
-/// (`apps/coord/src/events/event-admission.ts:29-122`):
+/// The rules, in the order they run:
 ///
 /// 1. a **non-worker producer always passes**, probing only for existence. That
-///    is the coordinator's own ghost-close and deploy-line path
-///    (`sessions/handlers-sessions.ts:163,201,283`); fencing it would break the
+///    is the coordinator's own ghost-close and deploy-line path; fencing it
+///    would break the
 ///    coordinator's recovery of its own records.
 /// 2. the caller's worker row must exist and not be tombstoned.
 /// 3. `opened` and `snapshot` may not claim a `worker_fp` other than the caller's.

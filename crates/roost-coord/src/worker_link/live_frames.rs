@@ -1,8 +1,7 @@
 //! The two SYNCHRONOUS arms: terminal and semantic live frames, and the replies
 //! that settle a request the coordinator is holding open.
 //!
-//! Ported from the `handleLiveFrame` half of
-//! `apps/coord/src/workers/worker-frame-dispatch.ts:248-395`. Split from
+//! Split from
 //! `frame_dispatch` on the same seam that file's own header draws: only the
 //! durable arm awaits the database, so only it is asynchronous, and putting the
 //! two synchronous arms in a sibling `impl` keeps the boxed-future machinery on
@@ -103,11 +102,11 @@ impl WorkerFrameDispatcher {
 
     /// One reply to a request the coordinator is holding open.
     ///
-    /// Every settling arm is the same table and the same `request_id`; v2
-    /// routes a typed result, a stream result and a pipeline sample through the
-    /// identical `resolvePendingRpc` an `rpc-ok` uses. The table key carries the
+    /// Every settling arm is the same table and the same `request_id`: a typed
+    /// result, a stream result and a pipeline sample resolve the pending RPC the
+    /// same way an `rpc-ok` does. The table key carries the
     /// authenticated fingerprint, so another worker's reply settles nothing.
-    /// Before the snapshot barrier nothing settles (v2 `pendingResultWorker`).
+    /// Before the snapshot barrier nothing settles.
     pub(crate) fn handle_rpc(&self, worker_fp: &str, frame: InboundFrame) -> DispatchOutcome {
         let InboundFrame {
             channel,
@@ -121,7 +120,7 @@ impl WorkerFrameDispatcher {
             return self.refuse(channel, "unaddressable_worker_fp");
         };
         // Progress settles no pending RPC, so the snapshot barrier does not
-        // gate it: v2 routes it on any socket past hello.
+        // gate it: it is routed on any socket past hello.
         if let CoordWorkerUpstream::UpdateProgress(progress) = &upstream {
             return match self
                 .core

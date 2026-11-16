@@ -1,8 +1,6 @@
 //! A route claim is never sent under a coordinator request id that equals the
 //! browser's own nonce: the typed result restores that nonce, so the two ids
 //! must be distinguishable or a result could be correlated to the wrong waiter.
-//! Ports the `installWorkerRequest` fence of
-//! `apps/coord/src/terminal/input/terminal-input-route-results.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -22,7 +20,7 @@ use roost_protocol::wire::coord_worker::CoordWorkerDownstream;
 
 const WORKER_FP: &str = "aa00000000000000000000000000000000000000000000000000000000000000";
 
-// v2 installWorkerRequest: `created.requestId === pending.slot.browserRequestId` throws.
+// A coordinator request id equal to the browser's own nonce is refused.
 #[tokio::test]
 async fn a_claim_whose_outer_id_would_equal_the_browser_nonce_is_refused_unsent() {
     let workers = Arc::new(WorkerRegistry::new());

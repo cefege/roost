@@ -6,27 +6,23 @@
 //! upgrade DECISIONS live in `http::upgrade`, the Host/Origin gate's decisions
 //! live in `http_admission`, and the SQL lives in `db`.
 //!
-//! v2's `apps/coord/src/rpc/bun-handler.ts` is this mount on Bun's server:
-//! `build_router` is its `makeConnectBunHandler`, and the trust-header
+//! `build_router` mounts the Connect service, and the trust-header
 //! strip-then-set is `middleware::caller_origin`.
 //!
-//! THE ORDER IS THE CONTRACT (`apps/coord/src/bun-coordinator-listeners.ts:314-352`).
-//! Outside in:
+//! THE ORDER IS THE CONTRACT. Outside in:
 //!
 //! 1. `middleware::admission_layer` -- the Host/Origin gate. Outermost, and
-//!    around the whole router rather than around the upgrade routes alone,
-//!    because v2 runs it first thing in the fetch handler: a request it refuses
-//!    must not reach Connect either, or the same DNS-rebinding request is one
-//!    RPC path removed from a refused one.
+//!    around the whole router rather than around the upgrade routes alone: a
+//!    request it refuses must not reach Connect either, or the same
+//!    DNS-rebinding request is one RPC path removed from a refused one.
 //! 2. `middleware::caller_origin` -- the caller's real address and on-host
 //!    authority, resolved once for everything below. It reads a forwarded
 //!    header, so it has to sit where that header is still only a claim -- and
 //!    above the limiter, whose key is the address it resolves.
 //! 3. `middleware::security` -- the CORS preflight and the response headers.
 //!    Above the limiter because a browser sends a preflight before every
-//!    non-simple request, and v2 answers `OPTIONS` before it checks a budget
-//!    (`coord-factory.ts:161-163`): charging the preflight would halve every
-//!    real caller's budget.
+//!    non-simple request, and `OPTIONS` is answered before a budget is checked:
+//!    charging the preflight would halve every real caller's budget.
 //! 4. `middleware::rate_limit_layer` -- one request budget per client, spent by
 //!    Connect paths only.
 //! 5. `middleware::audit_layer` -- one audit row per non-Connect response.
@@ -55,9 +51,9 @@
 //! documented `410` `sync moved to /ws/coord-sync`; without it the generated
 //! dispatcher answers a generic unimplemented.
 //!
-//! TLS IS NEVER TERMINATED HERE. "The coordinator serves plaintext on its
-//! loopback bind; the operator's front door owns TLS"
-//! (`bun-coordinator-listeners.ts:4-5`). That is why the export URL is hard-coded
+//! TLS IS NEVER TERMINATED HERE. The coordinator serves plaintext on its
+//! loopback bind; the operator's front door owns TLS. That is why the export
+//! URL is hard-coded
 //! `http://127.0.0.1:<port>/api/db-export`, why a declared public origin must be
 //! HTTPS, and why HSTS follows `trust_proxy` rather than the request's scheme.
 
@@ -96,17 +92,16 @@ pub const SYNC_MOVED_BODY: &str = "sync moved to /ws/coord-sync";
 
 /// The largest buffered HTTP request body, in bytes.
 ///
-/// 16 MiB (`bun-coordinator-listeners.ts:48`). It has to clear the 8 MiB
+/// 16 MiB. It has to clear the 8 MiB
 /// `AttachFileChunk` ceiling with room for the envelope, because a chunk upload
 /// is the one request whose size is chosen by the client.
 pub const MAX_REQUEST_BODY_BYTES: usize = 16 * 1024 * 1024;
 
 /// The largest single WebSocket frame either transport will accept, in bytes.
 ///
-/// 4 MiB (`COORD_WEBSOCKET_MAX_PAYLOAD_BYTES`, `worker-ws-handler.ts:31`),
-/// shared by the worker and Sync sockets. It is a payload cap, not a queue cap:
-/// the worker socket's *queue* is bounded separately, at 256 frames and 16 MiB
-/// (`worker-frame-queue.ts:5-6`).
+/// 4 MiB, shared by the worker and Sync sockets. It is a payload cap, not a
+/// queue cap: the worker socket's *queue* is bounded separately, at 256 frames
+/// and 16 MiB.
 pub const MAX_WEBSOCKET_PAYLOAD_BYTES: usize = 4 * 1024 * 1024;
 
 /// The state the listener's handlers read.
@@ -226,7 +221,7 @@ pub fn build_router(state: Arc<ListenerState>) -> MountedListener {
         // mounted as a layer rather than a route so the two upgrade routes and
         // the export are still reached through the router untouched. The LAST
         // layer added is the OUTERMOST one, so this sits outside Connect and
-        // inside the audit mount -- one audit row per page, as in v2.
+        // inside the audit mount -- one audit row per page.
         .layer(axum::middleware::from_fn_with_state(spa, spa::spa_layer))
         .with_state(state)
         .layer(axum::middleware::from_fn_with_state(audit, audit_layer))
@@ -290,6 +285,5 @@ pub fn mounted_paths() -> Vec<&'static str> {
     ]
 }
 
-/// A convenience alias so the router's builder reads the same as v2's
-/// `startBunCoordinatorListeners`.
+/// A convenience alias so the router's builder reads naturally.
 pub type CoordRouter = Router;

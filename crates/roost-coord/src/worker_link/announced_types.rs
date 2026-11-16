@@ -3,19 +3,16 @@
 //! drop cost, and the counters a log line reports.
 //!
 //! Read by `announced_barrier`, `announced_retention` and `announced_lane`.
-//! Ports the exported types and constants of
-//! `apps/coord/src/events/announced-channel-barrier.ts` and
-//! `apps/coord/src/events/announced-channel-semantic-retention.ts`.
 
 use std::time::Duration;
 
-/// Frames one announced channel may hold before it drops (`:12`).
+/// Frames one announced channel may hold before it drops.
 pub const ANNOUNCED_CHANNEL_MAX_FRAMES: usize = 64;
 
-/// Bytes one announced channel may hold before it drops (`:13`).
+/// Bytes one announced channel may hold before it drops.
 pub const ANNOUNCED_CHANNEL_MAX_BYTES: u64 = 4 * 1024 * 1024;
 
-/// How long a channel may wait for its durable route before it drops (`:14`).
+/// How long a channel may wait for its durable route before it drops.
 pub const ANNOUNCED_CHANNEL_MAX_WAIT: Duration = Duration::from_millis(3_000);
 
 /// Channels with a retained semantic record, early and recovery together.
@@ -42,7 +39,7 @@ pub enum ChannelPhase {
     Draining,
 }
 
-/// Why a channel's held frames were released without delivery (`:15-22`).
+/// Why a channel's held frames were released without delivery.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum DropReason {
     /// A bound was hit: frames, bytes, compactness, or the socket budget.
@@ -78,7 +75,7 @@ impl DropReason {
 }
 
 /// What a drop cost, reported so the screen replica of exactly that session
-/// is invalidated (`worker-ws-upgrade.ts:21-28`).
+/// is invalidated.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChannelDrop {
     /// The worker-local PTY id.

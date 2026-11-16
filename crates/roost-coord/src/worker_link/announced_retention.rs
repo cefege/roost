@@ -3,15 +3,13 @@
 //! announcement, or the latest fact parked after a cell-loss drop, which this
 //! owner keeps up to 30 s until the exact durable route commits.
 //!
-//! Owned by `worker_link::announced_barrier`. Ports
-//! `apps/coord/src/events/announced-channel-semantic-retention.ts`. It accepts
+//! Owned by `worker_link::announced_barrier`. It accepts
 //! no PTY bytes and charges the socket's `RetainedWorkBudget`.
 //!
-//! NO DRAIN INTERLEAVING. v2 awaits each recovery delivery, so later facts can
-//! arrive mid-drain; its `drainingRecoveryChannels` set and the session a
-//! pre-announced record carries exist only for that. Here delivery is a
-//! synchronous callback on the socket's one task, so nothing reaches this owner
-//! during a delivery and those two states cannot occur.
+//! NO DRAIN INTERLEAVING. Delivery is a synchronous callback on the socket's
+//! one task, so nothing reaches this owner during a delivery: no later fact
+//! can arrive mid-drain, and neither a draining-channel set nor a session on a
+//! pre-announced record is needed.
 
 use std::collections::HashMap;
 

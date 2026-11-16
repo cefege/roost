@@ -2,10 +2,9 @@
 //! retires one.
 //!
 //! One field on `CoordServices`, reached as `core.services.search`: the cursor
-//! owner (`cursors`) and the per-worker lanes (`worker_lanes`) v2 builds once
-//! per router and injects into `handlers-sessions-global-search.ts`. The
-//! correlation table and worker registry it sends through are the scrollback
-//! relay's (`services.scrollback`), never a second copy.
+//! owner (`cursors`) and the per-worker lanes (`worker_lanes`), each built once
+//! per process. The correlation table and worker registry it sends through are
+//! the scrollback relay's (`services.scrollback`), never a second copy.
 //!
 //! `new()` takes nothing and must keep taking nothing: anything the domain
 //! needs from configuration is read at call time from `core.services.boot`.

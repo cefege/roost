@@ -1,6 +1,6 @@
 //! The three durable reads over the single global event stream.
 //!
-//! Ported from `apps/coord/src/events/event-query.ts`. Sync recovery reaches
+//! Sync recovery reaches
 //! these three functions and nothing else, and the windows they use are recovery
 //! invariants rather than conveniences:
 //!
@@ -19,9 +19,9 @@
 //!
 //! Each read covers the full durable event stream.
 //!
-//! THERE IS NO RETENTION ON THIS TABLE, and that is a deliberate gap in v2 rather
-//! than an oversight (`docs/phase3-coord-contract.md` §3.8). This port does not
-//! quietly close it.
+//! THERE IS NO RETENTION ON THIS TABLE, and that is a deliberate gap rather
+//! than an oversight (`docs/phase3-coord-contract.md` §3.8). Nothing here
+//! quietly closes it.
 
 use roost_protocol::wire::SessionEvent;
 use sqlx::{Executor, Row};
@@ -49,8 +49,7 @@ pub enum EventQueryError {
     Sqlite(#[from] sqlx::Error),
     /// A stored payload is not a decodable event.
     ///
-    /// v2's `JSON.parse` threw here and took the whole backfill with it
-    /// (`event-query.ts:20`), which is the same failure with less information.
+    /// A decode failure is returned rather than swallowed, and carries the row id.
     /// Skipping the row instead would be worse: an event missing from a recovery
     /// interval is a client whose state silently diverges, and nothing would say
     /// which row it was.

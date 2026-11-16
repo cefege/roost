@@ -1,9 +1,5 @@
 //! Boot step 5: `serve::prepare_coordinator_database` imports the operator's
 //! `authorized_keys` file after migrations and before the tenancy invariant.
-//!
-//! Ports the behaviour of `apps/coord/src/auth/authorized-keys.ts`
-//! (`parseSshEd25519Line`, `importAuthorizedKeys`) and its boot call in
-//! `apps/coord/src/main.ts:73-80`; v2 has no dedicated test file for either.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -122,7 +118,7 @@ fn lines_that_are_not_ed25519_keys_are_skipped() {
     }
 }
 
-/// `importAuthorizedKeys` at boot (`main.ts:73-80`): invalid lines are skipped,
+/// Boot import: invalid lines are skipped,
 /// a key listed twice keeps one row that takes the later label, a revoked key
 /// is never resurrected, and with no account yet no device row is written.
 #[tokio::test]
@@ -176,7 +172,7 @@ async fn boot_imports_the_file_deduping_and_skipping_invalid_lines() {
     );
 }
 
-/// `importAuthorizedKeys` with exactly one active account: every imported key
+/// The import with exactly one active account: every imported key
 /// that is not a worker becomes that account's device. The account exists from
 /// the second boot on, because the import runs BEFORE the tenancy invariant.
 #[tokio::test]
@@ -216,7 +212,7 @@ async fn a_later_boot_makes_imported_non_worker_keys_devices_of_the_one_account(
     );
 }
 
-/// `main.ts:73-80`: an absent file is not imported, and a file that cannot be
+/// An absent file is not imported, and a file that cannot be
 /// read is a warning (`authorized_keys_import_failed`), never a failed boot.
 #[tokio::test]
 async fn an_absent_or_unreadable_keys_file_does_not_stop_boot() {

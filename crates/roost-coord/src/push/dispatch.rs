@@ -29,8 +29,7 @@ pub trait ActiveTerminalViewers: Send + Sync {
 /// allowlist, is DROPPED rather than refused: the operator changed
 /// `ROOST_PUSH_ALLOWED_ORIGINS` after these rows were written, and a
 /// subscription that predates the change must not keep receiving. Re-validating
-/// at send time is the whole reason this filter exists
-/// (`push-dispatch.ts:92-108`).
+/// at send time is the whole reason this filter exists.
 pub(super) fn select_targets(
     subscriptions: &[StoredSubscription],
     allowed_origins: &[String],
@@ -86,9 +85,8 @@ pub(super) async fn open_session(
 /// The notification title: the operator's title, else the directory's leaf.
 ///
 /// The leaf is the last non-empty path segment split on BOTH separators, so a
-/// Windows-authored path does not show as one long segment
-/// (`push-dispatch.ts:118-119`). An empty cwd falls through to the product name
-/// rather than to an empty notification.
+/// Windows-authored path does not show as one long segment. An empty cwd falls
+/// through to the product name rather than to an empty notification.
 pub(super) fn session_title(cwd: &str, custom_title: Option<&str>) -> String {
     if let Some(title) = custom_title.filter(|title| !title.is_empty()) {
         return title.to_owned();

@@ -1,7 +1,7 @@
 //! The session row shape: the eighteen projection columns, how a folded session
 //! becomes one, and how one is read back.
 //!
-//! Ported from the row half of `apps/coord/src/events/event-projection.ts`. The
+//! The
 //! statements live in `projection_writes`; this file is the shape they all share,
 //! so a column cannot be added to one and forgotten by the other.
 //!
@@ -9,16 +9,15 @@
 //! persistence concerns use their own statements, so ordinary session writes
 //! cannot overwrite data they do not own.
 //!
-//! STORED ENUMS ARE PARSED, NOT CAST. v2 cast `kind`, `status`, `pr_state` and
-//! `pr_checks` with `as` and never checked them
-//! (`event-projection.ts:126-134`), so a hand-edited row produced a session
-//! carrying a string where an enum belonged, and the failure surfaced later, in
-//! a frame builder, as something unrelated. Here an unreadable value names its own
-//! column, which is the only difference the port needed.
+//! STORED ENUMS ARE PARSED, NOT CAST. `kind`, `status`, `pr_state` and
+//! `pr_checks` are checked on read: a hand-edited row must not produce a
+//! session carrying a string where an enum belongs, with the failure surfacing
+//! later, in a frame builder, as something unrelated. An unreadable value names
+//! its own column.
 //!
 //! A STORED ROW HAS BEEN LOOKED AT, SO `git_remote` HAS TWO STATES. The column
-//! cannot distinguish "never resolved" from "resolved, no origin", and v2 read
-//! both as an explicit null (`event-projection.ts:131`). The absent state belongs
+//! cannot distinguish "never resolved" from "resolved, no origin", so both read
+//! as an explicit null. The absent state belongs
 //! to a wire event, not to a row.
 
 use std::str::FromStr;
@@ -32,7 +31,7 @@ use serde_json::json;
 use sqlx::{Executor, FromRow};
 
 /// The exact session projection column list, shared with every reader that wants
-/// the same row-to-proto adapters (`event-projection.ts:13-17`).
+/// the same row-to-proto adapters.
 ///
 /// The projection row contains only session fields; independent persistence
 /// concerns use separate statements.
@@ -167,10 +166,10 @@ pub enum ProjectionError {
 
 /// Convert a folded session into the row that is written.
 ///
-/// `ports` is `NULL` for both "never reported" and "reported empty"
-/// (`event-projection.ts:45`), which is why a session whose fold produced
-/// `Some([])` reads back as `Some([])`: the column cannot tell them apart, and v2
-/// never needed it to.
+/// `ports` is `NULL` for both "never reported" and "reported empty",
+/// which is why a session whose fold produced
+/// `Some([])` reads back as `Some([])`: the column cannot tell them apart, and
+/// nothing needs it to.
 #[must_use]
 pub fn session_to_row<'a>(session: &'a Session, dashboard_id: &'a str) -> SessionRow<'a> {
     SessionRow {
@@ -270,11 +269,10 @@ pub fn session_from_row(row: &StoredSessionRow) -> Result<Session, ProjectionErr
 
 /// The listening ports, or none.
 ///
-/// The fallback is `[]` and not an error for the reason the source gives (its L11
-/// note, `event-projection.ts:135-136`): a hand-edited or partially-written
-/// `ports_json` must not throw on the bus publish path, where a throw is an RPC
+/// The fallback is `[]` and not an error: a hand-edited or partially-written
+/// `ports_json` must not fail on the bus publish path, where a failure is an RPC
 /// 500 and a split-brain sidebar. An array containing one non-number falls back
-/// whole, which is what v2's `number[]` parse did.
+/// whole.
 fn ports_from_column(ports_json: Option<&str>) -> Vec<i64> {
     safe_json_parse(ports_json, json!([]))
         .as_array()

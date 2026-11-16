@@ -2,7 +2,6 @@
 //! stable-id renewal, coalesced refreshes, ACK and post-ACK fencing, device
 //! revocation, retirement ordering, and expiry, over fake worker generations
 //! and the production pending-RPC correlation.
-//! Ports `apps/coord/tests/terminal/direct/terminal-grant-owner.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod terminal_direct_grants_support;
@@ -25,7 +24,6 @@ use terminal_direct_support::{
     grant_request, install_worker, settle_until,
 };
 
-// v2 "keeps simultaneous same-tab leases separate by worker".
 #[tokio::test]
 async fn keeps_simultaneous_same_tab_leases_separate_by_worker() {
     let harness = Harness::new();
@@ -53,7 +51,6 @@ async fn keeps_simultaneous_same_tab_leases_separate_by_worker() {
     );
 }
 
-// v2 "renews on one exact worker with a stable id and rotated browser secret".
 #[tokio::test]
 async fn renews_on_one_exact_worker_with_a_stable_id_and_rotated_secret() {
     let harness = Harness::new();
@@ -74,7 +71,6 @@ async fn renews_on_one_exact_worker_with_a_stable_id_and_rotated_secret() {
     );
 }
 
-// v2 "coalesces a slow renewal flood into one pending install".
 #[tokio::test]
 async fn coalesces_a_slow_renewal_flood_into_one_pending_install() {
     let harness = Harness::new();
@@ -108,7 +104,6 @@ async fn coalesces_a_slow_renewal_flood_into_one_pending_install() {
     assert_eq!(harness.owner.list().len(), 1);
 }
 
-// v2 "sends one union follow-up when demand grows during an install".
 #[tokio::test]
 async fn sends_one_union_follow_up_when_demand_grows_during_an_install() {
     let harness = Harness::new();
@@ -144,7 +139,6 @@ async fn sends_one_union_follow_up_when_demand_grows_during_an_install() {
     );
 }
 
-// v2 "preserves the acknowledged predecessor when a renewal install fails".
 #[tokio::test]
 async fn preserves_the_acknowledged_predecessor_when_a_renewal_install_fails() {
     let harness = Harness::new();
@@ -170,7 +164,6 @@ async fn preserves_the_acknowledged_predecessor_when_a_renewal_install_fails() {
     assert_eq!(leases[0].session_ids, vec![SESSION_A]);
 }
 
-// v2 "rebinds a same-process reconnect and narrows scope without changing its id".
 #[tokio::test]
 async fn rebinds_a_same_process_reconnect_and_narrows_scope_without_changing_its_id() {
     let harness = Harness::new();
@@ -197,7 +190,6 @@ async fn rebinds_a_same_process_reconnect_and_narrows_scope_without_changing_its
     assert_eq!(harness.owner.list()[0].session_ids, vec![SESSION_A]);
 }
 
-// v2 "mints a new id only when the worker process epoch changes".
 #[tokio::test]
 async fn mints_a_new_id_only_when_the_worker_process_epoch_changes() {
     let harness = Harness::new();
@@ -220,7 +212,6 @@ async fn mints_a_new_id_only_when_the_worker_process_epoch_changes() {
     assert_eq!(restarted.grants()[0].worker_epoch, "epoch-a-restarted");
 }
 
-// v2 "rechecks live session authority after ACK before committing a lease".
 #[tokio::test]
 async fn rechecks_live_session_authority_after_ack_before_committing_a_lease() {
     let harness = Harness::new();
@@ -253,7 +244,6 @@ async fn rechecks_live_session_authority_after_ack_before_committing_a_lease() {
     assert!(harness.owner.list().is_empty());
 }
 
-// v2 "rejects an ACK that arrives after its captured worker handle changes".
 #[tokio::test]
 async fn rejects_an_ack_that_arrives_after_its_captured_worker_handle_changes() {
     let harness = Harness::new();
@@ -276,7 +266,6 @@ async fn rejects_an_ack_that_arrives_after_its_captured_worker_handle_changes() 
     assert!(harness.owner.list().is_empty());
 }
 
-// v2 "broadcasts device revocation after coordinator lease state is restarted".
 #[tokio::test]
 async fn broadcasts_device_revocation_after_coordinator_lease_state_is_restarted() {
     let harness = Harness::new();
@@ -302,7 +291,7 @@ async fn broadcasts_device_revocation_after_coordinator_lease_state_is_restarted
     }
 }
 
-// v2 `terminal-grant-owner.ts` `revokeDevice`: the revoked device's live lease
+// The revoked device's live lease
 // is dropped from the coordinator's own record, not only broadcast.
 #[tokio::test]
 async fn device_revocation_drops_the_devices_live_lease() {
@@ -314,7 +303,6 @@ async fn device_revocation_drops_the_devices_live_lease() {
     assert!(harness.owner.list().is_empty());
 }
 
-// v2 "retires direct transport before the current worker handle is fenced".
 #[tokio::test]
 async fn retires_direct_transport_before_the_current_worker_handle_is_fenced() {
     let harness = Harness::new();
@@ -340,7 +328,6 @@ async fn retires_direct_transport_before_the_current_worker_handle_is_fenced() {
     assert!(harness.registry.current_routable(&fp(WORKER_A)).is_none());
 }
 
-// v2 "expires only its coordinator lease record and notifies subscribers".
 #[tokio::test]
 async fn expires_only_its_coordinator_lease_record_and_notifies_subscribers() {
     let harness = Harness::new();

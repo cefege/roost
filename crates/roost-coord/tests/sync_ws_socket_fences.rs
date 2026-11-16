@@ -2,9 +2,7 @@
 //! passing while live), the key-revocation check between upgrade and open, and
 //! the upgrade query's negotiation reaching the socket's scope.
 //!
-//! Ports `apps/coord/tests/auth/ws-auth-deadline.test.ts` (the socket half) and
-//! `apps/coord/tests/sync/sync-ws-keepalive-upgrade.test.ts` at the socket
-//! boundary. The v2 commands a socket accepts once open are
+//! The v2 commands a socket accepts once open are
 //! `sync_ws_socket_lifecycle.rs`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -87,8 +85,8 @@ fn now_ms() -> i64 {
     .unwrap()
 }
 
-// v2 sync-ws-handler.ts:185-191 and ws-auth-deadline.test.ts: a deadline that
-// has already passed closes 4003 before any frame, the barrier included.
+// A deadline that has already passed closes 4003 before any frame, the barrier
+// included.
 #[tokio::test]
 async fn an_expired_reauth_deadline_closes_4003_before_the_barrier() {
     let fixture = SyncFixture::start("reauth-expired").await;
@@ -97,8 +95,7 @@ async fn an_expired_reauth_deadline_closes_4003_before_the_barrier() {
     assert_eq!(close_code(&mut socket, EXPECT).await, Some(Some(4003)));
 }
 
-// v2 ws-auth-deadline.test.ts "closes at Access expiry with the reauth code":
-// a live socket closes 4003 when its deadline passes.
+// A live socket closes 4003 with the reauth code when its Access deadline passes.
 #[tokio::test]
 async fn a_live_socket_closes_4003_when_its_deadline_passes() {
     let fixture = SyncFixture::start("reauth-live").await;
@@ -113,8 +110,8 @@ async fn a_live_socket_closes_4003_when_its_deadline_passes() {
     assert_eq!(close_code(&mut socket, EXPECT).await, Some(Some(4003)));
 }
 
-// v2 sync-ws-keepalive-upgrade.test.ts "revocation between accepted upgrade
-// and open closes before feed registration".
+// Revocation between an accepted upgrade and open closes before feed
+// registration.
 #[tokio::test]
 async fn a_key_revoked_after_verification_closes_4001_at_open() {
     let fixture = SyncFixture::start("revoked").await;
@@ -152,10 +149,9 @@ fn scope_for(query: &str) -> SyncScope {
     }
 }
 
-// v2 sync-ws-upgrade.ts:172-180 with URLSearchParams semantics: the query's
-// decoded values reach the scope, the first of a repeated name wins, and
-// only the exact `flow=1` (and `sync_v=2` on top of it) negotiates anything
-// (sync-ws-keepalive-upgrade.test.ts "only exact flow=1 enables the window").
+// The query's decoded values reach the scope (URLSearchParams semantics), the
+// first of a repeated name wins, and
+// only the exact `flow=1` (and `sync_v=2` on top of it) negotiates anything.
 #[test]
 fn the_upgrade_query_reaches_the_scope() {
     let scope = scope_for("flow=1&sync_v=2&tab=tab%201&since=42&tab=second");

@@ -2,15 +2,8 @@
 //! per-device cap, the endpoint and key admission rules, and the push-disabled
 //! state.
 //!
-//! The cap is the load-bearing thing here. v2 enforces it inside the
-//! `INSERT ... SELECT ... WHERE` rather than counting and then inserting
-//! (`apps/coord/src/push/handlers-push.ts:88-109`), because a count-then-insert
-//! has a window between the two decisions that a device opening two tabs walks
-//!
-//! The per-device subscription cap, and the race that keeps it honest.
-//!
-//! v2 enforces the cap inside the `INSERT ... SELECT ... WHERE` rather than
-//! counting and then inserting (`apps/coord/src/push/handlers-push.ts:88-109`),
+//! The cap is the load-bearing thing here. It is enforced inside the
+//! `INSERT ... SELECT ... WHERE` rather than by counting and then inserting,
 //! because a count-then-insert has a window between the two decisions that a
 //! device opening two tabs walks straight into. The race cases at the bottom
 //! are what pin that shape: they fail against a count-then-insert.

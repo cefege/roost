@@ -6,7 +6,7 @@
 //! is the security property, and an order that lives in a socket handler is an
 //! order nobody reviews.
 //!
-//! THE ORDER IS THE CONTRACT (`apps/coord/src/sync/sync-ws-upgrade.ts:124-213`):
+//! THE ORDER IS THE CONTRACT:
 //!
 //! 1. the `Origin`, when present, must be allowed -- checked **first**, before
 //!    the credential is even read;
@@ -30,7 +30,7 @@
 //! observe, and a key with no account has none. Answering 404 says "there is
 //! nothing here", which is true; answering 401 would say "your key is not
 //! valid", which is false and would send an operator to re-pair a key that
-//! works everywhere else (`sync-ws-upgrade.ts:160-170`).
+//! works everywhere else.
 
 use roost_protocol::fingerprint::FINGERPRINT_HEX_LEN;
 
@@ -47,8 +47,7 @@ pub const SYNC_QUERY_FLOW_V1: &str = "1";
 /// identity.
 pub const SYNC_QUERY_V2: &str = "2";
 
-/// The close code for a connection rejection, and the reason string beside it
-/// (`apps/coord/src/sync/sync-ws-upgrade.ts:33-34`).
+/// The close code for a connection rejection, and the reason string beside it.
 pub const CONNECTION_REJECTION_CLOSE_CODE: u16 = 1013;
 pub const CONNECTION_REJECTION_REASON: &str = "connection rejected";
 
@@ -109,8 +108,7 @@ pub struct VerifiedSyncCaller {
     /// The key's authorized label.
     pub label: String,
     /// The key's revocation generation when it verified. The socket re-checks
-    /// it as it opens and closes `4001 revoked` if it moved in between
-    /// (`sync-ws-handler.ts:181-184`).
+    /// it as it opens and closes `4001 revoked` if it moved in between.
     pub key_generation: u64,
     /// The verified browser's account; workers have no client state.
     pub account_id: Option<String>,
@@ -173,8 +171,7 @@ pub struct SyncScope {
     pub owner_worker_fp: Option<String>,
     /// Whether the socket is read-only. A worker principal is a firehose
     /// consumer over its own resources: it may ACK and subscribe, but it cannot
-    /// issue a terminal view or input command
-    /// (`apps/coord/src/sync/sync-ws-upgrade.ts:171-172,78-83`).
+    /// issue a terminal view or input command.
     pub read_only: bool,
     /// The exact browser tab id, or `None`. A v2 socket without `tab` is
     /// read-only by construction.
@@ -209,7 +206,7 @@ pub enum SyncUpgradeDecision {
 
 /// The maximum UTF-8 bytes in a `tab` value.
 ///
-/// 256 (`packages/protocol/src/ui-state.ts`, `UI_TAB_ID_MAX_UTF8_BYTES`). The
+/// 256 bytes. The
 /// tab id is persisted as UI state keyed on it, so an unbounded value is an
 /// unbounded primary key written by an anonymous-ish peer.
 pub const TAB_ID_MAX_UTF8_BYTES: usize = 256;
@@ -257,9 +254,7 @@ pub fn admit_sync_upgrade(
         }
     };
 
-    // Rule 5. A blank `tab=` is treated as absent, matching v2's
-    // `requestedTabId?.trim() ? requestedTabId : null`
-    // (`sync-ws-upgrade.ts:173-174`).
+    // Rule 5. A blank `tab=` is treated as absent.
     let tab_id = request
         .tab
         .as_deref()
@@ -283,8 +278,7 @@ pub fn admit_sync_upgrade(
             owner_worker_fp,
             read_only,
             // A read-only socket keeps its `tab` for correlation but never
-            // owns view handles: `tab_id: !readOnly ? tabId : null`
-            // (`sync-ws-upgrade.ts:189`).
+            // owns view handles.
             tab_id: if read_only { None } else { tab_id.clone() },
             viewer_key: if !read_only && tab_id.is_some() {
                 Some(format!(

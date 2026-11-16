@@ -2,10 +2,6 @@
 //! session filter forms normalize, which workers a dump reaches, the capped
 //! unfiltered fleet dump, and the terminal-capture scope refusal.
 //!
-//! Ports `apps/coord/tests/diagnostics/diag-snapshot-handlers.test.ts`
-//! ("DiagSnapshot session filters" and the capture scope and auth cases of
-//! "DiagSnapshot terminal capture dispatch").
-//!
 //! `expect` and `unwrap` are denied outside `#[cfg(test)]`, and an integration
 //! test is its own crate rather than a module of one, so the exemption has to
 //! be stated here rather than inherited.

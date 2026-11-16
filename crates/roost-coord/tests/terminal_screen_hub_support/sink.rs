@@ -2,9 +2,7 @@
 //! hub asked of it, the replica owner's repair requests, and deadlines that
 //! fire only when a test says so.
 //!
-//! Split out of `mod.rs` (the port of
-//! `apps/coord/tests/terminal/screen/terminal-screen-hub-harness.ts`) for the
-//! size cap.
+//! Split out of `mod.rs` for the size cap.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -250,7 +248,7 @@ type Deadline = (u64, Box<dyn FnOnce() + Send>);
 
 /// Deadlines that only fire when the test says so. The hub never cancels one:
 /// a superseded deadline still fires and must find nothing to do, which is how
-/// a test observes v2's `clearTimer`.
+/// a test observes that a timer was cleared.
 #[derive(Default)]
 pub struct ManualTimers {
     next: AtomicU64,

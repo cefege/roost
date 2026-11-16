@@ -127,7 +127,7 @@ async fn the_five_methods_round_trip_and_the_list_projects_the_row() {
         "renamed-box"
     );
 
-    // List: the rows the v2 renderer expects, plus the routable set.
+    // List: the rows the renderer expects, plus the routable set.
     let listed = handle_workers_list(
         &fixture.core,
         &device_caller(),

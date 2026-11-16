@@ -2,16 +2,15 @@
 //! behind the durable `opened`/`respawned` that makes the channel routable,
 //! then publish in arrival order once the route commits.
 //!
-//! One per worker socket, held by `worker_link::announced_lane`. Ports
-//! `apps/coord/src/events/announced-channel-barrier.ts`; the metadata a
+//! One per worker socket, held by `worker_link::announced_lane`; the metadata a
 //! cell-loss drop parks is `announced_retention`'s, and one channel's held
 //! state is `announced_channel`'s. No socket and no database: the caller
 //! supplies `now` wherever a wait starts, the budget, and the delivery.
 //!
 //! A cell sequence gap drops the channel, because a lost delta is not
 //! recoverable by waiting; a `full` is exempt and restarts the run. Delivery is
-//! a synchronous callback on the socket's one task, so v2's frames arriving
-//! mid-drain cannot occur and the drain runs start to finish.
+//! a synchronous callback on the socket's one task, so frames cannot arrive
+//! mid-drain and the drain runs start to finish.
 
 use std::collections::HashMap;
 
@@ -26,7 +25,7 @@ use crate::worker_link::announced_types::{
 use crate::worker_link::retained_budget::RetainedWorkBudget;
 
 /// Where every drop is reported: the screen replica's invalidation in
-/// production (`worker-ws-upgrade.ts:21-28`), a recorder in tests.
+/// production, a recorder in tests.
 pub type ChannelDropSink = Box<dyn FnMut(&ChannelDrop) + Send + Sync>;
 
 /// One worker socket's announced-channel barrier.

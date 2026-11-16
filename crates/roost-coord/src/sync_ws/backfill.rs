@@ -4,10 +4,10 @@
 //!
 //! Spawned by `sync_ws::socket_open` once the socket is open, and aborted by
 //! `release_socket`. The per-event decisions are `sync_ws::session_replay`'s;
-//! this file owns the reads, the pacing and the resets. Ports `backfill` of
-//! `apps/coord/src/sync/sync-feed.ts` over `events::event_query`.
+//! this file owns the reads, the pacing and the resets, over
+//! `events::event_query`.
 //!
-//! v1 AND v2 RECOVER DIFFERENTLY, AS IN v2. A v1 socket replays one page above
+//! v1 AND v2 SOCKETS RECOVER DIFFERENTLY. A v1 socket replays one page above
 //! `since` while live events keep flowing, and drops the ones it overlapped. A
 //! v2 socket fixes the cutoff AFTER its feed is listening, replays the closed
 //! interval `(since, cutoff]` in pages while live events wait, then releases
@@ -33,7 +33,7 @@ use crate::sync_ws::live_feed::emit_session_frame;
 use crate::sync_ws::recovery_delivery::deliver_recovery_frame;
 
 /// Replayed events delivered between two yields, so a live publisher on the
-/// same runtime is never held behind a whole page (`sync-feed.ts:361-363`).
+/// same runtime is never held behind a whole page.
 pub const REPLAY_BATCH_EVENTS: usize = 16;
 
 /// One socket's recovery task; dropping it stops the recovery.
@@ -99,7 +99,7 @@ pub async fn replay_since(
 }
 
 /// The v1 backfill: one page above `since`, then live events stop being
-/// remembered as the boundary (`sync-feed.ts:356-372`).
+/// remembered as the boundary.
 async fn backfill_since(link: &SyncLink, pool: &AnyPool, since: u64) {
     let replayed = replay_since(pool, since, |batch| {
         link.deliver_with(|state| {
@@ -141,8 +141,7 @@ async fn backfill_since(link: &SyncLink, pool: &AnyPool, since: u64) {
     link.lock().replay.finish_backfill();
 }
 
-/// The v2 recovery through a cutoff fixed after the feed is listening
-/// (`sync-feed.ts:302-354`).
+/// The v2 recovery through a cutoff fixed after the feed is listening.
 async fn recover_through_cutoff(link: &SyncLink, pool: &AnyPool, since: u64) {
     let cutoff = match get_event_max_id(pool).await {
         Ok(cutoff) => cutoff,
@@ -257,8 +256,8 @@ fn deliver_recovered(state: &mut LinkState, row: &StoredEvent) {
     }
 }
 
-/// A read failed: the recovery ends with v2's `recovery_failed` reset, which
-/// v2 sends whatever the recovery's state (`sync-feed.ts:346-353`).
+/// A read failed: the recovery ends with the `recovery_failed` reset, which
+/// is sent whatever the recovery's state.
 fn fail_recovery(link: &SyncLink, since: u64, error: &EventQueryError) {
     tracing::warn!(event = "sync-ws", action = "backfill_failed", since, error = %error, "the v2 recovery could not be read");
     signal_backfill_failed(since, error, "v2");
@@ -279,7 +278,7 @@ fn signal_backfill_failed(since: u64, error: &dyn std::fmt::Display, protocol: &
     );
 }
 
-/// End a recovery a live event has not already abandoned (`sync-feed.ts:305`).
+/// End a recovery a live event has not already abandoned.
 fn stop_recovery(link: &SyncLink, reason: &'static str) {
     link.deliver_with(|state| {
         if !state.replay.is_aborted() {
@@ -295,8 +294,7 @@ fn abort_recovery(state: &mut LinkState, reason: &'static str) {
 }
 
 /// Reset a v2 socket's terminal domain because its recovery could not close
-/// the gap, so the client re-hydrates from the authoritative list
-/// (`sync-ws-handler.ts:220-222`).
+/// the gap, so the client re-hydrates from the authoritative list.
 pub(in crate::sync_ws) fn reset_terminal_for_recovery(state: &mut LinkState, reason: &'static str) {
     let Delivery::V2(session) = &mut state.delivery else {
         return;

@@ -2,8 +2,8 @@
 //! ping at a time, and the pong deadline that closes a link whose peer stopped
 //! answering.
 //!
-//! Ports `apps/coord/src/workers/worker-conn-keepalive.ts`. Owned by
-//! `worker_link::link_session`, which asks when to wake and what is due. Pure
+//! Owned by `worker_link::link_session`, which asks when to wake and what is
+//! due. Pure
 //! over a `tokio::time::Instant` it is handed, so a paused tokio clock drives
 //! it in tests exactly as elapsed time drives it in production.
 //!
@@ -16,11 +16,10 @@ use std::time::Duration;
 use tokio::time::Instant;
 
 /// How long after a hello, or after an exact pong, the next ping is sent.
-/// 30 s (`WORKER_PING_DELAY_MS`, `worker-conn-keepalive.ts:14`).
+/// 30 s.
 pub const WORKER_PING_DELAY: Duration = Duration::from_secs(30);
 
-/// How long a ping may go unanswered before the link is closed. 90 s
-/// (`WORKER_PONG_TIMEOUT_MS`, `worker-conn-keepalive.ts:15`).
+/// How long a ping may go unanswered before the link is closed. 90 s.
 pub const WORKER_PONG_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// What the schedule says is due at a wake.
@@ -70,7 +69,7 @@ impl PingSchedule {
     }
 
     /// Start the delay to the next ping, unless one is scheduled, outstanding,
-    /// or the schedule stopped (v2 `scheduleNextPing`'s guard).
+    /// or the schedule stopped.
     pub fn schedule_next_ping(&mut self, now: Instant) {
         if self.phase == Phase::Idle {
             self.phase = Phase::PingAt(now + WORKER_PING_DELAY);
@@ -90,8 +89,7 @@ impl PingSchedule {
     /// What is due at `now`, advancing the schedule past it.
     ///
     /// The pong deadline starts when the ping is SENT, not when it was
-    /// scheduled, which is v2's order: the deadline timer is armed inside the
-    /// ping timer's callback.
+    /// scheduled.
     pub fn fire(&mut self, now: Instant) -> KeepaliveDue {
         match self.phase {
             Phase::PingAt(at) if now >= at => {
@@ -129,7 +127,7 @@ impl PingSchedule {
     }
 
     /// Stop for good: a fenced generation neither pings nor times out
-    /// (v2 `stop`, reached from `revoke` and `close`).
+    /// (reached from `revoke` and `close`).
     pub fn stop(&mut self) {
         self.phase = Phase::Stopped;
     }

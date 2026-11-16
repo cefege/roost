@@ -1,8 +1,7 @@
 //! The three durable reads and the windows they use, which are recovery
 //! invariants rather than conveniences.
 //!
-//! Ported from `apps/coord/src/events/event-query.ts`, whose header names the
-//! invariant: "Ascending IDs and stable cursor cutoffs are recovery invariants."
+//! Ascending IDs and stable cursor cutoffs are recovery invariants.
 //! An off-by-one in either comparison is a duplicated or a missing event, and a
 //! duplicated `closed` is a terminal that vanishes -- so the boundaries are
 //! asserted directly rather than inferred from a passing backfill.

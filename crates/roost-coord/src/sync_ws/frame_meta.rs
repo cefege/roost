@@ -5,10 +5,8 @@
 //! per-socket scheduler consumes. The feed that produces frames and the queue
 //! that orders them are different modules, and a bus publisher that disagreed
 //! with the queue about a frame's lane would deadlock a session silently, so
-//! the classification lives once. v2 kept it in the feed's frame builder
-//! (`sync-feed-frames.ts:38-165`); the split here is by concept, not by file:
-//! that TS file also *builds* the payloads, which is the feed's work, while the
-//! classification below is a property of the wire shape alone.
+//! the classification lives once, as a property of the wire shape alone; the
+//! feed also *builds* the payloads, which is a different concern.
 //!
 //! THE LANE IS A STARVATION POLICY, NOT A PRIORITY HINT. `Cell` appears eight
 //! times in [`WEIGHTED_LANES`] against one `Nonterminal`, because a session
@@ -38,8 +36,7 @@ pub enum FeedLane {
     Control,
 }
 
-/// The round-robin lane order, with the weights
-/// (`sync-ws-v2-state.ts:71-76`). Seven cell slots, four session slots, two
+/// The round-robin lane order, with the weights. Seven cell slots, four session slots, two
 /// retained slots and one nonterminal slot per pass: a terminal streaming at
 /// full rate still gets roughly two thirds of the passes.
 pub const WEIGHTED_LANES: [FeedLane; 15] = [
@@ -112,7 +109,7 @@ impl SyncFrameMeta {
 /// Audit is the one domain a socket never subscribes to implicitly: it is a
 /// high-volume, install-wide stream that most tabs never read, and holding a
 /// socket open on it is how a coordinator's memory becomes a function of how
-/// many tabs are open (`sync-ws-v2-state.ts:84-86`).
+/// many tabs are open.
 #[must_use]
 pub fn is_lazy_domain(domain: SyncDomain) -> bool {
     domain == SyncDomain::Audit
@@ -234,7 +231,7 @@ fn kind_session_id(kind: &Kind) -> Option<String> {
 /// fallback. It reads only the three fields the queue needs, and a payload that
 /// is not the expected shape loses its ROUTING rather than its delivery: the
 /// session lane is not the cell lane, so an unreadable payload cannot fence a
-/// terminal (`sync-feed-frames.ts:70-88`).
+/// terminal.
 fn read_legacy_session_payload(payload_json: &str, meta: &mut SyncFrameMeta) {
     let Ok(payload) = serde_json::from_str::<serde_json::Value>(payload_json) else {
         tracing::debug!(

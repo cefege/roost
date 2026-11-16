@@ -2,8 +2,7 @@
 //! one deadline-bounded correlation wait, and the decode policy every reply
 //! goes through.
 //!
-//! Ported from v2 `apps/coord/src/attachments/handlers-attachments.ts`
-//! (`requireWorkerHubSocket`, `createPendingRpc` + `sendBrowserCmd`). Called by
+//! Called by
 //! `files`, `session_files` and `rpc_files` (and `settle_within` by the session
 //! RPCs); the table is `ScrollbackRelay`'s.
 
@@ -24,19 +23,18 @@ use roost_protocol::wire::control::ClientControlFrame;
 use connectrpc::{ConnectError, ErrorCode};
 
 /// Resolve the worker a Files* request names, applying the refusal table's
-/// first two rows before anything is sent (v2 `requireWorkerHubSocket`,
-/// `:29-40`).
+/// first two rows before anything is sent.
 ///
 /// **A client acts on the difference between the codes**: `NotFound` means the
 /// MACHINE is gone and it should re-pair; `FailedPrecondition` means the row
 /// exists but the LINK is down and a retry is right. Collapsing them costs a
 /// user a re-pair they did not need.
 ///
-/// |condition|v2|Rust|why|
-/// |---|---|---|---|
-/// |fingerprint absent, or `deleted_at_ms` set|NotFound|NotFound|the machine is not there|
-/// |row present, no routable generation|FailedPrecondition|FailedPrecondition|the link is down, retry|
-/// |socket took the frame and dropped it|Unavailable|Unavailable|retryable, so not a statement failure|
+/// |condition|code|why|
+/// |---|---|---|
+/// |fingerprint absent, or `deleted_at_ms` set|NotFound|the machine is not there|
+/// |row present, no routable generation|FailedPrecondition|the link is down, retry|
+/// |socket took the frame and dropped it|Unavailable|retryable, so not a statement failure|
 pub(super) async fn require_worker_hub_socket(
     db: &CoordDb,
     relay: &ScrollbackRelay,
@@ -83,11 +81,11 @@ fn refuse_send(refusal: &SendRefusal, worker_fp: &str) -> ConnectError {
 
 /// The decode policy's first half: a field the worker's contract GUARANTEES.
 ///
-/// `PendingRpc::settle` yields `serde_json::Value` where v2 cast freely on
-/// fields that may be absent (`data.size`, `e.resolved_path`), so every
-/// extraction is a decision: a guaranteed field is unwrapped and a violation is
+/// `PendingRpc::settle` yields `serde_json::Value`, and fields may be absent
+/// (`data.size`, `e.resolved_path`), so every extraction is a decision: a
+/// guaranteed field is unwrapped and a violation is
 /// `Internal` (a coordinator bug, not a caller's); an OPTIONAL field is
-/// defaulted the way v2 defaults it, never `unwrap_or_default` on a wrong type.
+/// defaulted explicitly, never `unwrap_or_default` on a wrong type.
 pub(super) fn required<'a>(reply: &'a Value, field: &str) -> Result<&'a Value, ConnectError> {
     reply.get(field).ok_or_else(|| {
         tracing::error!(
@@ -101,14 +99,14 @@ pub(super) fn required<'a>(reply: &'a Value, field: &str) -> Result<&'a Value, C
     })
 }
 
-/// The decode policy's second half: an OPTIONAL field, defaulted as v2
-/// defaults it. `resolved_path ?? req.path` is v2 `:92` and `:104` — the
-/// fallback is behaviour, and it is why this is a function rather than a `?`.
+/// The decode policy's second half: an OPTIONAL field, defaulted explicitly.
+/// The `resolved_path` fallback to the request path is behaviour, and it is why
+/// this is a function rather than a `?`.
 pub(super) fn optional_str<'a>(reply: &'a Value, field: &str, fallback: &'a str) -> &'a str {
     reply.get(field).and_then(Value::as_str).unwrap_or(fallback)
 }
 
-/// v2 `:59-61`, twice: an absent or empty `content_b64` is an EMPTY ARRAY, not
+/// An absent or empty `content_b64` is an EMPTY ARRAY, not
 /// an error. A zero-byte file is a real answer.
 pub(super) fn base64_to_bytes(reply: &Value) -> Result<Vec<u8>, ConnectError> {
     let Some(encoded) = reply.get("content_b64").and_then(Value::as_str) else {
@@ -140,13 +138,12 @@ pub(super) fn u64_field(reply: &Value, field: &str) -> Result<u64, ConnectError>
 
 /// Send one command and wait for its reply, applying the refusal table once.
 ///
-/// **THE PENDING IS REGISTERED BEFORE THE FRAME IS SENT**, as v2's
-/// `createPendingRpc` precedes `sendBrowserCmd` at every site: a worker reply
+/// **THE PENDING IS REGISTERED BEFORE THE FRAME IS SENT**, at every site: a worker reply
 /// that arrived before the entry would find nothing to settle and the caller
 /// would wait out the whole deadline. A refused send drops the entry with it.
 ///
-/// `create` refuses a duplicate with `AlreadyExists` where v2 silently
-/// re-points the completion — the first caller owns it — and that error is
+/// `create` refuses a duplicate with `AlreadyExists` rather than silently
+/// re-pointing the completion — the first caller owns it — and that error is
 /// already a `ConnectError`, so it propagates unchanged. `browser_id` and
 /// `viewer_id` travel as the SAME value, as `rpc_relay::send_browser_command`
 /// sends them.
@@ -176,10 +173,9 @@ pub(crate) async fn relay_once(
     settle_within(&mut pending, deadline_ms).await
 }
 
-/// Wait for a pending reply under the caller's deadline. v2's table arms the
-/// timer itself and rejects with `DeadlineExceeded` "worker did not reply
-/// within {ms}ms" (`router/pending-rpcs.ts`); here the caller owns the timer,
-/// so the same answer is produced here.
+/// Wait for a pending reply under the caller's deadline. The caller owns the
+/// timer, and a missed deadline is `DeadlineExceeded` "worker did not reply
+/// within {ms}ms".
 pub(crate) async fn settle_within(
     pending: &mut PendingRpc,
     deadline_ms: u64,

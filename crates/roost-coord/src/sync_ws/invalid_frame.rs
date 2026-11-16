@@ -2,13 +2,13 @@
 //! line carries so five different causes stop sharing one reason.
 //!
 //! Owned by `sync_ws::ingress` and `sync_ws::commands`, which are the two
-//! places a Sync socket decides a client frame is not a legal client frame. v2
-//! refused all of them with one string, `closeForInvalidAck` -- and the string
-//! names none of them, so a Rust-only close read as one cause when it had five.
-//! A reason that cannot tell five causes apart is not a diagnosis.
+//! places a Sync socket decides a client frame is not a legal client frame.
+//! Without a named check every refusal would share one string, and a close
+//! would read as one cause when it had five. A reason that cannot tell five
+//! causes apart is not a diagnosis.
 
 /// One reason a client frame is not a legal client frame, and every close it
-/// can produce is `1008` (`sync-ws-v1-delivery.ts:274`).
+/// can produce is `1008`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InvalidFrame {
     /// The bytes did not decode, or did not re-encode to themselves.

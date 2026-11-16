@@ -2,7 +2,7 @@
 //! revocation, rotation and logout. The coordinator's own identity is
 //! `rpc_identity`; its row in [`METHOD_HANDLERS`] points there.
 //!
-//! Ported from `apps/coord/src/auth/handlers-devices.ts`. Every mutation ends
+//! Every mutation ends
 //! in a revocation, and every one of them invalidates the JWT key cache AFTER
 //! the commit: a cache that learned about a revoked key before the database did
 //! would keep resolving a principal the database no longer has.
@@ -108,11 +108,10 @@ type DeviceColumns = (
 
 /// `CoordinatorService.DevicesRevoke` -- one paired browser loses its key.
 ///
-/// v2 lets an on-host caller with NO credential run this
-/// (`handlers-devices.ts:71-72`), because the operator who lost their only
-/// device is exactly who needs it. The gate admits only credentialed browsers
-/// today, so that arm is unreachable; the rule is kept so the handler is right
-/// the moment the gate widens.
+/// An on-host caller with NO credential may run this, because the operator
+/// who lost their only device is exactly who needs it. The gate admits only
+/// credentialed browsers today, so that arm is unreachable; the rule is kept
+/// so the handler is right the moment the gate widens.
 pub async fn handle_devices_revoke(
     core: &CoordCore,
     caller: &Caller,

@@ -3,8 +3,7 @@
 //! hello is acknowledged with.
 //!
 //! Called by `worker_link::connection` (the read loop) and
-//! `worker_link::link_session` (hello admission). Ports the `hello` and
-//! `refreshJwt` arms of `apps/coord/src/workers/worker-conn.ts:231-386`.
+//! `worker_link::link_session` (hello admission).
 
 use std::collections::BTreeSet;
 use std::time::Duration;
@@ -23,20 +22,17 @@ use crate::worker_link::worker_signals;
 
 /// How long an admitted socket may stay silent before its hello.
 ///
-/// 120 s, Bun's default WebSocket `idleTimeout`, which v2's listener never
-/// overrides (`bun-coordinator-listeners.ts:189` sets only the payload cap):
-/// that idle reap is what ended a v2 socket that never spoke. The application
-/// ping only starts at the hello, so before it this bound is the only thing
-/// that ends a half-open pre-hello socket.
+/// 120 s. The application ping only starts at the hello, so before it this
+/// bound is the only thing that ends a half-open pre-hello socket.
 pub(super) const PRE_HELLO_WAIT: Duration = Duration::from_secs(120);
 
 /// Read until the forced first frame, under the pre-hello bound.
 ///
 /// `None` means the socket must close with no code: it ended, went silent, sent
 /// a hello for another fingerprint, sent a durable event before any hello
-/// (v2 `event_before_hello`), or presented a refresh that did not verify.
+/// (`event_before_hello`), or presented a refresh that did not verify.
 /// Undecodable bytes and frames that may not cross the barrier are dropped and
-/// the read continues, as v2 drops them.
+/// the read continues.
 pub(super) async fn read_hello(
     socket: &mut WebSocket,
     services: &CoordServices,
@@ -110,8 +106,8 @@ pub(super) async fn read_hello(
 /// Verify an in-band replacement credential for this socket's worker.
 ///
 /// It must verify, resolve to a WORKER principal, and name the fingerprint the
-/// upgrade authenticated; `Authenticator` re-checks the key generation itself
-/// (`worker-conn.ts:346-385`). Any failure closes the socket, and the worker
+/// upgrade authenticated; `Authenticator` re-checks the key generation itself.
+/// Any failure closes the socket, and the worker
 /// reconnects with a fresh credential.
 pub(super) async fn credential_refresh_accepted(
     services: &CoordServices,
@@ -161,11 +157,11 @@ pub(super) async fn credential_refresh_accepted(
     }
 }
 
-/// The capabilities a hello is acknowledged with, in v2's order.
+/// The capabilities a hello is acknowledged with, in a fixed order.
 ///
 /// The coordinator's own first — view ownership, which the view hub serves —
 /// then whatever the registered lifecycle owners serve. A capability no owner serves
-/// is never acknowledged (`worker-conn.ts:293-321`).
+/// is never acknowledged.
 pub(super) fn acknowledged_capabilities(
     advertised: &[String],
     lifecycle: &WorkerLifecycle,

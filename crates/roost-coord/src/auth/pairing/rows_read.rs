@@ -22,14 +22,14 @@ use super::status::StoredStatus;
 /// "no such id" from "this id is already decided":
 ///
 /// - `create_pair_request` answers a re-create of a decided id with
-///   `FailedPrecondition: pair request is already terminal`
-///   (`pairing-account.ts:66`). Scoped to live rows, the same id reads as
+///   `FailedPrecondition: pair request is already terminal`. Scoped to live
+///   rows, the same id reads as
 ///   absent, the insert runs, and `ephemeral_id`'s UNIQUE index rejects it --
 ///   so the browser gets a 500 for something that is a normal, expected
 ///   progression.
 /// - `handle_pair_approve` answers a decided id with
-///   `FailedPrecondition: pair request is not pending`
-///   (`pairing-account.ts:229-231`). Scoped to live rows it would say
+///   `FailedPrecondition: pair request is not pending`. Scoped to live rows it
+///   would say
 ///   `NotFound` instead, which tells the operator their approval vanished.
 ///
 /// The idempotent replay of a LIVE request -- the case that motivated the
@@ -60,8 +60,8 @@ where
 /// Read one request by its ceremony handle, but ONLY if it is still live.
 ///
 /// Exactly one caller wants the narrower question: `PairDeny` scopes its own
-/// `WHERE` to the two live states and answers `NotFound` for anything else
-/// (`handlers-pairing.ts:329-334`). A decided request is not something an
+/// `WHERE` to the two live states and answers `NotFound` for anything else.
+/// A decided request is not something an
 /// approver denies, it is something they are told is gone.
 pub async fn read_live_pair_request<'a, E>(
     executor: E,

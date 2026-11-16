@@ -67,7 +67,7 @@ pub const TERMINAL_LANE_MAX_DELTA_FRAMES: usize = 32;
 pub const TERMINAL_LANE_MAX_DELTA_BYTES: u64 = 4 * 1024 * 1024;
 
 /// The terminal frames a busy terminal cannot have, held back for state and
-/// feed frames (`sync-ws-v2-state.ts:54-60`).
+/// feed frames.
 pub const TERMINAL_RELIABLE_RESERVE_FRAMES: usize = 64;
 
 /// The same reserve in bytes.
@@ -83,22 +83,21 @@ pub const TERMINAL_CELL_MAX_RETAINED_BYTES: u64 =
 
 /// How long a non-cell frame may sit at a domain's head before it outranks
 /// every cell, which is what stops a streaming terminal from starving the
-/// domains that describe it (`sync-ws-v2-state.ts:61`).
+/// domains that describe it.
 pub const LOW_LANE_MAX_AGE_MS: u64 = 100;
 
 /// How many frames one flush turn sends before yielding to the executor.
 ///
-/// v2 flushed 64 frames per microtask and then armed a zero-delay timer, so a
-/// browser tab that woke to a thousand queued frames still saw its own input
+/// Frames are flushed 64 at a time before yielding, so a
+/// browser tab that woke to a thousand queued frames still sees its own input
 /// acknowledged between batches. In Rust every socket write is already a yield
-/// point, so the same bound applies per turn and the "is there more" probe is
-/// the same probe (`sync-ws-v2-egress.ts:275,354-360`).
+/// point, so the bound applies per turn and the "is there more" probe is
+/// the same probe.
 pub const FLUSH_BATCH_FRAMES: usize = 64;
 
 /// The process-wide monotonic source of domain generations.
 ///
-/// v2 kept this in a module-level `let` seeded from `Date.now()`. Here it is a
-/// value the process shell owns and hands to each socket, because a top-level
+/// A value the process shell owns and hands to each socket, because a top-level
 /// mutable global is state nobody can grep for an owner of. The seed still
 /// comes from the epoch so a generation minted before a coordinator restart
 /// cannot be mistaken for one minted after it, and `process_epoch` in the
