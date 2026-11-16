@@ -1855,9 +1855,6 @@ dependencies = [
  "keyboard-types",
  "lazy-js-bundle",
  "rustversion",
- "serde",
- "serde_json",
- "serde_repr",
  "tracing",
 ]
 
@@ -2223,7 +2220,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1a05365e3b1c6d1650318537c7460c6923f1abdd272ad6842baa2b509957a06"
 dependencies = [
  "num-traits",
- "serde",
 ]
 
 [[package]]
@@ -3405,7 +3401,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fbe853b403ae61a04233030ae8a79d94975281ed9770a1f9e246732b534b28d"
 dependencies = [
  "bitflags 2.13.2",
- "serde",
 ]
 
 [[package]]
@@ -5004,7 +4999,6 @@ dependencies = [
  "hex",
  "ipnet",
  "openssl",
- "parking_lot",
  "reqwest",
  "roost-host",
  "roost-observability",
@@ -5020,9 +5014,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.30.0",
  "tokio-util",
- "tower-http",
  "tracing",
- "tracing-subscriber",
  "web-push",
 ]
 
@@ -5032,7 +5024,6 @@ version = "3.0.0"
 dependencies = [
  "base64 0.23.1",
  "ipnet",
- "roost-observability",
  "roost-platform",
  "roost-protocol",
  "sysinfo",
@@ -5096,7 +5087,6 @@ dependencies = [
  "roost-proto",
  "serde",
  "serde_json",
- "thiserror 2.0.21",
  "tracing",
 ]
 
@@ -5108,7 +5098,6 @@ dependencies = [
  "image",
  "rio-graphics",
  "rio-vt",
- "roost-observability",
  "roost-protocol",
  "serde",
  "serde_json",
@@ -5132,13 +5121,11 @@ version = "3.0.0"
 dependencies = [
  "base64 0.23.1",
  "dioxus",
- "dioxus-html",
  "futures",
  "futures-util",
  "icons",
  "js-sys",
  "qrcode",
- "rio-unicode",
  "roost-client-core",
  "roost-platform",
  "roost-protocol",
@@ -5552,17 +5539,6 @@ dependencies = [
  "percent-encoding",
  "serde",
  "thiserror 2.0.21",
-]
-
-[[package]]
-name = "serde_repr"
-version = "0.1.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d3b1629de253c70a0508c3899572da79ca359fdab27c7920ff00406df418906"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.6",
 ]
 
 [[package]]

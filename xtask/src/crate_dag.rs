@@ -44,10 +44,7 @@ const ALLOWED: &[(&str, &[&str])] = &[
     ("roost-platform", &[]),
     ("roost-vcs", &[]),
     ("roost-protocol", &["roost-proto", "roost-observability"]),
-    (
-        "roost-host",
-        &["roost-protocol", "roost-platform", "roost-observability"],
-    ),
+    ("roost-host", &["roost-protocol", "roost-platform"]),
     // `rio-vt` is the vendored terminal core, patched through
     // `[patch.crates-io]`; see third_party/rio_vt/ROOST-PATCHES.md.
     // `rio-graphics` is its image data type.
@@ -55,7 +52,6 @@ const ALLOWED: &[(&str, &[&str])] = &[
         "roost-term",
         &[
             "roost-protocol",
-            "roost-observability",
             "rio-vt",
             "rio-graphics",
             "image", // PNG encoding for independently fetched terminal graphics.

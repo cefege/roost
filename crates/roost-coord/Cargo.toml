@@ -54,15 +54,8 @@ tokio-util = { workspace = true, features = ["io"] }
 # `process` for the deploy job's `roost deploy` subprocess and its piped output.
 tokio = { workspace = true, features = ["macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tracing.workspace = true
-tracing-subscriber.workspace = true
-# The admission, security-header and CORS layers are three axum layers around
-# the one router, and `tower_http` is where they live. Pinned in the root
-# `[workspace.dependencies]` so no slice blocks the integrator mid-wave for a
-# crate that was already decided.
-tower-http.workspace = true
 
 [dev-dependencies]
-parking_lot.workspace = true
 roost-protocol.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

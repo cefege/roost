@@ -39,8 +39,8 @@ roost-observability  → ∅
 roost-platform       → ∅
 roost-vcs            → ∅
 roost-protocol       → proto, observability
-roost-host           → protocol, platform, observability
-roost-term           → protocol, observability, rio-vt (vendored), rio-graphics
+roost-host           → protocol, platform
+roost-term           → protocol, rio-vt (vendored), rio-graphics
 roost-keeper         → protocol, host, platform, observability
 roost-worker         → term, keeper, host, proto, protocol, platform, observability
 roost-coord          → host, proto, protocol, platform, observability

@@ -25,7 +25,6 @@ serde_json = { workspace = true }
 # release, lease lapse) as the coordinator and the worker both host it; the
 # facade compiles to wasm32 and emits nothing without a subscriber.
 tracing = { workspace = true }
-thiserror = { workspace = true }
 regex = { workspace = true }
 
 [[test]]
