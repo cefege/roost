@@ -1,5 +1,5 @@
 <!-- Direct-terminal contract: grant-gated loopback/WebRTC carrier election, framing, and outage behavior. -->
-<!-- Endpoint and channel literals are owned by @roost/protocol/terminal-peer and local-ui-door. -->
+<!-- Endpoint and channel literals are owned by roost_protocol::terminal_peer and roost_protocol::local_ui_door. -->
 <!-- STUN is discovery only; coordinator remains grant and signaling authority. -->
 
 # Direct terminal
@@ -12,11 +12,11 @@ Direct terminal is an optional carrier for the same authoritative cell protocol 
 
 | Message / label | File | Meaning |
 | --- | --- | --- |
-| `SessionsGrantLocalTerminalRequest/Response` | `protocol/proto/roost/v1/coordinator.proto:237-254` | Account-device requests exact session/worker/tab scope; response returns secret only after worker ACK. |
-| `SessionsNegotiateLocalTerminalPeerRequest/Response` | `protocol/proto/roost/v1/coordinator.proto:278-291` | Bounded offer/answer for exact worker epoch and grant. |
-| `LocalTerminalHello`, `LocalTerminalReady`, `LocalTerminalClientFrame`, `LocalTerminalServerFrame` | `protocol/proto/roost/v1/local_terminal.proto:20-89` | Carrier authentication, readiness, view/input/scrollback, cells, probes, and closure. |
-| `roost-terminal-control-v1`, `roost-terminal-data-v1`, `roost-terminal-history-v1` | `packages/protocol/src/terminal-peer.ts:90-109` | Ordered WebRTC lanes; protocol `roost.local-terminal.v1`. |
-| `/ws/local-terminal`; `roost-local-terminal` | `apps/worker/src/local-door/local-ui-server.ts:57-59` | Worker loopback WebSocket path and subprotocol. |
+| `SessionsGrantLocalTerminalRequest/Response` | `protocol/proto/roost/v1/coordinator.proto` | Account-device requests exact session/worker/tab scope; response returns secret only after worker ACK. |
+| `SessionsNegotiateLocalTerminalPeerRequest/Response` | `protocol/proto/roost/v1/coordinator.proto` | Bounded offer/answer for exact worker epoch and grant. |
+| `LocalTerminalHello`, `LocalTerminalReady`, `LocalTerminalClientFrame`, `LocalTerminalServerFrame` | `protocol/proto/roost/v1/local_terminal.proto` | Carrier authentication, readiness, view/input/scrollback, cells, probes, and closure. |
+| `roost-terminal-control-v1`, `roost-terminal-data-v1`, `roost-terminal-history-v1` | `crates/roost-protocol/src/terminal_peer/peer.rs` (`CHANNEL_TERMINAL_*_V1` in `versioning.rs`) | Ordered WebRTC lanes; protocol `roost.local-terminal.v1`. |
+| `/ws/local-terminal`; `roost-local-terminal` | `crates/roost-protocol/src/local_ui_door.rs` (`LOCAL_TERMINAL_PATH`, `LOCAL_TERMINAL_SUBPROTOCOL`) | Worker loopback WebSocket path and subprotocol. |
 
 ## State machine
 
@@ -30,37 +30,33 @@ Direct terminal is an optional carrier for the same authoritative cell protocol 
 
 ## Limits
 
-| Constant | Value | TypeScript source |
+| Constant | Value | Rust source |
 | --- | ---: | --- |
-| `TERMINAL_PEER_MAX_ESTABLISHED_PER_WORKER` | `32` | `packages/protocol/src/terminal-peer.ts:8` |
-| `TERMINAL_PEER_MAX_NEGOTIATIONS_PER_WORKER` | `4` | `packages/protocol/src/terminal-peer.ts:9` |
-| `TERMINAL_PEER_MAX_CONNECTIONS_PER_BROWSER_DOCUMENT` | `8` | `packages/protocol/src/terminal-peer.ts:10` |
-| `TERMINAL_PEER_MAX_SESSIONS_PER_GRANT` | `256` | `packages/protocol/src/terminal-peer.ts:11` |
-| `TERMINAL_PEER_MAX_PENDING_NEGOTIATIONS` / per device | `64 / 8` | `packages/protocol/src/terminal-peer.ts:12-13` |
-| `TERMINAL_PEER_NEGOTIATION_DEADLINE_MS` | `15,000 ms` | `packages/protocol/src/terminal-peer.ts:15` |
-| `TERMINAL_PEER_ICE_GATHERING_DEADLINE_MS` | `3,000 ms` | `packages/protocol/src/terminal-peer.ts:16` |
-| `TERMINAL_PEER_NATIVE_ANSWER_DEADLINE_MS` | `8,000 ms` | `packages/protocol/src/terminal-peer.ts:17` |
-| `TERMINAL_PEER_PACKET_STALL_MS` | `10,000 ms` | `packages/protocol/src/terminal-peer.ts:18` |
-| `TERMINAL_PEER_HELLO_DEADLINE_MS` | `3,000 ms` | `packages/protocol/src/terminal-peer.ts:19` |
-| `TERMINAL_PEER_HEARTBEAT_INTERVAL_MS` / probe deadline | `5,000 / 3,000 ms` | `packages/protocol/src/terminal-peer.ts:20-22` |
-| Browser heartbeat miss limit | `3` consecutive misses (v2: `2`); a late answer from the same worker epoch forgives them | `crates/roost-web/src/platform/carriers/peer_carrier/heartbeat.rs` (`HEARTBEAT_MISS_LIMIT`) |
-| `TERMINAL_PEER_SDP_MAX_UTF8_BYTES` / lines / line bytes | `65,536 / 512 / 4,096` | `packages/protocol/src/terminal-peer.ts:25-27` |
-| `TERMINAL_PEER_SDP_MAX_CANDIDATES` | `64` | `packages/protocol/src/terminal-peer.ts:28` |
-| `TERMINAL_PEER_MAX_MESSAGE_SIZE` | `16,384 bytes` | `packages/protocol/src/terminal-peer.ts:33` |
-| Logical frame maxima: control / terminal / history | `128 KiB / 2 MiB / 64 MiB` | `packages/protocol/src/terminal-peer.ts:49-53` |
-| `TERMINAL_PEER_STUN_URL_MAX_COUNT` | `4` | `packages/protocol/src/terminal-peer.ts:120` |
+| `TERMINAL_PEER_MAX_ESTABLISHED_PER_WORKER` | `32` | `crates/roost-protocol/src/terminal_peer/peer.rs` |
+| `TERMINAL_PEER_MAX_NEGOTIATIONS_PER_WORKER` | `4` | `crates/roost-protocol/src/terminal_peer/peer.rs` |
+| `TERMINAL_PEER_MAX_CONNECTIONS_PER_BROWSER_DOCUMENT` | `8` | `crates/roost-protocol/src/terminal_peer/peer.rs` |
+| `TERMINAL_PEER_MAX_SESSIONS_PER_GRANT` | `256` | `crates/roost-protocol/src/terminal_peer/peer.rs` |
+| `TERMINAL_PEER_MAX_PENDING_NEGOTIATIONS` / `_PER_DEVICE` | `64 / 8` | `crates/roost-protocol/src/terminal_peer/peer.rs` |
+| `TERMINAL_PEER_NEGOTIATION_DEADLINE_MS` | `15,000 ms` | `crates/roost-protocol/src/terminal_peer/peer.rs` |
+| `TERMINAL_PEER_ICE_GATHERING_DEADLINE_MS` | `3,000 ms` | `crates/roost-protocol/src/terminal_peer/peer.rs` |
+| `TERMINAL_PEER_NATIVE_ANSWER_DEADLINE_MS` | `8,000 ms` | `crates/roost-protocol/src/terminal_peer/peer.rs` |
+| `TERMINAL_PEER_PACKET_STALL_MS` | `10,000 ms` | `crates/roost-protocol/src/terminal_peer/peer.rs` |
+| `TERMINAL_PEER_HELLO_DEADLINE_MS` | `3,000 ms` | `crates/roost-protocol/src/terminal_peer/peer.rs` |
+| `TERMINAL_PEER_HEARTBEAT_INTERVAL_MS` / `TERMINAL_PEER_PROBE_DEADLINE_MS` | `5,000 / 3,000 ms` | `crates/roost-protocol/src/terminal_peer/peer.rs` |
+| Browser heartbeat miss limit | `3` consecutive misses; a late answer from the same worker epoch forgives them | `crates/roost-web/src/platform/carriers/peer_carrier/heartbeat.rs` (`HEARTBEAT_MISS_LIMIT`) |
+| `TERMINAL_PEER_SDP_MAX_UTF8_BYTES` / `_MAX_LINES` / `_MAX_LINE_UTF8_BYTES` | `65,536 / 512 / 4,096` | `crates/roost-protocol/src/terminal_peer/peer.rs` |
+| `TERMINAL_PEER_SDP_MAX_CANDIDATES` | `64` | `crates/roost-protocol/src/terminal_peer/peer.rs` |
+| `TERMINAL_PEER_MAX_MESSAGE_SIZE` | `16,384 bytes` | `crates/roost-protocol/src/terminal_peer/peer.rs` |
+| Logical frame maxima: control / terminal / history | `128 KiB / 2 MiB / 64 MiB` | `crates/roost-protocol/src/terminal_peer/peer.rs` (`TerminalPeerLaneByteCaps`) |
+| `TERMINAL_PEER_STUN_URL_MAX_COUNT` | `4` | `crates/roost-protocol/src/terminal_peer/peer.rs` |
 
 ## Errors
 
-- Worker terminal-peer error reason is one of `disabled`, `native_unavailable`, `invalid_offer`, `grant_unavailable`, `capacity`, `expired`, `connection_superseded`, `ice_failed` (`protocol/proto/roost/v1/worker_transport.proto:197-205`).
-- `TerminalPeerPacketErrorCode`: `packet-size`, `packet-magic`, `packet-header`, `message-id`, `message-id-wrap`, `message-size`, `fragment-order`, `fragment-stalled`, `quota`, `allocation`, `clock`, `closed` (`packages/protocol/src/terminal-peer-packets.ts:25-37`).
-- Invalid STUN configuration reports `ROOST_TERMINAL_PEER_STUN_URLS must contain 1 to 4 distinct stun: UDP URLs` or `... contains an invalid STUN URL` (`packages/protocol/src/terminal-peer.ts:122-123`).
+- Worker terminal-peer error reason is one of `disabled`, `native_unavailable`, `invalid_offer`, `grant_unavailable`, `capacity`, `expired`, `connection_superseded`, `ice_failed` (`WLocalTerminalPeerError` in `protocol/proto/roost/v1/worker_transport.proto`).
+- `TerminalPeerPacketErrorCode`: `packet-size`, `packet-magic`, `packet-header`, `message-id`, `message-id-wrap`, `message-size`, `fragment-order`, `fragment-stalled`, `quota`, `allocation`, `closed` (`crates/roost-protocol/src/terminal_peer/packets.rs`).
+- Invalid STUN configuration reports `ROOST_TERMINAL_PEER_STUN_URLS must contain 1 to 4 distinct stun: UDP URLs` or `... contains an invalid STUN URL` (`crates/roost-protocol/src/terminal_peer/peer/stun_url.rs`).
 - Direct diagnostics expose route state, probe age/RTT, candidate class, buffered bytes, worker epoch, and opaque peer ID; never SDP, candidate addresses, credentials, or terminal content.
 
 ## Reference implementation
 
-- Shared limits/channels: `packages/protocol/src/terminal-peer.ts`, `packages/protocol/src/terminal-peer-packets.ts`
-- Local carrier proto: `protocol/proto/roost/v1/local_terminal.proto`
-- Worker socket/peer: `apps/worker/src/local-door/local-ui-server.ts`, `apps/worker/src/local-door/local-terminal-socket.ts`, `apps/worker/src/terminal/peer/terminal-peer-owner.ts`
-- Coordinator grants/signaling: `apps/coord/src/terminal/direct/`
-- Browser election/peer: `apps/web/src/store/terminal-stream-transport.ts`, `apps/web/src/store/transport/terminal-peer.ts`, `apps/web/src/store/transport/terminal-input-router.ts`
+Contract `crates/roost-protocol/src/terminal_peer/` and `protocol/proto/roost/v1/local_terminal.proto`; worker `crates/roost-worker/src/door/`, `crates/roost-worker/src/local_terminal/` and `crates/roost-worker/src/peer/`; coordinator `crates/roost-coord/src/terminal_direct/`; browser election and peer carriers `crates/roost-client-core/src/handle_terminal/`, `crates/roost-client-core/src/terminal/` and `crates/roost-web/src/platform/carriers/`.

@@ -15,10 +15,10 @@ Each worker dials one long-lived, full-duplex binary WebSocket to the coordinato
 | `WHello`, `DHelloAck` | `protocol/proto/roost/v1/worker_transport.proto` | Worker identity/version/capabilities/process epoch and coordinator capability acknowledgement. |
 | `WSessionEvent`, `DEventAck` | `protocol/proto/roost/v1/worker_transport.proto` | At-least-once durable event plus exact `client_seq` ACK. |
 | `CoordWorkerUp`, `CoordWorkerDown` | `protocol/proto/roost/v1/worker_transport.proto` | Full upstream/downstream binary oneofs. |
-| `WRefreshJwt` | `protocol/proto/roost/v1/worker_transport.proto:54` | In-band replacement token, revalidated against the exact worker principal. |
-| `WCellGrid`, `WCellGridChunk` | `protocol/proto/roost/v1/worker_transport.proto:58-59` | Terminal full/delta or bounded snapshot part. |
-| `WInputResult`, `WTerminalStreamResult` | `protocol/proto/roost/v1/worker_transport.proto:96-159` | Truthful write/stream outcome with write phase and failure classification. |
-| `WTerminalViewState`, `WTerminalViewProjection` | `protocol/proto/roost/v1/worker_transport.proto:170-187` | Worker-owned view result and coordinator presence/diagnostic projection. |
+| `WRefreshJwt` | `protocol/proto/roost/v1/worker_transport.proto` | In-band replacement token, revalidated against the exact worker principal. |
+| `WCellGrid`, `WCellGridChunk` | `protocol/proto/roost/v1/worker_transport.proto` | Terminal full/delta or bounded snapshot part. |
+| `WInputResult`, `WTerminalStreamResult` | `protocol/proto/roost/v1/worker_transport.proto` | Truthful write/stream outcome with write phase and failure classification. |
+| `WTerminalViewState`, `WTerminalViewProjection` | `protocol/proto/roost/v1/worker_transport.proto` | Worker-owned view result and coordinator presence/diagnostic projection. |
 | Direct grant/peer/attachment result frames | `protocol/proto/roost/v1/worker_transport.proto` | Coordinator-authorized direct terminal/attachment admission and liveness. |
 | `WTerminalMetadata` | `protocol/proto/roost/v1/worker_transport.proto` | Volatile semantic title/activity updates plus one-shot OSC 52 clipboard writes, long-command completion and bell events; events are not replayed after link loss. OSC 9;4 progress, OSC 1337 user variables and OSC 7501 program status are retained: each is sent as the channel's whole current value when it changes, and the coordinator keeps the last value it received until the next change. |
 | `WLiveMetrics`, `DLiveMetricsSubscription` | `protocol/proto/roost/v1/worker_transport.proto` | Live host snapshot a worker sends while a coordinator holds a subscription (`CoordWorkerUp` field 36), and the coordinator's subscription toggle (`CoordWorkerDown` field 42). Socket-bound and latest-only: no ACK or replay, dropped under backpressure, never persisted. The coordinator refcounts subscribers per worker on the replica holding the link: first subscriber sends `active: true`, last unsubscribe sends `active: false`, and a reconnect with subscribers re-sends `active: true`. The worker samples only while active, every 2 seconds. |
@@ -32,7 +32,7 @@ Retired native remote-tool oneof tags and names stay reserved: upstream
 2. Socket lifecycle is `idle → connecting → open → reconnecting`; `open` is not application-ready. The only forced first write is `WHello`. A duplicate/mismatched hello closes the socket.
 3. `DHelloAck` moves the application barrier from `hello` to `replay`. Exactly one durable `WSessionEvent` is in flight; each exact positive `DEventAck` acknowledges insert or unique-index deduplication. Stale/duplicate ACKs cannot release the barrier.
 4. With no durable event or blocking reservation, the worker sends one authoritative sequenced `snapshot` SessionEvent. The coordinator commits it, ACKs its sequence, marks that exact connection routable, and triggers missing-session respawn repair.
-5. Snapshot ACK moves the worker to `live` and drains control, cell, and compatibility metadata lanes. A durable append or blocking reservation that appears during snapshot forces replay again before later traffic.
+5. Snapshot ACK moves the worker to `live` and drains the control and terminal lanes. A durable append or blocking reservation that appears during snapshot forces replay again before later traffic.
 6. Disconnect resets application state to `hello` and clears volatile lanes; durable SQLite outbox rows remain. Reconnect repeats hello, one-at-a-time replay, snapshot, then live. A newer authenticated hello immediately supersedes the old connection generation; delayed callbacks are identity-fenced.
 7. View ownership capability `terminal-view-owner-v1` delegates membership/geometry/stream generations to `TerminalViewOwner`; otherwise the coordinator `TerminalViewHub` owns them. Grants and direct peer signaling retain the exact worker epoch and connection fence.
 8. A worker may refresh its JWT in band before expiry. Valid refresh updates the same stream; invalid, expired, revoked, fingerprint-changing, or generation-changing refresh closes it.
@@ -40,20 +40,18 @@ Retired native remote-tool oneof tags and names stay reserved: upstream
 
 ## Limits
 
-| Constant | Value | Source |
+| Constant | Value | Rust source |
 | --- | ---: | --- |
-| `WORKER_SNAPSHOT_MAX_SESSIONS` | `1,024` | `apps/worker/src/transport/coord-link-constants.ts:39` |
-| `WORKER_SNAPSHOT_MAX_BYTES` | `4 MiB` | `apps/worker/src/transport/coord-link-constants.ts:40` |
-| `UNACKED_CAP` | `8,192` | `apps/worker/src/transport/coord-link-constants.ts:52` |
-| `PENDING_BYTES_CAP` | `8 MiB` | `apps/worker/src/transport/coord-link-constants.ts:31` |
-| `WS_BUFFERED_HIGH_WATER_BYTES` | `4 MiB` | `apps/worker/src/transport/coord-link-constants.ts:35` |
-| `STABLE_SESSION_MS` | `30,000 ms` | `apps/worker/src/transport/coord-link-constants.ts:48` |
-| `STALE_LINK_TIMEOUT_MS` / check | `90,000 / 15,000 ms` | `apps/worker/src/transport/coord-link-constants.ts:61-62` |
-| Reconnect initial / ordinary cap | `500 / 30,000 ms` | `apps/worker/src/transport/coord-link-constants.ts:4-5` |
+| `MAX_WORKER_SNAPSHOT_SESSIONS` | `1,024` | `crates/roost-coord/src/events/persistence_input.rs` |
+| `MAX_ROWS` (durable event store) | `8,192` | `crates/roost-worker/src/event_store.rs` |
+| `PENDING_BYTES_CAP` | `8 MiB` | `crates/roost-worker/src/outbox.rs` |
+| `STABLE_SESSION` | `30 s` | `crates/roost-worker/src/backoff.rs` |
+| `STALE_LINK_TIMEOUT` / `STALE_CHECK_INTERVAL` | `90 / 15 s` | `crates/roost-worker/src/backoff.rs` |
+| `BACKOFF_INITIAL` / `BACKOFF_MAX` | `500 ms / 30 s` | `crates/roost-worker/src/backoff.rs` |
 
 ## Errors
 
-- Upgrade failures return HTTP `401 unauthorized`; failed Bun upgrade returns HTTP `400 upgrade failed` (`apps/coord/src/workers/worker-ws-upgrade.ts:53-117`).
+- Upgrade failures return HTTP `401 unauthorized`; a runtime upgrade that cannot complete returns HTTP `400 upgrade failed` (`crates/roost-coord/src/http/upgrade.rs`).
 - Pre-hello durable events diagnose `event_before_hello`; other pre-ready traffic diagnoses `before_snapshot_ready`. Duplicate/mismatched hello and invalid in-band refresh close the stream.
 - Queue overflow closes `1009`; worker rate violation closes `1008`; credential revocation closes `4001`; authenticated reauth deadline closes `4003`.
 - Coordinator routing is unavailable until exact snapshot ACK. RPC callers normally surface an absent/superseded worker as Connect `Unavailable: worker offline`.
@@ -61,8 +59,4 @@ Retired native remote-tool oneof tags and names stay reserved: upstream
 
 ## Reference implementation
 
-- Proto: `protocol/proto/roost/v1/worker_transport.proto`
-- Worker socket lifecycle: `apps/worker/src/transport/coord-link.ts`, `apps/worker/src/transport/coord-link-reconnect.ts`
-- Ordered barrier/outbox: `apps/worker/src/transport/coord-link-unacked.ts`, `apps/worker/src/transport/coord-link-outbox.ts`
-- Durable store: `apps/worker/src/transport/session-event-store.ts`
-- Coordinator upgrade/live handler: `apps/coord/src/workers/worker-ws-upgrade.ts`, `apps/coord/src/workers/worker-ws-handler.ts`, `apps/coord/src/workers/worker-conn.ts`
+Proto `protocol/proto/roost/v1/worker_transport.proto`; wire types `crates/roost-protocol/src/wire/coord_worker/`; worker socket lifecycle, outbox and durable store `crates/roost-worker/src/runtime/link_loop/`, `crates/roost-worker/src/outbox.rs` and `crates/roost-worker/src/event_store.rs`; coordinator upgrade and live handler `crates/roost-coord/src/http/upgrade.rs` and `crates/roost-coord/src/worker_link/`.

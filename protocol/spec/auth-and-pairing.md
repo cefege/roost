@@ -1,6 +1,6 @@
 <!-- Auth contract: non-extractable Ed25519 device keys, coordinator JWT verification, and pairing ceremony. -->
 <!-- Pairing grants authority only after token-bound confirmation; URLs never carry accepted query credentials. -->
-<!-- @roost/protocol/pairing owns portable ceremony entropy and canonical validation. -->
+<!-- roost_protocol::coordinator_jwt owns the JWT shape; roost-client-core's auth module owns portable ceremony entropy and canonical validation. -->
 
 # Authentication and pairing
 
@@ -12,13 +12,13 @@ Roost authenticates devices and workers by public Ed25519 keys. A browser keeps 
 
 | Message | File | Meaning |
 | --- | --- | --- |
-| JWT header/payload | `apps/web/src/client/auth/web-key.ts:113-125` | `alg=EdDSA`, `typ=JWT`, `kid=<fingerprint>`; payload repeats fingerprint as `sub`, audience `roost-coordinator`, and `iat`/`exp`. |
-| `PairCreateRequest/Response`, `PairPollRequest/Response` | `protocol/proto/roost/v1/coordinator.proto:718-734` | Anonymous requester creates a token-bound request and polls status. |
-| `PairListRequest/Response`, `PairApproveRequest/Response` | `protocol/proto/roost/v1/coordinator.proto:736-746` | Authorized approver lists pending requests and binds a verification code. |
-| `PairConfirmRequest/Response`, `PairDenyRequest/Response` | `protocol/proto/roost/v1/coordinator.proto:748-757` | Requester confirms with ID/token/code; approver denies. |
-| `PairApprovalStatusRequest/Response` | `protocol/proto/roost/v1/coordinator.proto:759-765` | Secret-free progress for the exact approver. |
-| `AuthMintBootstrapRequest/Response`, `AuthRedeemWorkerRequest/Response`, `AuthRedeemBrowserRequest/Response` | `protocol/proto/roost/v1/coordinator.proto:621-642` | Authenticated one-shot bootstrap mint and public redemption into a persisted principal. |
-| `DevicesList/Revoke/RotateCurrent` messages | `protocol/proto/roost/v1/coordinator.proto:922-930` | Device inventory and key lifecycle. |
+| JWT header/payload | `crates/roost-protocol/src/coordinator_jwt.rs` | `alg=EdDSA`, `typ=JWT`, `kid=<fingerprint>`; payload repeats fingerprint as `sub`, audience `roost-coordinator`, and `iat`/`exp`. |
+| `PairCreateRequest/Response`, `PairPollRequest/Response` | `protocol/proto/roost/v1/coordinator.proto` | Anonymous requester creates a token-bound request and polls status. |
+| `PairListRequest/Response`, `PairApproveRequest/Response` | `protocol/proto/roost/v1/coordinator.proto` | Authorized approver lists pending requests and binds a verification code. |
+| `PairConfirmRequest/Response`, `PairDenyRequest/Response` | `protocol/proto/roost/v1/coordinator.proto` | Requester confirms with ID/token/code; approver denies. |
+| `PairApprovalStatusRequest/Response` | `protocol/proto/roost/v1/coordinator.proto` | Secret-free progress for the exact approver. |
+| `AuthMintBootstrapRequest/Response`, `AuthRedeemWorkerRequest/Response`, `AuthRedeemBrowserRequest/Response` | `protocol/proto/roost/v1/coordinator.proto` | Authenticated one-shot bootstrap mint and public redemption into a persisted principal. |
+| `DevicesList/Revoke/RotateCurrent` messages | `protocol/proto/roost/v1/coordinator.proto` | Device inventory and key lifecycle. |
 
 ## State machine
 1. Browser WebCrypto generates Ed25519 with `extractable=false`. IndexedDB owns atomic key lifecycle. The fingerprint is lowercase SHA-256 hex of the raw 32-byte public key.
@@ -31,32 +31,27 @@ Roost authenticates devices and workers by public Ed25519 keys. A browser keeps 
 
 ## Limits
 
-| Constant | Value | TypeScript source |
+| Constant | Value | Rust source |
 | --- | ---: | --- |
-| `JWT_LIFETIME_SECS` | `300 s` | `apps/web/src/client/auth/web-key.ts:23` |
-| `JWT_CACHE_TTL_MS` | `240,000 ms` | `apps/web/src/client/auth/web-key.ts:24` |
-| `PAIRING_CEREMONY_VERSION` | `1` | `packages/protocol/src/pairing.ts:5` |
-| `PAIR_VERIFICATION_CODE_LENGTH` | `6` decimal digits | `packages/protocol/src/pairing.ts:6` |
-| Pair request ID | `16 bytes / 32 lowercase hex` | `packages/protocol/src/pairing.ts:37` |
-| Requester token | `32 bytes / 64 lowercase hex` | `packages/protocol/src/pairing.ts:45` |
-| `PAIR_REQUEST_TTL_MS` | `600,000 ms` | `apps/coord/src/auth/handlers-pairing.ts:52` |
-| `MAX_PENDING_PAIR_REQUESTS` | `32` | `apps/coord/src/auth/pairing-account.ts:16` |
-| `PAIR_VERIFICATION_ATTEMPT_LIMIT` | `5` | `apps/coord/src/auth/pairing-secrets.ts:23` |
-| Bootstrap token | `roost_bt_` + `48` lowercase hex; `86,400,000 ms` TTL | `apps/coord/src/auth/bootstrap-tokens.ts` |
+| `COORDINATOR_JWT_LIFETIME_SECS` | `300 s` | `crates/roost-protocol/src/coordinator_jwt.rs` |
+| `JWT_CACHE_TTL_MS` | `240,000 ms` | `crates/roost-client-core/src/client/auth/jwt.rs` |
+| `PAIRING_CEREMONY_VERSION` | `1` | `crates/roost-client-core/src/client/auth/ceremony.rs` |
+| `PAIR_VERIFICATION_CODE_LENGTH` | `6` decimal digits | `crates/roost-client-core/src/client/auth/ceremony.rs` |
+| `PAIR_REQUEST_ID_BYTES` | `16 bytes / 32 lowercase hex` | `crates/roost-client-core/src/client/auth/ceremony.rs` |
+| `PAIR_REQUESTER_TOKEN_BYTES` | `32 bytes / 64 lowercase hex` | `crates/roost-client-core/src/client/auth/ceremony.rs` |
+| `PAIR_REQUEST_TTL_MS` | `600,000 ms` | `crates/roost-coord/src/auth/pairing/secrets.rs` |
+| `MAX_PENDING_PAIR_REQUESTS` | `32` | `crates/roost-coord/src/auth/pairing/secrets.rs` |
+| `PAIR_VERIFICATION_ATTEMPT_LIMIT` | `5` | `crates/roost-coord/src/auth/pairing/secrets.rs` |
+| Bootstrap token | `BOOTSTRAP_TOKEN_PREFIX` (`roost_bt_`) + `48` lowercase hex; `BOOTSTRAP_TOKEN_TTL_MS` = `86,400,000 ms` | `crates/roost-coord/src/auth/bootstrap_tokens.rs` |
 
 ## Errors
 
-- A protected handler without a browser principal returns Connect `Unauthenticated: authentication required` with `x-roost-auth-layer=device` (`apps/coord/src/auth/auth-interceptor.ts:256-277`).
+- A protected handler without a browser principal returns Connect `Unauthenticated: authentication required` with `x-roost-auth-layer=device` (`crates/roost-coord/src/auth/principal.rs`, `AUTH_LAYER_HEADER`; the gate is `crates/roost-coord/src/rpc/auth_gate.rs`).
 - Invalid request ID/token/key or malformed verification code returns `InvalidArgument`; ceremony mismatch returns `FailedPrecondition: pairing client must reload`.
 - Missing front-door assertion returns `Unauthenticated: pairing requires front-door sign-in`. Poll/confirm deliberately use generic `NotFound` for unknown or foreign request/token evidence.
 - Pair conflicts use `AlreadyExists`; revoked keys/approver continuity use `PermissionDenied`; non-pending/expired/terminal transitions use `FailedPrecondition`; the 32-request ceiling uses `ResourceExhausted`.
-- Long-lived authenticated sockets close with code `4003`, reason `reauth required`, at the verified token deadline. Key-generation revocation closes with `4001` (`apps/coord/src/auth/ws-auth-deadline.ts`).
+- Long-lived authenticated sockets close with code `4003`, reason `reauth required`, at the verified token deadline. Key-generation revocation closes with `4001` (`crates/roost-coord/src/auth/ws_auth_deadline.rs`).
 
 ## Reference implementation
 
-- Browser identity/signing: `apps/web/src/client/auth/web-key.ts`, `apps/web/src/client/auth/web-key-storage.ts`
-- Fragment boundary: `apps/web/src/client/auth/fragment-credential.ts`
-- Portable ceremony: `packages/protocol/src/pairing.ts`
-- Coordinator verification/principal: `apps/coord/src/auth/jwt.ts`, `apps/coord/src/auth/auth-principal.ts`, `apps/coord/src/auth/auth-interceptor.ts`
-- Pairing: `apps/coord/src/auth/handlers-pairing.ts`, `apps/coord/src/auth/pairing-account.ts`, `apps/coord/src/auth/pairing-confirmation.ts`
-- Bootstrap/device lifecycle: `apps/coord/src/auth/handlers-auth-bootstrap.ts`, `apps/coord/src/auth/handlers-devices.ts`
+JWT shape `crates/roost-protocol/src/coordinator_jwt.rs`; browser identity, signing and fragment boundary `crates/roost-client-core/src/client/auth/` with the WebCrypto vault in `crates/roost-web/src/platform/device_key/` and `crates/roost-web/src/platform/fragment_credential.rs`; coordinator verification and principal `crates/roost-coord/src/auth/` (`jwt_verify.rs`, `principal.rs`) with the gate in `crates/roost-coord/src/rpc/auth_gate.rs`; pairing `crates/roost-coord/src/auth/pairing/`; bootstrap and device lifecycle `crates/roost-coord/src/auth/rpc_bootstrap.rs` and `crates/roost-coord/src/auth/rpc_devices.rs`.

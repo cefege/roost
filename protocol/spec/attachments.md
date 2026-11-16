@@ -12,11 +12,11 @@ Attachment upload uses one immutable descriptor (`session_id`, `upload_id`, file
 
 | Message | File | Meaning |
 | --- | --- | --- |
-| `AttachmentsGrantDirectRequest/Response`, `SessionsNegotiateAttachmentPeerRequest/Response` | `protocol/proto/roost/v1/coordinator.proto:256-308` | Short-lived exact-descriptor grant and bounded attachment-peer offer/answer. |
+| `AttachmentsGrantDirectRequest/Response`, `SessionsNegotiateAttachmentPeerRequest/Response` | `protocol/proto/roost/v1/coordinator.proto` | Short-lived exact-descriptor grant and bounded attachment-peer offer/answer. |
 | `AttachFileChunkRequest/Response` | `protocol/proto/roost/v1/coordinator.proto` | Coordinator relay fallback for one in-order chunk. |
-| `AttachmentTransferHello`, `Ready`, `Chunk`, `Ack`, `Closed`, `StatusRequest`, `Status` | `protocol/proto/roost/v1/attachment_transfer.proto:8-83` | Direct carrier descriptor, ordered data, durable receipt, and close. |
-| `roost-attachment-control-v1`, `roost-attachment-data-v1` | `packages/protocol/src/attachment-transfer.ts:58-73` | Ordered WebRTC lanes; protocol `roost.attachment-transfer.v1`. |
-| `/ws/local-attachment-transfer`; `roost-local-attachment-transfer-v1` | `packages/protocol/src/attachment-transfer.ts:8-9` | Worker loopback path and subprotocol. |
+| `AttachmentTransferHello`, `Ready`, `Chunk`, `Ack`, `Closed`, `StatusRequest`, `Status` | `protocol/proto/roost/v1/attachment_transfer.proto` | Direct carrier descriptor, ordered data, durable receipt, and close. |
+| `roost-attachment-control-v1`, `roost-attachment-data-v1` | `crates/roost-protocol/src/attachment_transfer/mod.rs` (`PEER_DATA_CHANNELS`) | Ordered WebRTC lanes; protocol `roost.attachment-transfer.v1`. |
+| `/ws/local-attachment-transfer`; `roost-local-attachment-transfer-v1` | `crates/roost-protocol/src/attachment_transfer/mod.rs` (`LOOPBACK_PATH`, `LOOPBACK_SUBPROTOCOL`) | Worker loopback path and subprotocol. |
 
 ## State machine
 
@@ -30,36 +30,32 @@ Attachment upload uses one immutable descriptor (`session_id`, `upload_id`, file
 
 ## Limits
 
-| Constant | Value | TypeScript source |
+| Constant | Value | Rust source |
 | --- | ---: | --- |
-| `ATTACHMENT_TRANSFER_DIRECT_CHUNK_BYTES` | `512 KiB` | `packages/protocol/src/attachment-transfer.ts:10` |
-| `ATTACHMENT_TRANSFER_CHUNK_SHA256_HEX_LENGTH` | `64` | `packages/protocol/src/attachment-transfer.ts:11` |
-| `ATTACHMENT_TRANSFER_LOOPBACK_MAX_PAYLOAD_BYTES` | `1 MiB` | `packages/protocol/src/attachment-transfer.ts:12` |
-| `ATTACHMENT_TRANSFER_PACKET_MAX_BYTES` / payload | `16,384 / 16,364 bytes` | `packages/protocol/src/attachment-transfer.ts:16-18` |
-| `ATTACHMENT_TRANSFER_PACKET_LOGICAL_FRAME_MAX_BYTES` | `1 MiB` | `packages/protocol/src/attachment-transfer.ts:19` |
-| `ATTACHMENT_TRANSFER_PACKET_STALL_MS` | `10,000 ms` | `packages/protocol/src/attachment-transfer.ts:20` |
-| `ATTACHMENT_TRANSFER_MAX_CHUNKS_IN_FLIGHT` | `1` | `packages/protocol/src/attachment-transfer.ts:21` |
-| `ATTACHMENT_TRANSFER_MAX_ACTIVE_PER_WORKER` / browser document | `8 / 8` | `packages/protocol/src/attachment-transfer.ts:22-23` |
-| `ATTACHMENT_TRANSFER_ACTIVE_MAX_MS` / `IDLE_MS` | `12 h / 5 min` | `packages/protocol/src/attachment-transfer.ts:24-25` |
-| `ATTACHMENT_TRANSFER_GRANT_TTL_MS` / ACK deadline | `60,000 / 15,000 ms` | `packages/protocol/src/attachment-transfer.ts:26` |
-| `ATTACHMENT_TRANSFER_GRANT_ACK_DEADLINE_MS` | `8,000 ms` | `packages/protocol/src/attachment-transfer.ts:27` |
-| `ATTACHMENT_TRANSFER_PEER_MAX_NEGOTIATIONS_PER_WORKER` | `4` | `packages/protocol/src/attachment-transfer.ts:32` |
-| `ATTACHMENT_TRANSFER_PEER_MAX_PENDING_NEGOTIATIONS` / device | `64 / 8` | `packages/protocol/src/attachment-transfer.ts:33-34` |
-| `ATTACHMENT_TRANSFER_PEER_NEGOTIATION_DEADLINE_MS` | `15,000 ms` | `packages/protocol/src/attachment-transfer.ts:35` |
-| `ATTACHMENT_TRANSFER_PEER_CONTROL_QUEUE_MAX_BYTES` / data queue | `128 KiB / 1 MiB` | `packages/protocol/src/attachment-transfer.ts:42-43` |
-| `ATTACHMENT_TRANSFER_PEER_WORKER_DATA_QUEUE_MAX_BYTES` | `32 MiB` | `packages/protocol/src/attachment-transfer.ts:44` |
+| `DIRECT_CHUNK_BYTES` | `512 KiB` | `crates/roost-protocol/src/attachment_transfer/mod.rs` |
+| `CHUNK_SHA256_HEX_LENGTH` | `64` | `crates/roost-protocol/src/attachment_transfer/mod.rs` |
+| `LOOPBACK_MAX_PAYLOAD_BYTES` | `1 MiB` | `crates/roost-protocol/src/attachment_transfer/mod.rs` |
+| `PACKET_MAX_BYTES` / `PACKET_MAX_PAYLOAD_BYTES` | `16,384 / 16,364 bytes` | `crates/roost-protocol/src/attachment_transfer/mod.rs` |
+| `PACKET_LOGICAL_FRAME_MAX_BYTES` | `1 MiB` | `crates/roost-protocol/src/attachment_transfer/mod.rs` |
+| `PACKET_STALL_MS` | `10,000 ms` | `crates/roost-protocol/src/attachment_transfer/mod.rs` |
+| `MAX_CHUNKS_IN_FLIGHT` | `1` | `crates/roost-protocol/src/attachment_transfer/mod.rs` |
+| `MAX_ACTIVE_PER_WORKER` / `MAX_ACTIVE_PER_BROWSER_DOCUMENT` | `8 / 8` | `crates/roost-protocol/src/attachment_transfer/mod.rs` |
+| `ACTIVE_MAX_MS` / `IDLE_MS` | `12 h / 5 min` | `crates/roost-protocol/src/attachment_transfer/mod.rs` |
+| `GRANT_TTL_MS` / `ACK_DEADLINE_MS` | `60,000 / 15,000 ms` | `crates/roost-protocol/src/attachment_transfer/mod.rs` |
+| `GRANT_ACK_DEADLINE_MS` | `8,000 ms` | `crates/roost-protocol/src/attachment_transfer/mod.rs` |
+| `PEER_MAX_NEGOTIATIONS_PER_WORKER` | `4` | `crates/roost-protocol/src/attachment_transfer/mod.rs` |
+| `PEER_MAX_PENDING_NEGOTIATIONS` / `PEER_MAX_PENDING_NEGOTIATIONS_PER_DEVICE` | `64 / 8` | `crates/roost-protocol/src/attachment_transfer/mod.rs` |
+| `PEER_NEGOTIATION_DEADLINE_MS` | `15,000 ms` | `crates/roost-protocol/src/attachment_transfer/mod.rs` |
+| `PEER_CONTROL_QUEUE_MAX_BYTES` / `PEER_DATA_QUEUE_MAX_BYTES` | `128 KiB / 1 MiB` | `crates/roost-protocol/src/attachment_transfer/mod.rs` |
+| `PEER_WORKER_DATA_QUEUE_MAX_BYTES` | `32 MiB` | `crates/roost-protocol/src/attachment_transfer/mod.rs` |
 
 ## Errors
 
-- Attachment transfer close/error reasons: `invalid_hello`, `grant_unavailable`, `upload_not_found`, `upload_mismatch`, `chunk_out_of_order`, `chunk_offset_mismatch`, `chunk_sha256_mismatch`, `chunk_too_large`, `total_bytes_mismatch`, `write_failed`; success reason is `complete` (`packages/protocol/src/attachment-transfer.ts:88-102`).
-- Attachment peer error reasons: `disabled`, `native_unavailable`, `invalid_offer`, `grant_unavailable`, `capacity`, `expired`, `connection_superseded`, `ice_failed` (`packages/protocol/src/attachment-transfer.ts:75-86`).
-- `AttachmentTransferPacketErrorCode`: `packet-size`, `packet-magic`, `packet-version`, `packet-header`, `message-id`, `message-id-wrap`, `message-size`, `fragment-order`, `fragment-stalled`, `quota`, `allocation`, `clock`, `closed` (`packages/protocol/src/attachment-transfer-packets.ts:27-40`).
+- Attachment transfer close/error reasons: `invalid_hello`, `grant_unavailable`, `upload_not_found`, `upload_mismatch`, `chunk_out_of_order`, `chunk_offset_mismatch`, `chunk_sha256_mismatch`, `chunk_too_large`, `total_bytes_mismatch`, `write_failed`; success reason is `complete` (`crates/roost-protocol/src/attachment_transfer/mod.rs`, `COMPLETE_REASON`).
+- Attachment peer error reasons: `disabled`, `native_unavailable`, `invalid_offer`, `grant_unavailable`, `capacity`, `expired`, `connection_superseded`, `ice_failed` (`crates/roost-protocol/src/attachment_transfer/mod.rs`, `PeerErrorReason`).
+- `AttachmentTransferPacketError`: `packet-size`, `packet-magic`, `packet-version`, `packet-header`, `message-id`, `message-id-wrap`, `message-size`, `fragment-order`, `fragment-stalled`, `quota`, `allocation`, `closed` (`crates/roost-protocol/src/attachment_transfer/packets.rs`).
 - A hello descriptor mismatch is `upload_mismatch`; a missing durable upload is `upload_not_found`. Status, not error inference from socket close, resolves ambiguous ACKs.
 
 ## Reference implementation
 
-- Shared browser-safe contract: `packages/protocol/src/attachment-transfer.ts`, `packages/protocol/src/attachment-transfer-packets.ts`
-- Proto frames: `protocol/proto/roost/v1/attachment_transfer.proto`
-- Worker loopback/direct owner: `apps/worker/src/local-door/local-ui-server.ts`, `apps/worker/src/attachments/attachment-direct-socket.ts`, `apps/worker/src/attachments/attachment-peer-owner.ts`
-- Coordinator grant/relay/signaling: `apps/coord/src/attachments/`
-- Browser selection/send/ACK recovery: `apps/web/src/client/attachments/attachmentDirect.ts`, `apps/web/src/client/carriers/attachment-loopback.ts`, `apps/web/src/client/attachments/attachmentPeer.ts`, `apps/web/src/client/attachments/attachmentTransfer.ts`
+Contract `crates/roost-protocol/src/attachment_transfer/` and `protocol/proto/roost/v1/attachment_transfer.proto`; worker `crates/roost-worker/src/attachments/` and `crates/roost-worker/src/peer/`; coordinator `crates/roost-coord/src/attachments/`; browser `crates/roost-client-core/src/client/attachments/`, `crates/roost-client-core/src/client/carriers/loopback.rs` and `crates/roost-web/src/platform/attachments/`.

@@ -1,6 +1,6 @@
 <!--
 Protocol conformance vectors are JSON fixtures for the public fold and cell-chunk assembler.
-Each file is an independent oracle case; packages/protocol/tests/conformance.test.ts creates one Bun test per file.
+Each file is an independent oracle case; `crates/roost-protocol/tests/conformance.rs` runs every vector, `crates/roost-client-core/tests/terminal_chunk_conformance.rs` runs `cell-chunks/` through the client, and `crates/roost-term/tests/terminal_core_vectors.rs` runs `terminal-core/`.
 -->
 # Conformance vectors
 
@@ -97,7 +97,7 @@ different things:
   vector fails, and the case is promoted to `patch`** — the failure is the
   reminder, not an obstacle.
 
-Regenerate with `bun scripts/gen-terminal-core-vectors.ts`. A vector that
+The vector generator is not in this tree; new vectors are written by hand and name their oracle. A vector that
 moved without its bytes moving is a behaviour change and deserves a commit
 message that says so.
 

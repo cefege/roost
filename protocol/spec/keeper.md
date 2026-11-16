@@ -20,7 +20,7 @@ The socket is the only path to a PTY. Nothing else in the system opens, reads, o
 
 A decoder reads from a stream, so it must handle a frame split across reads and several frames in one read. `total_length` is bounded by `KEEPER_MAX_MUX_FRAME_BYTES` (16 MiB); a length above that is a protocol violation, not a large frame, and closes the connection.
 
-Scalars inside binary payloads are big-endian and unaligned. A `u64` sequence is `writeSequence`/`readSequence` in v2: eight bytes, most significant first.
+Scalars inside binary payloads are big-endian and unaligned. A `u64` sequence is `write_sequence`/`read_sequence` (`crates/roost-keeper/src/codec.rs`): eight bytes, most significant first.
 
 ## Tags
 
