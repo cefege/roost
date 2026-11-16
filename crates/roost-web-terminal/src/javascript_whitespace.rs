@@ -1,5 +1,6 @@
-//! ECMAScript whitespace boundaries shared by shell, settings and text consumers.
-//! The code-unit form also accepts UTF-16 scanner input without decoding it.
+//! ECMAScript whitespace for link detection and `parseInt` parity. Called by
+//! `link_target`, `links::anchor` and `links::detect::patterns`. The code-unit
+//! form also accepts UTF-16 scanner input without decoding it.
 //! Unlike Rust whitespace, this includes BOM and excludes NEL.
 
 /// JavaScript WhiteSpace and LineTerminator characters.
@@ -25,4 +26,15 @@ pub const fn is_javascript_whitespace_code_unit(unit: u32) -> bool {
             | 0x3000
             | 0xfeff
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bom_is_whitespace_and_nel_is_not() {
+        assert!(is_javascript_whitespace_code_unit(0xfeff));
+        assert!(!is_javascript_whitespace_code_unit(0x85));
+    }
 }

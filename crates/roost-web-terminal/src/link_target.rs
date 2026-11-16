@@ -177,8 +177,8 @@ pub(crate) fn is_word_character(character: char) -> bool {
 fn has_js_whitespace_edge(raw: &str) -> bool {
     let first = raw.chars().next().map(u32::from);
     let last = raw.chars().next_back().map(u32::from);
-    first.is_some_and(roost_shell_tokenize::is_javascript_whitespace_code_unit)
-        || last.is_some_and(roost_shell_tokenize::is_javascript_whitespace_code_unit)
+    first.is_some_and(crate::javascript_whitespace::is_javascript_whitespace_code_unit)
+        || last.is_some_and(crate::javascript_whitespace::is_javascript_whitespace_code_unit)
 }
 
 fn strip_prefix_ignore_ascii_case<'a>(raw: &'a str, prefix: &str) -> Option<&'a str> {

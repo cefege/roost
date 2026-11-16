@@ -30,6 +30,7 @@ pub mod element_style;
 pub mod find;
 pub mod image_geometry;
 pub mod input;
+pub(crate) mod javascript_whitespace;
 pub mod link_target;
 pub mod links;
 pub mod mouse_forward;

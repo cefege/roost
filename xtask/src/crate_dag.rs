@@ -42,7 +42,6 @@ const ALLOWED: &[(&str, &[&str])] = &[
     ("roost-proto", &[]),
     ("roost-observability", &[]),
     ("roost-platform", &[]),
-    ("roost-shell-tokenize", &[]),
     ("roost-vcs", &[]),
     ("roost-protocol", &["roost-proto", "roost-observability"]),
     (
@@ -120,11 +119,7 @@ const ALLOWED: &[(&str, &[&str])] = &[
     ),
     (
         "roost-web-terminal",
-        &[
-            "roost-client-core",
-            "roost-protocol",
-            "roost-shell-tokenize",
-        ],
+        &["roost-client-core", "roost-protocol"],
     ),
     // `roost-web` depends on `roost-platform` for path handling: the browser's
     // `WorkerPaths` delegates to its native-path module.

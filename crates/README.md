@@ -14,7 +14,6 @@ registry, `Session` is the user-facing row, `Channel` is a PTY connection,
 | `roost-observability` | `tracing` JSON-lines init and the log line shape `roost status` / `roost doctor` parse. | — |
 | `roost-protocol` | Pure I/O-free wire and terminal logic: event variants and the canonical fold, cell and grid models, viewport geometry, peer packet framing, the keeper-update contract, layout documents. Builds for `wasm32`. | — |
 | `roost-platform` | Pure platform path and shell conventions and quoting. No I/O, no async, no logging. | — |
-| `roost-shell-tokenize` | Pure shell lexing and ECMAScript whitespace helpers, shared with terminal links. No dependencies or I/O. | — |
 | `roost-host` | `ROOST_*` config, service names, durable atomic writes and service health probes. | — |
 | `roost-term` | The `TerminalCore` trait, its rio-vt implementation, and the grid→`CellGridFrame` emitter. | — |
 | `roost-keeper` | The keeper daemon: PTY ownership, per-channel byte rings, the framed keeper socket protocol. | `roost-keeper` |
@@ -38,7 +37,6 @@ allowlist in `xtask/src/crate_dag.rs`, and a new edge fails
 roost-proto          → ∅
 roost-observability  → ∅
 roost-platform       → ∅
-roost-shell-tokenize → ∅
 roost-vcs            → ∅
 roost-protocol       → proto, observability
 roost-host           → protocol, platform, observability
@@ -47,7 +45,7 @@ roost-keeper         → protocol, host, platform, observability
 roost-worker         → term, keeper, host, proto, protocol, platform, observability
 roost-coord          → host, proto, protocol, platform, observability
 roost-client-core    → protocol, proto, observability
-roost-web-terminal   → client-core, protocol, shell-tokenize
+roost-web-terminal   → client-core, protocol
 roost-web            → web-terminal, client-core, protocol, platform
 roost-cli            → coord, worker, keeper, client-core, host, proto, protocol, platform, observability, vcs
 roost-bench          → proto, observability

@@ -5101,10 +5101,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "roost-shell-tokenize"
-version = "3.0.0"
-
-[[package]]
 name = "roost-term"
 version = "3.0.0"
 dependencies = [
@@ -5167,7 +5163,6 @@ dependencies = [
  "js-sys",
  "roost-client-core",
  "roost-protocol",
- "roost-shell-tokenize",
  "thiserror 2.0.21",
  "tracing",
  "url",

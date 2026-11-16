@@ -24,7 +24,6 @@ roost-proto = { path = "crates/roost-proto" }
 roost-observability = { path = "crates/roost-observability" }
 roost-protocol = { path = "crates/roost-protocol" }
 roost-platform = { path = "crates/roost-platform" }
-roost-shell-tokenize = { path = "crates/roost-shell-tokenize" }
 roost-host = { path = "crates/roost-host" }
 roost-term = { path = "crates/roost-term" }
 roost-keeper = { path = "crates/roost-keeper" }

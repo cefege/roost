@@ -121,7 +121,7 @@ pub fn terminal_row_columns(stamped: Option<&str>) -> i64 {
 /// leading digits; `None` where JS answers `NaN`. Saturates where JS would
 /// answer a huge float, which compares the same way.
 pub fn js_parse_int(value: &str) -> Option<i64> {
-    let trimmed = value.trim_start_matches(roost_shell_tokenize::is_javascript_whitespace);
+    let trimmed = value.trim_start_matches(crate::javascript_whitespace::is_javascript_whitespace);
     let (negative, digits) = match trimmed.as_bytes().first() {
         Some(b'-') => (true, &trimmed[1..]),
         Some(b'+') => (false, &trimmed[1..]),

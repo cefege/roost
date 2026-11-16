@@ -5,7 +5,7 @@
 //! the joined logical line `links::detect` builds. Ports the pattern sources in
 //! `apps/web/src/renderer/terminal-links.detect.ts`.
 
-use roost_shell_tokenize::is_javascript_whitespace_code_unit;
+use crate::javascript_whitespace::is_javascript_whitespace_code_unit;
 
 /// One code unit of the line, or `None` past its end.
 pub(super) fn unit_at(text: &[u16], index: usize) -> Option<u16> {
