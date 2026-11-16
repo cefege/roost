@@ -144,6 +144,9 @@ pub(super) struct PaneShared {
     pub interactions: interactions::PaneInteractions,
     pub echo: RefCell<Option<echo::PaneEcho>>,
     pub disposed: Cell<bool>,
+    /// When this pane last warned `input.drop_burst`, so a run of refused
+    /// keystrokes is one signal rather than one per key.
+    pub last_drop_burst_warn_ms: Cell<Option<f64>>,
     /// This pane, for the async callbacks that must not keep it alive.
     me: Weak<PaneShared>,
 }
@@ -194,7 +197,7 @@ impl PaneMount {
             Ok(renderer) => Rc::new(RefCell::new(renderer)),
             Err(error) => {
                 tracing::error!(target: "terminal", session_id = %init.session_id, ?error,
-                    "diag.corruption_signal cell_mount_failed");
+                    kind = "cell_mount_failed", "diag.corruption_signal");
                 return None;
             }
         };
@@ -253,6 +256,7 @@ impl PaneMount {
             interactions: interactions::PaneInteractions::default(),
             echo: RefCell::new(None),
             disposed: Cell::new(false),
+            last_drop_burst_warn_ms: Cell::new(None),
             me: me.clone(),
             find_registration: Cell::new(0),
         });

@@ -324,6 +324,6 @@ fn signal_stall(replica: &TerminalSession, action: StallAction, age_ms: Option<u
         socket_generation = owner.map(|token| token.socket_generation),
         process_epoch = owner.map(|token| token.process_epoch.as_str()).unwrap_or(""),
         domain_generation = owner.map(|token| token.domain_generation),
-        "foreground terminal stall"
+        "cell.foreground_stall"
     );
 }

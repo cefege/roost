@@ -214,7 +214,7 @@ pub(crate) fn sweep_hydrations(store: &mut Store, now_ms: u64, out: &mut Vec<Eff
             target: "sync",
             domain = ticket.domain.as_str(),
             deadline_ms = SYNC_HYDRATION_DEADLINE_MS,
-            "domain hydration exceeded its deadline"
+            "sync.hydration_timeout"
         );
         if ticket_is_current(store, &ticket) {
             schedule_retry(store, &ticket, now_ms);

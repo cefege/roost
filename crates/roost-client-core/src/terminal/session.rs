@@ -384,7 +384,7 @@ impl TerminalSession {
                 session_id = %self.session_id,
                 stream_id = %self.target.expected_stream_id.as_deref().unwrap_or(""),
                 reason = %reason,
-                "replica gap latched"
+                "cell.seq_gap"
             );
             self.assembler.reset();
             self.target.canonical_chunk_in_flight = false;

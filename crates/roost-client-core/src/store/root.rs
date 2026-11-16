@@ -173,7 +173,7 @@ pub fn mark_browser_device_rejected(store: &mut Store, source: &'static str) {
     }
     clear_auth_scoped_state(store);
     set_browser_access_state(store, BrowserAccessState::Unauthorized);
-    tracing::warn!(target: "store", source, "browser device rejected");
+    tracing::warn!(target: "store", source, "auth.relogin_401");
 }
 
 /// The protected sessions snapshot published: the one event that grants

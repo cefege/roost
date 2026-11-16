@@ -18,6 +18,9 @@ use crate::components::terminal::pane_echo_feedback::{
 };
 use crate::platform::browser::perf_counters::with_perf_counters;
 
+/// The quiet period after one `input.drop_burst` warning in a pane.
+const DROP_BURST_WARN_INTERVAL_MS: f64 = 60_000.0;
+
 /// The mounted host and the preference it was last told.
 pub(in crate::components::terminal) struct PaneEcho {
     host: PredictiveEchoHost,
@@ -160,9 +163,24 @@ fn apply(shared: &PaneShared, bytes: &[u8], feedback: EchoFeedback) {
             }
         }
         EchoFeedback::Clear { status, reason } => {
-            tracing::info!(target: "input", session_id = %shared.session_id, status, %reason,
-                "input.drop_burst");
+            warn_drop_burst(shared, status, &reason);
             clear(shared);
         }
     }
+}
+
+/// Warn `input.drop_burst` at most once per [`DROP_BURST_WARN_INTERVAL_MS`] per
+/// pane; `clear` still runs for every refusal.
+fn warn_drop_burst(shared: &PaneShared, status: &'static str, reason: &str) {
+    let now_ms = js_sys::Date::now();
+    if shared
+        .last_drop_burst_warn_ms
+        .get()
+        .is_some_and(|last_ms| now_ms - last_ms <= DROP_BURST_WARN_INTERVAL_MS)
+    {
+        return;
+    }
+    shared.last_drop_burst_warn_ms.set(Some(now_ms));
+    tracing::warn!(target: "input", session_id = %shared.session_id, status, reason,
+        "input.drop_burst");
 }

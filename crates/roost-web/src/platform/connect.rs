@@ -71,7 +71,8 @@ impl CoordRpc {
                 tracing::warn!(
                     target: "rpc",
                     %reason,
-                    "device credential unavailable; dispatching the request unauthenticated"
+                    src = "spa",
+                    "auth.jwt_sign_fail"
                 );
                 None
             }

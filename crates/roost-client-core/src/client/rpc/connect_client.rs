@@ -65,7 +65,8 @@ impl ConnectClient {
                 method = %connect_method(call),
                 call_id = connect_call_id(call),
                 reason = %reason,
-                "device credential unavailable; dispatching the request unauthenticated"
+                src = "spa",
+                "auth.jwt_sign_fail"
             );
         }
         ConnectRequest::new(

@@ -314,11 +314,10 @@ impl TabIdentity {
         self.storage.set(TAB_ID_KEY, &fresh);
         tracing::warn!(
             target: "auth",
-            signal = "tab.duplicate_identity_rotated",
             arbitration = arbitration.as_str(),
             previous8 = prefix8(previous),
             next8 = prefix8(&fresh),
-            "duplicated tab identity rotated"
+            "tab.duplicate_identity_rotated"
         );
         fresh
     }

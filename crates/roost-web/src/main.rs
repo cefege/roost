@@ -28,7 +28,7 @@ fn main() {
     // hook puts the message and location in the console, where the Playwright
     // oracle's page log and a user's bug report both read it.
     std::panic::set_hook(Box::new(|panic| {
-        tracing::error!(target: "panic", %panic, "wasm panic");
+        tracing::error!(target: "panic", %panic, kind = "panic", "spa.uncaught");
     }));
     let credential = capture_and_scrub();
     tracing::info!(
