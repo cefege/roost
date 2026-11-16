@@ -56,7 +56,7 @@ pub fn worker_path_platform(worker_os: Option<&str>, path: &str) -> Option<HostP
 }
 
 /// v2 `inferNativePathPlatform`: Windows only when the spelling is Windows-only.
-pub fn infer_native_path_platform(path_or_route: &str) -> HostPlatform {
+fn infer_native_path_platform(path_or_route: &str) -> HostPlatform {
     if is_windows_route(path_or_route)
         || is_windows_drive_absolute(path_or_route)
         || is_windows_unc(path_or_route)
@@ -157,21 +157,6 @@ pub fn worker_path_crumbs(worker_os: Option<&str>, path: &str) -> Vec<WorkerPath
                 .collect()
         })
         .unwrap_or_default()
-}
-
-/// Whether two paths name one directory on one worker.
-pub fn same_worker_path(worker_os: Option<&str>, left: &str, right: &str) -> bool {
-    let probe = if left.is_empty() { right } else { left };
-    let Some(platform) = worker_path_platform(worker_os, probe) else {
-        return left == right;
-    };
-    match (
-        native_path_identity_key(platform, &path_for_codec(platform, left)),
-        native_path_identity_key(platform, &path_for_codec(platform, right)),
-    ) {
-        (Ok(left_key), Ok(right_key)) => left_key == right_key,
-        _ => left == right,
-    }
 }
 
 /// The route segment a worker path is linked as (v2 `encodeWorkerPathRoute`).
