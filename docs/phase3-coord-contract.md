@@ -2212,37 +2212,6 @@ observes nothing, because the test was already failing without the mutation. So
 fixing `pump_lane` unblocks the three tests AND the verification of the fence;
 until then the fence is unverified, not verified-and-fine.
 
-### 12.11 RESOLVED: service_impl.rs is a structural exemption
-
-`service_impl.rs` is the single `impl CoordinatorService`, and it grows as
-domains get wired: a funnel arm is about seven lines, a real arm about
-fourteen because it must build the `Caller` and convert the handler result.
-
-It cannot be split, and the reason is the language, not taste. **E0119**
-forbids a trait impl's associated items from spanning blocks, so the 102
-generated signatures and their bodies must live in one impl, in one file. A
-`macro_rules!` that generates the arms would fit, and is banned by the same
-rule that produced the cap — a generated body is not reviewable, and this
-impl is the wiring contract the whole of Phase 3 lands through.
-
-**The rule, from here on:** `service_impl.rs` is listed in
-`STRUCTURAL_EXEMPTIONS` in `xtask/src/file_size.rs`, and every other file
-stays under the 400-line cap with no baseline entries at all
-(`xtask/file-size-baseline.json` is `{}`). An exempt file is neither counted
-nor snapshotted, so it can never grow a baseline entry to be compared
-against later.
-
-This is not a licence for monoliths elsewhere. It costs nothing at write
-time — a new 600-line file is a split nobody has to schedule — and it is the
-only reason 25 parallel slice agents can land without each producing a
-file that is expensive to split once callers exist. A second entry in
-`STRUCTURAL_EXEMPTIONS` needs the same answer to "what stops you splitting
-this?", and a weak answer is a bug in the list.
-
-The general question — whether 400 should count `#[cfg(test)]` lines at all
-— is deferred to the Phase 7 size-policy review, where the measurement can
-be taken over the whole tree rather than argued from one file.
-
 ### 12.12 BootFacts, and one runtime per domain
 
 Two rules the domain slices share, both recorded because both are invisible
@@ -2290,7 +2259,7 @@ FIELDS to its runtime and keep `new()` zero-argument; if a slice finds itself
 wanting a constructor parameter, the value it wants is a boot fact, and the
 fix is to add the fact rather than the parameter.
 
-The one-field rule is the same anti-fork rule as §12.11's single service
+The one-field rule is the same anti-fork rule as the single service
 impl, applied to state: two instances of a domain's runtime is two answers to
 one question, and only one of them would ever be published to. It is why
 `ui_state` moved from a handler parameter to `core.services.ui_state` — a

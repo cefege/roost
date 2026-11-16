@@ -17,10 +17,23 @@ const MEMORY: &str = "CLAUDE.md — coding standards";
 /// Files the cap does not apply to, and why each one cannot be made to obey it.
 /// An exemption here is a claim about the shape of the Rust language, not a
 /// preference: the pair is (path, reason), and a future entry has to survive
-/// the same "what stops you splitting this?" question.
+/// the same "what stops you splitting this?" question; a weak answer is a bug
+/// in the list.
+///
+/// `service_impl.rs` is the single `impl CoordinatorService`. It grows as
+/// domains get wired: a forwarding arm is about seven lines, a real arm about
+/// fourteen because it builds the `Caller` and converts the handler result.
+/// It cannot be split, and the reason is the language: E0119 forbids a trait
+/// impl's associated items from spanning blocks, so every generated signature
+/// and its body lives in one impl in one file. A `macro_rules!` that generated
+/// the arms would fit, and is banned by the rule that produced the cap — a
+/// generated body is not reviewable, and this impl is the wiring contract every
+/// coordinator domain lands through. An exempt file is neither counted nor
+/// snapshotted, so it can never grow a baseline entry to be compared against
+/// later.
 const STRUCTURAL_EXEMPTIONS: &[(&str, &str)] = &[(
     "crates/roost-coord/src/rpc/service_impl.rs",
-    "the single generated CoordinatorService impl; E0119 forbids splitting a trait impl and macros are banned — docs/phase3-coord-contract.md §12.11",
+    "the single CoordinatorService impl; E0119 forbids splitting a trait impl across blocks and macro-generated arms are banned",
 )];
 
 /// Whether the cap is waived for this path. An exempt file is neither counted

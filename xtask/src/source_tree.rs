@@ -4,19 +4,9 @@
 
 use std::path::{Path, PathBuf};
 
-/// Directories that never hold hand-written product source. `target` matters
-/// twice over: it is the Cargo build root and the Playwright output root.
-const SKIP_DIRS: [&str; 9] = [
-    "node_modules",
-    ".git",
-    "dist",
-    ".turbo",
-    "target",
-    "coverage",
-    "test-results",
-    "playwright-report",
-    ".claude",
-];
+/// Directories that never hold hand-written product source. `target` is the
+/// Cargo build root.
+const SKIP_DIRS: [&str; 5] = ["node_modules", ".git", "dist", "target", ".claude"];
 
 /// The workspace root, one level above this crate's manifest directory.
 /// Built by concatenation rather than `Path::parent` so there is no

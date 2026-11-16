@@ -117,8 +117,8 @@ Non-negotiable for every change.
    hand-written, and the second root a split needs is what that gate forbids
    (`test_suite::is_generated_suite_root`). An exempt file is neither counted
    nor snapshotted. **Adding an entry needs a reason that survives that
-   question**; a weak reason is a bug in the list. See
-   `docs/phase3-coord-contract.md` §12.11.
+   question**; a weak reason is a bug in the list. The rationale is the
+   `STRUCTURAL_EXEMPTIONS` doc comment in `xtask/src/file_size.rs`.
 
    The case to understand, and the reason an exemption is the wrong tool for
    it, is `CellGridRenderer` in `roost-web-terminal` — one struct whose

@@ -2,8 +2,8 @@
 //! asks for, and — the part that matters most — the floor it may never reach
 //! under.
 //!
-//! The retained floor is the history-corruption tripwire named in
-//! `docs/v3-gate-baselines.md`: a pager that ignores it passes every functional
+//! The retained floor is the history-corruption tripwire:
+//! a pager that ignores it passes every functional
 //! spec and still loses scrollback, because the worker answers each request
 //! short, the short answer names the same floor, and the next derivation asks
 //! again. Every bound here is reproducible from its arguments alone, so no

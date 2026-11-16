@@ -229,7 +229,7 @@ mod tests {
         ));
         assert!(
             !is_scanned("crates/roost-web/tests/shell_metrics.rs"),
-            "a test file is out of scope, as v2 skips *.test.ts"
+            "a test file is out of scope"
         );
         assert!(is_scanned("crates/roost-web/src/components/ui/button.rs"));
     }
