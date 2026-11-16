@@ -4,7 +4,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use super::{CloneMode, Error, WorktreeAddOptions, worktree_add};
+use super::{Error, WorktreeAddOptions, worktree_add};
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -67,11 +67,7 @@ fn target_commit_reconciliation_preserves_ignored_files_and_source_state() {
         root,
         &linked,
         "target",
-        WorktreeAddOptions {
-            detach: false,
-            clone: CloneMode::Auto,
-            keep_changes: false,
-        },
+        WorktreeAddOptions { detach: false },
     )
     .unwrap();
     assert_eq!(
@@ -114,11 +110,7 @@ fn target_commit_reconciliation_preserves_ignored_files_and_source_state() {
         root,
         &same_head,
         "same-head",
-        WorktreeAddOptions {
-            detach: false,
-            clone: CloneMode::Auto,
-            keep_changes: false,
-        },
+        WorktreeAddOptions { detach: false },
     )
     .unwrap();
     assert_eq!(
@@ -133,46 +125,4 @@ fn target_commit_reconciliation_preserves_ignored_files_and_source_state() {
         .args(["worktree", "remove", "--force"])
         .arg(&same_head)
         .status();
-}
-
-#[test]
-fn keep_changes_retains_staged_unstaged_and_untracked_state_at_source_head() {
-    for clone in [CloneMode::Auto, CloneMode::Off] {
-        let temp = fixture();
-        let root = &temp.path().join("source");
-        fs::write(root.join("tracked"), "staged\n").unwrap();
-        git(root, &["add", "tracked"]);
-        fs::write(root.join("tracked"), "staged and edited\n").unwrap();
-        fs::write(root.join("new-file"), "untracked\n").unwrap();
-        let source_status = git(root, &["status", "--porcelain"]);
-        let source_index = fs::read(root.join(".git/index")).unwrap();
-        let linked = sibling(root, &format!("kept-worktree-{clone:?}"));
-        worktree_add(
-            root,
-            &linked,
-            "HEAD",
-            WorktreeAddOptions {
-                detach: false,
-                clone,
-                keep_changes: true,
-            },
-        )
-        .unwrap();
-        assert_eq!(
-            fs::read_to_string(linked.join("tracked")).unwrap(),
-            "staged and edited\n"
-        );
-        assert_eq!(
-            fs::read_to_string(linked.join("new-file")).unwrap(),
-            "untracked\n"
-        );
-        assert_eq!(git(&linked, &["status", "--porcelain"]), source_status);
-        assert_eq!(git(root, &["status", "--porcelain"]), source_status);
-        assert_eq!(fs::read(root.join(".git/index")).unwrap(), source_index);
-        let _ = Command::new("git")
-            .current_dir(root)
-            .args(["worktree", "remove", "--force"])
-            .arg(&linked)
-            .status();
-    }
 }

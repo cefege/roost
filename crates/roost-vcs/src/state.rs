@@ -1,16 +1,13 @@
-//! Retains or removes source checkout changes without mutating the source index or files.
-//! The worktree owner uses this for keep-changes fallback and clean clone reconciliation.
-//! Git lists paths; filesystem operations preserve symlinks and refuse special nodes.
+//! Removes the source checkout's untracked files from a reflink clone so it matches
+//! the target commit; also the filesystem helpers the clone path shares.
+//! Git lists paths; filesystem operations preserve symlinks.
 
 use std::ffi::OsStr;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::{
-    Error,
-    git::{copy_index, git_bytes},
-};
+use crate::{Error, git::git_bytes};
 
 pub(super) fn remove_source_untracked(root: &Path, target: &Path) -> Result<(), Error> {
     let paths = git_bytes(
@@ -27,72 +24,6 @@ pub(super) fn remove_source_untracked(root: &Path, target: &Path) -> Result<(), 
         .filter(|path| !path.is_empty())
     {
         remove_tree_entry(&target.join(path_from_git_bytes(raw)?))?;
-    }
-    Ok(())
-}
-
-pub(super) fn copy_live_state(root: &Path, target: &Path) -> Result<(), Error> {
-    let tracked = git_bytes(
-        root,
-        [
-            OsStr::new("diff"),
-            OsStr::new("--name-only"),
-            OsStr::new("-z"),
-            OsStr::new("HEAD"),
-        ],
-    )?;
-    let untracked = git_bytes(
-        root,
-        [
-            OsStr::new("ls-files"),
-            OsStr::new("--others"),
-            OsStr::new("--exclude-standard"),
-            OsStr::new("-z"),
-        ],
-    )?;
-    for raw in tracked
-        .split(|byte| *byte == 0)
-        .chain(untracked.split(|byte| *byte == 0))
-        .filter(|path| !path.is_empty())
-    {
-        let relative = path_from_git_bytes(raw)?;
-        let source = root.join(&relative);
-        let destination = target.join(&relative);
-        match fs::symlink_metadata(&source) {
-            Ok(_) => copy_plain_one(&source, &destination)?,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                remove_tree_entry(&destination)?
-            }
-            Err(error) => return Err(error.into()),
-        }
-    }
-    copy_index(root, target)?;
-    Ok(())
-}
-
-fn copy_plain_one(source: &Path, target: &Path) -> Result<(), Error> {
-    let metadata = fs::symlink_metadata(source)?;
-    if let Some(parent) = target.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    remove_tree_entry(target)?;
-    if metadata.file_type().is_symlink() {
-        copy_symlink(source, target)?;
-    } else if metadata.is_file() {
-        fs::copy(source, target)?;
-        fs::set_permissions(target, metadata.permissions())?;
-    } else if metadata.is_dir() {
-        fs::create_dir_all(target)?;
-        for entry in fs::read_dir(source)? {
-            let entry = entry?;
-            copy_plain_one(&entry.path(), &target.join(entry.file_name()))?;
-        }
-        fs::set_permissions(target, metadata.permissions())?;
-    } else {
-        return Err(Error::Git(format!(
-            "cannot copy special file {}",
-            source.display()
-        )));
     }
     Ok(())
 }

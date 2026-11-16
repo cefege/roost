@@ -21,7 +21,7 @@ registry, `Session` is the user-facing row, `Channel` is a PTY connection,
 | `roost-coord` | SQLite or Postgres state, auth, Connect RPC handlers, Sync and worker WebSocket links, terminal hubs, server-side web push (no browser subscribes yet). | — |
 | `roost-coord::cluster` | What lets coordinator replicas share one Postgres database: the cross-replica notice channel (`pg_notify`/`LISTEN`; in-process on SQLite). | — |
 | `roost-client-core` | The UI-free client: Connect client, Sync state machine, store fold, terminal-stream replica and route election, input lanes, encoders, find paging. | — |
-| `roost-vcs` | Git-linked worktree creation: reflink staging, clean target reconciliation or retained live changes, safe plain-checkout fallback, and captured checkout hooks. | — |
+| `roost-vcs` | Git-linked worktree creation: reflink staging, clean target reconciliation, safe plain-checkout fallback, and captured checkout hooks. | — |
 | `roost-web-terminal` | The imperative `web-sys` terminal renderer and its input, IME, mouse, selection and link controllers. | — |
 | `roost-web` | The Dioxus 0.8 alpha.3 web application: routes, components, static assets. | — |
 | `roost-cli` | The `roost` binary: `coord`, `worker`, `quickstart`, `join`, `add-machine`, `add-browser`, `status`, `doctor`, `update`, `deploy`, `push`, `api` (headless terminal and administration verbs), `worktree add`, `db-to-postgres`, `db-to-sqlite`, `import-v2`. | `roost` |

@@ -136,11 +136,7 @@ fn add_worktree(args: &AddArgs) -> Result<ExitCode, CommandFailure> {
         &root,
         &path,
         &selected_ref,
-        roost_vcs::WorktreeAddOptions {
-            detach,
-            clone: roost_vcs::CloneMode::Auto,
-            keep_changes: false,
-        },
+        roost_vcs::WorktreeAddOptions { detach },
     )
     .map_err(|error| CommandFailure::generic(error.to_string()))?;
     if !args.quiet {

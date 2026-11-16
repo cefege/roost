@@ -17,17 +17,7 @@ fn post_checkout_hook_runs_once_and_failure_keeps_created_worktree() {
         fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
         git(root, &["config", "core.hooksPath", hooks.to_str().unwrap()]);
         let linked = sibling(root, "hook-worktree");
-        let result = worktree_add(
-            root,
-            &linked,
-            "target",
-            WorktreeAddOptions {
-                detach,
-                clone: CloneMode::Off,
-                keep_changes: false,
-            },
-        )
-        .unwrap();
+        let result = worktree_add(root, &linked, "target", WorktreeAddOptions { detach }).unwrap();
         assert!(!linked.join("hook-count").exists());
         let hook = crate::run_post_checkout_hook(&linked, &result.head).unwrap();
         assert_eq!(hook.status.code(), Some(7));
@@ -62,11 +52,7 @@ fn target_checkout_preserves_git_symlink_and_executable_modes() {
         root,
         &linked,
         "target",
-        WorktreeAddOptions {
-            detach: false,
-            clone: CloneMode::Auto,
-            keep_changes: false,
-        },
+        WorktreeAddOptions { detach: false },
     )
     .unwrap();
     assert!(
@@ -103,11 +89,7 @@ fn unsupported_clone_input_falls_back_to_a_real_git_checkout() {
         root,
         &linked,
         "target",
-        WorktreeAddOptions {
-            detach: false,
-            clone: CloneMode::Auto,
-            keep_changes: false,
-        },
+        WorktreeAddOptions { detach: false },
     )
     .unwrap();
     assert!(!result.cloned);
@@ -127,7 +109,7 @@ fn unsupported_clone_input_falls_back_to_a_real_git_checkout() {
     fs::remove_file(socket).unwrap();
 }
 #[test]
-fn unsafe_destinations_and_non_head_keep_requests_are_rejected_before_creation() {
+fn an_occupied_destination_is_refused_before_creation() {
     let temp = fixture();
     let root = &temp.path().join("source");
     let occupied = sibling(root, "occupied-worktree");
@@ -138,11 +120,7 @@ fn unsafe_destinations_and_non_head_keep_requests_are_rejected_before_creation()
             root,
             &occupied,
             "target",
-            WorktreeAddOptions {
-                detach: false,
-                clone: CloneMode::Auto,
-                keep_changes: false,
-            }
+            WorktreeAddOptions { detach: false }
         ),
         Err(Error::Git(_))
     ));
@@ -150,22 +128,6 @@ fn unsafe_destinations_and_non_head_keep_requests_are_rejected_before_creation()
         fs::read_to_string(occupied.join("keep")).unwrap(),
         "untouched\n"
     );
-    fs::remove_dir_all(&occupied).unwrap();
-
-    let rejected = sibling(root, "wrong-head-worktree");
-    let error = worktree_add(
-        root,
-        &rejected,
-        "target",
-        WorktreeAddOptions {
-            detach: true,
-            clone: CloneMode::Off,
-            keep_changes: true,
-        },
-    )
-    .unwrap_err();
-    assert!(matches!(error, Error::KeepChangesAtOtherCommit));
-    assert!(!rejected.exists());
 }
 
 #[test]
@@ -177,11 +139,7 @@ fn failed_registration_preserves_an_existing_prunable_worktree() {
         root,
         &linked,
         "target",
-        WorktreeAddOptions {
-            detach: false,
-            clone: CloneMode::Off,
-            keep_changes: false,
-        },
+        WorktreeAddOptions { detach: false },
     )
     .unwrap();
     for entry in fs::read_dir(&linked).unwrap() {
@@ -193,16 +151,7 @@ fn failed_registration_preserves_an_existing_prunable_worktree() {
         }
     }
     let registrations = git(root, &["worktree", "list", "--porcelain"]);
-    let result = worktree_add(
-        root,
-        &linked,
-        "HEAD",
-        WorktreeAddOptions {
-            detach: true,
-            clone: CloneMode::Auto,
-            keep_changes: false,
-        },
-    );
+    let result = worktree_add(root, &linked, "HEAD", WorktreeAddOptions { detach: true });
     assert!(matches!(result, Err(Error::Git(_))));
     assert_eq!(
         git(root, &["worktree", "list", "--porcelain"]),

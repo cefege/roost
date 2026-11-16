@@ -366,6 +366,11 @@ are not removed. Existing keeper-owned terminal PTYs remain ordinary terminals.
 cluster loop a `ClusterError`, and `roost-coord` and `roost-cli` no longer
 depend on `anyhow`.
 
+`roost-vcs` no longer retains the source checkout's live changes: the
+`keep_changes` option with its `copy_live_state` plain-copy fallback and the
+`KeepChangesAtOtherCommit` refusal, and the `CloneMode` selector, are dropped.
+`worktree add` always tries a reflink clone and falls back to a plain checkout.
+
 The sidebar holds terminal folders only. Folder order is static until a user
 drags it, and the saved order synchronizes across that account's devices.
 There is no agent Recent view. The custom `ui::Surface`/`SurfaceLevel` skin
