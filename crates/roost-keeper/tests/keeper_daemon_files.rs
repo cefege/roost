@@ -30,9 +30,8 @@ fn request_shutdown(keeper: &Keeper) {
     assert!(client.closed_by_peer(), "a shutdown closes the connection");
 }
 
-/// The endpoint is owner-only from the moment it exists. A keeper socket is a
-/// remote shell to every PTY on the machine, so a world-readable one is a shell
-/// for anyone on the box.
+/// The endpoint is owner-only before the daemon serves authenticated traffic.
+/// A successful raw connect alone does not prove permission setup has finished.
 #[test]
 fn the_daemon_publishes_an_owner_only_endpoint() {
     let temp = TempDir::new("perms");

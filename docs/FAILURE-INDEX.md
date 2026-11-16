@@ -4279,3 +4279,19 @@ placements already use source pixels and do not need this conversion.
 **Guard** — `roost-term`
 `image_placements::scaled_iterm_images_keep_source_pixels_after_partial_erasure`.
 
+### Keeper permission assertion races socket initialization
+
+**Symptom** — release verification intermittently reports keeper socket mode
+`0755` instead of `0600` in `the_daemon_publishes_an_owner_only_endpoint`.
+
+**Wrong** — treat a successful raw Unix socket connect as completed daemon
+initialization, retry the permission assertion, or weaken its expected mode.
+The kernel can queue connections between listener creation and chmod.
+
+**Right** — the daemon fixture waits for an authenticated `HelloResp` before
+returning. The server only accepts and answers after `Endpoint::bind` has
+secured the socket; filesystem assertions then observe initialized state.
+
+**Guard** — `crates/roost-keeper/tests/keeper_daemon_files.rs` —
+`the_daemon_publishes_an_owner_only_endpoint`.
+

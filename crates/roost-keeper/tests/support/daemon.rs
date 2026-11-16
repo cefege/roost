@@ -180,8 +180,8 @@ impl Keeper {
         matches!(self.child.try_wait(), Ok(Some(_)))
     }
 
-    /// The probe is a raw connect dropped at once: the daemon reads end-of-file
-    /// before any `Hello` and goes back to accepting.
+    /// A raw connect can succeed before `Endpoint::bind` secures the socket.
+    /// The HelloResp proves the daemon has finished binding and is serving.
     fn wait_until_listening(&mut self) {
         let start = Instant::now();
         while start.elapsed() < STARTUP {
@@ -189,6 +189,7 @@ impl Keeper {
                 panic!("the keeper exited before it listened: {status}");
             }
             if self.socket.exists() && UnixStream::connect(&self.socket).is_ok() {
+                drop(self.connect());
                 return;
             }
             std::thread::sleep(Duration::from_millis(10));
