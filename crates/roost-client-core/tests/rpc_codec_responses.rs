@@ -1,5 +1,5 @@
 //! Every call's answer decodes into the `RpcResult` the store folds, reading the
-//! fields v2 reads; a body that is not the method's response is an error for
+//! fields the store reads; a body that is not the method's response is an error for
 //! every call, never an empty answer.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -63,7 +63,7 @@ fn the_sessions_snapshot_carries_its_rows_and_the_one_time_token() {
 
 #[test]
 fn an_empty_snapshot_token_is_a_missing_one() {
-    // v2 tests `!response.syncSnapshotToken`: "" and absent both mean the
+    // An empty token reads as missing: "" and absent both mean the
     // terminal domain cannot be made ready from this snapshot.
     for token in [None, Some(String::new())] {
         let bytes = SessionsListResponse {
@@ -84,7 +84,7 @@ fn an_empty_snapshot_token_is_a_missing_one() {
 
 #[test]
 fn a_session_row_that_fails_its_brand_is_dropped_and_the_rest_kept() {
-    // v2 sync-bootstrap-hydration.ts:64-74 drops the row and publishes the rest.
+    // A bad row is dropped and the rest published.
     let bytes = SessionsListResponse {
         sessions: vec![session_row("not-a-uuid"), session_row(SESSION)],
         sync_snapshot_token: Some("t".to_owned()),
@@ -141,7 +141,7 @@ fn a_listing_keeps_the_machines_rows_and_falls_back_to_the_asked_path() {
         decode_rpc_response(&call, &answer("/home/me/src")).unwrap(),
         expected("/home/me/src")
     );
-    // browseDirectoryListing.ts:58 — `response.resolvedPath || dir`.
+    // An empty resolved path falls back to the asked-for directory.
     assert_eq!(
         decode_rpc_response(&call, &answer("")).unwrap(),
         expected("~/src")

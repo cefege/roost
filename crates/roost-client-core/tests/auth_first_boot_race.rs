@@ -107,8 +107,8 @@ fn two_concurrent_first_boots_converge_on_exactly_one_key() {
         "exactly the two raced keys were minted, and no third"
     );
     // The flag belongs to the MINTING path, and this fixture filled the slot
-    // itself — v2 marks it only once its own `addCurrentWebKey` resolves
-    // (`web-key.ts:176-177`), never on the adopt-an-existing arm. So the
+    // itself — the flag is set only once a mint completes, never on the
+    // adopt-an-existing arm. So the
     // assertion needs a manager that really did a first boot.
     let virgin = MemorySecureKeyStore::new();
     let virgin_flags = MemoryKeyValueStore::new();
@@ -179,8 +179,8 @@ fn a_credential_is_reused_inside_its_window_and_re_signed_in_place_after_it() {
     let keys = DeviceKeyManager::new(&store, &flags, &probe, &clock);
 
     let first = keys.sign_coordinator_jwt().expect("token");
-    // The reuse window IS the cache TTL: v2 reuses while `age < JWT_CACHE_TTL_MS`
-    // (`web-key.ts:219`), and the token's own lifetime is a separate, longer
+    // The reuse window IS the cache TTL: a token is reused while
+    // `age < JWT_CACHE_TTL_MS`, and the token's own lifetime is a separate, longer
     // number. Mixing the two is not a stricter test, it is a different one.
     clock.advance(roost_client_core::client::auth::JWT_CACHE_TTL_MS - 1);
     assert_eq!(

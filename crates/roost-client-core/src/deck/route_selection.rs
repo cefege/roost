@@ -1,7 +1,6 @@
 //! The deck decisions that may persist a route's selection or a rendered
 //! pane's focus into the stored arrangement. Called by `deck::intent` for the
-//! route-sync, pane-focus and tab-select intents. Pure; ports
-//! `apps/web/src/lib/deckRouteSelection.ts`.
+//! route-sync, pane-focus and tab-select intents. Pure.
 //!
 //! A compact host projects ONE pane; when the stored focus is on an empty pane
 //! that projection is view-only, so a phone never overwrites desktop focus a

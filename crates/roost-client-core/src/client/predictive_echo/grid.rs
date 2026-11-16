@@ -3,9 +3,7 @@
 //! that applies those verdicts to a burst. `judge_prediction` is the SINGLE
 //! place the two asymmetric rules live, and it is pure over one frame and one
 //! prediction. Everything here depends only on `roost_protocol::cell` for the
-//! column arithmetic and on the parent module's burst state. Ports v2's
-//! `apps/web/src/client/input/predictiveEchoGrid.ts` and the reconcile pass of
-//! `apps/web/src/renderer/predictiveEcho.ts`.
+//! column arithmetic and on the parent module's burst state.
 
 use std::collections::BTreeMap;
 

@@ -2,13 +2,9 @@
 //! the coordinator declares and the two mutations an existing row offers. The
 //! one-shot grant a new machine spends is `settings::bootstrap`'s.
 //!
-//! Called by roost-web's machines deploy dialog and machine rows. v2 call sites:
-//! `apps/web/src/components/machines/MachineDeployDialog.tsx:58-60`
-//! (`coordClient.authCoordIdentity`) and
-//! `apps/web/src/components/Settings/MachineCard.tsx:71-122`
-//! (`coordClient.workersRename`, `coordClient.workersDelete`). The machine list
-//! itself arrives over Sync, not over a unary call, so there is no `WorkersList`
-//! here. Deployment (`WorkersDeployStart`) is the machine row's.
+//! Called by roost-web's machines deploy dialog and machine rows. The machine
+//! list itself arrives over Sync, not over a unary call, so there is no
+//! `WorkersList` here. Deployment (`WorkersDeployStart`) is the machine row's.
 
 use roost_proto::{
     AuthCoordIdentityRequest, AuthCoordIdentityResponse, WorkersDeleteRequest,

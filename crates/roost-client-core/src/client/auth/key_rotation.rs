@@ -5,8 +5,6 @@
 //! matters here is [`recover_rotation`], because it is the whole of "a rotated
 //! key has a window in which both are valid and one in which only the new one
 //! is", and getting its order wrong locks a device out of its own account.
-//!
-//! Ported from `apps/web/src/client/auth/web-key.ts:128-158`.
 
 use std::fmt;
 

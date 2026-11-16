@@ -17,9 +17,8 @@ use crate::sync::inbound::{SessionViewer, SyncFrame};
 ///
 /// Unparseable JSON is deliberately fatal: a sessions payload the coordinator
 /// itself persisted must parse, and folding garbage would poison the store far
-/// worse than one reconnect (`sync-frame.ts:111-129`). JSON that parses but is
-/// not a session event still moves the cursor and folds nothing, as v2 moves
-/// `_lastSeenEventId` before `foldEventIntoStore` rejects the shape.
+/// worse than one reconnect. JSON that parses but is not a session event still
+/// moves the cursor and folds nothing.
 pub(super) fn sessions_json(payload_json: &str) -> Result<SyncFrame, String> {
     let value: Value = serde_json::from_str(payload_json)
         .map_err(|error| format!("payload_json is not JSON: {error}"))?;
@@ -39,9 +38,8 @@ pub(super) fn sessions_json(payload_json: &str) -> Result<SyncFrame, String> {
     })
 }
 
-/// A typed session event. v2's `protoToEvent` returns null for a kind it does
-/// not know (dispatch "unapplied") and throws for a malformed one; both close
-/// the link.
+/// A typed session event. A kind this build does not know, or a malformed one,
+/// closes the link.
 pub(super) fn session_event(value: &SessionEventProto) -> Result<SyncFrame, String> {
     match proto_to_event(value) {
         Ok(Some(decoded)) => Ok(SyncFrame::SessionEvent {
@@ -54,7 +52,7 @@ pub(super) fn session_event(value: &SessionEventProto) -> Result<SyncFrame, Stri
 }
 
 /// A presence notice: a viewer list when its kind is `viewers`, else opaque.
-/// Unparseable JSON is fatal, as in v2 (`sync-frame.ts:256-260`).
+/// Unparseable JSON is fatal.
 pub(super) fn session_presence(value: SessionPresence) -> Result<SyncFrame, String> {
     let payload: Value = serde_json::from_str(&value.payload_json)
         .map_err(|error| format!("payload_json is not JSON: {error}"))?;
@@ -70,8 +68,8 @@ pub(super) fn session_presence(value: SessionPresence) -> Result<SyncFrame, Stri
     })
 }
 
-/// v2 reads `entries` when present, else the bare `fps` list, else nothing;
-/// it validates neither, so a missing field is a default here, not a refusal.
+/// The `entries` list is read when present, else the bare `fps` list, else
+/// nothing; neither is validated, so a missing field is a default here, not a refusal.
 fn viewers_of(payload: &Value) -> Vec<SessionViewer> {
     if let Some(entries) = payload.get("entries").and_then(Value::as_array) {
         return entries.iter().map(viewer_entry).collect();
@@ -132,9 +130,9 @@ pub(super) fn cell_grid_chunk(value: PbCellGridChunk) -> SyncFrame {
 }
 
 /// A view-state answer, correlated by the envelope's domain generation: the
-/// view-state message has no generation of its own, and v2 correlates it with
-/// the terminal domain's current one after `dispatchV2Application` has matched
-/// the envelope against it.
+/// view-state message has no generation of its own, so it is correlated with
+/// the terminal domain's current one after the envelope has been matched
+/// against it.
 pub(super) fn view_state(value: TerminalViewStateFrame, domain_generation: u64) -> SyncFrame {
     SyncFrame::ViewState {
         accepted: value.status.as_known() == Some(TerminalViewStatus::Accepted),

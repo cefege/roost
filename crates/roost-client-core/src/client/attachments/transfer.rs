@@ -1,8 +1,8 @@
 //! The chunking, the digest and the ACK rule every direct carrier shares. A host
 //! reads the slice, hashes it and sends the frame this module hands it; this
-//! module decides which slice comes next and whether an ack settles it. Ported
-//! from `attachmentTransfer.ts`. The card transitions are in `transfer::ledger`
-//! and the lost-ack receipts in `transfer::receipt`.
+//! module decides which slice comes next and whether an ack settles it. The
+//! card transitions are in `transfer::ledger` and the lost-ack receipts in
+//! `transfer::receipt`.
 
 use std::fmt;
 
@@ -31,11 +31,10 @@ const NOTHING_IN_FLIGHT_REASON: &str = "attachment transfer has no chunk in flig
 
 /// The largest total a file may declare and still be uploadable directly.
 ///
-/// v2 refused a `File.size` that was not a JavaScript safe integer before it
-/// minted a grant, because that size crosses the wire as a number a peer reads
-/// back. A host that hands this module a total above it is handing it a size no
-/// peer could read exactly, and the upload would be refused at the far end
-/// instead of here.
+/// A file whose size is not a JavaScript safe integer cannot go direct: the
+/// size crosses the wire as a number a peer reads back. A host that hands this
+/// module a total above it is handing it a size no peer could read exactly,
+/// and the upload would be refused at the far end instead of here.
 pub const MAX_SAFE_TOTAL_BYTES: u64 = 9_007_199_254_740_991;
 
 /// Why a carrier failed, and — the load-bearing part — whether upload bytes
@@ -233,12 +232,12 @@ pub struct DirectUpload {
     abs_path: String,
     completed: bool,
     /// Whether any chunk has gone out to a carrier. CUMULATIVE, and reported
-    /// from the TAKE rather than the acknowledgement: v2 decides the carrier
-    /// fallback on it at `attachmentDirect.ts:117`, which refuses a switch
-    /// unless both the error and the connection say nothing went out, and
-    /// `AttachmentConversation` sets its own flag in `begin_chunk` for the same
-    /// reason. Reading it off `seq` made it a property of the ack, which is
-    /// one step too late to be a fallback boundary.
+    /// from the TAKE rather than the acknowledgement: the carrier-fallback gate
+    /// refuses a switch unless both the error and the connection say nothing
+    /// went out, and `AttachmentConversation` sets its own flag in
+    /// `begin_chunk` for the same reason. Reading it off `seq` made it a
+    /// property of the ack, which is one step too late to be a fallback
+    /// boundary.
     sent: bool,
 }
 

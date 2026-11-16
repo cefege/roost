@@ -1,10 +1,8 @@
 //! The session-keyed metadata folds: OSC title, last activity, viewers and
 //! opaque presence notices.
 //!
-//! Called by `apply_frame` only. Ported from `apps/web/src/store/sync-frame.ts`
-//! (`sessionPresence` 231-262, `terminalTitle` 263-269, `lastActivity`
-//! 270-276). The coordinator is the only party that parses a title or stamps
-//! activity, so these are plain replacements keyed by session.
+//! Called by `apply_frame` only. The coordinator is the only party that parses
+//! a title or stamps activity, so these are plain replacements keyed by session.
 
 use crate::store::Store;
 use crate::store::sync_feeds::{PRESENCE_NOTICE_QUEUE_MAX, PresenceNotice};

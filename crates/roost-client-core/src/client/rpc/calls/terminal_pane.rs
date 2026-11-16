@@ -3,9 +3,7 @@
 //! same history page read off a direct carrier decodes here too, by one row rule.
 //!
 //! Called by roost-web's `components::terminal` pane mount through
-//! `CoordRpc::call`. v2 call sites: `apps/web/src/lib/scrollbackDirectHistory.ts:30`
-//! (`sessionsGetScrollbackCells`) and
-//! `apps/web/src/components/terminal/cell-terminal-renderer.ts:338` (`sessionsCursorPos`).
+//! `CoordRpc::call` (`sessionsGetScrollbackCells` and `sessionsCursorPos`).
 
 use roost_proto::{
     LocalScrollbackResponse, ScrollbackHistoryFloor as PbHistoryFloor, SessionsCursorPosRequest,

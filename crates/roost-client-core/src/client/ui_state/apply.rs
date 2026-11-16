@@ -1,8 +1,8 @@
 //! Execution of the one acknowledged browser layout command.
 //!
-//! Ported from `apps/web/src/client/ui-state/uiLayoutApplyCore.ts`. The browser
-//! shell supplies the tab and socket identity, the active folder, the records,
-//! the id source, navigation, and the Sync send; this file decides.
+//! The browser shell supplies the tab and socket identity, the active folder,
+//! the records, the id source, navigation, and the Sync send; this file
+//! decides.
 //!
 //! THE ORDER IS THE CONTRACT. Every refusal happens BEFORE the single write, so
 //! a refused apply leaves the stored bytes exactly as they were -- a partial
@@ -10,8 +10,8 @@
 //! arrangement and the user cannot tell whether the document is wrong or their
 //! view is. And once the write has happened there is no path back to a
 //! rejection: the commit is the last fallible step, so a host that returns
-//! normally always answers APPLIED. v2 needed a `finally` to get that
-//! property; here it is the shape of the function.
+//! normally always answers APPLIED. That property is the shape of the
+//! function; nothing has to be restored in a `finally`.
 //!
 //! The document arrives already decoded into `roost_protocol::layout`'s shape,
 //! because the proto-to-document adapter is ONE adapter shared with the

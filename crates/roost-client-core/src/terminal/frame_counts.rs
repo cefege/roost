@@ -1,13 +1,11 @@
 //! Per-replica counts of decoded wire frames: how many arrived, how many were
 //! complete fulls, the history rows the last full carried, and the latest grid
-//! epoch. Written by `TerminalSession::admit_decoded`; read by roost-web's smoke
-//! backdoor (`cellFrameCount`, `cellFullFrameCount`, `lastFullFrameSbRows`,
-//! `cellGridEpoch`). Ports the `noteWireFrame` counters of
-//! `apps/web/src/store/terminal-stream-replica.ts:252-270`.
+//! epoch. Written by `TerminalSession::admit_decoded`; read by a host's smoke
+//! hooks.
 
 use roost_protocol::cell::CellGridFrame;
 
-/// What one replica has received, counted where v2 counts it: after the frame
+/// What one replica has received, counted after the frame
 /// passed the generation and stream fences and decoded, before the fold judged it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FrameCounts {
@@ -38,8 +36,8 @@ impl FrameCounts {
         self.full_frames
     }
 
-    /// History rows the latest full carried, or `-1` before any full (v2's
-    /// sentinel, which the oracle compares against).
+    /// History rows the latest full carried, or `-1` before any full (the
+    /// sentinel the oracle compares against).
     pub fn last_full_scrollback_rows(&self) -> i64 {
         self.last_full_scrollback_rows
             .map_or(-1, |rows| i64::try_from(rows).unwrap_or(i64::MAX))

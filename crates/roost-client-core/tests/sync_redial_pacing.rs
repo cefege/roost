@@ -1,8 +1,7 @@
 //! The Sync redial loop's pacing against a coordinator that refuses every
 //! upgrade: the boot visibility wake must not turn each refused close into an
-//! immediate redial, because v2 consumes a pending resume before every dial
-//! (`apps/web/src/store/sync-redial.ts:137-146`, `_waitForSyncDialPermission`)
-//! and the backoff then runs 1 s, 2 s, 4 s (`_waitForNextSyncDial`).
+//! immediate redial, because a pending resume is consumed before every dial
+//! and the backoff then runs 1 s, 2 s, 4 s.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -46,8 +45,8 @@ fn next_dial(
 fn a_boot_wake_does_not_turn_refused_upgrades_into_immediate_redials() {
     let (mut core, clock) = client_with_clock();
     clock.set(BOOT_MS);
-    // The pump reports the document visible at boot; v2 installs the same
-    // lifecycle wake, whose first run latches a resume.
+    // The pump reports the document visible at boot; that is a lifecycle
+    // wake, whose first run latches a resume.
     core.handle(ClientEvent::PageVisibilityChanged { visible: true });
     let mut generation =
         dial_generation(&core.handle(ClientEvent::DialRequested)).expect("the boot dial");

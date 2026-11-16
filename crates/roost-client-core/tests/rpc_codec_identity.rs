@@ -1,4 +1,4 @@
-//! `AuthCoordIdentity`'s answer decodes into the build and URL v2 keeps, plus
+//! `AuthCoordIdentity`'s answer decodes into the build and URL the store keeps, plus
 //! the direct carrier's STUN servers, which are present only while the
 //! coordinator's carrier is enabled.
 #![allow(clippy::unwrap_used, clippy::expect_used)]

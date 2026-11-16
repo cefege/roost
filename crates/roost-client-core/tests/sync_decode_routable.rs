@@ -1,8 +1,5 @@
 //! The chunked routable-set arm and the audit-row arm, decoded from the frames
 //! `roost-coord`'s feed builds and applied through `ClientCore::handle`.
-//!
-//! Ported from v2 `apps/web/src/store/sync-inbound.ts:150-178`
-//! (`dispatchRoutableChunk`) and `apps/web/src/store/sync-handlers.ts` (audit).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod sync_decode_support;
@@ -35,7 +32,7 @@ fn routable(core: &roost_client_core::ClientCore) -> Option<Vec<&str>> {
 #[test]
 fn a_live_routable_frame_replaces_the_set_wholesale() {
     let (mut core, generation) = ready_core();
-    // The bootstrap workersList seeds the set (v2 `sync-routable.ts:5`); the
+    // The bootstrap workersList seeds the set; the
     // hydration fixture lists no routable worker.
     assert_eq!(
         routable(&core),

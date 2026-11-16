@@ -5,8 +5,7 @@
 //! generation is inert — that is the whole reason generation exists. The
 //! recovery cursor lives beside this in `watermark`.
 //!
-//! Ported from `apps/web/src/store/sync-link-state.ts`; the contract is
-//! `protocol/spec/sync.md:23-31` and the reasons are in
+//! The contract is `protocol/spec/sync.md:23-31` and the reasons are in
 //! `docs/phase4-client-contract.md` §7.
 
 use std::collections::BTreeMap;
@@ -281,10 +280,8 @@ impl SyncState {
 
     /// True when `generation` still names the current, open, accepting socket.
     ///
-    /// This is the v2 `canAcceptSyncLink`
-    /// (`apps/web/src/client/sync/sync-flow.ts:18-26`): same link, accepting, and
-    /// open. Every cumulative ACK and every Sync-bound terminal command is gated
-    /// on it.
+    /// Same link, accepting, and open. Every cumulative ACK and every
+    /// Sync-bound terminal command is gated on it.
     pub fn accepts(&self, generation: u64) -> bool {
         self.link
             .as_ref()

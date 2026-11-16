@@ -2,10 +2,9 @@
 //! authority's effective geometry — decoded from the coordinator's bytes and
 //! applied through `ClientCore::handle`, as the TERM smoke flow receives it.
 //!
-//! Ported from v2 `apps/web/src/components/terminal/terminal-stream-view-commands.ts`
-//! (`applyTerminalViewState`): the stream id and `effectiveCols`/`effectiveRows`
-//! of the answer become the replica's expectation, and an answer without a valid
-//! stream or geometry installs nothing.
+//! The stream id and `effectiveCols`/`effectiveRows` of the answer become the
+//! replica's expectation, and an answer without a valid stream or geometry
+//! installs nothing.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod sync_decode_support;

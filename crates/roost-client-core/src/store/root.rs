@@ -1,24 +1,17 @@
 //! The credential boundary: what an account's data is, and what survives the
 //! account going away.
 //!
-//! v2's `root.ts` held every record in one Solid store and answered the boundary
-//! question by naming the slices to clear. Here the wire-shaped records belong to
-//! their own modules, so this file answers the same question by naming the
-//! MUTATIONS — one function per slice, each of which bumps `revision` and each of
-//! which is the only way that slice is emptied. "What does a sign-out clear?" then
-//! has one answer, written once, instead of one answer per module that has to be
-//! kept in agreement.
+//! The wire-shaped records belong to their own modules, so this file answers
+//! the boundary question by naming the MUTATIONS — one function per slice, each
+//! of which bumps `revision` and each of which is the only way that slice is
+//! emptied. "What does a sign-out clear?" then has one answer, written once,
+//! instead of one answer per module that has to be kept in agreement.
 //!
 //! The rule the boundary exists for: an in-flight result from the PREVIOUS
 //! credential must not be able to land in the new one. `auth_generation` is the
 //! token for that — it advances at the boundary, and every piece of
 //! credential-bound work captures it and asks [`captured_generation_is_current`]
-//! before it writes. `command-palette-data.ts:235-237` does this comparison by
-//! hand at two call sites; here it is one predicate on the store.
-//!
-//! Ported from `apps/web/src/store/root.ts` and `apps/web/src/store/browser-access.ts`; the deviations are the mutation list
-//! in place of a slice list, and the generation moving to the same place the
-//! comparison is asked from.
+//! before it writes. That comparison is one predicate on the store.
 
 use crate::store::Store;
 
@@ -71,9 +64,9 @@ pub fn captured_generation_is_current(store: &Store, captured: u64) -> bool {
 
 /// Record whether this device key is trusted.
 ///
-/// `store/browser-access.ts` owns WHEN a device becomes authorized or is refused;
-/// this owns the value, because the root shell gates every protected surface on
-/// it and a second copy of the answer would be a second gate.
+/// The caller owns WHEN a device becomes authorized or is refused; this owns
+/// the value, because the root shell gates every protected surface on it and a
+/// second copy of the answer would be a second gate.
 pub fn set_browser_access_state(store: &mut Store, state: BrowserAccessState) -> bool {
     if store.browser_access_state == state {
         return false;
@@ -154,7 +147,7 @@ pub fn clear_account_state_for_logout(store: &mut Store) {
     tracing::info!(target: "store", "account state cleared for logout");
 }
 
-/// The coordinator's build and public URL (v2 `rootStore.coord_identity`).
+/// The coordinator's build and public URL.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoordIdentity {
     /// The coordinator's build, for the drift badge.
@@ -163,8 +156,7 @@ pub struct CoordIdentity {
     pub public_url: String,
 }
 
-/// The coordinator refused this device key (v2 `markBrowserDeviceRejected`,
-/// `apps/web/src/store/browser-access.ts:20-29`): the auth-scoped records go,
+/// The coordinator refused this device key: the auth-scoped records go,
 /// then the gate closes. Only the loss edge acts; a persistently unknown
 /// browser does not tear down again on every refresh.
 pub fn mark_browser_device_rejected(store: &mut Store, source: &'static str) {
@@ -177,7 +169,7 @@ pub fn mark_browser_device_rejected(store: &mut Store, source: &'static str) {
 }
 
 /// The protected sessions snapshot published: the one event that grants
-/// access (v2 `markProtectedSnapshotPublished`, `browser-access.ts:32-43`).
+/// access.
 pub fn mark_protected_snapshot_published(store: &mut Store) {
     set_browser_access_state(store, BrowserAccessState::Authorized);
 }

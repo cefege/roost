@@ -193,8 +193,8 @@ fn the_rearm_episode_reports_once_and_reopens_after_both_of_its_ends() {
         "a challenge that published must let the NEXT episode report again"
     );
 
-    // Retirement ends an episode just as surely, which is the path the v2 episode
-    // test drives through a hidden pane.
+    // Retirement ends an episode just as surely, which is the path a hidden
+    // pane drives.
     let (mut core, _) = painted(0);
     assert!(claim(&mut core));
     core.handle(ClientEvent::PageVisibilityChanged { visible: false });

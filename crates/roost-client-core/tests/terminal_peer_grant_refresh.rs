@@ -4,8 +4,7 @@
 //! grant id, so the worker always holds the LAST mint it served. Two mints in
 //! flight at once, or an attempt that outlives the grant it opened on, leave the
 //! page presenting one scope while the worker proves another, and every `Ready`
-//! is refused. Ported from v2's `refreshAgain` coalescing and `updateGrant`
-//! (`local-terminal-grants.ts`, `terminal-peer-connection.ts`).
+//! is refused.
 //!
 //! Depends on `tests/terminal_peer_support` for the described machine.
 

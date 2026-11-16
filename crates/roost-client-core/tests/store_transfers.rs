@@ -6,7 +6,7 @@
 //! succeeding, and a card that shows it failing while it works is a card the user
 //! cannot act on.
 //!
-//! The mutation experiment for this file is in the slice report: in
+//! The mutation experiment for this file: in
 //! `set_transfer_progress`, replace `transfer.state = TransferState::Running`
 //! with `transfer.state = TransferState::Failed`, and
 //! `a_transfer_may_decrease_without_failing` must fail.

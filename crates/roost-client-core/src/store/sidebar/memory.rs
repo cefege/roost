@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use crate::platform::KeyValueStore;
 
-/// v2's MRU key.
+/// The recent-sessions MRU key.
 pub const RECENT_KEY: &str = "roost.sidebar.recent";
 /// How many recent sessions the stack keeps.
 pub const RECENT_MAX: usize = 5;

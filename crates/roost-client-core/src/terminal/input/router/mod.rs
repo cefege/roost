@@ -236,8 +236,8 @@ impl InputRouter {
         else {
             return false;
         };
-        // The result timer is armed once, at the first hand-off (v2
-        // `markStarted` returns early for a started batch).
+        // The result timer is armed once, at the first hand-off: a batch that
+        // has already started is not restarted.
         if !pending.started {
             pending.started_at_ms = now_ms;
         }

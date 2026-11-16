@@ -3,9 +3,7 @@
 //! coordinator.
 //!
 //! Owned by `SyncState`; driven by `handle_sync::hydration` (trigger, settle,
-//! sweep). Ported from `apps/web/src/store/sync-domain-hydration.ts`
-//! (`registerDomainHydrator`'s run/scheduleRetry/trigger) and the subscribed
-//! wait of `apps/web/src/store/sync-bootstrap.ts:196-220`.
+//! sweep).
 
 use std::collections::BTreeMap;
 

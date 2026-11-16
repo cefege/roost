@@ -1,8 +1,7 @@
 //! The authenticated frame conversation every direct attachment carrier shares.
 //! Called by the loopback and peer carriers; Ready must come first, an ack must
-//! name the chunk in flight, one bad frame ends the generation. Ported from the
-//! frame-admission half of `attachment-loopback.ts` and `attachmentPeer.ts`.
-//! Depends on `grant` for the tuple and `transfer` for the failure it reports.
+//! name the chunk in flight, one bad frame ends the generation. Depends on
+//! `grant` for the tuple and `transfer` for the failure it reports.
 
 use roost_proto::{AttachmentTransferAck as ProtoAttachmentTransferAck, AttachmentTransferReady};
 
@@ -40,10 +39,9 @@ pub struct AttachmentConversation {
     closed: bool,
     sent_chunk: bool,
     /// What `sent_chunk` was BEFORE the take in flight, so a write that failed
-    /// un-claims only its OWN bytes. v2 saves and restores exactly this
-    /// (`attachment-loopback.ts:113` / `:123`), and the gate it feeds
-    /// (`attachmentDirect.ts:117`) is cumulative: it refuses a carrier switch
-    /// unless BOTH the error and the connection say nothing went out.
+    /// un-claims only its OWN bytes. The carrier-fallback gate this feeds is
+    /// cumulative: it refuses a carrier switch unless BOTH the error and the
+    /// connection say nothing went out.
     sent_before_take: bool,
     ack_seq: Option<u32>,
     status_upload_id: Option<String>,
@@ -201,8 +199,8 @@ impl AttachmentConversation {
     ///
     /// A close that strands a sent chunk's acknowledgement is AMBIGUOUS: the
     /// worker may have committed the chunk before the carrier died, so only a
-    /// receipt may settle it. v2 `finish` rejects the ack waiter with
-    /// `ambiguous = sentChunk` for the same reason.
+    /// receipt may settle it. A close that strands the ack waiter reports
+    /// `ambiguous = sent_chunk` for the same reason.
     pub fn close(&mut self, reason: &str) -> AttachmentTransferCarrierError {
         if self.closed {
             return AttachmentTransferCarrierError::refused(reason, self.sent_chunk);

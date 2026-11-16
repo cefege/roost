@@ -1,8 +1,8 @@
 //! Where a completed attachment lands. Called by the composer's insertion step
 //! once an upload returned its worker-side path; decides whether that path may
-//! be typed into a PTY at all. Ported from `attachmentInsertion.ts`. Depends on
-//! nothing but the worker's `os` string, the same one the rest of the client
-//! reads, and on the shared POSIX quoter's algorithm.
+//! be typed into a PTY at all. Depends on nothing but the worker's `os` string,
+//! the same one the rest of the client reads, and on the shared POSIX quoter's
+//! algorithm.
 
 /// The quoted path, or `None` when it must not reach a PTY.
 ///

@@ -10,7 +10,7 @@
 //! same projection asserted against the same fixture is a test that passes for
 //! two reasons and fails for one.
 //!
-//! The mutation experiment for this file is in the slice report: in
+//! The mutation experiment for this file: in
 //! `project_session`, drop the `last_activity_ms` override so `activity_at` is
 //! always `created_at`, and `a_projected_row_carries_every_field_a_search_can_match`
 //! must fail.

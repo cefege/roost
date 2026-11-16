@@ -1,9 +1,9 @@
 //! The kill a close owes once its undo window runs out, and what its answer does.
 //!
-//! Ported from v2 `apps/web/src/lib/closeSession.ts` `killAfterUndo`: after the
-//! window, `SessionsKill`; a refused graceful kill is retried once with
-//! `force`; a failed call logs and raises a `Close failed:` card. An accepted
-//! kill needs nothing — the session's removal arrives on the Sync socket.
+//! After the window, `SessionsKill`; a refused graceful kill is retried once
+//! with `force`; a failed call logs and raises a `Close failed:` card. An
+//! accepted kill needs nothing — the session's removal arrives on the Sync
+//! socket.
 
 use crate::effect::{Effect, RpcCall, RpcResult};
 use crate::store::Store;

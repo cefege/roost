@@ -1,12 +1,8 @@
 //! Which sessions a UI command or a UI state report may name: open rows,
 //! this browser's optimistic placeholders, and the split between the two.
 //!
-//! Ports v2's `openSession` (`apps/web/src/lib/uiCommandDispatch.ts`), the
-//! `activeFolder` projection of `apps/web/src/lib/uiLayoutApply.ts`, and
-//! `projectOptimisticSpawnMembership` / `liveSessionIdsForFolder` as they meet
-//! (`apps/web/src/store/{optimisticSpawn,selectors}.ts`). v2 kept placeholders
-//! as open rows in the root store; here they live in `Store::spawns`, so this
-//! file is where the two sets are merged back into v2's one list.
+//! Open rows live in the root store and placeholders in `Store::spawns`, so
+//! this file is where the two sets are merged into one list.
 
 use crate::client::ui_state::LayoutApplyFolder;
 use crate::store::Store;
@@ -65,7 +61,7 @@ pub fn open_ui_session(
 }
 
 /// Every live member of a folder, placeholders included, oldest first with
-/// the id breaking a tie -- the list v2's deck and arrange presets read.
+/// the id breaking a tie -- the list the deck and arrange presets read.
 pub fn folder_live_session_ids(
     store: &Store,
     paths: &dyn WorkerPaths,

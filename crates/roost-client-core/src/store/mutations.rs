@@ -15,9 +15,8 @@
 //! cannot express that mistake, which is the main reason these records are maps
 //! here.
 //!
-//! Ported from `apps/web/src/store/mutations.ts`, plus the worker registry the
-//! bootstrap list lands in — `RpcResult::WorkersList` had nowhere to put its rows.
-//! The dev-dep-free shape of the pair request is v2's `root.ts:20-36`.
+//! The worker registry the bootstrap list lands in lives here too —
+//! `RpcResult::WorkersList` had nowhere to put its rows.
 
 use std::collections::BTreeMap;
 
@@ -28,10 +27,9 @@ use crate::store::Store;
 /// A pending tap-to-pair request, as the browser learned it from the
 /// coordinator's inline response.
 ///
-/// Declared here because `root.ts` declares it, not because this module needs
-/// every field: the pairing ceremony and the notifier both read it, and a second
-/// declaration of the same row would be a second answer to "what is a pair
-/// request".
+/// The pairing ceremony and the notifier both read it, so it is declared once
+/// here; a second declaration of the same row would be a second answer to
+/// "what is a pair request".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PairRequest {
     /// The coordinator's one-shot id for this request. The map key.

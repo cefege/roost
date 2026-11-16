@@ -6,9 +6,6 @@
 //! renews at the heartbeat interval, and requires a generation-matched
 //! acknowledgement before its lease expires. Explicit hide, authorization loss,
 //! and durable close remove it immediately — no lease wait.
-//!
-//! Ported from `apps/web/src/store/terminal-stream-view.ts` and
-//! `apps/web/src/store/terminal-stream-view-commands.ts`.
 
 use roost_protocol::viewport::{TERMINAL_VIEW_HEARTBEAT_MS, TERMINAL_VIEW_LEASE_MS};
 
@@ -58,8 +55,7 @@ pub struct ViewStateResult {
 }
 
 /// The authority's last generation-matched answer to a view, and the intent
-/// revision it answered. A newer revision has no answer yet, which is v2's
-/// `pending` status (`terminal-stream-types.ts:11-35`).
+/// revision it answered. A newer revision has no answer yet: it is pending.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ViewAnswer {
     /// The view's revision when the answer was applied.
@@ -90,10 +86,9 @@ pub struct TerminalView {
     pub rows: u32,
     /// The intent the pane currently wants sent.
     pub intent: ViewIntent,
-    /// The revision of `intent`: v2's `revisionFloor`, bumped on every intent
-    /// CHANGE and repeated unchanged by a heartbeat or a redial replay, so the
-    /// authority can tell a new intent from an idempotent renewal of the same
-    /// one (`terminal-stream-view-commands.ts:139-165`).
+    /// The revision of `intent`, bumped on every intent CHANGE and repeated
+    /// unchanged by a heartbeat or a redial replay, so the authority can tell a
+    /// new intent from an idempotent renewal of the same one.
     pub revision: u64,
     /// The generation whose command is still unacknowledged, if any.
     pub unacknowledged: Option<u64>,

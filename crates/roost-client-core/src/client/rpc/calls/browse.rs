@@ -3,9 +3,7 @@
 //! directory creation.
 //!
 //! Called through `CoordRpc::call` by roost-web's `components::browse` and
-//! `components::file_viewer`. v2's equivalent is every
-//! `coordClient.filesListDir` / `filesRead` / `filesMkdir` call site under
-//! `apps/web/src/components/browse/`. The chunked read (`files.rs`'s
+//! `components::file_viewer`. The chunked read (`files.rs`'s
 //! `ReadFileChunk`) is the attachment path's; a viewer needs the whole file and
 //! says so with a size it can refuse before the bytes arrive.
 

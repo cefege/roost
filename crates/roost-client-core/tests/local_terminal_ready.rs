@@ -1,13 +1,11 @@
 //! The handshake a worker's `Ready` must pass, and what an admitted carrier
 //! must then ask for.
 //!
-//! Ported from `apps/web/tests/localTerminal.test.ts`, which drives a fake socket
-//! because the v2 class owns one. This port drives the same rules as values, so
-//! the two cases the v2 test exists for are the two that still matter: a rolling
-//! worker gets a fresh per-connection namespace, and a HALF-present rolling tuple
-//! is refused rather than guessed at. v2's mock of the input router is replaced
-//! by the real `InputRouter`, so "closing retires the token" is proved by the
-//! lane's outcome. Where a door is dialled AT is discovery's question.
+//! The two cases that matter most: a rolling worker gets a fresh
+//! per-connection namespace, and a HALF-present rolling tuple is refused rather
+//! than guessed at. The real `InputRouter` stands in for the lane, so "closing
+//! retires the token" is proved by the lane's outcome. Where a door is dialled
+//! AT is discovery's question.
 //!
 //! Depends on `local_terminal_support` for the door's grant and Ready fixtures.
 
@@ -27,8 +25,8 @@ fn uses_a_fresh_browser_namespace_only_for_a_complete_old_ready_tuple() {
         .expect("a complete old Ready tuple is admitted");
 
     assert_eq!(admission.token.transport, TerminalTransport::Loopback);
-    // v2 asserts `processEpoch === socketId`; v3's token has no socket id at all,
-    // so the same property reads as "the namespace is this connection's own id".
+    // The token has no socket id, so the property reads as "the namespace is
+    // this connection's own id".
     assert_eq!(admission.token.process_epoch, CONNECTION);
     assert_eq!(admission.token.socket_generation, 7);
     assert!(admission.allows_session("session-a"), "the Ready named it");

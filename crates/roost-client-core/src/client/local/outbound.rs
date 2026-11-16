@@ -13,8 +13,6 @@
 //! process epoch, because a result arriving on another connection is a result
 //! about a route this client no longer holds — a gate the token cannot express,
 //! since `terminal::token` deliberately keeps `socket_id` out of equality.
-//!
-//! Ported from `apps/web/src/store/transport/sync-outbound.ts`.
 
 use std::collections::BTreeMap;
 
@@ -83,9 +81,9 @@ pub struct InputDestination {
 
 /// Elect the path for one session: an elected direct route first, Sync second.
 ///
-/// A direct route that cannot carry input REFUSES rather than falling back, which
-/// is v2's shape for an unqualified peer and is the right answer for an expired
-/// grant too: the carrier is gone, and silently moving a session's input
+/// A direct route that cannot carry input REFUSES rather than falling back,
+/// which is the right answer for an unqualified peer and for an expired grant
+/// alike: the carrier is gone, and silently moving a session's input
 /// elsewhere would hide a route loss the rest of the client has to hear about.
 pub fn destination_for_session(
     registry: &RouteRegistry,

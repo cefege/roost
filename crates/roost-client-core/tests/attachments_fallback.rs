@@ -4,8 +4,7 @@
 //! worker may have committed it.
 //!
 //! Every named refusal in the loader has a case here, because each one is a
-//! different reason a user sees a different thing happen. Ported from
-//! `apps/web/tests/attachments*.test.ts`.
+//! different reason a user sees a different thing happen.
 
 mod attachment_support;
 

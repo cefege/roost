@@ -10,10 +10,9 @@
 //! `door::SecretUseLedger` enforces because the worker's door answers a replay
 //! by REPLACING the socket it already gave out.
 //!
-//! Ported from `apps/web/src/store/transport/local-terminal-grants.ts`. The
-//! request and the decision to send it are `outbound`'s vocabulary, and the mint
-//! is NOT performed here, so every rule below is provable with no coordinator
-//! and no clock.
+//! The request and the decision to send it are `outbound`'s vocabulary, and the
+//! mint is NOT performed here, so every rule below is provable with no
+//! coordinator and no clock.
 
 use std::collections::{BTreeMap, BTreeSet};
 

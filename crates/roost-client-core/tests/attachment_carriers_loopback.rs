@@ -6,9 +6,9 @@
 //! `attachment_carriers_peer.rs`; the worker end of this conversation is
 //! `attachment_carriers_support`.
 //!
-//! The v2 names are kept verbatim. The mutation experiment, in the slice report:
-//! drop the `worker_epoch` comparison from `AttachmentConversation::admit_ready`
-//! and a Ready naming another epoch slips through.
+//! The mutation experiment: drop the `worker_epoch` comparison from
+//! `AttachmentConversation::admit_ready` and a Ready naming another epoch
+//! slips through.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -195,8 +195,8 @@ fn requests_direct_status_on_the_authenticated_control_socket() {
 
 /// `sent_chunk` is CUMULATIVE: "have ANY bytes for this upload gone out".
 ///
-/// v2 decides the carrier fallback on it in `attachmentDirect.ts:117`, which
-/// refuses to switch carriers unless BOTH the error and the connection say
+/// The carrier fallback decides on it, and refuses to switch carriers unless
+/// BOTH the error and the connection say
 /// nothing went out. A per-chunk flag cannot answer that: after a later
 /// chunk's write fails the per-chunk answer is "no" while an earlier chunk is
 /// still on the wire, and the gate opens on a duplicate upload. So the
@@ -272,8 +272,8 @@ fn a_failed_chunk_does_not_clear_bytes_an_earlier_chunk_already_sent() {
 
 /// A socket that dies with a sent chunk unacknowledged leaves the worker's view
 /// unknown: it may have committed the chunk. The error must be AMBIGUOUS so the
-/// chunk loop asks for a receipt instead of reporting a plain refusal, which
-/// v2's `finish` does by rejecting the ack waiter with `ambiguous = sentChunk`.
+/// chunk loop asks for a receipt instead of reporting a plain refusal: a close
+/// rejects the ack waiter as ambiguous whenever a chunk was sent.
 #[test]
 fn a_close_with_a_sent_chunk_unacknowledged_is_ambiguous() {
     let total = 2;

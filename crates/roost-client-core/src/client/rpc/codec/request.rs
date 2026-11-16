@@ -1,9 +1,7 @@
 //! `RpcCall` → the method's request message bytes.
 //!
-//! Called by the host's pump before `ConnectClient::dispatch`. The field
-//! mapping is the one v2's call sites send (`sync-bootstrap-hydration.ts:56`,
-//! `redeemPairToken.ts:36-40`, `browseDirectoryListing.ts:53`,
-//! `browseNewFolder.ts:72-75`); a list request v2 sends empty goes out empty.
+//! Called by the host's pump before `ConnectClient::dispatch`. A list request
+//! with no fields goes out empty.
 
 use roost_proto::{
     AuthCoordIdentityRequest, AuthRedeemBrowserRequest, FilesListDirRequest, FilesMkdirRequest,

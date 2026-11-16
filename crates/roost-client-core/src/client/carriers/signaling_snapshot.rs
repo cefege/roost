@@ -36,7 +36,7 @@ pub enum CandidateType {
 }
 
 impl CandidateType {
-    /// The spelling v2's route entry uses, and the one a reader compares.
+    /// The spelling a route entry uses, and the one a reader compares.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::None => "none",

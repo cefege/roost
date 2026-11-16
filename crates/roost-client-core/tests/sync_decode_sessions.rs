@@ -2,8 +2,6 @@
 //! coordinator sends and applied through `ClientCore::handle`: typed and JSON
 //! session events with the recovery cursor, presence, last activity, view state
 //! and input results.
-//!
-//! Ported from v2 `apps/web/src/store/sync-frame.ts:108-137,231-276`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod sync_decode_support;
@@ -51,7 +49,7 @@ fn typed_event(event: &SessionEvent, event_id: u64) -> Frame {
     Frame::SessionEvent(Box::new(event_to_proto(event, event_id).unwrap()))
 }
 
-/// The legacy JSON arm: the wire event with its `_event_id`, as v2's feed wrote it.
+/// The legacy JSON arm: the wire event with its `_event_id`, as the feed writes it.
 fn json_event(event: &SessionEvent, event_id: u64) -> Frame {
     let mut payload = serde_json::to_value(event).unwrap();
     payload["_event_id"] = serde_json::json!(event_id);
@@ -96,7 +94,7 @@ fn a_typed_session_event_folds_and_advances_the_cursor() {
 
 #[test]
 fn the_cursor_advances_only_to_a_greater_event_id() {
-    // v2 `sync-frame.ts:115-118,139-142`: `_event_id > _lastSeenEventId`.
+    // The cursor moves only when `_event_id` exceeds the last seen id.
     let (mut core, generation) = ready_core();
     deliver(
         &mut core,

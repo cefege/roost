@@ -272,9 +272,8 @@ fn a_frame_for_another_session_never_lands_here() {
 
 #[test]
 fn a_delta_across_an_alt_screen_transition_is_the_shared_folds_refusal() {
-    // v2's `foldTerminalDelta` has no alt-screen row: `applyDelta` refuses it,
-    // so the repair names `delta_fold_rejected`
-    // (`apps/web/src/client/terminal-stream/terminal-stream-frame-fold.ts:136-149`).
+    // `apply_delta` has no alt-screen row and refuses it, so the repair names
+    // `delta_fold_rejected`.
     let mut replica = replica_with_baseline(4);
     let before = replica.canonical().cloned();
     let mut toggled = delta(1, 4, 2);

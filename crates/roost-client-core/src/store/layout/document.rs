@@ -1,9 +1,8 @@
 //! The portable layout document: the rules both directions of the conversion
 //! share, and the ONE place a document becomes a committed arrangement.
 //!
-//! Ported from `apps/web/src/store/paneLayoutDocument.ts`. The two directions
-//! live beside this file, because they have opposite rules: `export` mints
-//! positional keys, `materialize` mints fresh runtime ids.
+//! The two directions live beside this file, because they have opposite rules:
+//! `export` mints positional keys, `materialize` mints fresh runtime ids.
 //!
 //! EVERY DOCUMENT TYPE HERE IS `roost_protocol::layout`'S. Nothing in this
 //! module declares a layout shape, and a document this build exports is

@@ -7,9 +7,8 @@
 //! and a host that reused the store's link for that would find it empty at
 //! exactly the moment it needed an answer.
 //!
-//! Ported from `apps/web/src/store/sync.ts:170-264`, whose two gates
-//! (`canOpenSyncLink`, `canAcceptSyncLink`, `sync-flow.ts:18-36`) are these two
-//! predicates. Identity becomes a generation rather than an object reference,
+//! The two gates, `can_open_sync_link` and `can_accept_sync_link`, are the two
+//! predicates below. Identity is a generation rather than an object reference,
 //! because a Rust host holds one socket handle at a time and the handle it
 //! replaced is already gone.
 
@@ -107,20 +106,20 @@ impl InstalledLink {
 
 /// Whether a socket that has just completed its handshake may be adopted.
 ///
-/// v2's `canOpenSyncLink`: same link, no abort reason recorded, and open. Note
-/// that `accepting` is deliberately NOT required — a link becomes accepting
-/// because this gate passed, so requiring it would make adoption impossible.
+/// Same link, no abort reason recorded, and open. Note that `accepting` is
+/// deliberately NOT required — a link becomes accepting because this gate
+/// passed, so requiring it would make adoption impossible.
 pub fn can_open_sync_link(link: &InstalledLink, generation: u64) -> bool {
     link.is_current(generation) && link.is_open() && link.abort_reason.is_none()
 }
 
 /// Whether a frame observed on the installed socket may be reported to the core.
 ///
-/// v2's `canAcceptSyncLink`: same link, accepting, and open. This is the
-/// transport's gate and it is not the store's — `SyncState::accepts` answers
-/// whether the store will act on the frame, and the two disagree on purpose
-/// during the window between the browser's `open` and the coordinator's
-/// announcement, where this one says yes and the other says not yet.
+/// Same link, accepting, and open. This is the transport's gate and it is not
+/// the store's — `SyncState::accepts` answers whether the store will act on
+/// the frame, and the two disagree on purpose during the window between the
+/// browser's `open` and the coordinator's announcement, where this one says
+/// yes and the other says not yet.
 pub fn can_accept_sync_link(link: &InstalledLink, generation: u64) -> bool {
     link.is_current(generation) && link.is_accepting() && link.is_open()
 }

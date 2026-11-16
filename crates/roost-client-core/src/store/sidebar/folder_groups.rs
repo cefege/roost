@@ -1,9 +1,7 @@
 //! The (machine, folder) buckets the sidebar's Folders panel and the home
-//! folder grid render, and the query filter over them. Ports
-//! `apps/web/src/lib/folderGroups.ts` and the folder helpers of
-//! `apps/web/src/lib/folderKey.ts` it reads (`folderPathOf`,
-//! `workspaceForFolder`, `folderDisplayName`). Pure reads of the store; the
-//! folder key is `store::paths::folder_key_of`, the same key the deck uses.
+//! folder grid render, and the query filter over them. Pure reads of the
+//! store; the folder key is `store::paths::folder_key_of`, the same key the
+//! deck uses.
 
 use roost_protocol::wire::{PullRequestChecks, PullRequestState, Session, SessionKind, Workspace};
 

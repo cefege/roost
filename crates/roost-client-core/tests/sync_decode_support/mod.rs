@@ -133,8 +133,8 @@ pub fn open_ready_link(core: &mut ClientCore) -> u64 {
     });
     let effects = core.handle(decoded(&control(subscribed_arm(SOCKET)), generation));
     answer_hydrations(core, &effects);
-    // The audit domain is lazy: only a mounted audit surface hydrates it
-    // (`sync-domain-hydration.ts:41-64`), so it is the one domain not ready here.
+    // The audit domain is lazy: only a mounted audit surface hydrates it, so
+    // it is the one domain not ready here.
     for domain in SyncDomain::ALL {
         assert_eq!(
             core.store().sync.domain_is_ready(domain),

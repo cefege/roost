@@ -4,9 +4,7 @@
 //! and fail differently. This is what you read when a socket's state changed;
 //! `handle_terminal` is what you read when a pane opened.
 //!
-//! Ported from `apps/web/src/store/terminal-stream-transport.ts` and
-//! `apps/web/src/store/transport/local-terminal.ts`. Contract:
-//! `protocol/spec/direct-terminal.md`.
+//! Contract: `protocol/spec/direct-terminal.md`.
 
 use crate::client::carriers::DirectGrant;
 use crate::effect::Effect;
@@ -39,8 +37,8 @@ pub fn handle_carrier_authenticated(
 /// A fresh grant arrived: the election learns it, and every live carrier to that
 /// worker is widened to it and stages the sessions it newly admits.
 ///
-/// v2 hands each new grant to the live connection (`presentGrant` →
-/// `updateGrant`) and stages every demanded session on it, which is how a
+/// Each new grant is handed to the live connection, and every demanded session
+/// is staged on it, which is how a
 /// second session on a worker joins the peer the first one already opened
 /// instead of waiting on a connection that will never be negotiated again.
 pub fn handle_grant_minted(
@@ -71,12 +69,12 @@ pub fn handle_grant_minted(
 /// A pane opened: stage its session on the live carrier whose grant already
 /// admits it, unless that carrier already holds the session's route.
 ///
-/// v2 `TerminalPeerOwner.handleDemand` → `stageCurrentConnection`. The grant
+/// The grant
 /// names every session the document has demanded, so a session whose pane left
 /// and came back — a navigation, then a layout that splits it in again — is
 /// already admitted: the refreshed grant adds nothing, no carrier widens, and
 /// without this the session stays on Sync beside a carrier that could serve it.
-/// A loopback route is never traded for a peer, as in v2.
+/// A loopback route is never traded for a peer.
 pub fn stage_opened_session(
     store: &mut Store,
     session_id: &str,

@@ -6,11 +6,7 @@
 //! chunk the worker never wrote, and an upload whose card says `Done` for bytes
 //! nobody acknowledged.
 //!
-//! The v2 names are the deliverable and are kept verbatim, so a reader holding
-//! `apps/web/tests/client/attachments/attachmentTransfer.test.ts` can pair them
-//! one for one.
-//!
-//! The mutation experiment for this file, in the slice report: in
+//! The mutation experiment for this file: in
 //! `DirectUpload::settle`, delete the `ack.chunk_sha256 != chunk.chunk_sha256`
 //! arm, and `a_completed_transfer_verifies_its_digest_before_the_path_is_recorded`
 //! must fail.

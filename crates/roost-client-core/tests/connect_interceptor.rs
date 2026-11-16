@@ -1,10 +1,9 @@
-//! The two rules v2's Connect interceptor carried, a client that drops either
+//! The two rules the Connect interceptor carries, a client that drops either
 //! one only discovering it once a user is paired.
 //!
 //! The signing rule: a browser whose device key is temporarily unusable must
 //! still be able to reach the pairing gate, so a signing failure dispatches the
-//! request UNAUTHENTICATED rather than dropping it
-//! (`apps/web/src/client/rpc/connect.ts:104-111`). A test that only asserted
+//! request UNAUTHENTICATED rather than dropping it. A test that only asserted
 //! "the transport received something" passes against an implementation that sent
 //! the credential, so every case here pins the bearer AND the tab id together.
 //!

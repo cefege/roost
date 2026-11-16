@@ -1,8 +1,6 @@
-//! The replica's decoded-frame counters the smoke backdoor reads as
-//! `cellFrameCount`, `cellFullFrameCount`, `lastFullFrameSbRows` and
-//! `cellGridEpoch`: counted after the generation and stream fences and a
-//! successful decode, before the fold judges the frame (v2
-//! `apps/web/src/store/terminal-stream-replica.ts` `noteWireFrame`).
+//! The replica's decoded-frame counters the smoke hooks read: frames, fulls, the
+//! last full's history rows and the grid epoch, counted after the generation
+//! and stream fences and a successful decode, before the fold judges the frame.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod support;

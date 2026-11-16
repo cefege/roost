@@ -2,10 +2,7 @@
 //! stale-link watchdog decision, and the smoke transport pause.
 //!
 //! Owned by `SyncState`; driven by `handle_sync::lifecycle` from link closes,
-//! frames, visibility changes and the sweep. Ported from
-//! `apps/web/src/store/sync-redial.ts` and the pure decisions of
-//! `apps/web/src/store/sync-watchdog.ts`; the immediate-redial reasons are
-//! `apps/web/src/client/sync/sync-flow.ts:72-78`.
+//! frames, visibility changes and the sweep.
 
 /// The first redial delay, and the delay after any success.
 pub const SYNC_REDIAL_BASE_MS: u64 = 1_000;
@@ -57,7 +54,7 @@ pub enum SyncLinkLiveness {
 }
 
 impl SyncLinkLiveness {
-    /// The wire spelling v2's diagnostics use.
+    /// The wire spelling the diagnostics use.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::None => "none",
@@ -114,7 +111,7 @@ impl Default for SyncRedial {
     }
 }
 
-/// What `syncRedialStatus()` reports.
+/// What `SyncRedial::status` reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SyncRedialStatus {
     /// Consecutive failed dials since the last frame.
@@ -139,15 +136,14 @@ impl SyncRedial {
     }
 
     /// Record the reason a close VERDICT implies, unless the core already chose
-    /// one: v2 `sync.ts` `onclose` sets `abortReason = "flow"` only while it is
-    /// still null, so this tab's own reason for closing wins over the peer's.
+    /// one: this tab's own reason for closing wins over the peer's.
     pub fn note_close_abort_reason(&mut self, reason: &str) {
         if self.pending_abort_reason.is_none() {
             self.pending_abort_reason = Some(reason.to_owned());
         }
     }
 
-    /// The socket closed: schedule the next dial (v2 `_waitForNextSyncDial`).
+    /// The socket closed: schedule the next dial.
     pub fn schedule_after_close(&mut self, now_ms: u64) {
         let reason = self.pending_abort_reason.take();
         if is_immediate_sync_redial(reason.as_deref()) {
@@ -171,7 +167,7 @@ impl SyncRedial {
         self.due_ms = Some(now_ms.saturating_add(self.delay_ms));
     }
 
-    /// Wake a park and any backoff for an immediate dial (v2 `resumeSyncNow`).
+    /// Wake a park and any backoff for an immediate dial.
     pub fn resume_now(&mut self, now_ms: u64) {
         self.hidden_parked = false;
         self.failures = 0;
@@ -235,8 +231,8 @@ impl SyncRedial {
     }
 
     /// A dial is starting: a pending resume is spent on it, so the close that
-    /// follows waits its backoff (v2 `_waitForSyncDialPermission`, run before
-    /// every dial, the boot dial included).
+    /// follows waits its backoff (called before every dial, the boot dial
+    /// included).
     pub fn note_dial_started(&mut self) {
         if self.resume_requested {
             self.resume_requested = false;

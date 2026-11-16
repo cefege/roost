@@ -142,7 +142,7 @@ pub fn authenticating() -> (Signalling, u64) {
 /// Whether any effect in `effects` would make the worker look like it had lost
 /// the session.
 ///
-/// THE property `smoke/terminal/terminal-peer.spec.ts:263` exists for. A PTY
+/// THE property a faulted peer's handover must keep. A PTY
 /// lives in the worker and no client can recreate it, but a client that re-dials
 /// Sync, closes the Sync link, or re-subscribes a domain drops the session's
 /// metadata authority, and the worker's next frame then has nowhere to land. So

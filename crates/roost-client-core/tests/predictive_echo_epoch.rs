@@ -1,12 +1,10 @@
 //! Two contracts of the predictor that the echo host in `roost-web-terminal`
 //! leans on: a hidden epoch refused by one contradiction takes every guess of
 //! that epoch with it, including one already judged earlier in the same pass;
-//! and only the transitions v2 repaints on ask the overlay for a repaint.
+//! and only the transitions that change what is painted ask the overlay for a repaint.
 //!
 //! Depends on the predictive-echo engine and the shared fixtures in
-//! `predictive_echo_support`. v2 semantics: `apps/web/src/renderer/predictiveEcho.ts`
-//! (`reconcileAgainst`'s `this.preds.forEach(... other.epoch = -1)`, and the
-//! `repaint()` call sites).
+//! `predictive_echo_support`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

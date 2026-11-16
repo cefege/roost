@@ -1,7 +1,6 @@
 //! The terminal key pad's store seam: a pad with no pointer must be able to
 //! read whether the sheet is open, close it (which is the ONLY way to drop a
 //! latched Ctrl), and every change must repaint and persist.
-//! Ports the store half of `apps/web/tests/terminalNavButtons.padSeam.dom.test.ts`.
 
 use std::cell::RefCell;
 

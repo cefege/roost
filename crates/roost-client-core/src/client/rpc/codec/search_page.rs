@@ -1,9 +1,8 @@
 //! `SessionsSearchGlobalResponse` → the global search controller's page.
 //!
 //! Called by `codec::response` for `RpcCall::SessionsSearchGlobal`; the page is
-//! folded by `client::global_search`. v2 read the response fields verbatim
-//! (`apps/web/src/lib/globalContentSearchController.ts:216-234`); the one
-//! difference is that a row naming a session id that fails the brand check is
+//! folded by `client::global_search`. The response fields are read verbatim,
+//! except that a row naming a session id that fails the brand check is
 //! dropped here, because the controller's rows are keyed by the branded id.
 
 use roost_proto::{GlobalSearchPartialReason as PbPartialReason, SessionsSearchGlobalResponse};

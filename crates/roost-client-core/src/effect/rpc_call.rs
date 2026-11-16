@@ -2,8 +2,7 @@
 //!
 //! Owned by `effect`; emitted by the core as `Effect::Rpc` and by a host's
 //! domain hydrator (`hydration_call`). Encoded by `client::rpc::codec`, named on
-//! the wire by `client::rpc::methods`. The per-domain hydration calls are v2's
-//! `apps/web/src/store/sync-bootstrap-hydration.ts:52-203`.
+//! the wire by `client::rpc::methods`.
 
 use crate::client::client_state::ClientStateEntry;
 use crate::sync::link::SyncDomain;
@@ -29,7 +28,7 @@ pub enum RpcCall {
         /// The Sync socket the snapshot is bound to. With it the coordinator
         /// binds the returned ids to that socket and issues the snapshot token
         /// `domain_ready` presents (`coordinator.proto:117-125`); without it the
-        /// call is v2's pre-barrier probe, which only classifies access and
+        /// call is a pre-barrier probe, which only classifies access and
         /// must never be published.
         sync_socket_id: Option<String>,
     },
@@ -115,7 +114,7 @@ pub enum RpcCall {
         search_id: String,
     },
     /// `SessionsKill` — end a session's PTY once its close's undo window has
-    /// run out (`closeSession.ts` `killAfterUndo`).
+    /// run out.
     SessionsKill {
         /// Correlates the answer with this call.
         call_id: u64,
@@ -136,8 +135,7 @@ pub enum RpcCall {
 /// The bootstrap snapshot call one domain's hydrator makes for
 /// `Effect::HydrateDomain`.
 ///
-/// `None` for the audit domain: it is lazy in v2 (`registerLazySyncDomain`,
-/// `sync-domain-hydration.ts:41-64`), hydrated by the audit surface that
+/// `None` for the audit domain: it is lazy, hydrated by the audit surface that
 /// subscribed to it and never by bootstrap. The terminal domain is the only one
 /// bound to the socket, which is what makes its answer carry the snapshot token.
 pub fn hydration_call(domain: SyncDomain, call_id: u64, sync_socket_id: &str) -> Option<RpcCall> {

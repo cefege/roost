@@ -1,7 +1,6 @@
 //! Tab identity arbitration: one tab id per document, a duplicated tab rotated
 //! off its sibling's id, and a browser without arbitration keeping its id.
-//! Ports `apps/web/tests/tabIdentity.test.ts`; the fakes below play the
-//! browser half `roost-web`'s `platform::tab_id` performs.
+//! The fakes below play the browser half `roost-web`'s `platform::tab_id` performs.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeSet;
@@ -14,7 +13,7 @@ use roost_client_core::client::auth::tab_id::{
 };
 use roost_client_core::{KeyValueStore, MemoryClock, MemoryKeyValueStore};
 
-/// v2 `FakeLockManager`: an `ifAvailable` request is granted unless this
+/// A fake lock manager: an `ifAvailable` request is granted unless this
 /// document or another holds the name; `denied` is a `request` that throws.
 #[derive(Default)]
 struct FakeLocks {
@@ -36,7 +35,7 @@ impl FakeLocks {
     }
 }
 
-/// v2 `FakeBroadcastChannel`: an owner of an `occupied_ids` id answers the
+/// A fake broadcast channel: an owner of an `occupied_ids` id answers the
 /// probe; a `probing_ids` id is probed back once by a concurrent document.
 #[derive(Default)]
 struct FakeChannel {

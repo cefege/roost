@@ -9,10 +9,10 @@
 //! The generation is the whole point. A contextual row captures a target and a
 //! generation, and after a sign-out the SAME folder produces a DIFFERENT row —
 //! which is what stops a stale action from being pressed. The check itself is the
-//! store's one predicate, `root::captured_generation_is_current`, rather than the
-//! two inline comparisons v2 makes at `command-palette-data.ts:196,217`.
+//! store's one predicate, `root::captured_generation_is_current`, rather than
+//! two inline comparisons.
 //!
-//! The mutation experiment for this file is in the slice report: in
+//! The mutation experiment for this file: in
 //! `PaletteItem::targeted_action_id`, drop the generation from the id, and
 //! `a_palette_row_carries_the_credential_generation_its_action_captured` must fail.
 #![allow(clippy::unwrap_used, clippy::expect_used)]

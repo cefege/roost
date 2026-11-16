@@ -12,9 +12,7 @@
 //! when a destination appears; if the timeout fires first it settles `rejected`,
 //! which is safe precisely because nothing was sent.
 //!
-//! Ported from `apps/web/src/store/transport/terminal-input-router.ts` and
-//! `apps/web/src/client/carriers/terminal-input-lanes.ts`. The reasons are in
-//! `docs/phase4-client-contract.md` §9; the incident is
+//! The reasons are in `docs/phase4-client-contract.md` §9; the incident is
 //! `docs/FAILURE-INDEX.md:1503`, "Delayed old-route input crosses a
 //! direct-promotion fence".
 
@@ -51,15 +49,14 @@ pub const MAX_STARTED_INPUTS_PER_SESSION: usize = 8;
 pub const HELD_INPUT_ADMISSION_TIMEOUT_MS: u64 = 10_000;
 
 /// How long a started batch waits for the worker's result before it settles
-/// `ambiguous` (v2 `INPUT_RESULT_TIMEOUT_MS`). A result that never comes — a
+/// `ambiguous`. A result that never comes — a
 /// dropped answer, a worker that wrote and then died — must still end the
 /// batch, and it is never retried: the bytes may already be in the PTY.
 pub const INPUT_RESULT_TIMEOUT_MS: u64 = 10_000;
 
 /// The highest route revision the wire's signed 64-bit field can carry. The
 /// client refuses to issue a claim past it rather than wrapping a revision the
-/// worker would read as an older one
-/// (`apps/web/src/store/transport/terminal-input-route-claim.ts:14`).
+/// worker would read as an older one.
 pub const MAX_TERMINAL_INPUT_ROUTE_REVISION: u64 = i64::MAX as u64;
 
 /// The worker's refusal of a batch whose route epoch is not the live one for

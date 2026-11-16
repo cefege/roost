@@ -1,7 +1,6 @@
 //! Cell-history interval arithmetic, independent of any DOM: sorted absolute
 //! painted rows in, exact half-open missing intervals out. Gap paging depends
-//! on these boundaries staying exact. Ports
-//! `apps/web/tests/client/terminal-stream/cellHistoryRanges.test.ts`.
+//! on these boundaries staying exact.
 
 use roost_client_core::terminal::history::{
     HistoryRange, HistoryScrollTarget, has_history_range, has_sorted_history_rows, insertion_index,
@@ -12,7 +11,7 @@ fn range(start: u32, end: u32) -> HistoryRange {
     HistoryRange { start, end }
 }
 
-/// The scroll box v2 pins: 30px tall, 10px rows, no spacer above the rows.
+/// The scroll box these cases pin: 30px tall, 10px rows, no spacer above the rows.
 fn target_at(rows: &[u32], scroll_top: f64, ahead_rows: u32) -> Option<HistoryScrollTarget> {
     missing_range_at_scroll(rows, 100, scroll_top, 0.0, 30.0, 10.0, ahead_rows)
 }

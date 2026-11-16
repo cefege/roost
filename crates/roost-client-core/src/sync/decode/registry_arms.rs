@@ -4,15 +4,11 @@
 //!
 //! Called by `decode::map_arm` after the meta rule has passed. The row
 //! conversions are `client::rpc::codec::wire_rows`, shared with the hydration
-//! lists. Ported from `apps/web/src/client/sync/sync-proto-adapters.ts` and
-//! `apps/web/src/store/sync-frame.ts:83-176,285-350`.
+//! lists.
 //!
-//! An adapter failure is FATAL for the link, not for one frame. v2's
-//! `_foldDelta` comment (`sync-frame.ts:77-81`) says one malformed row must
-//! cost one frame, but its code does not: it returns `false`, `_dispatchSyncFrame`
-//! reports the frame unconsumed, `dispatchSyncFrameCausally` answers
-//! "unapplied" (`sync-flow.ts:52-55`), and `_consumeSyncFrame` throws into
-//! `_closeFailedSyncLink` (`sync-inbound.ts:74-83`). The code is what ships.
+//! An adapter failure is FATAL for the link, not for one frame: the frame comes
+//! back unapplied and the link closes (`handle_sync::close_failed`) rather than
+//! folding past a malformed row.
 
 use roost_proto::__buffa::oneof::pair_request_delta_proto::Kind as PairKind;
 use roost_proto::__buffa::oneof::worker_presence_proto::Kind as PresenceKind;
@@ -47,7 +43,7 @@ pub(super) fn audit_row(value: AuditRow) -> SyncFrame {
     }
 }
 
-/// A workspace change. An empty oneof is v2's adapter returning null.
+/// A workspace change. An empty oneof is refused.
 pub(super) fn workspace_delta(value: WorkspaceDeltaProto) -> Result<SyncFrame, String> {
     let delta = match value.kind.ok_or("workspace_delta carries no change")? {
         WorkspaceKind::Created(workspace) => WorkspaceDelta::Created {
@@ -74,7 +70,7 @@ pub(super) fn workspace_delta(value: WorkspaceDeltaProto) -> Result<SyncFrame, S
 }
 
 /// A worker registered, heartbeat, or was removed. An invalid capacity report
-/// on a heartbeat becomes `None`, as v2's `terminalCoreCapacityProtoToWire`.
+/// on a heartbeat becomes `None`.
 pub(super) fn worker_presence(value: WorkerPresenceProto) -> Result<SyncFrame, String> {
     let event = match value.kind.ok_or("worker_presence carries no change")? {
         PresenceKind::Registered(worker) => WorkerPresenceEvent::Registered {
@@ -108,8 +104,7 @@ pub(super) fn worker_presence(value: WorkerPresenceProto) -> Result<SyncFrame, S
 }
 
 /// The routable set, or one bounded chunk of a retained seed. Out-of-bounds
-/// chunk numbering is v2's `dispatchRoutableChunk` returning false
-/// (`sync-inbound.ts:155-160`), which closes the link.
+/// chunk numbering is refused, which closes the link.
 pub(super) fn worker_routable(value: WorkerRoutableFrame) -> Result<SyncFrame, String> {
     if value.snapshot_id.is_empty() {
         return Ok(SyncFrame::WorkerRoutable {
@@ -136,7 +131,7 @@ pub(super) fn worker_routable(value: WorkerRoutableFrame) -> Result<SyncFrame, S
     })
 }
 
-/// A pair-request change. An empty oneof is v2's `consumed = false`.
+/// A pair-request change. An empty oneof is refused.
 pub(super) fn pair_request_delta(value: PairRequestDeltaProto) -> Result<SyncFrame, String> {
     let change = match value.kind.ok_or("pair_request_delta carries no change")? {
         PairKind::Pending(request) => PairRequestChange::Pending(

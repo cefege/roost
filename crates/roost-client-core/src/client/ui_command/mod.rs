@@ -1,6 +1,5 @@
 //! The coordinator-to-tab UI command channel, and the tab's report back.
 //!
-//! Ports `apps/web/src/lib/{uiCommandCore,uiCommandDispatch,uiLayoutApply,uiStateReport}.ts`.
 //! The Sync fold queues frames in `Store::ui_commands`; the UI bridge (roost-web
 //! SHELL) drains them into `UiCommandAction`s, runs the acknowledged apply
 //! through `client::ui_state`, and reports this tab's state on the cadence here.

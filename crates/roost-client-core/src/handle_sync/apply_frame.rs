@@ -45,8 +45,8 @@ pub(super) fn apply_frame(
                 return;
             }
             store.sync.hydrations.note_subscribed();
-            // A new socket starts with no routable seed in progress: v2 builds a
-            // fresh `routableChunks` map per `subscribed` (`sync-inbound.ts:107-112`).
+            // A new socket starts with no routable seed in progress: each
+            // `subscribed` begins a fresh assembly.
             store.routable_assembly.clear();
             store.note_change();
             // The hold is PER LINK, not a one-shot latch. A new socket
@@ -65,8 +65,7 @@ pub(super) fn apply_frame(
                 .any(|(domain, _, subscribed)| *domain == SyncDomain::Terminal && *subscribed);
             tracing::info!(target: "sync", generation, "sync subscribed");
             // Hydrate exactly the domains the coordinator announced as
-            // subscribed; a lazy domain waits for the surface that needs it
-            // (`sync-inbound.ts:124-127`).
+            // subscribed; a lazy domain waits for the surface that needs it.
             for (domain, _, subscribed) in domains {
                 if *subscribed {
                     trigger_hydration(store, *domain, now_ms, out);
@@ -79,8 +78,7 @@ pub(super) fn apply_frame(
             reason,
             subscribed,
         } => {
-            // v2 `handleDomainReset` (`apps/web/src/store/sync-inbound.ts:131-148`):
-            // the domain is never ready after a reset, and only a domain this
+            // The domain is never ready after a reset, and only a domain this
             // client is still subscribed to is hydrated again.
             if !store
                 .sync
@@ -88,8 +86,7 @@ pub(super) fn apply_frame(
             {
                 return;
             }
-            // A workers reset abandons any partial routable seed, as v2 clears
-            // `routableChunks` (`sync-inbound.ts:140-143`).
+            // A workers reset abandons any partial routable seed.
             if *domain == SyncDomain::Workers {
                 store.routable_assembly.clear();
             }
@@ -206,8 +203,8 @@ pub(super) fn apply_frame(
             crate::handle_terminal::handle_correlated_result(store, frame, now_ms, out);
         }
         SyncFrame::SessionEventRejected { event_id, reason } => {
-            // The cursor moves past an event the schema refused, as v2 moves it
-            // before `foldEventIntoStore` rejects the shape; nothing is folded.
+            // The cursor moves past an event the schema refused, before its
+            // shape is rejected; nothing is folded.
             if store.sync.watermark.note(*event_id) {
                 store.note_change();
             }
@@ -315,7 +312,7 @@ pub(super) fn apply_frame(
         }
         SyncFrame::UiState => {
             // Browser tabs deliberately do not project peer UI state: routing
-            // and discarding it is its full consumption (`sync-frame.ts:329-333`).
+            // and discarding it is its full consumption.
             tracing::trace!(target: "sync", "peer ui state discarded");
         }
         SyncFrame::ClientStateChanged => client_state::refresh(store, generation, out),
@@ -331,9 +328,9 @@ pub(super) fn apply_frame(
 /// The coordinator keeps forwarding the session's Sync stream for a while after
 /// a promotion. Admitting those frames would rebind the replica to Sync, and the
 /// next keystroke would leave on Sync without the route epoch the promotion
-/// claimed, which the worker refuses as a changed input route. v2 drops every
-/// frame whose owner is not the session's generation, and only a publication
-/// moves that generation (`terminal-stream-replica.ts`); the Sync rotation after
+/// claimed, which the worker refuses as a changed input route. Every frame whose
+/// owner is not the session's generation is dropped, and only a publication
+/// moves that generation; the Sync rotation after
 /// a lost direct route is the publication that rebinds this replica to Sync.
 fn elected_direct_owns(store: &Store, session_id: &str) -> bool {
     store

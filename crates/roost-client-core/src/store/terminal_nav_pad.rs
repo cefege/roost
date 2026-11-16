@@ -3,14 +3,14 @@
 //!
 //! Called by the controller router (`roost-web` `input_nav::pad_router`) and by
 //! the key sheet component that renders the pad. Depends on `store` and the
-//! host's `KeyValueStore`. Ported from `apps/web/src/store/terminalNavPad.ts`.
+//! host's `KeyValueStore`.
 //!
 //! The mounted sheet owns the Ctrl/Alt latches, and closing is the only thing
-//! that can clear a latched Ctrl. v2 registered a disarm callback with an
-//! identity guard so a replacement sheet could register before the previous one
-//! cleaned up; here every real close advances [`TerminalNavPad::disarm_count`],
-//! and whichever sheet is mounted drops its latches when it sees the count move,
-//! which has no registration to race.
+//! that can clear a latched Ctrl. A registered disarm callback would need an
+//! identity guard so a replacement sheet could register before the previous
+//! one cleaned up; instead every real close advances
+//! [`TerminalNavPad::disarm_count`], and whichever sheet is mounted drops its
+//! latches when it sees the count move, which has no registration to race.
 
 use crate::platform::KeyValueStore;
 use crate::store::Store;
@@ -51,8 +51,7 @@ pub fn terminal_nav_pad_open(store: &Store) -> bool {
 /// Restore the persisted open state at boot.
 ///
 /// Returns whether the store changed. A stored value other than `"1"` reads as
-/// closed, matching v2's `=== "1"` read: a corrupt value never opens a sheet
-/// over the terminal.
+/// closed: a corrupt value never opens a sheet over the terminal.
 pub fn load_terminal_nav_pad(store: &mut Store, storage: &dyn KeyValueStore) -> bool {
     let open = storage.get(TERMINAL_NAV_PAD_OPEN_KEY).as_deref() == Some("1");
     if store.terminal_nav_pad.open == open {

@@ -2,26 +2,21 @@
 //! set of core actions, compiled from the same navigation index the search page
 //! reads.
 //!
-//! One builder, and the rows it produces are PLAIN DATA with a stable id. v2 kept
-//! an identity cache whose whole job was to hand `<For>` back the previous object
-//! for an unchanged row (`command-palette-data.ts:239-254`); a row keyed by a
-//! stable id gets that for free, and a cache of items holding closures cannot
-//! survive a credential boundary without being cleared by name. So the cache is
-//! gone and its invariant is carried by [`PaletteItem::id`].
+//! One builder, and the rows it produces are PLAIN DATA with a stable id. There
+//! is no identity cache: a row keyed by a stable id is the same row to a keyed
+//! list when it is unchanged, and a cache of items holding closures cannot
+//! survive a credential boundary without being cleared by name. The invariant
+//! a cache would carry is carried by [`PaletteItem::id`].
 //!
-//! The identity that matters is the one that changes per CREDENTIAL: a contextual
-//! action captures a target and a generation, so its id folds both
-//! (`command-palette-data.ts:227-233`). After a sign-out the same folder produces
-//! a DIFFERENT row, which is what stops a stale closure from being pressed. The
+//! The identity that matters is the one that changes per CREDENTIAL: a
+//! contextual action captures a target and a generation, so its id folds both.
+//! After a sign-out the same folder produces a DIFFERENT row, which is what
+//! stops a stale closure from being pressed. The
 //! generation check itself is
-//! [`crate::store::root::captured_generation_is_current`] — one predicate on the
-//! store rather than the two inline comparisons v2 makes at
-//! `command-palette-data.ts:196,217`.
+//! [`crate::store::root::captured_generation_is_current`] — one predicate on
+//! the store rather than inline comparisons at each call site.
 //!
-//! Ported from `apps/web/src/store/command-palette-data.ts`. The two identical
-//! target interfaces (`CommandPaletteSessionTarget` and
-//! `CommandPaletteFolderTarget`) are one [`PaletteTarget`] here: v2 declares the
-//! same three fields twice.
+//! The session and folder targets are one [`PaletteTarget`].
 
 use crate::store::navigation::{NavigationSearchDocument, query};
 
@@ -277,11 +272,9 @@ fn targeted_action(
 /// The row's captured generation against the store's, through
 /// [`crate::store::root::captured_generation_is_current`] — the ONE predicate,
 /// which takes the store. A host calls it with
-/// `item.captured_auth_generation` before performing `item.action`, which is the
-/// check v2 makes inline at two call sites
-/// (`command-palette-data.ts:196,217`). A row that captures nothing returns
-/// `None` here and needs no check: it holds no credential, so no boundary can have
-/// invalidated it.
+/// `item.captured_auth_generation` before performing `item.action`. A row that
+/// captures nothing returns `None` here and needs no check: it holds no
+/// credential, so no boundary can have invalidated it.
 pub fn captured_generation(item: &PaletteItem) -> Option<u64> {
     item.captured_auth_generation
 }

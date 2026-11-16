@@ -3,9 +3,6 @@
 //! UI drains, and the per-worker probe telemetry.
 //!
 //! Written only by the folds under `handle_sync/`; read by a host's UI bridge.
-//! Ported from `apps/web/src/store/sync-inbound.ts:150-178` (routable chunks),
-//! `apps/web/src/store/transport/sync-terminal-control-probe.ts` (telemetry)
-//! and `apps/web/src/lib/pairedBrowserNotice.ts` (announcement dedupe).
 
 use std::collections::BTreeSet;
 
@@ -13,41 +10,36 @@ use crate::sync::inbound::RoutableChunk;
 use crate::terminal::token::TerminalToken;
 
 /// The newest live audit rows kept for the audit pane: 100, the pane's own
-/// page (`AuditLogPane.tsx:27` `PAGE_LIMIT`). The pane loads a page by RPC and
-/// prepends live rows; a ring longer than a page would hold rows the pane only
-/// shows after it asks for the next page anyway.
+/// page size. The pane loads a page by RPC and prepends live rows; a ring
+/// longer than a page would hold rows the pane only shows after it asks for
+/// the next page anyway.
 pub const AUDIT_ROW_RING_MAX: usize = 100;
 
-/// UI commands held for the UI bridge. v2 dispatches synchronously to the
-/// registered bridge and a legacy command with no bridge is a no-op
-/// (`uiCommandDispatch.ts:142-155`), so the queue only has to span the gap
-/// between a frame and the bridge's next drain; beyond 32 no bridge is
-/// draining, and dropping the oldest is v2's no-bridge behaviour for them.
+/// UI commands held for the UI bridge. A legacy command with no bridge is a
+/// no-op, so the queue only has to span the gap between a frame and the
+/// bridge's next drain; beyond 32 no bridge is draining, and dropping the
+/// oldest is the no-bridge behaviour for them.
 pub const UI_COMMAND_QUEUE_MAX: usize = 32;
 
-/// Presence notices held for the per-session presence handlers. v2 delivers
-/// each to a live handler or drops it (`sync-dispatch.ts:18-20`); 128 spans one
-/// drain of a busy room — delta and leave notices from several viewers across
-/// the panes on screen — and past it no handler is draining.
+/// Presence notices held for the per-session presence handlers. Each is
+/// delivered to a live handler or dropped; 128 spans one drain of a busy room
+/// — delta and leave notices from several viewers across the panes on screen —
+/// and past it no handler is draining.
 pub const PRESENCE_NOTICE_QUEUE_MAX: usize = 128;
 
-/// Workers whose probe telemetry is retained, oldest evicted first
-/// (`sync-terminal-control-probe.ts:20`).
+/// Workers whose probe telemetry is retained, oldest evicted first.
 pub const PROBE_TELEMETRY_WORKERS_MAX: usize = 64;
 
-/// Control probes waiting on an answer at once
-/// (`sync-terminal-control-probe.ts:22` `MAX_PENDING_CONTROL_PROBES`).
+/// Control probes waiting on an answer at once.
 pub const PENDING_TRANSPORT_PROBES_MAX: usize = 32;
 
-/// How long a control probe is waited on
-/// (`sync-terminal-control-probe.ts:21` `CONTROL_PROBE_TIMEOUT_MS`).
+/// How long a control probe is waited on.
 pub const TRANSPORT_PROBE_TIMEOUT_MS: u64 = 3_000;
 
-/// Pairings remembered as already announced, oldest forgotten first
-/// (`pairedBrowserNotice.ts:20` `ANNOUNCED_ID_LIMIT`).
+/// Pairings remembered as already announced, oldest forgotten first.
 pub const ANNOUNCED_PAIRINGS_MAX: usize = 32;
 
-/// The most chunks a retained routable seed may have (`sync-inbound.ts:157`).
+/// The most chunks a retained routable seed may have.
 pub const ROUTABLE_SEED_CHUNKS_MAX: u32 = 4096;
 
 /// One `session_presence` notice waiting for its session's presence handler.
@@ -61,7 +53,7 @@ pub struct PresenceNotice {
 
 /// The newest answered control probe for one worker.
 ///
-/// Fenced to the connection that carried it: v2 keys samples by connection,
+/// Fenced to the connection that carried it: samples are keyed by connection,
 /// and a sample from a replaced socket does not describe the replacement.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProbeTelemetry {
@@ -107,9 +99,8 @@ pub enum RoutableProgress {
     Pending,
     /// The last missing chunk arrived: the whole seed, to replace the set.
     Complete(BTreeSet<String>),
-    /// The chunk disagrees with its seed about how many chunks there are. v2
-    /// returns false here, and an unapplied frame closes the link
-    /// (`sync-inbound.ts:170`, `sync-inbound.ts:74-75`).
+    /// The chunk disagrees with its seed about how many chunks there are. It
+    /// is not applied, and an unapplied frame closes the link.
     CountMismatch,
 }
 

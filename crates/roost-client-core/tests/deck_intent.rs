@@ -1,7 +1,6 @@
 //! The deck intents against a real core: seeding and route sync, tab and pane
 //! selection with the spotlight follow, close with its undo, arrange, and the
-//! stored arrangements surviving a reload. Ports the behaviour of
-//! `apps/web/src/lib/deckOps.ts` and `apps/web/tests/deckRouteSelection.test.ts`.
+//! stored arrangements surviving a reload.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod deck_support;

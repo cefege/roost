@@ -4,9 +4,7 @@
 //!
 //! Called by the sweep (`handle_sync::sweep_route_claims`), by `handle_event`
 //! when a Sync link closes, and by `handle_input` for the keystroke that just
-//! began a Sync reclaim (`claim_due_fallbacks`). Ported from v2
-//! `terminal-input-route-claim.ts` `awaitRouteClaim` and `sync-outbound.ts`
-//! `rejectSyncClaims`.
+//! began a Sync reclaim (`claim_due_fallbacks`).
 
 use crate::client::local::outbound::CLAIM_SYNC_CLOSED;
 use crate::effect::Effect;
@@ -19,8 +17,8 @@ use super::{
 };
 
 /// The claims sent on a Sync socket that just closed end now, not at their
-/// deadline: each is settled as an unanswered claim (v2 `rejectSyncClaims`
-/// "terminal Sync closed", which the claim's caller sees as unconfirmed).
+/// deadline: each is settled as an unanswered claim ("terminal Sync closed",
+/// which the claim's caller sees as unconfirmed).
 pub(crate) fn reject_sync_claims(
     store: &mut Store,
     socket_generation: u64,
@@ -85,7 +83,7 @@ pub(crate) fn resume_held_promotion(
 /// route waits one round trip rather than a sweep interval as well.
 pub(crate) fn claim_due_fallbacks(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
     for (session_id, fallback) in store.input.due_fallbacks(now_ms) {
-        // A ready Sync generation only (v2 `readySyncTerminalInputDestination`):
+        // A ready Sync generation only:
         // a claim on a socket still subscribing would be refused by a
         // coordinator that has not admitted this tab's terminal domain.
         let sync = store

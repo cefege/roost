@@ -3,9 +3,7 @@
 //! that keeps an old route's batch from crossing the new one.
 //!
 //! Owned by `InputRouter`; driven by `handle_sync::promotion`, which decides
-//! WHEN to claim and what a settled claim promotes or releases. Ported from
-//! `apps/web/src/store/transport/terminal-input-route-claim.ts` and the
-//! hold/drain half of `terminal-input-router.ts`.
+//! WHEN to claim and what a settled claim promotes or releases.
 
 use crate::sync::inbound::InputRouteResult;
 use crate::terminal::input::{
@@ -15,15 +13,13 @@ use crate::terminal::token::{TerminalToken, TerminalTransport};
 
 use super::InputRouter;
 
-/// How long a claim waits for its answer (v2 `awaitRouteClaim`).
+/// How long a claim waits for its answer.
 pub const ROUTE_CLAIM_TIMEOUT_MS: u64 = 8_000;
 
-/// How long a promotion waits for the old route's input to settle (v2
-/// `INPUT_HANDOFF_DRAIN_MS`).
+/// How long a promotion waits for the old route's input to settle.
 pub const INPUT_HANDOFF_DRAIN_MS: u64 = 10_000;
 
-/// How many times a Sync fallback claim is attempted, and how far apart (v2
-/// `FALLBACK_CLAIM_ATTEMPTS`, `FALLBACK_CLAIM_RETRY_MS`).
+/// How many times a Sync fallback claim is attempted, and how far apart.
 pub const FALLBACK_CLAIM_ATTEMPTS: u32 = 120;
 /// The gap between two fallback attempts.
 pub const FALLBACK_CLAIM_RETRY_MS: u64 = 250;
@@ -121,9 +117,8 @@ impl InputRouter {
         self.lane(session_id).map(|lane| &lane.claims)
     }
 
-    /// Hold the lane for promoting `attempt_id` onto `token` (v2
-    /// `holdTerminalInput` at the head of `promote`). A promotion supersedes a
-    /// fallback still reclaiming Sync, as v2 retires it on commit.
+    /// Hold the lane for promoting `attempt_id` onto `token`. A promotion
+    /// supersedes a fallback still reclaiming Sync, which is retired on commit.
     pub fn hold_for_promotion(
         &mut self,
         session_id: &str,
@@ -146,7 +141,7 @@ impl InputRouter {
         });
     }
 
-    /// Hold the lane until Sync is claimed back (v2 `TerminalPeerFallbackClaims`).
+    /// Hold the lane until Sync is claimed back.
     pub fn begin_fallback(
         &mut self,
         session_id: &str,
@@ -170,7 +165,7 @@ impl InputRouter {
     }
 
     /// Whether a batch already handed to `token` is still unanswered: the
-    /// drain a promotion waits out before it claims (v2 `drain`).
+    /// drain a promotion waits out before it claims.
     pub fn has_unsettled_on(&self, session_id: &str, token: &TerminalToken) -> bool {
         self.lane(session_id).is_some_and(|lane| {
             lane.pending.iter().any(|pending| {
@@ -184,7 +179,7 @@ impl InputRouter {
     }
 
     /// Mint and record one claim on `token`. Refused only when the revision
-    /// space is spent, which blocks the lane as v2 does.
+    /// space is spent, which blocks the lane.
     pub fn begin_route_claim(
         &mut self,
         session_id: &str,
@@ -279,13 +274,13 @@ impl InputRouter {
         Some(ClaimSettlement::Retry(retry))
     }
 
-    /// Take every claim whose answer is overdue (v2: "was not confirmed").
+    /// Take every claim whose answer is overdue.
     pub fn expire_route_claims(&mut self, now_ms: u64) -> Vec<RouteClaim> {
         self.take_claims(|claim| now_ms.saturating_sub(claim.sent_at_ms) >= ROUTE_CLAIM_TIMEOUT_MS)
     }
 
     /// Take every claim sent on the Sync socket `socket_generation`, which
-    /// closed: its answer can no longer arrive (v2 `rejectSyncClaims`).
+    /// closed: its answer can no longer arrive.
     pub fn reject_sync_claims(&mut self, socket_generation: u64) -> Vec<RouteClaim> {
         self.take_claims(|claim| {
             claim.token.transport == TerminalTransport::Sync
@@ -325,8 +320,8 @@ impl InputRouter {
             .collect()
     }
 
-    /// Give up on the route: drop every claim and refuse what is held (v2
-    /// `hold.release()` with no destination). A closed lane stays closed.
+    /// Give up on the route: drop every claim and refuse what is held. A closed
+    /// lane stays closed.
     pub fn block_route(&mut self, session_id: &str) -> Vec<InputOutcome> {
         let Some(lane) = self.lanes.get_mut(session_id) else {
             return Vec::new();
@@ -341,7 +336,7 @@ impl InputRouter {
     }
 
     /// Schedule the next fallback attempt; `false` once they are spent, which
-    /// blocks the lane and refuses what it held (v2 `hold.release()`).
+    /// blocks the lane and refuses what it held.
     pub fn defer_fallback(&mut self, session_id: &str, now_ms: u64) -> bool {
         let Some(lane) = self.lanes.get_mut(session_id) else {
             return false;

@@ -1,8 +1,6 @@
 //! The registry arms, decoded from the frames `roost-coord`'s feed builds and
 //! applied through `ClientCore::handle`: workspaces and
 //! worker presence. The routable set and audit rows are `sync_decode_routable`.
-//!
-//! Ported from v2 `apps/web/src/store/sync-handlers.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod sync_decode_support;
@@ -78,7 +76,7 @@ fn a_workspace_is_created_given_sessions_and_deleted() {
 
 #[test]
 fn a_registry_frame_waits_for_its_own_domain_not_any_ready_domain() {
-    // v2 `dispatchV2Application` looks the frame's own domain up; a workspaces
+    // A frame is gated on its own domain: a workspaces
     // delta is not admissible because the workers domain is ready.
     let (mut core, generation) = ready_core();
     core.handle(ClientEvent::SyncFrameReceived {

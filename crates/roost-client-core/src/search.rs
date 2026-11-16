@@ -7,8 +7,7 @@
 //! must name a row inside that window; and the continuation must move strictly
 //! in the direction the reader is paging.
 //!
-//! Ported from `apps/web/src/client/search/terminalFindPaging.ts`. The limits
-//! are `roost_protocol::terminal_search` and are not restated here.
+//! The limits are `roost_protocol::terminal_search` and are not restated here.
 
 use roost_protocol::terminal_search::TERMINAL_SEARCH_MAX_ROWS;
 

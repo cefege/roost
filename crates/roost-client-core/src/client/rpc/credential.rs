@@ -1,10 +1,9 @@
 //! The credential one call carries, and the two states it can be in.
 //!
-//! `Unavailable` is a real state and never blocks a dispatch. v2's interceptor
-//! caught the signing failure, signalled it, and issued the request anyway
-//! (`apps/web/src/client/rpc/connect.ts:104-111`); a browser that cannot mint a
-//! credential still has bootstrap calls to make, and those calls are the only
-//! way back.
+//! `Unavailable` is a real state and never blocks a dispatch. A signing
+//! failure is signalled and the request is issued anyway; a browser that
+//! cannot mint a credential still has bootstrap calls to make, and those calls
+//! are the only way back.
 //!
 //! The type is closed on purpose. A third variant — a "do not send this" state —
 //! is the one thing that must not be expressible here, because nothing in this

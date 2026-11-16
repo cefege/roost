@@ -168,7 +168,7 @@ pub struct Store {
     /// The deck's stored arrangements and pending route. Mutated only through `deck::intent`.
     pub deck: crate::deck::DeckState,
     /// The coordinator's build and public URL, once `AuthCoordIdentity`
-    /// answered (v2 `rootStore.coord_identity`).
+    /// answered.
     pub coord_identity: Option<crate::store::root::CoordIdentity>,
     /// Per-device preferences. Loaded once at boot and persisted by the same
     /// functions that change it, so a stored value and its in-memory value
@@ -192,11 +192,10 @@ pub struct Store {
     pub pair_requests: BTreeMap<String, PairRequest>,
 
     // ---- Sync feed slices: written only by the folds under `handle_sync/` ---
-    /// Workspaces by id (v2 `_handleWorkspacesDelta`).
+    /// Workspaces by id.
     pub workspaces: BTreeMap<String, Workspace>,
     /// The fingerprints the coordinator can route to RIGHT NOW, or `None`
-    /// before the first set, which means "ask heartbeat freshness instead"
-    /// (`sync-routable.ts:14-19`).
+    /// before the first set, which means "ask heartbeat freshness instead".
     pub routable_worker_fps: Option<BTreeSet<String>>,
     /// The chunked routable seed still being assembled on this socket.
     pub routable_assembly: RoutableAssembly,

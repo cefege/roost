@@ -2,9 +2,8 @@
 //! decodes (`crates/roost-coord/src/sync_ws/commands.rs`).
 //!
 //! Called by the host's pump for every `Effect::SendSync`, with the id of the
-//! socket it is about to write to — v2 stamped `socketId` from the live link at
-//! send time (`apps/web/src/store/sync-domain-state.ts:83-98`,
-//! `apps/web/src/client/sync/sync-flow.ts:60-63`).
+//! socket it is about to write to, so the stamp is the live link's at send
+//! time.
 
 use roost_proto::__buffa::oneof::sync_client_frame::Command;
 use roost_proto::buffa::{EnumValue, Message};
@@ -61,8 +60,7 @@ pub fn encode_sync_command(command: &SyncCommand, socket_id: &str) -> Vec<u8> {
             revision,
             token,
         } => {
-            // A parked or removed view is an INACTIVE lease with no geometry,
-            // exactly v2's `changeIntent(view, false, 0, 0)`.
+            // A parked or removed view is an INACTIVE lease with no geometry.
             let (cols, rows, active) = match intent {
                 ViewIntent::Publish { cols, rows } => (*cols, *rows, true),
                 ViewIntent::Park | ViewIntent::Unpublish => (0, 0, false),

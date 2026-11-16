@@ -5,8 +5,7 @@
 //! pane. This is what you read when the authority answered; `handle_terminal`
 //! is what you read when a pane opened.
 //!
-//! Ported from `apps/web/src/store/terminal-stream-view-commands.ts`; contract
-//! `protocol/spec/terminal-stream.md:24-26`.
+//! Contract: `protocol/spec/terminal-stream.md:24-26`.
 
 use crate::effect::Effect;
 use crate::handle_sweep::request_repair_if_due;
@@ -63,7 +62,7 @@ pub fn handle_view_state(
         ViewStateAdmission::Accepted {
             stream_id: Some(stream_id),
         } => {
-            // v2 `terminal-stream-view-commands.ts`: the stream is installed at
+            // The stream is installed at
             // the AUTHORITY's effective geometry, and an answer without a valid
             // one installs nothing.
             let geometry = TerminalGeometry {

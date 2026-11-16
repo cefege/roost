@@ -1,8 +1,6 @@
 //! The per-view input outcome feed the terminal pane's predictive echo reads:
 //! the admission answer, then the settled outcome, routed to the view the batch
-//! came from. Pins `terminal::input::outcome_feed` (v2
-//! `apps/web/src/components/terminal/cell-terminal-input.ts`
-//! `reportImmediateRejection` / `watchAcceptedAdmission`).
+//! came from. Pins `terminal::input::outcome_feed`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::rc::Rc;

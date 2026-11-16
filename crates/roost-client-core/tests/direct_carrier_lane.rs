@@ -46,9 +46,8 @@ fn opened_a_peer(effects: &[Effect]) -> bool {
 /// The root question: does a view wanting a session on a worker produce the
 /// credential request the whole carrier path is built on?
 ///
-/// Before the lane existed this was an empty vector, and the empty vector is
-/// why the loopback and WebRTC specs both time out on `waitForDirectRoute`:
-/// nothing ever asks, so nothing ever dials.
+/// Before the lane existed this was an empty vector, and nothing ever asked,
+/// so nothing ever dialled and no direct route could form.
 #[test]
 fn a_view_on_a_worker_asks_for_a_direct_grant() {
     let mut core = core();
@@ -69,8 +68,8 @@ fn a_view_on_a_worker_asks_for_a_direct_grant() {
 }
 
 /// A page the worker itself serves never allocates a peer, however long it is
-/// asked to wait. `terminal-peer.spec.ts:62` is named for exactly this, and the
-/// assertion is a NEGATIVE one: nothing here may open a transport.
+/// asked to wait. The assertion is a NEGATIVE one: nothing here may open a
+/// transport.
 #[test]
 fn a_page_served_by_the_worker_never_allocates_a_peer() {
     let mut core = core();

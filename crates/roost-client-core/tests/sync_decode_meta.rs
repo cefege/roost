@@ -1,10 +1,6 @@
 //! The Sync decoder's refusals and the arm table: bytes that are not a frame,
-//! the v2 meta rule, a refused frame closing exactly the link that sent it, and
+//! the meta rule, a refused frame closing exactly the link that sent it, and
 //! the proto-divergence guard that makes a new `FirehoseFrame` arm fail here.
-//!
-//! Ported from v2 `apps/web/src/store/sync-inbound.ts` (`handleV2Control`'s
-//! "sequenced v2 control", `dispatchV2Application`'s "malformed v2 application
-//! frame", `_consumeSyncFrame`'s close path).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod sync_decode_support;
@@ -75,9 +71,8 @@ fn bytes_that_are_not_a_frame_and_a_frame_with_no_arm_are_refused() {
 
 #[test]
 fn an_application_arm_without_a_sequence_or_a_domain_is_refused() {
-    // v2: a `delivery_seq = 0` application frame is routed to handleV2Control,
-    // whose default closes the link; an UNSPECIFIED domain is "malformed v2
-    // application frame".
+    // A `delivery_seq = 0` application frame is refused, and so is an
+    // UNSPECIFIED domain: neither is a well-formed application frame.
     for (domain, delivery_seq) in [
         (roost_proto::SyncDomain::Terminal, 0),
         (roost_proto::SyncDomain::Unspecified, 7),
@@ -97,7 +92,7 @@ fn an_application_arm_without_a_sequence_or_a_domain_is_refused() {
 
 #[test]
 fn a_control_arm_carrying_any_stamp_is_refused() {
-    // v2 `handleV2Control`: "sequenced v2 control" for any of the three.
+    // A control arm carrying any of the three stamps is refused.
     for (domain, delivery_seq, domain_generation) in [
         (roost_proto::SyncDomain::Unspecified, 5, 0),
         (roost_proto::SyncDomain::Terminal, 0, 0),

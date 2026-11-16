@@ -2,8 +2,7 @@
 //! each request a `unary::UnaryMethod` with Rust-typed answers.
 //!
 //! Called through roost-web's `CoordRpc::call`; encoded with the shared
-//! `codec::{encode_message, decode_message}`. v2's equivalent is every
-//! `coordClient.<method>(…)` call site under `apps/web/src/`.
+//! `codec::{encode_message, decode_message}`.
 
 pub mod attachment_direct;
 pub mod attachments;

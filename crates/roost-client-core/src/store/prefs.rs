@@ -11,9 +11,6 @@
 //! default, and loading never fails — a corrupt preference is a preference the
 //! user has not chosen, not a boot that does not happen. That is the whole
 //! contract of `load_prefs`: total, quiet, and one `revision` at the end.
-//!
-//! Ported from `apps/web/src/store/prefs/*` (7 files, 326 lines) and
-//! `uiStore.ts`'s four persisted fields.
 
 pub mod flags;
 pub mod notify;
@@ -162,7 +159,7 @@ pub fn load_prefs(store: &mut Store, storage: &dyn KeyValueStore, defaults: &Pre
 /// Forget every stored preference, at a credential boundary, and return the
 /// in-memory ones to their defaults.
 ///
-/// Notification preferences are per ACCOUNT in v2 — they say which machine the
+/// Notification preferences are per ACCOUNT — they say which machine the
 /// user wants to be interrupted on — so they go with the credential rather than
 /// with the device. The other four are about how this browser behaves and are
 /// kept, which is why this is not "clear the lot".
@@ -181,8 +178,9 @@ pub fn clear_account_scoped_prefs(store: &mut Store, storage: &dyn KeyValueStore
 /// `default` is a parameter because the four flags do not agree: two default off
 /// and two default on, and a codec that guessed would flip a preference the user
 /// never touched. A stored value that is neither `"1"` nor `"0"` falls back to
-/// `default` rather than being coerced — v2's `!== "0"` read turned a corrupt
-/// value into `true`, which is a silent preference change dressed as a read.
+/// `default` rather than being coerced — reading anything but `"0"` as true
+/// would turn a corrupt value into `true`, which is a silent preference change
+/// dressed as a read.
 pub(crate) fn read_flag(storage: &dyn KeyValueStore, key: &str, default: bool) -> bool {
     match storage.get(key).as_deref() {
         Some("1") => true,

@@ -3,9 +3,8 @@
 //! change an attempt lives here; what a host may READ about one is projected by
 //! `super::signaling_snapshot`, the `PeerSignalling` lane it is driven through.
 //! Never a socket, never a timer, and never the promotion, which
-//! `RouteRegistry` owns. Ported from
-//! `apps/web/src/store/transport/terminal-peer.ts:193-283`; the one addition is
-//! fault CLASSIFICATION, which v2 collapses into one `network_failed`.
+//! `RouteRegistry` owns. Faults are CLASSIFIED rather than collapsed into one
+//! generic network failure.
 
 use std::collections::BTreeSet;
 
@@ -161,9 +160,9 @@ impl Signalling {
         out
     }
 
-    /// The attempt-may-start gate, in v2's order. The loopback question comes
-    /// FIRST, before whether this document can do WebRTC at all: a page on the
-    /// worker's own machine must not allocate a peer.
+    /// The attempt-may-start gate. The loopback question comes FIRST, before
+    /// whether this document can do WebRTC at all: a page on the worker's own
+    /// machine must not allocate a peer.
     pub(crate) fn start(&mut self, now_ms: u64) -> Vec<CarrierEffect> {
         let wanted = self.active_views > 0 || !self.prewarm_sessions.is_empty();
         if self.retired || self.attempt.is_some() {

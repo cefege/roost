@@ -4,10 +4,6 @@
 //! The defect class these prevent is an upload path that reaches a shell
 //! unquoted or unescaped, and a grant used for an upload it does not name. The
 //! chunking and its digest rule live in `attachments_transfer.rs`.
-//!
-//! The v2 names are the deliverable and are kept verbatim, so a reader holding
-//! `apps/web/tests/client/attachments/attachmentInsertion.test.ts` can pair them
-//! one for one.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

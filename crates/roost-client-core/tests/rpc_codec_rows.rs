@@ -1,6 +1,6 @@
-//! The domain snapshot lists: each row maps field-for-field as v2's hydrators
-//! map it (`sync-bootstrap-hydration.ts:89-201`), keyed by its id, and a row
-//! whose brand or JSON column is bad is dropped without failing the list.
+//! The domain snapshot lists: each row maps field-for-field, keyed by its id,
+//! and a row whose brand or JSON column is bad is dropped without failing the
+//! list.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_client_core::client::rpc::decode_rpc_response;
@@ -103,8 +103,8 @@ fn a_worker_row_maps_every_field_v2_reads_and_the_routable_set_rides_along() {
 
 #[test]
 fn an_invalid_capacity_report_is_a_dropped_field_not_a_dropped_worker() {
-    // Port of v2 sync-proto-adapters.test.ts "capacity projection drops an
-    // unsafe protobuf counter without throwing": the report is informational.
+    // The capacity projection drops an unsafe protobuf counter without
+    // throwing: the report is informational.
     let mut row = worker(&fp('b'));
     row.terminal_core_capacity = PbCapacity {
         used: 3,

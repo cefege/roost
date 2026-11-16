@@ -3,11 +3,9 @@
 //! exchange, and the durable status that settles a chunk whose acknowledgement
 //! was lost.
 //!
-//! Called by roost-web's upload driver through `CoordRpc::call`. v2 call sites:
-//! `apps/web/src/client/attachments/attachmentDirectGrant.ts`
-//! (`attachmentsGrantDirect`), `attachmentPeerSignaling.ts`
-//! (`sessionsNegotiateAttachmentPeer`) and `attachmentDirect.ts`
-//! (`attachmentsDirectStatus`). The byte-carrying call stays out of this file:
+//! Called by roost-web's upload driver through `CoordRpc::call`
+//! (`attachmentsGrantDirect`, `sessionsNegotiateAttachmentPeer` and
+//! `attachmentsDirectStatus`). The byte-carrying call stays out of this file:
 //! a direct upload's bytes cross a carrier, not this RPC.
 
 use roost_proto::{

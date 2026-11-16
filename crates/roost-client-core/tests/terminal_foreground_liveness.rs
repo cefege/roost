@@ -7,10 +7,6 @@
 //! has no timer and a sleep would only prove the machine is fast. Retirement and
 //! the rearm episode live in `terminal_liveness_retirement.rs`; the fixtures are
 //! in `terminal_liveness_support`.
-//!
-//! Ports the rules of `apps/web/tests/terminalStream.test.ts` and
-//! `apps/web/tests/terminalStreamProbeEpisode.test.ts` onto the Rust state
-//! machine and the sweep that fires it.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod terminal_liveness_support;

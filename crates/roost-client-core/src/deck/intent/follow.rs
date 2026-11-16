@@ -1,8 +1,7 @@
 //! The deck following the route: remembering which folder is observed,
 //! dropping a stale spotlight, seeding and route-committing the arrangement,
 //! and selecting a session tab (navigate-only in compact). Called by
-//! `deck::intent`. Ports the route-follow and `selectSessionOp` halves of
-//! `apps/web/src/lib/deckOps.ts` and `terminal-deck-operations.ts`.
+//! `deck::intent`.
 
 use super::{DeckFolder, commit, deck_tab_path};
 use crate::deck::route_selection::{SessionSelection, route_selection_commit, session_selection};

@@ -1,8 +1,7 @@
 //! What the deck paints this frame, derived from the folder's arrangement and
 //! the measured deck box: the pane rects, which session paints in which slot,
 //! the spotlight card, the parked terminal sizes and the phone tab order. Read
-//! by the web `TerminalDeck` during render. Pure; ports the memos of
-//! `apps/web/src/components/deck/terminal-deck-model.ts`.
+//! by the web `TerminalDeck` during render. Pure.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;

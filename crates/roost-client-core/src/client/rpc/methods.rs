@@ -5,9 +5,8 @@
 //! method name living in two files is how a call is sent to one method and
 //! classified as another.
 //!
-//! Ported from `apps/web/src/client/rpc/connect.ts:24-34,95-97`. The names are
-//! the ones `protocol/proto/roost/v1/coordinator.proto:936-1025` declares, which
-//! is the only source of truth for them.
+//! The names are the ones `protocol/proto/roost/v1/coordinator.proto:936-1025`
+//! declares, which is the only source of truth for them.
 
 use crate::effect::RpcCall;
 
@@ -26,9 +25,8 @@ pub const COORDINATOR_SERVICE_PATH_PREFIX: &str = "/roost.v1.CoordinatorService/
 /// it as a device rejection would show the pairing page to a user whose pairing
 /// is fine.
 ///
-/// v2 keyed this on the full RPC path (`connect.ts:24-34`); the same nine
-/// methods, keyed on the method name, because the path is this file's rendering
-/// of the name and not an independent input.
+/// Keyed on the method name rather than the full RPC path, because the path is
+/// this file's rendering of the name and not an independent input.
 const DEVICE_AUTH_REQUIRED_METHODS: [&str; 9] = [
     "WorkersList",
     "SessionsList",

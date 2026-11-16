@@ -148,8 +148,7 @@ fn republish_due_views(store: &mut Store, session_id: &str, now_ms: u64, out: &m
 }
 
 /// Where a session's next view command goes: its elected direct route, else the
-/// live Sync socket once the terminal domain is ready, else nowhere (v2
-/// `terminal-stream-publication.ts` `terminalPublicationTarget`).
+/// live Sync socket once the terminal domain is ready, else nowhere.
 ///
 /// The target, not the replica, is the authority. A replica that has never seen
 /// a frame has no generation, and a view that waited for one would never be
@@ -165,7 +164,7 @@ fn publication_target(store: &Store, session_id: &str) -> Option<TerminalToken> 
 }
 
 /// Republish every open view of every replica, on the target that now carries
-/// it. Called when the terminal domain turns ready (v2 `retargetSession`): a
+/// it. Called when the terminal domain turns ready: a
 /// view opened while no route could carry it was left unsent, and nothing else
 /// would send it before the next heartbeat.
 pub(crate) fn republish_open_views(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
@@ -188,8 +187,7 @@ pub(crate) fn republish_open_views(store: &mut Store, now_ms: u64, out: &mut Vec
 
 /// Publish a view's current intent on the session's publication target, and
 /// mark it awaited. A target the replica is not fenced to re-fences it first
-/// (v2 `terminal-stream-view-commands.ts`: the view's generation becomes the
-/// target's token before the command is sent).
+/// (the view's generation becomes the target's token before the command is sent).
 pub fn publish_view(
     store: &mut Store,
     session_id: &str,
@@ -205,7 +203,7 @@ pub fn publish_view(
         return;
     }
     let Some(token) = publication_target(store, session_id) else {
-        // No route can carry it: left unsent, as v2 leaves it pending. The
+        // No route can carry it: left unsent and pending. The
         // terminal domain turning ready republishes it, and so does the heartbeat.
         return;
     };

@@ -4,8 +4,7 @@
 //!
 //! The other half of the reconnect contract, whose queue half is
 //! `sync_reconnect_placement.rs`. The close codes themselves are in
-//! `sync_close_codes.rs`. Ported from `apps/web/src/client/sync/sync-flow.ts`
-//! and `apps/web/src/store/sync.ts`.
+//! `sync_close_codes.rs`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -119,7 +118,7 @@ fn a_revoked_credential_stops_the_dial_loop() {
 }
 
 /// A replica fenced to a Sync socket that closed confirms no carrier until the
-/// next link binds it, and keeps its grid: v2 retargets every session to the
+/// next link binds it, and keeps its grid: each session retargets to the
 /// current Sync state, and with the socket gone that token is null — the header
 /// reads Waiting rather than claiming a coordinator that is not there.
 #[test]
@@ -166,8 +165,7 @@ fn a_closed_sync_link_leaves_its_replicas_confirming_no_carrier() {
 
 /// A batch the closed socket was carrying can never be answered on another
 /// one, so the close settles it: `ambiguous` once it had left, because the
-/// worker may still have written it (v2 `sync-outbound.ts` `handleGeneration`
-/// → `retireTerminalInputConnection(observedSyncToken, "Sync closed")`).
+/// worker may still have written it.
 #[test]
 fn a_closed_sync_link_settles_the_input_it_was_carrying() {
     let mut core = ClientCore::in_memory(TAB);

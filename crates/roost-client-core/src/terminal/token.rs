@@ -6,11 +6,9 @@
 //! belong to the same session only when all five agree, and a repair requested
 //! on one token is never sent on another.
 //!
-//! Ported from `apps/web/src/store/terminal-stream-types.ts:79-107`, which
-//! builds the same six-part value and compares it the same way. `socket_id` is
-//! deliberately NOT part of equality: a socket that redials is a new generation,
-//! so including its id would make a reconnect look like the same link and let a
-//! stale callback write into a fresh socket's authority.
+//! `socket_id` is deliberately NOT part of equality: a socket that redials is a
+//! new generation, so including its id would make a reconnect look like the same
+//! link and let a stale callback write into a fresh socket's authority.
 
 /// Which carrier a frame arrived on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -142,9 +140,8 @@ impl TerminalToken {
     /// generation each was minted under.
     ///
     /// An input route epoch belongs to the connection the worker heard its claim
-    /// on, and a domain reset on a live socket is not a new connection: v2 keys
-    /// the epoch by `terminalInputConnectionKey`, which leaves the domain out for
-    /// exactly this reason (`terminal-input-router.ts:94`). A direct token's
+    /// on, and a domain reset on a live socket is not a new connection: the
+    /// connection key leaves the domain out for exactly this reason. A direct token's
     /// domain generation is its socket generation, so for a direct carrier this
     /// is plain equality.
     pub fn same_connection(&self, other: &TerminalToken) -> bool {
@@ -158,10 +155,7 @@ impl TerminalToken {
 /// True when two tokens are the same generation, treating `None` as "no
 /// generation" rather than as a wildcard.
 ///
-/// v2 spells this `terminalGenerationMatches`, which takes either a token or a
-/// live Sync state and returns false for a null argument
-/// (`apps/web/src/store/terminal-stream-liveness.ts:31-43`). The asymmetry
-/// matters: a missing token must never match, or a frame arriving with no
+/// A missing token must never match, or a frame arriving with no
 /// admission would be treated as current.
 pub fn token_matches(left: Option<&TerminalToken>, right: Option<&TerminalToken>) -> bool {
     match (left, right) {

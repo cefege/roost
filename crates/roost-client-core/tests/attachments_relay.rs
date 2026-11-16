@@ -2,12 +2,9 @@
 //!
 //! Every direct refusal ends here, so this route has no admission of its own and
 //! no digest to check — a worker relay chunk is a Connect call, not an
-//! authenticated channel. What it does still owe the user is v2's exact chunk
+//! authenticated channel. What it does still owe the user is an exact chunk
 //! shape, its exact ordering, and its exact progress accounting, because a
 //! change to any of those is a change every existing upload sees.
-//!
-//! The v2 names are kept verbatim, from
-//! `apps/web/tests/attachmentsDirectFallback.test.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

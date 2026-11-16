@@ -1,6 +1,6 @@
 //! The short-lived, exact authority one direct upload runs under. Called by
 //! `direct` before any carrier opens; a grant names the whole upload tuple and
-//! the tab and device that asked for it. Ported from `attachmentDirectGrant.ts`.
+//! the tab and device that asked for it.
 //! Depends on the device fingerprint `client::auth` caches, and on nothing else:
 //! the coordinator call is the host's.
 

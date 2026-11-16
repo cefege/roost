@@ -18,9 +18,7 @@
 //!    deadline and [`release_toast_dismiss`] resumes it with the time that was
 //!    left, so reading a long error never races the clock that removes it.
 //!
-//! Ported from `apps/web/src/store/toastStore.ts`; the deviations are the
-//! event-derived identity, the data deadline in place of `setTimeout`, and
-//! [`take_toast_action`] making "dismiss, then reveal" the only possible order
+//! [`take_toast_action`] makes "dismiss, then reveal" the only possible order
 //! for a card that offers one.
 
 pub mod identity;

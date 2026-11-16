@@ -1,10 +1,9 @@
 //! The runtime pane tree: construction, the pure walkers, and the ratio and
 //! focus repairs every mutation runs before it commits.
 //!
-//! Ported from `apps/web/src/store/paneLayout.ts` minus its mutations, which
-//! live in `tree_edit` beside the file that reads them. Ratios are clamped to
-//! the shared `roost_protocol::layout` bounds, and a direction is the shared
-//! `LayoutDirection` rather than a second row/col pair.
+//! Mutations live in `tree_edit` beside the file that reads them. Ratios are
+//! clamped to the shared `roost_protocol::layout` bounds, and a direction is
+//! the shared `LayoutDirection` rather than a second row/col pair.
 //!
 //! NOTHING HERE CROSSES A WIRE. Runtime pane ids are browser-local, which is
 //! exactly why the export in `document` mints fresh positional keys instead.
@@ -275,9 +274,8 @@ fn is_collapsible_empty(node: &PaneNode, collapsible_pane_ids: &BTreeSet<String>
 /// FINITENESS FIRST, THEN BOTH ENDS. A NaN compares false against every bound,
 /// so a range check alone would pass it through and hand the renderer a
 /// geometry with no answer. The infinities are named before the clamp for the
-/// same reason: v2 does it in JavaScript, where `Math.max` propagates a NaN,
-/// and Rust's `f64::max` does not -- so the guard has to be here rather than
-/// inherited from the clamp.
+/// same reason: Rust's `f64::max` ignores a NaN, so the guard has to be here
+/// rather than inherited from the clamp.
 pub(crate) fn normalize_pane_ratio(ratio: f64) -> f64 {
     if ratio.is_nan() {
         return (LAYOUT_RATIO_MIN + LAYOUT_RATIO_MAX) / 2.0;

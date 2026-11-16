@@ -153,9 +153,8 @@ fn a_delta_in_a_different_geometry_is_refused() {
     refuse_at_the_client_fence(broken, "rows");
 }
 
-/// Refused by the shared `apply_delta`: v2's `foldTerminalDelta` has no
-/// alt-screen row (`apps/web/src/client/terminal-stream/terminal-stream-frame-fold.ts:136-149`),
-/// and `terminal_full_before_delta.rs` pins its v2 reason, `delta_fold_rejected`.
+/// Refused by the shared `apply_delta`, which has no alt-screen row;
+/// `terminal_full_before_delta.rs` pins its reason, `delta_fold_rejected`.
 #[test]
 fn a_delta_that_changes_alt_screen_is_refused() {
     // Alt-screen occupancy changes the row numbering, so a delta cannot be

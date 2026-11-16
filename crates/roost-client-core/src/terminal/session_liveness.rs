@@ -50,9 +50,8 @@ impl TerminalSession {
     /// re-anchor the quiet probe.
     ///
     /// Re-anchoring here rather than at the probe's own expiry is what makes the
-    /// probe a statement about SILENCE. v2 anchors at the last accepted frame and
-    /// re-checks the same fact when the timer fires; one anchor here is the same
-    /// rule expressed once.
+    /// probe a statement about SILENCE. One anchor at the last accepted frame
+    /// expresses the rule once.
     pub fn note_accepted_frame(&mut self, token: &TerminalToken, now_ms: u64) {
         if self.generation() != Some(token) || !self.baseline_ready() {
             return;

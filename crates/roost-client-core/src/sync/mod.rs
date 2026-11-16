@@ -8,8 +8,8 @@
 //! the recovery cursor. None of them owns a socket: the core asks for one with
 //! an `Effect` and the host reports back with a `ClientEvent`.
 //!
-//! Contract: `protocol/spec/sync.md`. Reasons and the two places v2 departs from
-//! the spec's letter are in `docs/phase4-client-contract.md` §7 and §11.
+//! Contract: `protocol/spec/sync.md`. Reasons and the places this client departs
+//! from the spec's letter are in `docs/phase4-client-contract.md` §7 and §11.
 
 pub mod decode;
 pub mod domain;

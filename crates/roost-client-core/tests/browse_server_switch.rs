@@ -13,11 +13,7 @@
 //! - a reply from a generation the reader has moved past is dropped, so returning
 //!   to a machine republishes it rather than reviving what it was showing.
 //!
-//! These are the assertions behind `smoke/terminal/terminal-delivery.spec.ts`
-//! ("new-terminal server switch resets browse path before listing and spawning"),
-//! which drives the same three facts through a real coordinator and reads the
-//! `FilesListDir` requests the browser actually issued. Here the requests are
-//! the requests, with no wire between them and the state.
+//! Here the requests are the requests, with no wire between them and the state.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_client_core::store::browse_entries::BrowseEntry;

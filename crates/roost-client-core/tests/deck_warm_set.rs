@@ -1,6 +1,5 @@
 //! The bounded warm-pane policy: how many panes the deck keeps mounted, which
-//! one it drops first, and when an advance reports no change. Ports
-//! `apps/web/tests/deckWarmSet.test.ts`.
+//! one it drops first, and when an advance reports no change.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeSet;

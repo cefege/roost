@@ -1,5 +1,5 @@
 //! Every `RpcCall` encodes to the request message its method declares, carrying
-//! exactly the fields v2's call sites send — decoded back with the same
+//! exactly the fields the call sites send — decoded back with the same
 //! generated type the coordinator's Connect handler decodes.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -20,7 +20,7 @@ fn body(call: &RpcCall) -> Vec<u8> {
 
 #[test]
 fn a_hydration_sessions_list_binds_the_snapshot_to_its_sync_socket() {
-    // v2 sync-bootstrap-hydration.ts:56 — `sessionsList({ syncSocketId })`.
+    // A hydration `SessionsList` names its sync socket.
     let bound = SessionsListRequest::decode_from_slice(&body(&RpcCall::SessionsList {
         call_id: 1,
         sync_socket_id: Some("socket-7".to_owned()),
@@ -33,7 +33,7 @@ fn a_hydration_sessions_list_binds_the_snapshot_to_its_sync_socket() {
         "the default 'open' filter is the coordinator's"
     );
 
-    // The pre-barrier probe (sync-bootstrap.ts:204) names no socket, so the
+    // The pre-barrier probe names no socket, so the
     // coordinator mints no snapshot token for it.
     let probe = SessionsListRequest::decode_from_slice(&body(&RpcCall::SessionsList {
         call_id: 2,
@@ -61,8 +61,8 @@ fn the_list_and_identity_calls_send_an_empty_request() {
 
 #[test]
 fn a_pair_token_redemption_presents_the_token_key_and_label() {
-    // v2 redeemPairToken.test.ts "a successful HTTPS redemption needs no
-    // coordinator key assertion": the call carries exactly these three.
+    // A successful HTTPS redemption needs no coordinator key assertion: the
+    // call carries exactly these three.
     let request = AuthRedeemBrowserRequest::decode_from_slice(&body(&RpcCall::RedeemPairToken {
         call_id: 1,
         token: "tok-success".to_owned(),

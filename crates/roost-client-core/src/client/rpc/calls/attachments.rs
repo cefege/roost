@@ -1,8 +1,7 @@
 //! Asking a session's worker whether it already holds an attachment's content.
 //!
 //! Called by roost-web's smoke backdoor (`attachmentProbe`) through
-//! `CoordRpc::call`. v2 call site: `apps/web/src/smoke/smokeFileTransferProbes.ts:24-33`
-//! (`coordClient.attachmentProbe`).
+//! `CoordRpc::call`.
 
 use roost_proto::{
     AttachFileChunkRequest, AttachFileChunkResponse, AttachmentProbeRequest,

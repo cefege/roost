@@ -7,8 +7,7 @@
 //! terminal hydration without it would apply live frames on top of a baseline
 //! the client never received.
 //!
-//! Contract: `protocol/spec/sync.md:28,50`. v2: `apps/web/src/store/sync-domain-state.ts`
-//! and `apps/web/src/store/sync-inbound.ts:91-190`.
+//! Contract: `protocol/spec/sync.md:28,50`.
 
 use crate::sync::inbound::SyncFrame;
 use crate::sync::link::{SyncDomain, SyncState};
@@ -59,8 +58,7 @@ impl SyncState {
     /// gone, so live traffic for that domain is not admissible yet. That is the
     /// difference between a reset and a re-subscribe, and getting it wrong is
     /// how a client paints a grid on top of a session list it never received.
-    /// `subscribed` is stored verbatim, as v2 `handleDomainReset` does
-    /// (`apps/web/src/store/sync-inbound.ts:137-139`).
+    /// `subscribed` is stored verbatim.
     pub fn reset_domain(
         &mut self,
         generation: u64,
@@ -148,17 +146,15 @@ impl SyncState {
 
     /// Whether a frame may be applied to a store that is not hydrated yet.
     ///
-    /// v2's `_consumeSyncFrame` refuses an application frame that arrives before
-    /// `SyncSubscribed` (`apps/web/src/store/sync-inbound.ts:54-59`). This is
-    /// that gate: a live-traffic frame with no subscription behind it is a
+    /// An application frame that arrives before `SyncSubscribed` is refused; this
+    /// is that gate: a live-traffic frame with no subscription behind it is a
     /// protocol violation, not a hydration race, and applying it would fold an
     /// event into a store that has no sessions to fold it onto.
     ///
     /// The registry, pair, audit and session-metadata frames are gated on THEIR
-    /// OWN domain (`SyncFrame::domain`), as v2's `dispatchV2Application` looks
-    /// the frame's domain up (`sync-inbound.ts:180-190`): an audit row is not
+    /// OWN domain (`SyncFrame::domain`): an audit row is not
     /// admissible because the workers domain is ready. The control-lane answers
-    /// need only the `subscribed` announcement, as `handleV2Control` does.
+    /// need only the `subscribed` announcement.
     pub fn may_apply(&self, frame: &SyncFrame) -> bool {
         match frame {
             // The announcement and a reset are what CREATE the subscription

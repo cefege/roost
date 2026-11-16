@@ -9,10 +9,8 @@
 //! `client::rpc::codec::{encode_message, decode_message}` and performed by the
 //! host through `CoordRpc::call`.
 //!
-//! Contract: `protocol/proto/roost/v1/coordinator.proto:237-289`. v2 call sites:
-//! `apps/web/src/store/transport/local-terminal-grants.ts`
-//! (`sessionsGrantLocalTerminal`) and
-//! `apps/web/src/store/transport/terminal-peer.ts` (`sessionsNegotiateLocalTerminalPeer`).
+//! Contract: `protocol/proto/roost/v1/coordinator.proto:237-289`
+//! (`SessionsGrantLocalTerminal` and `SessionsNegotiateLocalTerminalPeer`).
 
 use std::collections::BTreeSet;
 

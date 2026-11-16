@@ -31,7 +31,7 @@ fn a_refused_mint_is_backed_off_and_cleared_when_sync_returns() {
 
     // Sync coming back clears the backoff BEFORE the deadline and re-asks. The
     // trigger is the REASON, not new demand: a repeated demand for a session
-    // already wanted is a no-op, exactly as it is in v2.
+    // already wanted is a no-op.
     harness.owner.clear_retry(Some("worker-a"));
     let sessions = &harness.sessions;
     let reason = GrantRefreshReason::SyncConnected;

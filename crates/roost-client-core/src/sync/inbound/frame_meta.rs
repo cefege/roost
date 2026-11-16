@@ -11,7 +11,7 @@ impl SyncFrame {
     /// `None` means the frame rides whatever domain the host already
     /// established — it is not an exemption from the readiness gate, and
     /// `SyncState::may_apply` still consults the domain table for it. The
-    /// assignment is v2's (`apps/coord/src/sync/sync-feed-frames.ts:130-165`):
+    /// assignment is the coordinator's (`crates/roost-coord/src/sync_ws/frame_meta.rs`):
     /// session-keyed metadata is terminal, registry deltas are their own
     /// domain, and every control is `None`. The session PLANE — its snapshot
     /// and its events — belongs to the terminal domain too, because the

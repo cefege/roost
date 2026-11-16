@@ -1,9 +1,8 @@
 //! The direct carrier's fault taxonomy and the machine's teardown half: what
 //! went wrong, who serves the session instead, and how an attempt ends. Owned
-//! by `client::carriers`. The four faults the direct-terminal oracle names
-//! (`smoke/terminal/terminal-peer.spec.ts:263`) are four SEPARATE rules,
-//! differing in the only way that matters afterwards: whether the grant the
-//! attempt was using is still a credential.
+//! by `client::carriers`. The four faults are four SEPARATE rules, differing
+//! in the only way that matters afterwards: whether the grant the attempt was
+//! using is still a credential.
 //!
 //! What a fault LEAVES BEHIND — the handover, the hold-down, the backoff and
 //! the machine state a fault moves — is `faults::state`.
@@ -73,8 +72,8 @@ pub enum FaultFallback {
 }
 
 /// The coarse reason a host records. Deliberately coarser than `CarrierFault`:
-/// v2 records `network_failed` for every failure before the peer is active and
-/// `ice_failed` after it (`terminal-peer.ts:114,227`), so the discriminating
+/// `NetworkFailed` covers every failure before the peer is active and
+/// `IceFailed` the failure after it, so the discriminating
 /// value is the `CarrierFault` recorded beside it in the same line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FallbackReason {
@@ -192,8 +191,8 @@ const COORDINATOR_GRANT_UNAVAILABLE: &str = "terminal peer grant is unavailable"
 
 /// The fault a coordinator's refusal of an offer names. Only its grant denial,
 /// for the credential this worker STILL holds, drops that credential so the
-/// next attempt mints one the coordinator honours (v2 `terminal-peer.ts`
-/// `negotiate`'s catch, `state.grant === grant`); a denial of a grant already
+/// next attempt mints one the coordinator honours (and only while the
+/// attempt's grant is still the current one); a denial of a grant already
 /// replaced says nothing about its successor, and every other refusal is the
 /// coordinator's own failure.
 pub fn classify_coordinator_refusal(
@@ -213,9 +212,9 @@ pub fn classify_coordinator_refusal(
     }
 }
 
-/// Whether an offer or answer is readable AND carries somewhere to connect. v2
-/// checks this before it puts an offer on the wire or applies an answer
-/// (`terminal-peer-connection.ts:142,147`). The inspection is `roost_protocol`'s;
+/// Whether an offer or answer is readable AND carries somewhere to connect.
+/// This is checked before an offer goes on the wire or an answer is applied.
+/// The inspection is `roost_protocol`'s;
 /// this is the "and there is a candidate" half — a different rule from "and it
 /// parses", and a different fault.
 pub fn sdp_is_usable(sdp: &str) -> bool {
@@ -281,8 +280,8 @@ impl Signalling {
     /// A fresh mint arrived while an attempt that has not proved its tuple is
     /// open on the previous one. The worker now holds the NEW scope, so the
     /// `Ready` this attempt will get names sessions outside the one it
-    /// presented: v2's `updateGrant` refuses exactly that, and `presentGrant`
-    /// closes the connection for `maybeStart` to renegotiate on the new grant.
+    /// presented: such a grant is refused, and the connection is closed so the
+    /// next attempt renegotiates on the new grant.
     /// An authenticated peer is widened by the route registry instead.
     pub(crate) fn retire_outgrown_attempt(&mut self, minted: &DirectGrant) -> Vec<CarrierEffect> {
         if minted.worker_fp != self.worker_fp || self.peer_held {

@@ -3,8 +3,7 @@
 //! This is the property the direct-terminal oracle exists to prove: a fault
 //! hands the session to the other transport WITHOUT recreating the PTY. Painted
 //! output and trusted input are one thing here — a fault may not re-dial Sync,
-//! close the Sync link, or re-subscribe a domain
-//! (`smoke/terminal/terminal-peer.spec.ts:263`).
+//! close the Sync link, or re-subscribe a domain.
 //!
 //! Also the lifecycle half: a dead attempt is dead, so a message that names it
 //! must change nothing, and a worker that was taken off the roster must not
@@ -64,7 +63,7 @@ fn invalid_offers_unavailable_grants_expired_grants_and_identity_mismatches_fall
     assert_fell_back_without_reopening_the_session(&from_ready);
 
     // The coordinator relaying a worker's refusal names no attempt: it is the
-    // coordinator's failure, and v2 still records it as `network_failed`.
+    // coordinator's failure, and it is still recorded as `network_failed`.
     let (mut relayed, _) = authenticating();
     let from_coordinator = relayed.step(SignallingInput::AttemptRefused {
         attempt_id: None,
@@ -73,8 +72,8 @@ fn invalid_offers_unavailable_grants_expired_grants_and_identity_mismatches_fall
     assert_eq!(faults(&from_coordinator), vec![CarrierFault::CoordinatorUnavailable]);
     assert_fell_back_without_reopening_the_session(&from_coordinator);
 
-    // The smoke spec waits on ONE coarse reason for all four, because v2 reports
-    // one; the machine reports that coarse reason AND the rule that fired, which
+    // One coarse reason covers all four; the machine reports that coarse
+    // reason AND the rule that fired, which
     // is what makes the four separately testable in terminal_peer_fallback_grants.
     for peer in [invalid, missing, expired, mismatch, relayed] {
         assert_eq!(

@@ -7,8 +7,7 @@
 //! listing. A file name is not an identity, and neither is a path — two
 //! machines can both have `~/src`, and this file is not where that is resolved.
 //!
-//! Ported from `apps/web/src/lib/browseEntries.ts`. Pure string and array
-//! math, so the picker's components stay wiring-only.
+//! Pure string and array math, so the picker's components stay wiring-only.
 
 /// One name in a directory listing.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -88,10 +87,10 @@ fn select_entries(entries: &[BrowseEntry], filter: &str, want_dir: bool) -> Vec<
         })
         .cloned()
         .collect();
-    // Lower-cased byte order, NOT locale collation: v2 compared with
-    // `localeCompare`, which puts `Ä` next to `A` in a German locale and after
-    // `Z` in an English one, so the same listing was ordered differently on two
-    // viewers. Byte order is the one order every viewer agrees on.
+    // Lower-cased byte order, NOT locale collation: a locale collation puts
+    // `Ä` next to `A` in a German locale and after `Z` in an English one, so
+    // the same listing would be ordered differently on two viewers. Byte order
+    // is the one order every viewer agrees on.
     selected.sort_by_key(|entry| entry.name.to_lowercase());
     selected
 }

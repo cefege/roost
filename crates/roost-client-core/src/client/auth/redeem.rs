@@ -13,8 +13,7 @@
 //! rather than a dead end. Collapsing the two is how a transient blip reads as
 //! "this token is invalid".
 //!
-//! Ported from `apps/web/src/store/auth/redeemPairToken.ts`; the contract is
-//! `protocol/spec/auth-and-pairing.md:20`.
+//! The contract is `protocol/spec/auth-and-pairing.md:20`.
 
 use std::fmt;
 

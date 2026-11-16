@@ -7,10 +7,7 @@
 //! four different things and not one catch-all; and the BYTES of a typed
 //! `SyncCommand`, stamped with the socket the host sends it on.
 //!
-//! Ported from `apps/web/src/client/sync/sync-flow.ts` and the socket lifecycle
-//! it is used by (`apps/web/src/store/sync.ts:102,159,220-263`). The rules and
-//! the two places v2 departs from the spec's letter are in
-//! `docs/phase4-client-contract.md` §7 and §11.
+//! The rules are in `docs/phase4-client-contract.md` §7 and §11.
 
 pub mod abort;
 pub mod close;

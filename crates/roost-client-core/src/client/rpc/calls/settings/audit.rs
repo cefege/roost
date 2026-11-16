@@ -1,7 +1,6 @@
 //! One page of the coordinator's audit log.
 //!
-//! Called by roost-web's Settings audit pane. v2 call site:
-//! `apps/web/src/components/Settings/AuditLogPane.tsx` (`coordClient.auditList`).
+//! Called by roost-web's Settings audit pane.
 //! `next_cursor` is the id of the last row on the page, which is what the
 //! coordinator's own `WHERE a.id < ?1` statement pages on.
 

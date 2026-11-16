@@ -1,10 +1,9 @@
 //! This tab's typed UI state report at the wire boundary, and its cadence.
 //!
-//! Ports `apps/web/tests/uiStateReport.test.ts`: the active folder exports as a
-//! portable `LayoutDocumentV1`, optimistic client-only ids stay local, and an
-//! off-terminal route reports no layout. v2's two Solid hydration tests pin
-//! `scheduleUiStateReportOnSessionResolution`; here that is the pure
-//! `session_resolution_owes_report`, driven through the same value sequences.
+//! The active folder exports as a portable `LayoutDocumentV1`, optimistic
+//! client-only ids stay local, and an off-terminal route reports no layout. The
+//! deferred-hydration cases pin the pure `session_resolution_owes_report`,
+//! driven through value sequences.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod layout_support;
@@ -143,7 +142,7 @@ fn deferred_hydration_owes_exactly_one_authoritative_report() {
 
 #[test]
 fn deferred_hydration_skips_a_tracked_null_and_reports_the_resolution_after_it() {
-    // v2's observed sequence: first change to null (previous undefined), then
+    // The observed sequence: first change to null (previous undefined), then
     // to the session (previous null). Only the second owes a report.
     assert!(!session_resolution_owes_report(None, None));
     assert!(session_resolution_owes_report(Some(ALPHA), Some(None)));

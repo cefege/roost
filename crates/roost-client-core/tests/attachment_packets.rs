@@ -5,10 +5,8 @@
 //! than it was budgeted, and a fragment that is believed for a position the
 //! ordered lane never reached.
 //!
-//! The v2 packet layer is shared infrastructure rather than a named v2 test
-//! file, so these names are the module's own. The mutation experiment for this
-//! file, in the slice report: raise `ATTACHMENT_PACKET_MAX_PAYLOAD_BYTES` to the
-//! whole logical frame, and
+//! The mutation experiment for this file: raise
+//! `ATTACHMENT_PACKET_MAX_PAYLOAD_BYTES` to the whole logical frame, and
 //! `the_outbound_queue_fragments_a_frame_and_keeps_it_until_the_send_is_accepted`
 //! must fail on its packet-count assertion.
 

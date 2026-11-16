@@ -21,8 +21,7 @@
 //! slot, so two browsers opening the ceremony at once converge on one key
 //! instead of one silently replacing the other.
 //!
-//! Contract: `protocol/spec/auth-and-pairing.md`. Ported from
-//! `apps/web/src/client/auth/*`.
+//! Contract: `protocol/spec/auth-and-pairing.md`.
 
 pub mod ceremony;
 pub mod ceremony_store;

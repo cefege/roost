@@ -16,8 +16,7 @@
 //! dropped whole, because merging it would append another query's rows to this
 //! one's list.
 //!
-//! Ported from `apps/web/src/lib/globalContentSearchController.ts`. The limits
-//! are `roost_protocol::terminal_search` and are not restated here.
+//! The limits are `roost_protocol::terminal_search` and are not restated here.
 
 // The page-folding half of this type lives in `controller/page.rs`, a CHILD
 // module: an inherent `impl` may span files, and a child is also the only

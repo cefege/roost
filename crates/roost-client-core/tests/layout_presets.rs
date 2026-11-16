@@ -1,7 +1,6 @@
 //! The "Arrange" presets and the one preset that does not rebuild.
 //!
-//! Mirrors `apps/web/tests/paneLayoutPresets.test.ts`, with the case the port
-//! makes load-bearing added: a preset that builds a ratio the portable
+//! One case is load-bearing: a preset that builds a ratio the portable
 //! document would refuse produces an arrangement this client cannot share, so
 //! the ratio is clamped where it is built.
 

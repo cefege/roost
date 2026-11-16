@@ -2,8 +2,7 @@
 //! Owned by `client::carriers`, consulted before any transport is opened, and
 //! dependent on `Effect::RequestDirectGrant` alone. A carrier with no live
 //! grant never authenticates, and a request that RETURNS without a worker's
-//! acknowledgement is a REFUSAL rather than a pending state. Ported from
-//! `apps/web/src/store/transport/local-terminal-grants.ts`.
+//! acknowledgement is a REFUSAL rather than a pending state.
 //!
 //! The credential the lifecycle hands out, and the rule that says whether it
 //! still admits a carrier, is `grant::credential`.
@@ -116,10 +115,10 @@ pub struct GrantLifecycle {
     /// A mint this lifecycle asked for has not answered yet. Every request is
     /// answered by exactly one `Minted` or `Refused`, so this never strands.
     in_flight: bool,
-    /// A mint was owed while one was in flight. v2 coalesces concurrent mints
-    /// (`local-terminal-grants.ts` `refreshAgain`): two racing requests let the
-    /// narrower answer land LAST, so the client holds a scope the worker has
-    /// already replaced and every `Ready` it gets names sessions outside it.
+    /// A mint was owed while one was in flight. Concurrent mints are
+    /// coalesced: two racing requests let the narrower answer land LAST, so the
+    /// client holds a scope the worker has already replaced and every `Ready`
+    /// it gets names sessions outside it.
     refresh_again: bool,
     last_detail: Option<String>,
 }
@@ -211,7 +210,7 @@ impl GrantLifecycle {
                 // credential is cleared: there was never one to clear, and a
                 // refusal says the worker did not acknowledge — not that a live
                 // secret stopped working. A coalesced re-ask waits for the
-                // retry like any other, as v2's `retryAtMs` gate makes it.
+                // retry like any other, gated by the same retry deadline.
                 self.in_flight = false;
                 self.refresh_again = false;
                 self.phase = GrantPhase::Unavailable;
@@ -276,8 +275,8 @@ impl GrantLifecycle {
 
     /// The answer to the one mint in flight. A demand that grew while it was
     /// out is asked for NOW, in one more mint, before the narrower scope can
-    /// open anything: v2's `refresh` re-runs on `refreshAgain` and mints only
-    /// when the answer does not cover what is wanted.
+    /// open anything. It is asked for only when the answer does not cover what
+    /// is wanted.
     fn minted(&mut self, minted: DirectGrant) -> Vec<CarrierEffect> {
         if self.phase == GrantPhase::Retired {
             return Vec::new();
@@ -307,9 +306,7 @@ impl GrantLifecycle {
     }
 
     /// A fault named the credential itself: drop it and ask for a fresh mint
-    /// NOW, as v2's `dropTerminalGrant` does (`local-terminal-grants.ts:154-160`
-    /// clears `retryAtMs`, and the next `maybeStart` refreshes with no wait,
-    /// `terminal-peer.ts:198`). The bounded retry belongs to a mint that was
+    /// NOW, with no retry wait. The bounded retry belongs to a mint that was
     /// REFUSED, not to a secret the worker stopped honouring.
     fn revoked(&mut self, fault: CarrierFault, now_ms: u64) -> Vec<CarrierEffect> {
         if self.phase == GrantPhase::Retired {
@@ -338,11 +335,11 @@ impl GrantLifecycle {
 
     /// Move to `Requested` and ask for every demanded session in one mint.
     ///
-    /// ONE request naming the whole set, as v2's `refresh` mints `eligible`
-    /// (`local-terminal-grants.ts`): the coordinator installs exactly the set a
-    /// mint names under the tab's one grant id, so a per-session request would
-    /// re-install the grant narrowed to that one session and strip every other
-    /// session from a carrier that is already serving it.
+    /// ONE request naming the whole set of eligible sessions: the coordinator
+    /// installs exactly the set a mint names under the tab's one grant id, so a
+    /// per-session request would re-install the grant narrowed to that one
+    /// session and strip every other session from a carrier that is already
+    /// serving it.
     fn request(&mut self) -> Vec<CarrierEffect> {
         if self.demanded.is_empty() {
             return Vec::new();

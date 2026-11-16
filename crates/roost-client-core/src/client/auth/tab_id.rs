@@ -1,11 +1,10 @@
 //! One authenticated tab id per browser document, and the arbitration that
 //! keeps a duplicated tab from sharing it.
 //!
-//! Ported from `apps/web/src/client/auth/tab-id.ts`. Browser tab duplication
-//! copies `sessionStorage`, so the id a document finds under [`TAB_ID_KEY`] may
-//! belong to a live sibling. The host claims it before any transport: a Web
-//! Lock named [`TAB_ID_LOCK_PREFIX`]`+id`, else a probe on the
-//! [`TAB_ID_CLAIM_CHANNEL`] `BroadcastChannel` that waits
+//! Browser tab duplication copies `sessionStorage`, so the id a document finds
+//! under [`TAB_ID_KEY`] may belong to a live sibling. The host claims it before
+//! any transport: a Web Lock named [`TAB_ID_LOCK_PREFIX`]`+id`, else a probe on
+//! the [`TAB_ID_CLAIM_CHANNEL`] `BroadcastChannel` that waits
 //! [`BROADCAST_PROBE_WAIT_MS`] for an owner to answer. An occupied id is
 //! re-minted and claimed again; an id no primitive can arbitrate is kept.
 //!
@@ -154,8 +153,7 @@ impl TabIdentity {
     }
 
     /// The document's current id: the cached one, else the stored one, else a
-    /// fresh one written to storage (v2 `getTabId`). Unclaimed until
-    /// [`ClaimStep::Claimed`].
+    /// fresh one written to storage. Unclaimed until [`ClaimStep::Claimed`].
     pub fn tab_id(&mut self) -> String {
         if let Some(cached) = &self.cached {
             return cached.clone();
@@ -173,9 +171,8 @@ impl TabIdentity {
         fresh
     }
 
-    /// Start the claim (v2 `claimCurrentTabIdentity`): Web Locks first, the
-    /// broadcast probe when locks are absent or refuse, else keep the stored
-    /// id. Called once per document.
+    /// Start the claim: Web Locks first, the broadcast probe when locks are
+    /// absent or refuse, else keep the stored id. Called once per document.
     pub fn begin_claim(&mut self, primitives: ArbitrationPrimitives) -> ClaimStep {
         self.broadcast_channel = primitives.broadcast_channel;
         if primitives.web_locks {
@@ -322,7 +319,7 @@ impl TabIdentity {
         fresh
     }
 
-    /// A v4 UUID, the shape of v2's `crypto.randomUUID()`.
+    /// A v4 UUID, the shape of `crypto.randomUUID()`.
     fn mint(&self) -> String {
         let mut bytes = [0_u8; 16];
         if let Err(error) = self.random.fill_bytes(&mut bytes) {

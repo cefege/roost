@@ -3,8 +3,7 @@
 //!
 //! Called by the smoke backdoor (`createWorkspace`, `cleanupCreated`) and the
 //! sidebar/workspace surfaces through `CoordRpc::call`. Rows convert through the
-//! shared `codec::wire_rows::workspace_from_proto`. v2 call sites:
-//! `apps/web/src/smoke/smokeCreatedResources.ts:51-120`, `apps/web/src/lib/deckOps.ts`.
+//! shared `codec::wire_rows::workspace_from_proto`.
 
 use std::collections::BTreeMap;
 

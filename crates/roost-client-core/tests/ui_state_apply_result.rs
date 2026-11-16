@@ -1,8 +1,7 @@
 //! The acknowledgement a target tab sends for an acknowledged layout apply, as
 //! the coordinator's Sync socket decodes it.
 //!
-//! Pins `sendApplyResult` from `apps/web/src/lib/uiLayoutApply.ts`: the
-//! correlation travels whole, the outcome maps to its wire enum, and the
+//! The correlation travels whole, the outcome maps to its wire enum, and the
 //! reason is present only on a refusal.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

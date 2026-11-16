@@ -1,8 +1,7 @@
 //! The ack/grace gate: a prediction is judged only against grid state that
 //! could already hold its echo.
 //!
-//! Ported one-for-one from `apps/web/tests/predictiveEchoAck.test.ts`, and each
-//! v2 test name is quoted verbatim on the case it became. These four are the
+//! These four are the
 //! guards `docs/FAILURE-INDEX.md:2390` names, and each can fail on its own:
 //!   - "an echo frame for an earlier keystroke never contradicts a later one"
 //!   - "a reset re-arms the confidence gate"

@@ -1,8 +1,7 @@
 //! The terminal commands the core emits, as the coordinator receives them: a
-//! view's revision moves on every intent change and holds across renewals (v2
-//! `terminal-stream-view-commands.ts:139-165`), and a resync names the replica's
-//! expected stream and canonical position, or is not sent at all
-//! (`terminal-stream-repair.ts:221-235`).
+//! view's revision moves on every intent change and holds across renewals, and
+//! a resync names the replica's expected stream and canonical position, or is
+//! not sent at all.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod support;
@@ -82,7 +81,7 @@ fn linked_core() -> (ClientCore, std::rc::Rc<roost_client_core::MemoryClock>) {
 #[test]
 fn a_view_opened_before_the_terminal_domain_is_ready_is_published_when_it_is() {
     let (mut core, _clock) = client_with_clock();
-    // No route can carry it yet: v2 leaves it pending rather than dropping it.
+    // No route can carry it yet: it stays pending rather than being dropped.
     assert!(views(&open(&mut core, 80, 24)).is_empty());
     let (_, on_ready) = open_ready_link_with_effects(&mut core, "socket-1");
     assert_eq!(only_view(&on_ready), (1, true, 80, 24));
@@ -151,7 +150,7 @@ fn reopening_a_held_view_continues_its_revision() {
 }
 
 /// The pane republishes (DOM repair, offline retry, a lifecycle refresh) by
-/// opening its view again at the size it already publishes. v2 `refresh`
+/// opening its view again at the size it already publishes. A refresh
 /// republishes the desired intent unchanged, so a renewal must not read as a
 /// new claim; only a real change of intent — here, re-showing a hidden view at
 /// the same size — moves the revision.

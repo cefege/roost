@@ -11,9 +11,7 @@
 //!   name an event the store has not applied. A cursor that runs ahead of the
 //!   store is a reconnect that silently skips a session's whole history.
 //! - The write to storage is DEBOUNCED here rather than in the host, so a
-//!   credential boundary can discard it. A persisted global cursor would make
-//!   the next socket's initial history invisible
-//!   (`apps/web/src/store/sync-frame.ts:55-69`).
+//!   the next socket's initial history invisible.
 
 use crate::platform::KeyValueStore;
 use crate::sync::link::SYNC_WATERMARK_KEY;

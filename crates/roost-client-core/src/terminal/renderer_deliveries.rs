@@ -2,8 +2,7 @@
 //! accepted sparse delta since the last full, bounded as one pending render
 //! batch is bounded. Written by `TerminalSession::admit_decoded`; read by
 //! roost-web's pane paint loop, which folds the deltas a pane has not painted
-//! so their appended history reaches the DOM. Ports the delta queue of
-//! `apps/web/src/renderer/terminal-render-scheduler.ts` as a shared log.
+//! so their appended history reaches the DOM.
 
 use roost_protocol::cell::CellGridFrame;
 

@@ -2,8 +2,7 @@
 //! swallows every Sync cell frame of its generation and each is still
 //! acknowledged, a wire-delta drop swallows exactly one delta, a fault armed
 //! under a retired generation retires instead of firing, and nothing is armed
-//! without a ready generation. Pins `terminal::smoke_faults` + `store::sync_smoke`
-//! (v2 `apps/web/src/store/terminal-stream-diagnostics.ts:196-267`).
+//! without a ready generation. Pins `terminal::smoke_faults` + `store::sync_smoke`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod support;

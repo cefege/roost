@@ -109,8 +109,7 @@ impl InputRouter {
             .collect()
     }
 
-    /// Settle every started batch whose result is overdue (v2 `markStarted`'s
-    /// timer).
+    /// Settle every started batch whose result is overdue.
     ///
     /// `ambiguous`, never `rejected` and never re-sent: the bytes left, and the
     /// worker may have written them before its answer was lost.
@@ -151,8 +150,7 @@ impl InputRouter {
     }
 
     /// Settle everything dispatched on the Sync socket of `socket_generation`
-    /// when that socket closes, under any domain generation it carried (v2
-    /// `handleGeneration` → `retireTerminalInputConnection(observedSyncToken)`).
+    /// when that socket closes, under any domain generation it carried.
     /// The socket that carried a batch is the only one that could answer it.
     pub fn retire_sync_generation(
         &mut self,

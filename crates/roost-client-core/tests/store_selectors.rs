@@ -6,12 +6,12 @@
 //! comparison that folded less would show a user two folders the shell says are
 //! one.
 //!
-//! NOT TESTED HERE, AND DELIBERATELY: `activeSessionForPath` from v2's
-//! `selectors.ts:81-92`. Parsing `/s/:id` and `/t/:workerFp/*folderPath` is the
+//! NOT TESTED HERE, AND DELIBERATELY: resolving a session from a pathname.
+//! Parsing `/s/:id` and `/t/:workerFp/*folderPath` is the
 //! ROUTE TABLE, and a second path parser in this crate is a second route table.
 //! The host matches its own route and calls the resolver that route names.
 //!
-//! The mutation experiment for this file is in the slice report: in
+//! The mutation experiment for this file: in
 //! `live_session_ids_for_folder`, drop the `is_pending_close` filter, and
 //! `a_pending_close_hides_the_row_and_an_undo_puts_it_back` must fail.
 #![allow(clippy::unwrap_used, clippy::expect_used)]

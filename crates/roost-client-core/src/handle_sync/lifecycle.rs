@@ -3,10 +3,7 @@
 //!
 //! Called by `handle_event` for `DialRequested`, `SyncLinkClosed`,
 //! `PageVisibilityChanged`, `SyncWakeRequested`, `SyncTransportControl` and
-//! every `Sweep`. Ported from `apps/web/src/store/sync.ts` (`_runConnectSync`'s
-//! dial/close loop), `apps/web/src/store/sync-redial.ts`,
-//! `apps/web/src/store/sync-watchdog.ts` (`startStaleWatchdog`) and
-//! `apps/web/src/store/sync-smoke.ts`.
+//! every `Sweep`.
 
 use crate::client::sync::classify_close;
 use crate::effect::Effect;
@@ -24,14 +21,13 @@ use super::hydration::{request_link_replacement, start_bootstrap_probe, sweep_hy
 /// A deliberate transport control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransportControl {
-    /// Replace the live socket now (v2 `reconnectNow` / `forceSyncReconnect`).
+    /// Replace the live socket now.
     Reconnect,
-    /// Drop the socket with the redial pre-armed to its highest floor
-    /// (`forceSyncMaxBackoff`).
+    /// Drop the socket with the redial pre-armed to its highest floor.
     ArmMaxBackoff,
-    /// Close the socket and hold the redial (`pauseSyncTransport`).
+    /// Close the socket and hold the redial.
     Pause,
-    /// Release the hold and redial now (`resumeSyncTransport`).
+    /// Release the hold and redial now.
     Resume,
 }
 
@@ -83,7 +79,7 @@ pub(crate) fn on_link_closed(
         store.sync.hydrations.note_refused_before_open();
     }
     // A backpressure 1013 held the records rather than dropping them, so the
-    // redial is immediate and resumes from the cursor (v2 `flow`); the SAME code
+    // redial is immediate and resumes from the cursor; the SAME code
     // with the rejection reason gets the backoff.
     let disposition = classify_close(close_code, close_reason);
     if let Some(reason) = disposition.abort_reason() {
@@ -107,15 +103,13 @@ pub(crate) fn on_link_closed(
 /// every batch that socket was carrying, and block every input lane whose route
 /// the worker acknowledged over it.
 ///
-/// v2 retargets each session to the current Sync state when the socket goes,
-/// and with no state that token is null: the grid stays painted but no carrier
-/// is confirmed for it, so the header reads Waiting until the next link binds it
-/// (`terminal-stream-retarget.ts` `retargetSession`). A replica on a direct
-/// route holds the direct token and is untouched. A batch the closed socket
-/// carried can never be answered on another one, so it settles now
-/// (`sync-outbound.ts` `handleGeneration`, "Sync closed"). A route epoch the
-/// closed socket claimed fences nothing on the next one, so its lane is blocked
-/// until Sync claims the route back (`retireTerminalInputRouteState`).
+/// Each session retargets to the current Sync state when the socket goes, and
+/// with no state that token is null: the grid stays painted but no carrier is
+/// confirmed for it, so the header reads Waiting until the next link binds it.
+/// A replica on a direct route holds the direct token and is untouched. A batch
+/// the closed socket carried can never be answered on another one, so it
+/// settles now. A route epoch the closed socket claimed fences nothing on the
+/// next one, so its lane is blocked until Sync claims the route back.
 fn release_sync_generation(store: &mut Store, generation: u64) {
     for outcome in store
         .input

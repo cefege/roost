@@ -14,9 +14,6 @@
 //! spelling of every value; anything else is removed on read. A half-understood
 //! requester token is worse than no token, because it produces polls that can
 //! only ever be refused and looks like a coordinator problem.
-//!
-//! Ported from `apps/web/src/client/auth/pairing-ceremony.ts` and
-//! `apps/web/src/client/auth/pairing-approval.ts`.
 
 use serde_json::Value;
 

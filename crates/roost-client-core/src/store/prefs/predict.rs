@@ -6,7 +6,7 @@
 //! either behaviour. Failing a setting closed to the adaptive mode is the whole
 //! point: `"0"` and `"force"` are what two earlier builds wrote for
 //! `never` and `always`, and a build that rejected them would silently reset a
-//! preference the user set (`predictPref.ts:22-28`).
+//! preference the user set.
 //!
 //! The hot path never touches storage. The mode is read once into the store and
 //! handed to each pane's predictor, so a keystroke is not a storage read.

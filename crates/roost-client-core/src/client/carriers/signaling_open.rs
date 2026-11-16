@@ -79,9 +79,9 @@ impl Signalling {
             worker_fp: self.worker_fp.clone(),
             worker_epoch: String::new(),
             transport: TerminalTransport::Peer,
-            // Minted by the host as it opens the transport (`crypto.randomUUID`,
-            // v2 `createTerminalDirectRequestId`) and adopted from the offer: this
-            // crate holds no entropy, and the coordinator refuses a non-UUID.
+            // Minted by the host as it opens the transport (`crypto.randomUUID`)
+            // and adopted from the offer: this crate holds no entropy, and the
+            // coordinator refuses a non-UUID.
             peer_id: String::new(),
             grant_id: String::new(),
             tab_id: String::new(),
@@ -178,9 +178,9 @@ impl Signalling {
     }
 }
 
-/// Copy a grant's tuple into an attempt. The scope is the GRANT's, as v2 checks
-/// a `Ready` against `options.grant.sessionIds`: the worker proves the scope it
-/// was told to install, which is the mint's and not this page's demand.
+/// Copy a grant's tuple into an attempt. The scope is the GRANT's: the worker
+/// proves the scope it was told to install, which is the mint's and not this
+/// page's demand.
 fn adopt_grant_fields(attempt: &mut PeerAttempt, grant: &DirectGrant) {
     attempt.worker_epoch = grant.worker_epoch.clone();
     attempt.grant_id = grant.grant_id.clone();

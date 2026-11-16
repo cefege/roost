@@ -3,11 +3,7 @@
 //!
 //! Called from `apply_frame` (a `subscribed` announcement or a subscribed
 //! `domain_reset` triggers), from `handle_rpc_result` (every answer is offered
-//! here first) and from the sweep (deadlines and retries). Ported from
-//! `apps/web/src/store/sync-bootstrap-hydration.ts`,
-//! `apps/web/src/store/sync-domain-hydration.ts` (`trigger`, `run`),
-//! `apps/web/src/store/sync-domain-state.ts:103-130` (`applySyncDomainSnapshot`)
-//! and `apps/web/src/store/sync-hydrated.ts`.
+//! here first) and from the sweep (deadlines and retries).
 
 use crate::client::rpc::AuthFailureKind;
 use crate::effect::{Effect, RpcCall, RpcResult, SyncCommand, hydration_call};
@@ -17,10 +13,10 @@ use crate::sync::SyncDomain;
 use crate::sync::hydration::{HydrationTicket, SYNC_HYDRATION_DEADLINE_MS};
 
 /// Start this domain's snapshot call for its current generation, unless one is
-/// already running for it (v2 `_triggerSyncDomainHydration`).
+/// already running for it.
 ///
 /// The audit domain is lazy: only a mounted audit surface hydrates it, so a
-/// trigger for it here does nothing (`sync-domain-hydration.ts:41-64`).
+/// trigger for it here does nothing.
 pub(crate) fn trigger_hydration(
     store: &mut Store,
     domain: SyncDomain,
@@ -116,7 +112,7 @@ pub(crate) fn settle_hydration_result(
             },
         ) => {
             // Without the one-time token the snapshot can never be admitted;
-            // v2 redials rather than publishing it (`:61-65`).
+            // the client redials rather than publishing it.
             let Some(token) = terminal_snapshot_token.clone() else {
                 tracing::warn!(target: "sync", "sessions snapshot carried no token; redialing");
                 request_link_replacement(store, "manual", out);
@@ -232,7 +228,7 @@ pub(crate) fn sweep_hydrations(store: &mut Store, now_ms: u64, out: &mut Vec<Eff
 }
 
 /// Ask whether this device is known at all when `subscribed` never came
-/// (v2 `_bootstrap`'s pre-barrier probe). The answer is never published.
+/// (the pre-barrier probe). The answer is never published.
 pub(crate) fn start_bootstrap_probe(store: &mut Store, out: &mut Vec<Effect>) {
     let call_id = store.next_call_id();
     store.sync.hydrations.begin_probe(call_id);
@@ -254,7 +250,7 @@ fn settle_probe(store: &mut Store, result: &RpcResult) {
 }
 
 /// Whether a ticket still names the live socket and the domain's current,
-/// subscribed, not-yet-ready generation (v2 `isCurrentSyncDomainToken`).
+/// subscribed, not-yet-ready generation.
 fn ticket_is_current(store: &Store, ticket: &HydrationTicket) -> bool {
     store.sync.link_generation() == Some(ticket.socket_generation)
         && store.sync.domains.get(&ticket.domain).is_some_and(|state| {

@@ -24,18 +24,18 @@
 //!   client.
 //!
 //! The placeholder is a [`ClientOnlySession`] in this ledger and NOT a row in
-//! the authoritative `SessionPlane`. v2 inserted a forged `Session` into the
-//! root store, which meant a bootstrap snapshot arriving mid-spawn could prune
-//! it and the shared fold could overwrite it. Here the two cannot collide: the
-//! ledger holds a client-only row until [`reconcile_spawn`] is told the
-//! authoritative one arrived, and the fold is never handed a row it did not mint.
+//! the authoritative `SessionPlane`. A forged `Session` in the root store would
+//! let a bootstrap snapshot arriving mid-spawn prune it and the shared fold
+//! overwrite it. Here the two cannot collide: the ledger holds a client-only
+//! row until [`reconcile_spawn`] is told the authoritative one arrived, and the
+//! fold is never handed a row it did not mint.
 //!
-//! Ported from `apps/web/src/store/optimisticSpawn.ts` (239 lines). Dropped: the
-//! measurement deferred, because a synchronous core has no promise — the mounted
-//! placeholder's real geometry reaches the spawn through `ViewOpened`, which is
-//! the same measurement the view path already carries. The `aborted` set becomes
-//! a tombstone with a reason; the client-only id set becomes the ledger's own
-//! admitted entries; `MAX_RETAINED_CLIENT_ONLY_SPAWN_IDS` bounds the tombstones.
+//! There is no deferred measurement, because a synchronous core has no promise
+//! — the mounted placeholder's real geometry reaches the spawn through
+//! `ViewOpened`, which is the same measurement the view path already carries.
+//! An abandoned attempt is a tombstone with a reason; the client-only id set
+//! is the ledger's own admitted entries; `MAX_RETAINED_CLIENT_ONLY_SPAWN_IDS`
+//! bounds the tombstones.
 pub mod settle;
 
 use std::collections::{BTreeMap, VecDeque};
@@ -140,7 +140,7 @@ struct Tombstone {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SupersededReason {
     /// The user retracted the attempt — they closed the pending tab. An expected
-    /// removal, and the reason v2's `aborted` set existed for.
+    /// removal, and the reason a tombstone is kept.
     Retracted,
     /// A newer attempt for the same session has begun. The newer one owns this
     /// session id and its state, full stop.
@@ -270,9 +270,8 @@ impl SpawnLedger {
     /// An ADMITTED entry is not pending, so nothing may act for it: the row
     /// stays because it is the tab the user is looking at, and a refusal
     /// arriving after the admission would otherwise delete a working terminal
-    /// and raise a failure card over it. That is the hole
-    /// `optimisticSpawn.ts:187-197` leaves open, and it is why the admission
-    /// leaves a tombstone as well as an entry.
+    /// and raise a failure card over it. That is why the admission leaves a
+    /// tombstone as well as an entry.
     fn relevance(&self, ticket: &SpawnTicket) -> Option<SupersededReason> {
         match self.entries.get(&ticket.session_id) {
             Some(entry) if entry.ticket.attempt != ticket.attempt => {

@@ -5,9 +5,7 @@
 //! for different reasons and are read for different reasons: `session` is what
 //! you read when a frame was refused, this is what you read when a pane opened.
 //!
-//! Ported from `apps/web/src/store/terminal-stream-view.ts` and
-//! `apps/web/src/store/terminal-stream-view-commands.ts`. Contract:
-//! `protocol/spec/terminal-stream.md:24-26`.
+//! Contract: `protocol/spec/terminal-stream.md:24-26`.
 
 use crate::terminal::session::{TerminalSession, ViewStateAdmission};
 use crate::terminal::token::TerminalToken;
@@ -17,8 +15,8 @@ impl TerminalSession {
     /// A pane attached, or asked to be republished.
     ///
     /// A view already publishing this exact size is a renewal, not a new intent:
-    /// it keeps its revision and lease state, as v2 `changeIntent` ignores an
-    /// identical intent and `refresh` republishes the desired one unchanged.
+    /// it keeps its revision and lease state; an identical intent is ignored and
+    /// a refresh republishes the desired one unchanged.
     /// Re-opening a view id with any other intent continues its revision rather
     /// than restarting at 1: the authority remembers the old revision, and a
     /// lower one for the same handle is refused as stale.
@@ -137,8 +135,8 @@ impl TerminalSession {
     /// generation the command went out on; and a state the authority broadcast
     /// to every live view when another viewer re-minted the stream, which
     /// answers no command and is matched instead on the view's CURRENT revision
-    /// over this replica's own generation (v2 `dispatchTerminalViewState`: the
-    /// frame's revision against `desired.revision`). Refusing the broadcast
+    /// over this replica's own generation (the frame's revision against the
+    /// view's desired revision). Refusing the broadcast
     /// leaves the replica expecting the old stream and refusing every frame of
     /// the new one until the next heartbeat asks again.
     ///

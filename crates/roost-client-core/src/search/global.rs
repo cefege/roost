@@ -12,8 +12,7 @@
 //! stays in `client::global_search`, so the module that HOLDS rows and the module
 //! that MERGES them are not the same module.
 //!
-//! The rows and the partial reasons are ported from
-//! `apps/web/src/lib/globalContentSearchResults.ts`. `GlobalSearchResponse` is
+//! `GlobalSearchResponse` is
 //! the page the coordinator's `SessionsSearchGlobalResponse` carries, and it
 //! belongs to this side of the boundary for the same reason the rows do: it is
 //! something the coordinator reported, not something this client judged.

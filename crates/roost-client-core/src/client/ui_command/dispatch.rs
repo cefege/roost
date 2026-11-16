@@ -1,8 +1,7 @@
 //! Drains the Sync-queued UI commands into the actions the browser shell
 //! executes, resolving every session reference against the store first.
 //!
-//! Ports `handleUiCommand` from `apps/web/src/lib/uiCommandDispatch.ts`. The
-//! UI bridge (roost-web SHELL) calls `drain_ui_commands` after each pump
+//! The UI bridge (roost-web SHELL) calls `drain_ui_commands` after each pump
 //! revision; spotlight is store state and is applied here, everything that
 //! needs the router or the deck's layout records comes back as an action.
 //! Frames are fire-and-forget: a bad reference is one warn line, never an error.

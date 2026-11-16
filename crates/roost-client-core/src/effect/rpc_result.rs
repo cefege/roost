@@ -2,8 +2,7 @@
 //!
 //! Owned by `effect`; produced by `client::rpc::codec::decode_rpc_response` (or
 //! by the host as `Failed`), handed back as `ClientEvent::RpcResultReceived`,
-//! and folded by `handle_sync::handle_rpc_result`. Row shapes are the ones v2's
-//! hydrators build (`apps/web/src/store/sync-bootstrap-hydration.ts`).
+//! and folded by `handle_sync::handle_rpc_result`.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -27,11 +26,11 @@ pub enum RpcResult {
         /// Which call this answers.
         call_id: u64,
         /// What went wrong: the network, the coordinator's Connect refusal
-        /// (code and auth layer, which `classifyAuthFailure` needs), or the codec.
+        /// (code and auth layer, which auth-failure classification needs), or the codec.
         error: CallError,
     },
-    /// `AuthCoordIdentity` succeeded: the two fields v2 keeps as
-    /// `coord_identity` (`sync-bootstrap.ts:152-156`), plus the direct
+    /// `AuthCoordIdentity` succeeded: the two fields kept as
+    /// `coord_identity`, plus the direct
     /// carrier's static STUN settings.
     CoordIdentity {
         /// Which call this answers.
@@ -49,10 +48,10 @@ pub enum RpcResult {
         /// Which call this answers.
         call_id: u64,
         /// The session rows that decoded. A row that failed the brand check is
-        /// dropped with a warning, as v2 does, rather than failing the snapshot.
+        /// dropped with a warning rather than failing the snapshot.
         sessions: SessionMap,
         /// The one-time terminal hydration token. `None` when the coordinator
-        /// sent none or sent it empty — v2 treats both as missing and redials.
+        /// sent none or sent it empty — both count as missing and the client redials.
         terminal_snapshot_token: Option<String>,
     },
     /// `WorkersList` succeeded.
@@ -93,7 +92,7 @@ pub enum RpcResult {
         /// The path that was asked for.
         path: String,
         /// Where the machine resolved it; the asked-for path when it said
-        /// nothing (`browseDirectoryListing.ts:58`).
+        /// nothing.
         resolved_path: String,
         /// The rows, in the machine's order.
         entries: Vec<BrowseEntry>,
@@ -105,7 +104,7 @@ pub enum RpcResult {
         /// The machine written to.
         worker_fp: String,
         /// Where the directory ended up; the asked-for path when the machine
-        /// said nothing (`browseNewFolder.ts:78`).
+        /// said nothing.
         resolved_path: String,
     },
     /// `SessionsSearchGlobal` answered with one page.

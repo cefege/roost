@@ -6,9 +6,8 @@
 //! storage backend that fails cannot leave a preference that looks saved and is
 //! not.
 //!
-//! Ported from `copyOnSelectPref.ts`, `keyboardResizePref.ts`,
-//! `keytermBiasingPref.ts` and `mouseForwardPref.ts`; the deviation is the
-//! unrecognised-value rule, which is in `prefs.rs`.
+//! A stored value that is not recognised falls back to the default; that rule
+//! is in `prefs.rs`.
 
 use crate::platform::KeyValueStore;
 use crate::store::Store;
@@ -87,9 +86,9 @@ pub fn toggle_mouse_forward(store: &mut Store, storage: &dyn KeyValueStore) -> b
 
 /// Read a stored flag with the store's own default for it.
 ///
-/// `mouseGesturesForwarded` is the one predicate the gesture handlers and the
-/// pane's `touch-action` both call (`mouseForwardPref.ts:36-38`), so it is here
-/// rather than at either of them.
+/// `mouse_gestures_forwarded` is the one predicate the gesture handlers and the
+/// pane's `touch-action` both call, so it is here rather than at either of
+/// them.
 pub fn mouse_gestures_forwarded(store: &Store, tracking_mode: u16) -> bool {
     store.prefs.mouse_forward && tracking_mode != 0
 }

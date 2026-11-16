@@ -1,11 +1,10 @@
-//! Response bytes → `RpcResult`, reading exactly what v2 reads from each answer.
+//! Response bytes → `RpcResult`.
 //!
 //! Called by the host's pump on a successful unary answer. The body must decode
 //! as the method's response message or the whole answer is an `RpcCodecError`;
-//! inside a message that did decode, a ROW that fails its brand or JSON check is
-//! dropped with a warning, as v2's hydrators drop it
-//! (`sync-bootstrap-hydration.ts:64-74,160-172`), so one bad database row cannot
-//! wedge a domain in a retry loop.
+//! inside a message that did decode, a ROW that fails its brand or JSON check
+//! is dropped with a warning, so one bad database row cannot wedge a domain in
+//! a retry loop.
 
 use std::collections::BTreeMap;
 
@@ -53,7 +52,7 @@ pub fn decode_rpc_response(call: &RpcCall, body: &[u8]) -> Result<RpcResult, Rpc
             RpcResult::SessionsList {
                 call_id: *call_id,
                 sessions,
-                // v2 tests `!response.syncSnapshotToken`: empty is missing.
+                // An empty token is a missing one.
                 terminal_snapshot_token: response
                     .sync_snapshot_token
                     .filter(|token| !token.is_empty()),
@@ -188,7 +187,7 @@ fn client_state_entries(rows: &[roost_proto::ClientStateEntry]) -> Vec<ClientSta
 }
 
 /// Convert every row, keyed by its id; a later duplicate replaces an earlier
-/// one, as v2's record assignment does.
+/// one.
 fn keyed_rows<Pb, Row>(
     method: &'static str,
     rows: &[Pb],

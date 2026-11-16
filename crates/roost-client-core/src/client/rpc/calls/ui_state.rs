@@ -2,8 +2,7 @@
 //! the coordinator so a CLI or agent can read and drive it.
 //!
 //! Called by the UI bridge (roost-web SHELL) through `CoordRpc::call` with a
-//! report from `client::ui_command::build_ui_state_report`. v2's call site is
-//! `coordClient.uiReportState(...)` in `apps/web/src/lib/uiStateReport.ts`.
+//! report from `client::ui_command::build_ui_state_report`.
 
 use roost_proto::{UiReportStateRequest, UiReportStateResponse};
 use roost_protocol::proto_adapters::layout_document_proto::layout_document_to_proto;

@@ -75,7 +75,7 @@ pub fn open_link_awaiting_hydration(core: &mut ClientCore, socket_id: &str) -> (
     });
     // The terminal domain is announced with the workers domain because the
     // store holds application frames until the protected sessions snapshot
-    // publishes, exactly as v2 publishes nothing before it. `true` is the
+    // publishes: nothing is published before it. `true` is the
     // coordinator stating that THIS client is subscribed on THIS socket
     // (`sync.proto:115-125`); only a subscribed domain is hydrated.
     let effects = core.handle(ClientEvent::SyncFrameReceived {

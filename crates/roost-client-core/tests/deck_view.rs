@@ -1,7 +1,7 @@
 //! The per-frame deck view: nothing paints before measurement, a compact host
 //! paints the followed session's pane full-bleed, the spotlight card and the
 //! swipe neighbour claim slots, and parked tabs size to their pane's terminal
-//! area. Ports the memos of `apps/web/src/components/deck/terminal-deck-model.ts`.
+//! area.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod deck_support;

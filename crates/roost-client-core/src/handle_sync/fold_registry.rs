@@ -28,8 +28,8 @@ pub(super) fn fold_workspace_delta(store: &mut Store, delta: &WorkspaceDelta) {
             }
         }
         WorkspaceDelta::Deleted { id } => store.workspaces.remove(id.as_str()).is_some(),
-        // A session list for a workspace this store never received is dropped,
-        // as v2's updater returns `prev` when there is none.
+        // A session list for a workspace this store never received is dropped:
+        // there is no row to update.
         WorkspaceDelta::SessionsSet {
             id,
             session_ids,
@@ -53,8 +53,8 @@ pub(super) fn fold_workspace_delta(store: &mut Store, delta: &WorkspaceDelta) {
 
 /// A worker registered, heartbeat, or was removed.
 ///
-/// A removal is v2 `applyWorkerRemoval`: the worker's direct routes retire
-/// before the machine record disappears, so no route outlives its worker.
+/// A removal retires the worker's direct routes before the machine record
+/// disappears, so no route outlives its worker.
 pub(super) fn fold_worker_presence(
     store: &mut Store,
     event: &WorkerPresenceEvent,
@@ -77,7 +77,7 @@ pub(super) fn fold_worker_presence(
             terminal_core_capacity,
         } => {
             // A heartbeat for a worker this store has no record of changes
-            // nothing: v2's updater returns `prev` when there is none.
+            // nothing: there is no row to update.
             let Some(worker) = store.workers.get_mut(fp.as_str()) else {
                 tracing::debug!(
                     target: "sync",
@@ -141,7 +141,7 @@ pub(super) fn fold_worker_routable(
 }
 
 /// Replace the routable set, moving the revision only when membership moved:
-/// v2's signal compares by content, so an unchanged set notifies nobody.
+/// an unchanged set notifies nobody.
 fn replace_routable_set(store: &mut Store, routable: BTreeSet<String>) {
     if store.routable_worker_fps.as_ref() == Some(&routable) {
         return;

@@ -1,8 +1,7 @@
 //! A reconnect is a GENERATION, not a retry, and a frame queued across one must
 //! still be placeable when it is finally read.
 //!
-//! Two properties, each with the v2 rule it ports
-//! (`apps/web/src/client/sync/sync-flow.ts`, `apps/web/src/store/sync.ts`):
+//! Two properties:
 //!
 //! 1. A queued frame keeps its delivery sequence, its socket id and its lane, so
 //!    it can be applied after the socket that delivered it is gone. Dispatch is
@@ -230,7 +229,7 @@ fn a_backpressure_close_redials_at_once_and_keeps_the_cursor() {
     });
 
     // The very next sweep dials — no backoff, the close was a verdict about the
-    // flow-control window (v2 `flow`) — and it resumes at the cursor, so the
+    // flow-control window — and it resumes at the cursor, so the
     // records the coordinator was still holding come back on the new socket.
     assert_eq!(swept_dial_since(&mut core), Some(77));
 }

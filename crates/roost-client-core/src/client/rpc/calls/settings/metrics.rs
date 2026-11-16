@@ -1,10 +1,9 @@
 //! The coordinator's live telemetry counters.
 //!
-//! Called by roost-web's Settings metrics pane. v2 call site:
-//! `apps/web/src/components/Settings/MetricsPane.tsx:39-59` (`coordClient.miscMetrics`,
-//! polled every five seconds). The per-route maps become sorted vectors here so
-//! the pane does not carry a `BTreeMap` whose iteration order it has to re-sort
-//! on every poll anyway.
+//! Called by roost-web's Settings metrics pane, which polls every five
+//! seconds. The per-route maps become sorted vectors here so the pane does not
+//! carry a `BTreeMap` whose iteration order it has to re-sort on every poll
+//! anyway.
 
 use roost_proto::{MiscMetricsRequest, MiscMetricsResponse};
 

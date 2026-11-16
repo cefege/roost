@@ -5,8 +5,7 @@
 //! about renderers, repairs, sockets, or clocks, which is why a staged direct
 //! candidate and the canonical replica can share it verbatim.
 //!
-//! Ported from `apps/web/src/client/terminal-stream/terminal-stream-frame-fold.ts`,
-//! with the rules and their sources in `docs/phase4-client-contract.md` §6.
+//! The rules and their sources are in `docs/phase4-client-contract.md` §6.
 
 use std::rc::Rc;
 
@@ -20,8 +19,8 @@ use roost_protocol::cell::{
 /// The state a frame is folded against: what the replica expects, and what it
 /// currently holds.
 ///
-/// `canonical_chunk_in_flight` is the assembler's `activeSnapshotId !== null`
-/// from v2. It is a plain `bool` here because the assembler itself is the
+/// `canonical_chunk_in_flight` is whether the assembler has an active snapshot.
+/// It is a plain `bool` here because the assembler itself is the
 /// authority on what is in flight; the core only needs to know that something
 /// is, and a second source for "which snapshot" would be a second thing to keep
 /// correct.
@@ -238,11 +237,11 @@ fn fold_delta(target: &mut FoldTarget, delta: CellGridFrame) -> FrameFoldOutcome
         };
     };
     let base: &CellGridFrame = &shared;
-    // v2's `null` expectation matches no stream, so neither may an absent one.
+    // An absent expectation matches no stream, so neither may an absent one.
     let expected = target.expected_stream_id.as_deref();
     // Every entry is a row of the delta-fence table in the contract. Alt-screen
     // occupancy, a malformed base and restated history are `apply_delta`'s
-    // refusals, reported as `delta_fold_rejected` exactly as v2 reports them.
+    // refusals, reported as `delta_fold_rejected`.
     let refusals = [
         !target.baseline_ready,
         target.canonical_chunk_in_flight,

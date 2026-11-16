@@ -3,12 +3,11 @@
 //!
 //! One copy on purpose: the bootstrap lists (`codec::response`) and the Sync
 //! decoder (`sync::decode`) call these, so a hydrated row and a live row cannot
-//! disagree about a field. Ported from v2's `sync-bootstrap-hydration.ts:89-201`
-//! and `client/sync/sync-proto-adapters.ts`; the brands, the keeper runtime and
-//! the capacity report go through `roost_protocol`'s own adapters.
+//! disagree about a field. The brands, the keeper runtime and the capacity
+//! report go through `roost_protocol`'s own adapters.
 //!
 //! These convert and brand-check; they do NOT run a row's `check()` (label
-//! non-empty, timestamps positive), because v2's converters do not either.
+//! non-empty, timestamps positive).
 
 use roost_proto::{
     HostMetrics as PbHostMetrics, PairRequest as PbPairRequest, Worker as PbWorker,
@@ -27,9 +26,8 @@ use crate::store::mutations::PairRequest;
 
 /// One worker row.
 ///
-/// An invalid capacity report becomes `None` rather than failing the row, as in
-/// v2 (`terminalCoreCapacityProtoToWire`): the report is informational, and a
-/// bad one must not hide the machine.
+/// An invalid capacity report becomes `None` rather than failing the row: the
+/// report is informational, and a bad one must not hide the machine.
 pub fn worker_from_proto(proto: &PbWorker) -> ProtocolResult<Worker> {
     Ok(Worker {
         fp: WorkerFp::try_from(proto.fp.as_str())?,
@@ -99,7 +97,7 @@ pub fn workspace_from_proto(proto: &PbWorkspace) -> ProtocolResult<Workspace> {
     })
 }
 
-/// One pending tap-to-pair request (`sync-bootstrap-hydration.ts:180-196`).
+/// One pending tap-to-pair request.
 pub fn pair_request_from_proto(proto: &PbPairRequest) -> ProtocolResult<PairRequest> {
     Ok(PairRequest {
         ephemeral_id: proto.ephemeral_id.clone(),
@@ -120,8 +118,7 @@ pub fn pair_request_from_proto(proto: &PbPairRequest) -> ProtocolResult<PairRequ
     })
 }
 
-/// A proto `uint64` in a wire `i64`. v2 read these through `Number()`, which a
-/// value past `i64::MAX` could never have survived either.
+/// A proto `uint64` in a wire `i64`; a value past `i64::MAX` is refused.
 fn signed(field: &str, value: u64) -> ProtocolResult<i64> {
     i64::try_from(value).map_err(|_| {
         ProtocolError::new(field, format!("{value} does not fit a signed 64-bit field"))

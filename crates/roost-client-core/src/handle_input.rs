@@ -14,8 +14,7 @@
 //! stamped with the pane's own id would be written against a handle no worker is
 //! watching — so the resolution happens here, once, on the way out.
 //!
-//! Ported from `apps/web/src/store/transport/terminal-input-router.ts`. Incident:
-//! `docs/FAILURE-INDEX.md:1503`.
+//! Incident: `docs/FAILURE-INDEX.md:1503`.
 
 use crate::effect::{DirectCommand, Effect, SyncCommand};
 use crate::store::Store;
@@ -56,8 +55,8 @@ pub fn handle_terminal_input(
     };
     store.note_change();
     // A promotion or a Sync fallback is asking a worker for the route epoch.
-    // The batch waits unsent for that answer (v2 `admit` in `holding` or
-    // `claiming`): sent now it would carry no epoch, and a worker that has
+    // The batch waits unsent for that answer (the lane is holding or claiming):
+    // sent now it would carry no epoch, and a worker that has
     // already moved the route refuses it as `terminal input route changed`.
     if store.input.is_holding(session_id) {
         tracing::debug!(
@@ -76,10 +75,10 @@ pub fn handle_terminal_input(
     //
     // A replica only exists once a pane has opened a view over the session, so
     // demanding one here refused every keystroke aimed at a session nobody was
-    // looking at. v2 has no such gate: `terminalInputDestinationForSession`
-    // takes the active direct route if there is one and otherwise the current
-    // Sync v2 terminal state, which is the socket's, and resolves the worker's
-    // epoch from the sessions projection beside it. Same two answers, same order.
+    // looking at. The destination is instead the active direct route if there
+    // is one and otherwise the current Sync terminal state, which is the
+    // socket's, with the worker's epoch resolved from the sessions projection
+    // beside it.
     let Some(token) = input_destination(store, session_id) else {
         settle_as_unsent(
             store,
@@ -355,10 +354,10 @@ pub fn retire_route(
         //
         // Its input route is the worker's too, and that worker still names the
         // dead carrier: Sync input without an epoch is refused until Sync claims
-        // the route back. The lane HOLDS while it does (v2
-        // `TerminalPeerFallbackClaims`), so a keystroke typed into the gap waits
-        // for the claim instead of being refused; the hold has its own admission
-        // timeout, so a claim that never lands cannot hold a batch forever.
+        // the route back. The lane HOLDS while it does, so a keystroke typed into
+        // the gap waits for the claim instead of being refused; the hold has its
+        // own admission timeout, so a claim that never lands cannot hold a batch
+        // forever.
         TerminalTransport::Loopback | TerminalTransport::Peer => {
             if let Some(worker_fp) = token.worker_fp.as_deref() {
                 store

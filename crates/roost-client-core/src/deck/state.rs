@@ -1,8 +1,7 @@
 //! The deck's slice of the store: the stored arrangement per folder, the pane
 //! id source, the arrangement a pending close restores on undo, and the route
 //! the last intent asked for. Mutated only by `deck::intent`; read by the web
-//! deck during render. Ports the record half of
-//! `apps/web/src/store/paneLayoutStore.ts` as the deck uses it.
+//! deck during render.
 
 use std::collections::BTreeMap;
 

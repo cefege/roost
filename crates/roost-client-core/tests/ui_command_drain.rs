@@ -2,10 +2,8 @@
 //! session resolution, the store-owned spotlight, and the acknowledged apply
 //! kept apart from both.
 //!
-//! Pins `handleUiCommand` from `apps/web/src/lib/uiCommandDispatch.ts` and the
-//! `activeFolder` projection of `apps/web/src/lib/uiLayoutApply.ts`. v2 had no
-//! unit test for the shell half; each case here is a v2 branch whose loss a
-//! user would see as a command that silently did the wrong thing.
+//! Each case is a branch whose loss a user would see as a command that
+//! silently did the wrong thing.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod layout_support;

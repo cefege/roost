@@ -2,7 +2,7 @@
 //!
 //! This is the piece `Effect::Rpc` names but cannot be. The core asks for a
 //! call; a host performs it; this is what the two of them agree the call LOOKS
-//! like on the way out, and it is where v2's interceptor rules live.
+//! like on the way out, and it is where the interceptor rules live.
 //!
 //! It is a struct over one string — the tab id — because that is the only thing
 //! a Connect request carries that the core does not already know. It holds no

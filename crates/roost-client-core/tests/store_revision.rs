@@ -316,8 +316,8 @@ fn the_credential_boundary_is_one_mutation_and_one_bump() {
         .expect("a uuid is a usable session id");
     assert!(store.spawns.is_client_only(SESSION_ONE));
     // The fixture writes the field directly: the INSERT is the Sync projector's
-    // (`projector.ts` folds a pair request in), and `mutations.ts` only ever
-    // deletes one. What this test is about is the boundary that empties it.
+    // and mutations only ever delete one. What this test is about is the
+    // boundary that empties it.
     store.pair_requests.insert(
         "ephemeral-1".to_owned(),
         PairRequest {

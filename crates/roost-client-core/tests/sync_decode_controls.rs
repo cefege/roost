@@ -2,9 +2,6 @@
 //! builds and applied through `ClientCore::handle`: the pair set and its
 //! paired-browser notice, the `subscribed` and `domain_reset` barriers, UI
 //! state and commands, relocation, and route/probe answers.
-//!
-//! Ports v2 `apps/web/tests/pairedBrowserNotice.test.ts` and the pair, UI and
-//! control arms of `apps/web/src/store/sync-frame.ts` / `sync-inbound.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod sync_decode_support;
@@ -59,8 +56,8 @@ fn a_pair_snapshot_replaces_the_set_so_a_missed_removal_cannot_linger() {
 
 #[test]
 fn a_completed_pairing_drops_the_card_and_announces_the_new_browser_once() {
-    // v2 pairedBrowserNotice.test.ts "drops the approved card and announces the
-    // new browser once".
+    // A completed pairing drops the approved card and announces the new
+    // browser once.
     let (mut core, generation) = ready_core();
     let id = "c".repeat(32);
     let arm = pair_arm(PairKind::Pending(Box::new(pending(&id))));
@@ -119,7 +116,7 @@ fn described(browser: &str, os: &str, city: &str, region: &str, country: &str) -
 
 #[test]
 fn the_notice_names_browser_and_os_then_the_most_specific_place() {
-    // v2 pairedBrowserNotice.test.ts `formatPairedBrowserLabel`, both cases.
+    // The label formatting, both cases.
     let label = |browser: PairedBrowser| browser.announcement_label();
     assert_eq!(
         label(described("Chrome", "macOS", "Berlin", "Berlin", "DE")),
@@ -145,7 +142,7 @@ fn the_notice_names_browser_and_os_then_the_most_specific_place() {
 
 #[test]
 fn a_malformed_subscribed_or_domain_reset_is_refused() {
-    // v2 handleSubscribed / handleDomainReset throw, which closes the link.
+    // A malformed `subscribed` or `domain_reset` closes the link.
     let mut incomplete = subscribed_arm(SOCKET);
     if let Frame::Subscribed(value) = &mut incomplete {
         value.generations.pop();

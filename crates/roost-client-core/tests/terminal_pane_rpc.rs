@@ -1,4 +1,4 @@
-//! A terminal pane's two direct calls encode the fields v2's call sites send,
+//! A terminal pane's two direct calls encode the fields the call sites send,
 //! and a history page decodes to exactly the rows and floor the coordinator
 //! served — a page with an unreadable row is an error, never a shorter page.
 #![allow(clippy::unwrap_used, clippy::expect_used)]

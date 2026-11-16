@@ -2,8 +2,6 @@
 //! lands in the pane it was opened from, a split lands beside its pane, and a
 //! refusal is an error card that commits no layout and asks for no route.
 //! Called by the web deck's spawn flow, whose events `handle_event` applies.
-//! Ports the answer handling of `newTab` and `split` in
-//! `apps/web/src/components/deck/terminal-deck-operations.ts`.
 
 use roost_protocol::layout::document::LayoutDirection;
 

@@ -1,8 +1,8 @@
 //! WebRTC offer/answer setup for the attachment-specific peer connection. A pure
 //! state machine: an offer is settled from local SDP, an answer is admitted only
-//! when it names this peer id and this worker epoch. Ported from
-//! `attachmentPeerSignaling.ts`. Depends on `roost_protocol::terminal_peer::sdp`
-//! for the shared inspection and browser-candidate filter.
+//! when it names this peer id and this worker epoch. Depends on
+//! `roost_protocol::terminal_peer::sdp` for the shared inspection and
+//! browser-candidate filter.
 
 use std::fmt;
 

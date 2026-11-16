@@ -15,12 +15,6 @@
 //! response types for the same reason, and only `PairApprove`/`PairDeny` — which
 //! carry a bare `ok` with no client-side state machine behind them — get a type
 //! of their own.
-//!
-//! v2 call sites: `apps/web/src/store/auth/pair-approval-lifecycle.ts:128-147`
-//! (`pairApprovalStatus`, `pairDeny`), `PairApprovalProvider.tsx:183-187`
-//! (`pairApprove`), `onboarding-pairing-ceremony.ts:202,247,343`
-//! (`pairCreate`, `pairPoll`, `pairConfirm`) and
-//! `store/auth/redeemPairToken.ts:36` (`authRedeemBrowser`).
 
 use roost_proto::{
     AuthRedeemBrowserRequest as PbRedeemRequest, AuthRedeemBrowserResponse as PbRedeemResponse,

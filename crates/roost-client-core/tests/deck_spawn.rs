@@ -1,7 +1,6 @@
 //! A deck spawn's answer against a real core: a refused split is an error card
 //! that commits no layout and asks for no route, and admitted spawns land in
-//! the pane they were asked from. Ports
-//! `apps/web/tests/terminalDeckOperations.split.test.ts`.
+//! the pane they were asked from.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod deck_support;

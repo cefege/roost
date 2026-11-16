@@ -1,8 +1,7 @@
 //! Closing a deck tab and undoing it: land the view on the tab the post-close
 //! arrangement will actually show BEFORE the kill round-trips, and keep the
-//! pre-close tiling for the undo. Called by `deck::intent`. Ports
-//! `closeSessionOp` from `apps/web/src/lib/deckOps.ts` and the deck half of
-//! `siblingOrHomeHref` (`apps/web/src/lib/closeSession.ts`).
+//! pre-close tiling for the undo. Called by `deck::intent`; it also names the
+//! sibling-or-home route the close lands on.
 
 use super::{DeckFolder, commit, deck_tab_path};
 use crate::platform::KeyValueStore;

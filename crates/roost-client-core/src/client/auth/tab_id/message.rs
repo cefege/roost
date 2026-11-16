@@ -1,9 +1,8 @@
-//! The claim channel's one message shape, `{ type, id, nonce }` (v2
-//! `apps/web/src/client/auth/tab-id.ts` `postOccupied`/`handleClaimMessage`).
+//! The claim channel's one message shape, `{ type, id, nonce }`.
 //! Split from `tab_id` so the decision table reads apart from the wire shape;
 //! read and written by `roost-web`'s `platform::tab_id`.
 
-/// One message on the claim channel (v2 `{ type, id, nonce }`).
+/// One message on the claim channel: `{ type, id, nonce }`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClaimMessage {
     /// "Does any document own `id`?"

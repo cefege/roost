@@ -54,8 +54,7 @@ pub fn handle_event(
         ClientEvent::BootstrapRequested => {
             // Identity is the only serial prerequisite: every authoritative list
             // is a domain hydration started by the `subscribed` announcement, so
-            // nothing is published before the socket installs its generations
-            // (`apps/web/src/store/sync-bootstrap.ts:162-199`).
+            // nothing is published before the socket installs its generations.
             out.push(Effect::Rpc(RpcCall::CoordIdentity {
                 call_id: store.next_call_id(),
             }));
@@ -125,8 +124,7 @@ pub fn handle_event(
             store.sessions = crate::sessions::SessionPlane::new();
             store.find_results.clear();
             // The recovery cursor goes with the credential. A persisted global
-            // cursor would make the next socket's initial history invisible
-            // (`apps/web/src/store/sync-frame.ts:55-69`).
+            // cursor would make the next socket's initial history invisible.
             store.sync.watermark.reset(storage);
             store.terminal_clipboard_requests.clear();
             store.clipboard_history.clear();

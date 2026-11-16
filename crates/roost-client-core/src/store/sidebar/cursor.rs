@@ -1,7 +1,7 @@
 //! The sidebar's keyboard cursor: the row order the Folders panel publishes
 //! and the highlighted index, so the global ↑/↓/⏎ handler and the rendered
-//! rows agree on one row. Ports `apps/web/src/lib/sidebarCursor.ts`. FolderList
-//! publishes; the keyboard shortcuts read and move it.
+//! rows agree on one row. FolderList publishes; the keyboard shortcuts read
+//! and move it.
 //!
 //! The cursor is NOT "selected": selected is the URL match (`data-selected`),
 //! the cursor is the keyboard highlight (`data-cursor`).
@@ -10,7 +10,7 @@
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SidebarCursor {
     ids: Vec<String>,
-    /// `None` = no row highlighted (v2's `-1`).
+    /// `None` = no row highlighted.
     index: Option<usize>,
 }
 

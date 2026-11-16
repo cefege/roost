@@ -5,9 +5,7 @@
 //! Called by `candidate::fold_into_candidate` (a candidate earned its baseline),
 //! by `apply_frame` and `handle_direct_frame` (a claim's answer) and by the
 //! sweep (drain and answer deadlines, fallback retries). The lane state is
-//! `terminal::input::router::claim`'s. Ported from
-//! `apps/web/src/store/transport/terminal-peer-promotions.ts` and
-//! `terminal-peer-fallback.ts`.
+//! `terminal::input::router::claim`'s.
 
 mod deadlines;
 
@@ -81,7 +79,7 @@ pub(super) fn advance_promotion(
             now_ms
         }
     };
-    // v2 `drain`: the old route's started batches settle before the worker is
+    // Drain: the old route's started batches settle before the worker is
     // told the route moved, or one of them could be refused as from a stale
     // route after it was already written.
     let old_route = store
@@ -176,8 +174,8 @@ pub(crate) fn settle_route_result(
     }
 }
 
-/// Whether input on `candidate` is written under a claimed route epoch (v2
-/// `inputRouteSupported`). A peer always is: its worker refuses peer input
+/// Whether input on `candidate` is written under a claimed route epoch.
+/// A peer always is: its worker refuses peer input
 /// with no epoch. Loopback is when the worker's grant says it implements
 /// `terminal-input-route-v1`.
 fn claims_input_route(store: &Store, candidate: &TerminalToken, now_ms: u64) -> bool {
@@ -242,10 +240,10 @@ fn commit_candidate(
     }
 }
 
-/// End a promotion that will not commit (v2 `cancelPromotion`). Its candidate
+/// End a promotion that will not commit. Its candidate
 /// goes; its held input is released onto the route still in charge — unless
 /// the claim may already have moved the worker's route, in which case Sync has
-/// to claim it back first (v2 `recoverOrRelease`).
+/// to claim it back first.
 fn abandon_promotion(
     store: &mut Store,
     session_id: &str,
@@ -290,8 +288,7 @@ fn abandon_promotion(
 }
 
 /// End the hold and send what it kept on `route` — when the epoch the worker
-/// requires for it is the one this lane holds (v2 `hold.release(destination)`,
-/// then `release()` when the destination was refused).
+/// requires for it is the one this lane holds; otherwise the lane is blocked.
 fn release_held_onto(
     store: &mut Store,
     session_id: &str,

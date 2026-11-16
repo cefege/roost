@@ -1,8 +1,7 @@
 //! The credential that opens the loopback door: its scope, its lifetime, its
 //! single use, and what a renewal hands over in its place.
 //!
-//! Ported from `apps/web/tests/localTerminal.test.ts`, which drives a fake socket
-//! because the v2 class owns one. The mint and fence lifecycle behind these
+//! The mint and fence lifecycle behind these
 //! answers is `local_terminal_grants.rs`; this file asks only what one answer is
 //! allowed to do once the browser holds it. The single-use rule is proved by the
 //! worker's own behaviour: a replay is answered by REPLACING the socket already

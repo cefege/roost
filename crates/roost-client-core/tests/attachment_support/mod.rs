@@ -15,7 +15,7 @@
 //! Every named refusal in the loader has a test here, because each one is a
 //! different reason a user sees a different thing happen.
 //!
-//! The mutation experiment for this file, in the slice report: in
+//! The mutation experiment for this file: in
 //! `upload_attachment_direct`, delete the `RouteOutcome::Refused` arm that lets
 //! the peer route follow a refused loopback, and
 //! `fences_a_mismatched_door_and_advances_a_pre_send_loopback_failure_to_webrtc`

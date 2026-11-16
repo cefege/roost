@@ -5,10 +5,9 @@
 //! and because a partial write to it must not be possible. The parse is
 //! PER-KEY and total: a member this build does not know is dropped, a member
 //! whose value is not a boolean keeps its default, and a document that is not
-//! JSON at all resolves to the whole default. v2 does the same
-//! (`notifyPrefs.ts:35-45`) and the reason is the same one every other preference
-//! here follows — a value this build did not write is not a value it should act
-//! on.
+//! JSON at all resolves to the whole default. The reason is the one every other
+//! preference here follows — a value this build did not write is not a value it
+//! should act on.
 //!
 //! Desktop delivery defaults OFF because enabling it is not a preference: it is
 //! an explicit user gesture that has to grant permission and complete the push

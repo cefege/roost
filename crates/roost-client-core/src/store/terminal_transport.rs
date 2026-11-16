@@ -3,8 +3,7 @@
 //! owns a baseline, so a candidate that merely registered never leaks into UI.
 //!
 //! Read by roost-web's `components::terminal::terminal_transport_indicator`, the
-//! pane's `data-terminal-transport` attribute, and the connection banner. Ports
-//! `apps/web/src/store/local-transport-indicator.ts`.
+//! pane's `data-terminal-transport` attribute, and the connection banner.
 
 use crate::store::Store;
 use crate::store::sync_feeds::ProbeRoute;
@@ -22,8 +21,8 @@ pub struct TransportPresentation {
 }
 
 impl TransportPresentation {
-    /// The `data-terminal-transport` spelling v2 renders: `webrtc` for a peer,
-    /// and `unconfirmed` while no carrier is confirmed.
+    /// The `data-terminal-transport` spelling the pane renders: `webrtc` for a
+    /// peer, and `unconfirmed` while no carrier is confirmed.
     pub const fn kind_attribute(&self) -> &'static str {
         match self.kind {
             None => "unconfirmed",
@@ -119,8 +118,7 @@ pub const fn presentation_for(kind: Option<TerminalTransport>) -> TransportPrese
 /// — a peer that stopped answering is not a terminal the reader still has.
 ///
 /// The coordinator-outage banner reads this: a live direct terminal makes an
-/// outage a partial degradation rather than "sessions paused". Ports v2
-/// `hasLivenessQualifiedDirectTerminal`.
+/// outage a partial degradation rather than "sessions paused".
 pub fn has_liveness_qualified_direct_terminal(store: &Store) -> bool {
     store.terminal.iter().any(|(session_id, replica)| {
         let Some(token) = replica.generation() else {

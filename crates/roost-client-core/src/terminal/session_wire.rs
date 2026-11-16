@@ -5,7 +5,7 @@
 //! admission is: `wire_received` is how a stuck session is told "the sender
 //! thinks it is on X" apart from "the sender is on X and we are not accepting
 //! it". Written by `session`'s admission and by `handle_sync::candidate`'s
-//! promotion commit. Ports v2 `noteWireFrame` (`terminal-stream-replica.ts`).
+//! promotion commit.
 
 use crate::terminal::session::TerminalSession;
 
@@ -19,9 +19,9 @@ impl TerminalSession {
 
     /// Take over the wire record of the replica a promotion replaces.
     ///
-    /// The record is what the CANONICAL path received (v2's `noteWireFrame` runs
-    /// only in canonical dispatch); a candidate's staging frames are not part of
-    /// it, so a route that won before any fallback frame arrived reads none.
+    /// The record is what the CANONICAL path received (only canonical dispatch
+    /// records it); a candidate's staging frames are not part of
+    /// it, so a route that won before any fallback frame arrives reads none.
     pub(crate) fn inherit_wire_record(&mut self, replaced: Option<&TerminalSession>) {
         self.wire_stream_id = replaced.and_then(|replica| replica.wire_stream_id.clone());
         self.wire_grid_epoch = replaced.and_then(|replica| replica.wire_grid_epoch.clone());

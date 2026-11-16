@@ -36,16 +36,14 @@ pub fn fallback_effects(
 const RETRY_BASE_MS: u64 = 1_000;
 const RETRY_MAX_MS: u64 = 30_000;
 
-/// How long a peer's failure holds its worker before a new peer is allocated. v2
-/// holds a worker down for 30 s once its peer has been ACTIVE
-/// (`terminal-peer.ts:24,275`): a peer that dropped after serving sessions is far
-/// likelier to drop again than one that never came up.
+/// How long a peer's failure holds its worker before a new peer is allocated.
+/// A worker is held down for 30 s once its peer has been ACTIVE: a peer that
+/// dropped after serving sessions is far likelier to drop again than one that
+/// never came up.
 pub const PEER_HOLD_DOWN_MS: u64 = 30_000;
 
 /// Bounded exponential backoff for the peer attempt loop: 1s, 2s, 4s, capped at
-/// 30s — the shape v2 runs through `backoffDelayMs(failureCount - 1,
-/// { baseMs: 1_000, maxMs: 30_000 })` (`terminal-peer.ts:277`), spelled out
-/// because that helper has no v3 owner.
+/// 30s, spelled out because there is no shared backoff helper to call.
 pub fn retry_delay_ms(attempt: u32) -> u64 {
     RETRY_BASE_MS
         .saturating_mul(1u64 << attempt.min(16))

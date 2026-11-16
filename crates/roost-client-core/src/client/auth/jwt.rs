@@ -134,11 +134,10 @@ pub fn build_unsigned_jwt(kid: &str, now_ms: u64) -> UnsignedJwt {
 /// Encode a raw ed25519 public key the way the `ssh_pubkey_b64` field expects.
 ///
 /// **STANDARD base64, padded** — not the unpadded base64url the JWT segments
-/// use. v2 built this field with `btoa`
-/// (`apps/web/src/client/auth/web-key.ts:108-111`) and the coordinator decodes
-/// it as standard base64, so a base64url encoder here would produce a key the
-/// approver's browser can never recognise, and the failure would surface as a
-/// pairing request that is simply never approved.
+/// use. The coordinator decodes this field as standard base64, so a base64url
+/// encoder here would produce a key the approver's browser can never
+/// recognise, and the failure would surface as a pairing request that is
+/// simply never approved.
 pub fn public_key_b64(raw: &[u8; 32]) -> String {
     BASE64_STANDARD.encode(raw)
 }

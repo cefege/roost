@@ -4,7 +4,7 @@
 //!
 //! Owned by `client::carriers`, held by a host's carrier and driven by that
 //! host's tick. Holds no timer: every deadline is a comparison against the clock
-//! the caller passes. Ports v2 `client/carriers/terminal-peer-probe-state.ts`.
+//! the caller passes.
 
 use std::collections::BTreeMap;
 
@@ -91,7 +91,7 @@ impl TransportProbeState {
     }
 
     /// Every probe whose deadline has passed, removed. Any lapse withdraws the
-    /// carrier's qualification, as v2's timeout does.
+    /// carrier's qualification.
     pub fn expire(&mut self, now_ms: u64) -> Vec<String> {
         let lapsed: Vec<String> = self
             .pending

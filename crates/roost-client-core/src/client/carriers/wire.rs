@@ -13,10 +13,7 @@
 //! carrier that has not authenticated cannot be handed a cell frame, which is
 //! the pre-hello rule `local_terminal.proto:18` states.
 //!
-//! Ports the frame vocabulary of
-//! `apps/web/src/store/transport/local-terminal.ts` (`sendFrame`/`receiveFrame`)
-//! and `apps/web/src/store/transport/terminal-peer-connection.ts`; the peer lane
-//! framing above it is `roost_protocol::terminal_peer::packets`.
+//! The peer lane framing above it is `roost_protocol::terminal_peer::packets`.
 
 use std::collections::BTreeSet;
 

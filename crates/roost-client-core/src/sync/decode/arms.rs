@@ -1,11 +1,10 @@
-//! Every `FirehoseFrame` oneof arm, with its proto field and the lane v2 puts
-//! it on: an unsequenced control, or a sequenced application frame of one
+//! Every `FirehoseFrame` oneof arm, with its proto field and the lane it rides
+//! on: an unsequenced control, or a sequenced application frame of one
 //! domain.
 //!
 //! Read by `decode` for the meta rule and by the proto-divergence test, which
-//! diffs this table against `protocol/proto/roost/v1/sync.proto`. The lanes are
-//! v2's (`apps/coord/src/sync/sync-feed-frames.ts:130-165`) and the Rust
-//! coordinator's (`crates/roost-coord/src/sync_ws/frame_meta.rs`); the two agree.
+//! diffs this table against `protocol/proto/roost/v1/sync.proto`. The lanes
+//! match the coordinator's (`crates/roost-coord/src/sync_ws/frame_meta.rs`).
 
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
 

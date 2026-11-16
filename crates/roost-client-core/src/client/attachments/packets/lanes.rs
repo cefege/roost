@@ -1,8 +1,7 @@
 //! Both lanes' packet state for one attachment peer, so attachment traffic can
-//! never borrow a terminal lane's queue or budget. Ported from
-//! `attachmentPeerPackets.ts`; the stall decision is a value a host asks about
-//! rather than a timer here. Depends on the queue, the assembler and the lane
-//! table in the parent module.
+//! never borrow a terminal lane's queue or budget. The stall decision is a
+//! value a host asks about rather than a timer here. Depends on the queue, the
+//! assembler and the lane table in the parent module.
 
 use super::assembler::AttachmentPacketAssembler;
 use super::queue::AttachmentPacketQueue;

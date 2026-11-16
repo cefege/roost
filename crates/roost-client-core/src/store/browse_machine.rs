@@ -13,9 +13,7 @@
 //! the directory they are now in — the same shape the rest of the core fences
 //! its asynchronous answers with.
 //!
-//! Ported from `apps/web/src/lib/browseHistory.ts` and the state half of
-//! `apps/web/src/components/browse/browseDirectoryListing.ts`. Depends on
-//! `browse_entries`, `browse_paths` and `roost_protocol::wire`.
+//! Depends on `browse_entries`, `browse_paths` and `roost_protocol::wire`.
 
 use roost_protocol::wire::{Session, SessionId, WorkerFp};
 use std::collections::BTreeMap;

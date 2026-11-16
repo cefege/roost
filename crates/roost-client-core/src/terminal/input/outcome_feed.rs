@@ -2,8 +2,7 @@
 //! view, the immediate admission answer and, later, the settled outcome, so the
 //! pane's predictive echo can place, acknowledge or wipe its guesses. Fed by
 //! `handle_terminal_input` (admission) and `InputRouter` settlement; drained by
-//! roost-web's terminal pane. Ports the admission watch of
-//! `apps/web/src/components/terminal/cell-terminal-input.ts`.
+//! roost-web's terminal pane.
 
 use std::collections::{BTreeMap, VecDeque};
 

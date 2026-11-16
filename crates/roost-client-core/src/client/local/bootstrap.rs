@@ -9,10 +9,8 @@
 //! probed door, because two parsers are how the two would disagree on what
 //! counts as an answer.
 //!
-//! Ported from `apps/web/src/client/carriers/localBootstrap.ts` and the
-//! `coordBase` it feeds (`apps/web/src/client/rpc/connect.ts:69-93`). Storage
-//! and `location` are host inputs here, passed as arguments, so the rule is
-//! provable without a document.
+//! Storage and `location` are host inputs here, passed as arguments, so the
+//! rule is provable without a document.
 
 use serde_json::Value;
 
@@ -165,7 +163,7 @@ pub fn read_serving_origin(status: Option<u16>, payload: &str) -> BootstrapOutco
     }
 }
 
-/// The coordinator base every Connect call goes to, as `connect.ts` resolves it.
+/// The coordinator base every Connect call goes to.
 ///
 /// A worker-served bootstrap wins outright: that page was handed to it BY a
 /// worker, and the worker's own answer is the only one that can say where its

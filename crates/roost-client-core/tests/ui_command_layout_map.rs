@@ -1,10 +1,10 @@
 //! The legacy UI commands mapped onto a folder's pane arrangement, and the
 //! broadcast rule they travel under.
 //!
-//! Ports `apps/web/tests/uiCommandDispatch.test.ts`: valid commands mirror the
-//! user gestures, a bad reference or argument is refused with the input
-//! untouched, and the acknowledged apply never enters this mapper. The
-//! `reshape_folder_layout` cases pin v2's `applyPure` resolve → map → commit.
+//! Valid commands mirror the user gestures, a bad reference or argument is
+//! refused with the input untouched, and the acknowledged apply never enters
+//! this mapper. The `reshape_folder_layout` cases pin the resolve → map →
+//! commit sequence.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod layout_support;

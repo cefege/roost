@@ -2,8 +2,7 @@
 //! diagnostic can tell a settled view from one whose intent moved on under an
 //! older acknowledgement.
 //!
-//! Ported from v2 `apps/web/src/store/terminal-stream-view-commands.ts`: the
-//! handle status is `pending` while a newer intent is out than the one last
+//! The view status is `pending` while a newer intent is out than the one last
 //! acknowledged, and `accepted`/`rejected` only while the answer still speaks
 //! for the revision the pane currently wants sent.
 #![allow(clippy::unwrap_used, clippy::expect_used)]

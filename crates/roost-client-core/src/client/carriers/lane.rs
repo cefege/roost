@@ -356,9 +356,9 @@ mod tests {
         );
     }
 
-    /// A page the worker itself serves must not allocate a peer, which is the
-    /// whole rule `terminal-peer.spec.ts:62` is named for. The negative is the
-    /// assertion: a settled SAME HOST answer must not even arm a re-check.
+    /// A page the worker itself serves must not allocate a peer. The negative
+    /// is the assertion: a settled SAME HOST answer must not even arm a
+    /// re-check.
     #[test]
     fn a_same_host_answer_parks_the_machine_without_a_peer() {
         let mut lane = CarrierLane::new();

@@ -1,8 +1,7 @@
 //! One authenticated loopback transport for one direct attachment upload: the
 //! peer conversation with no packetisation, because a loopback socket carries a
-//! whole frame. Ported from `attachment-loopback.ts`. Depends on
-//! `conversation` for the frame rules; the socket, the read and the write are
-//! the host's.
+//! whole frame. Depends on `conversation` for the frame rules; the socket, the
+//! read and the write are the host's.
 
 use roost_proto::__buffa::oneof::attachment_transfer_client_frame::Frame as ClientFrame;
 use roost_proto::__buffa::oneof::attachment_transfer_server_frame::Frame as ServerFrame;

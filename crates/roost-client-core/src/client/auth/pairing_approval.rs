@@ -6,9 +6,6 @@
 //! they do share is the rule that the code an approval binds is the code the
 //! human was already told, which is why it is generated once, persisted, and
 //! read back rather than regenerated on a retry — see `ceremony_store`.
-//!
-//! Ported from `apps/web/src/client/auth/pairing-approval.ts` and the approver
-//! half of `onboarding-pairing-ceremony.ts`.
 
 use crate::client::auth::ceremony::{
     PAIRING_CEREMONY_VERSION, RandomSource, generate_pair_verification_code,

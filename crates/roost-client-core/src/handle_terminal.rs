@@ -10,9 +10,6 @@
 //! in this file, an acknowledgement arriving is in `views`, the attempt that
 //! moves a pane from one transport to another is in `staging`, and which
 //! workers keep a peer ready before any pane asks is in `prewarm`.
-//!
-//! Ported from `apps/web/src/store/terminal-stream-view.ts` (leases) and
-//! `apps/web/src/store/terminal-stream-transport.ts` (carriers).
 
 mod carriers;
 mod prewarm;

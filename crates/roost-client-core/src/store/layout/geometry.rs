@@ -1,10 +1,9 @@
 //! Pixels from ratios: the rect every pane paints at, and the divider handles
 //! between them.
 //!
-//! Ported from the geometry half of `apps/web/src/store/paneLayout.ts`. The
-//! RATIO IS THE TRUTH and the rects are derived, so a resize re-derives every
-//! pane rather than rescaling the last frame's boxes -- a scaled box is a box
-//! whose scroll position no longer describes the same rows.
+//! The RATIO IS THE TRUTH and the rects are derived, so a resize re-derives
+//! every pane rather than rescaling the last frame's boxes -- a scaled box is
+//! a box whose scroll position no longer describes the same rows.
 //!
 //! The ratio a rect is derived from is the one in the tree, clamped by
 //! `reconcile` on the way in. The clamp here is the second half of that

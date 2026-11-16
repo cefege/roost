@@ -280,10 +280,10 @@ fn logical_view_for_wire(store: &Store, session_id: &str, wire_view_id: &str) ->
 
 /// Swap the promoted replica in, and only THEN retire what it replaced.
 ///
-/// The ordering is the whole safety argument, and it is v2's
-/// (`TerminalPromotionCandidate`): the candidate publishes NEW ids without
-/// touching Sync, and on commit it adopts them before the old ids are retired on
-/// the old transport. Reversed, a worker that dropped the old lease between the
+/// The ordering is the whole safety argument: the candidate publishes NEW ids
+/// without touching Sync, and on commit it adopts them before the old ids are
+/// retired on the old transport. Reversed, a worker that dropped the old lease
+/// between the
 /// two would have no view at all — and the reader would be left with painted rows
 /// and a stream nothing is feeding.
 pub(super) fn commit_promotion(

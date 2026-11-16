@@ -1,7 +1,6 @@
 //! Cumulative terminal counts per folder for the folder picker: how many shell
 //! sessions on one machine live in each listed folder or anywhere beneath it.
-//! Ports `apps/web/src/lib/folderActivity.ts`; the browse picker reads it.
-//! Path identity is the host's `WorkerPaths` codec.
+//! The browse picker reads it. Path identity is the host's `WorkerPaths` codec.
 
 use std::collections::BTreeMap;
 

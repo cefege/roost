@@ -127,7 +127,7 @@ fn a_published_view_is_an_active_lease_at_its_geometry() {
 
 #[test]
 fn a_parked_or_removed_view_is_an_inactive_lease_with_no_geometry() {
-    // v2 `changeIntent(view, false, 0, 0)` for both setInactive and dispose.
+    // Both setInactive and dispose send an inactive lease with no geometry.
     for intent in [ViewIntent::Park, ViewIntent::Unpublish] {
         let frame = sent(&SyncCommand::TerminalView {
             session_id: SESSION.to_owned(),

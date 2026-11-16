@@ -5,7 +5,7 @@
 //! that burns its window while the user is reading it. All three are decided in
 //! `store::toasts`, not at the call sites.
 //!
-//! The mutation experiment for this file is in the slice report: make
+//! The mutation experiment for this file: make
 //! `add_toast` push onto a `Vec` instead of a map keyed by `ToastId`, and
 //! `the_same_event_cannot_produce_two_toasts` must fail.
 

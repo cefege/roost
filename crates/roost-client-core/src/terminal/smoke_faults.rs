@@ -1,9 +1,8 @@
 //! Smoke-armed terminal frame faults, fenced to the generation they were armed
 //! under: drop every Sync cell frame for a session (blackhole), or drop exactly
 //! one non-full frame after it was acknowledged (wire-delta drop). Armed by
-//! roost-web's smoke backdoor through `store::sync_smoke`; consumed by
-//! `handle_sync::apply_frame` before a frame reaches its replica. Ports the fault
-//! half of `apps/web/src/store/terminal-stream-diagnostics.ts:209-267`.
+//! a host's smoke hooks through `store::sync_smoke`; consumed by
+//! `handle_sync::apply_frame` before a frame reaches its replica.
 
 use std::collections::BTreeMap;
 
@@ -18,8 +17,7 @@ pub enum FaultedFrameKind {
     Chunk,
 }
 
-/// What the faults did to one session, for the terminal diagnostic snapshot
-/// (`faults` in v2's `TerminalStreamDiagnosticsSnapshot`).
+/// What the faults did to one session, for the terminal diagnostic snapshot.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TerminalFaultCounts {
     /// Frames and chunks the blackhole swallowed.

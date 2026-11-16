@@ -1,7 +1,5 @@
 //! The tab header names a carrier only when the canonical replica owns a
-//! baseline on it: a candidate that merely registered is never shown. Ports
-//! `apps/web/tests/localTransportIndicator.test.ts` "reports only an elected
-//! carrier that owns a baseline".
+//! baseline on it: a candidate that merely registered is never shown.
 
 use roost_client_core::store::terminal_transport::{
     confirmed_transport, presentation_for, transport_attribute,

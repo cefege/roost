@@ -1,8 +1,8 @@
 //! UI chrome: the sidebar, mobile drawer, and folder view.
 //!
-//! Kept out of the wire-shaped state on purpose (`uiStore.ts:1-4`): transient
-//! chrome must not churn the records the Sync projector folds, and a sidebar
-//! that re-renders because a drawer opened is a repaint a user can see.
+//! Kept out of the wire-shaped state on purpose: transient chrome must not
+//! churn the records the Sync projector folds, and a sidebar that re-renders
+//! because a drawer opened is a repaint a user can see.
 //!
 //! Three of the four fields persist per device. `sidebar_open` does not persist:
 //! it is the mobile drawer, and a reload on a phone should not open it over the
@@ -12,7 +12,6 @@
 //! way in and on the way out of storage. A stored width is a string some earlier
 //! build wrote and some later build reads, and a bound applied on only one side
 //! is how a sidebar ends up 4 px or 4000 px wide.
-//! Ported from `apps/web/src/store/uiStore.ts`.
 
 use crate::platform::KeyValueStore;
 use crate::store::Store;

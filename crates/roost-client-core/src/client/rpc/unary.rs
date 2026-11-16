@@ -1,12 +1,11 @@
 //! A Connect unary call a UI surface makes directly, and the Connect error it
 //! can come back with.
 //!
-//! v2's components call `coordClient.<method>(…)` themselves and read the
-//! answer (`apps/web/src/client/rpc/connect.ts`); the store learns the effect
-//! later through a Sync delta. `UnaryMethod` is that shape without the wire
-//! types leaking out of this crate: each request is a plain Rust struct in
-//! `client::rpc::calls::<domain>` that encodes itself and decodes its answer
-//! into Rust types. The host (roost-web's `CoordRpc`) moves the bytes.
+//! A UI surface calls a method itself and reads the answer; the store learns
+//! the effect later through a Sync delta. `UnaryMethod` is that shape without
+//! the wire types leaking out of this crate: each request is a plain Rust
+//! struct in `client::rpc::calls::<domain>` that encodes itself and decodes its
+//! answer into Rust types. The host (roost-web's `CoordRpc`) moves the bytes.
 
 use serde_json::Value;
 
@@ -148,7 +147,7 @@ pub enum CallError {
 }
 
 impl CallError {
-    /// v2 `classifyAuthFailure(err, path)` for this error on `method`.
+    /// The auth-failure classification for this error on `method`.
     pub fn auth_failure_kind(&self, method: &str) -> AuthFailureKind {
         let cause = match self {
             Self::Connect(error) => AuthFailureCause {

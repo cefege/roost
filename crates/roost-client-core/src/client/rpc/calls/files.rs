@@ -1,8 +1,7 @@
 //! Reading a worker file through the coordinator, one bounded chunk per call.
 //!
 //! Called by roost-web's smoke backdoor (`downloadWorkerFile`) through
-//! `CoordRpc::call`. v2 call site: `apps/web/src/smoke/smokeFileTransferProbes.ts:36-45`
-//! (`coordClient.filesReadChunk`).
+//! `CoordRpc::call`.
 
 use roost_proto::{FilesReadChunkRequest, FilesReadChunkResponse};
 

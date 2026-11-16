@@ -21,15 +21,13 @@
 //! Speed is an exponential moving average over per-tick samples, seeded on the
 //! first tick so it measures actual byte flow rather than the time since the
 //! card appeared. The samples are bookkeeping beside the cards, not cards: they
-//! change without a `revision`, exactly as v2 kept them in a non-reactive map
-//! (`apps/web/src/store/transfers.ts:3-5`).
+//! change without a `revision`, in a non-reactive map.
 //!
-//! Ported from `apps/web/src/store/transfers.ts`; the deviations are the
-//! `running` restart, a `stalled` state for a card that stopped advancing where
-//! v2 had none, an `Ambiguous` state for a write whose acknowledgement was
-//! lost — a card v2 showed as a plain error, and which this crate must not let
-//! a reader mistake for one — `Option` in place of v2's `-1`/`0` sentinels, and
-//! deadlines as data because this crate has no timer.
+//! Beyond a plain running/done/failed lifecycle there is the `running`
+//! restart, a `stalled` state for a card that stopped advancing, and an
+//! `Ambiguous` state for a write whose acknowledgement was lost — a card a
+//! reader must not mistake for a plain error. Unknowns are `Option`, never
+//! `-1`/`0` sentinels, and deadlines are data because this crate has no timer.
 
 use crate::store::Store;
 
@@ -42,28 +40,25 @@ use self::record::RateSample;
 
 /// How long a successful or deduplicated card stays before it removes itself.
 ///
-/// v2's own number, at `transfers.ts:90-98`, and it applies to the same two
-/// states: an ERROR card does not take this window, because the failure text is
-/// what the user came to read. See [`record::TransferState::self_dismisses`].
+/// It applies to the same two states: an ERROR card does not take this window,
+/// because the failure text is what the user came to read. See
+/// [`record::TransferState::self_dismisses`].
 pub const TRANSFER_DISMISS_AFTER_MS: u64 = 2_000;
 
 /// How long a `running` card may go without advancing before the sweep calls it
 /// stalled. Long enough that a slow but live upload is never called stalled.
 ///
-/// v2 has no such state, so there is no v2 number: the sweep needs SOME bound,
-/// and one that fires on a healthy transfer would report a working upload as
-/// broken.
+/// The sweep needs SOME bound, and one that fires on a healthy transfer would
+/// report a working upload as broken.
 pub const TRANSFER_STALL_AFTER_MS: u64 = 15_000;
 
 /// Ticks closer together than this produce no rate.
 ///
-/// v2's `MIN_DELTA_S = 0.05` (`transfers.ts:42`) in milliseconds: the
-/// instantaneous figure off a 5 ms sample is noise, and an EMA fed noise drifts
-/// high.
+/// Fifty milliseconds: the instantaneous figure off a 5 ms sample is noise,
+/// and an EMA fed noise drifts high.
 const MIN_RATE_DELTA_MS: u64 = 50;
 
-/// The weight on the newest instantaneous rate. v2's `EMA_ALPHA`
-/// (`transfers.ts:41`).
+/// The weight on the newest instantaneous rate.
 const EMA_ALPHA: f64 = 0.4;
 
 pub use record::{
@@ -243,9 +238,8 @@ fn eta_from(speed_bps: Option<f64>, total: u64, done: u64) -> Option<u64> {
 
 /// Move a card to another state, if that is a legal edge from where it is.
 ///
-/// A refused edge is a caller bug and is logged as one: `attachments.ts:138-149`
-/// and `downloadWorkerFile.ts:31-65` are the only two callers, and neither
-/// reaches a terminal card. Returns whether the card changed.
+/// A refused edge is a caller bug and is logged as one: no caller is expected
+/// to reach a terminal card. Returns whether the card changed.
 pub fn mark_transfer_state(
     store: &mut Store,
     id: &str,

@@ -1,5 +1,5 @@
-//! A closed tab's PTY is killed once its undo window runs out (v2
-//! `closeSession.ts` `killAfterUndo`): a graceful kill at the deadline, a
+//! A closed tab's PTY is killed once its undo window runs out: a graceful kill
+//! at the deadline, a
 //! forced one if the graceful kill is refused, and a `Close failed:` card when
 //! the call itself fails.
 //!

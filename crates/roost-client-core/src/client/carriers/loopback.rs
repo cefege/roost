@@ -1,15 +1,15 @@
 //! The loopback probe: whether a loopback carrier is available BEFORE any
 //! WebRTC peer is allocated. Owned by `client::carriers`, asked by `Signalling`
 //! before every attempt. Until the probe answers, no peer may be allocated — the
-//! fast path wins (`smoke/terminal/terminal-peer.spec.ts:61`). Ported from
-//! `localWorkerDiscovery.ts` and the gate at `terminal-peer.ts:195`.
+//! fast path wins.
 
 /// How long the machine waits for a probe answer before it will consider
 /// allocating a peer at all.
 ///
-/// v2 parks in `idle` for this long and comes back, so a slow local door costs a
-/// short pause rather than a peer negotiation. Two seconds is the local door's
-/// own probe timeout plus the margin a loaded machine needs to answer it.
+/// The machine parks in `idle` for this long and comes back, so a slow local
+/// door costs a short pause rather than a peer negotiation. Two seconds is the
+/// local door's own probe timeout plus the margin a loaded machine needs to
+/// answer it.
 pub const LOOPBACK_GRACE_MS: u64 = 2_100;
 
 /// A worker's local UI door, as the page discovered it.
@@ -131,9 +131,9 @@ impl LoopbackProbe {
     ///
     /// The rule this exists for: NO while the answer is `Unanswered`, and NO
     /// while it is `SameHost`. A peer is allocated only once the probe has said
-    /// the page is somewhere else. v2 states this as an early return rather than
-    /// a predicate, and the difference matters — a predicate is a thing a caller
-    /// can be shown to hold.
+    /// the page is somewhere else. This is a predicate rather than an early
+    /// return, and the difference matters — a predicate is a thing a caller can
+    /// be shown to hold.
     pub fn permits_peer(&self) -> bool {
         self.answer == LoopbackAnswer::OtherHost
     }
@@ -142,9 +142,8 @@ impl LoopbackProbe {
     ///
     /// `None` means "settled, do not come back to it": a fast path that exists
     /// and a fast path that does not are both facts, and neither needs
-    /// re-asking every grace period. v2 only re-enters the probe check because
-    /// it also uses the return to schedule a retry, not because the answer could
-    /// have changed.
+    /// re-asking every grace period. The answer cannot change by being asked
+    /// again; only an unanswered probe is rechecked.
     pub fn recheck_after_ms(&self) -> Option<u64> {
         match self.answer {
             LoopbackAnswer::Unanswered => Some(LOOPBACK_GRACE_MS),

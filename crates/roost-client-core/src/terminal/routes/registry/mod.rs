@@ -11,7 +11,6 @@
 //! election rules are read when a connection arrives, and the staging rules are
 //! read when a frame does.
 //!
-//! Ported from `apps/web/src/store/terminal-stream-transport.ts:119-391`.
 //! Contract: `protocol/spec/direct-terminal.md`; the reasons are in
 //! `docs/phase4-client-contract.md` §8.
 
@@ -169,7 +168,7 @@ impl RouteRegistry {
     /// Widen every connection to `worker_fp` on `process_epoch` to a fresh
     /// grant's scope, and report what each one newly admits.
     ///
-    /// A grant may only ADD (v2 `TerminalPeerConnection.updateGrant`): a
+    /// A grant may only ADD: a
     /// connection whose admitted sessions the grant does not all name keeps its
     /// scope, because the worker is still carrying those PTYs over it.
     pub fn widen_grant(

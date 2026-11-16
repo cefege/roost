@@ -1,10 +1,9 @@
 //! The Sync-delivered UI command, read off the wire into this crate's types,
 //! and the broadcast rule the eight legacy commands travel under.
 //!
-//! Ports the frame reading of `apps/web/src/lib/uiCommandDispatch.ts` and
-//! `frameAccepted` from `apps/web/src/lib/uiCommandCore.ts`. Called by
-//! `dispatch::drain_ui_commands`; the layout document of an acknowledged apply
-//! goes through the shared adapter in `roost_protocol::proto_adapters`.
+//! Called by `dispatch::drain_ui_commands`; the layout document of an
+//! acknowledged apply goes through the shared adapter in
+//! `roost_protocol::proto_adapters`.
 
 use roost_proto::__buffa::oneof::ui_command::Command as WireCommand;
 use roost_protocol::proto_adapters::layout_document_proto::layout_document_from_proto;
@@ -71,8 +70,8 @@ pub enum InboundUiCommand {
     ApplyLayout(LayoutApplyCommand),
 }
 
-/// Read one queued frame. `None` for a frame naming no command, which v2
-/// drops before any targeting.
+/// Read one queued frame. `None` for a frame naming no command, which is
+/// dropped before any targeting.
 pub fn read_ui_command_frame(frame: &roost_proto::UiCommandFrame) -> Option<InboundUiCommand> {
     let command = frame.command.as_option()?.command.as_ref()?;
     let legacy = match command {

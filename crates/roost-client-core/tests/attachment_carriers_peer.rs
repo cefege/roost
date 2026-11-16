@@ -6,9 +6,9 @@
 //! the worker end of this conversation is `attachment_carriers_support`.
 //! The packet framing underneath the peer route is in `attachment_packets.rs`.
 //!
-//! The v2 names are kept verbatim. The mutation experiment, in the slice report:
-//! drop the `worker_epoch` comparison from `AttachmentConversation::admit_ready`
-//! and a Ready naming another epoch slips through.
+//! The mutation experiment: drop the `worker_epoch` comparison from
+//! `AttachmentConversation::admit_ready` and a Ready naming another epoch
+//! slips through.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

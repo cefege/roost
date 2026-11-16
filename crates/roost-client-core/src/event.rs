@@ -72,11 +72,10 @@ pub enum ClientEvent {
     },
     /// Bytes arrived on the Sync socket that `sync::decode` refused: not a
     /// frame, no frame, a control carrying a sequence, an application frame
-    /// without one, or a payload v2 treats as fatal.
+    /// without one, or a payload that fails a conversion the core treats as fatal.
     ///
     /// The link that delivered them is closed so the dial loop redials onto a
-    /// clean baseline (v2 `_consumeSyncFrame` → `_closeFailedSyncLink`,
-    /// `apps/web/src/store/sync-inbound.ts:53-83`). Nothing is applied or
+    /// clean baseline (`handle_sync::close_failed`). Nothing is applied or
     /// acknowledged: an acknowledgement would release records never applied.
     SyncFrameRefused {
         /// The generation whose socket delivered the bytes.
@@ -99,7 +98,7 @@ pub enum ClientEvent {
         /// The frame.
         frame: SyncFrame,
     },
-    /// The document became visible or hidden (v2 `isPageVisible`). A hidden
+    /// The document became visible or hidden. A hidden
     /// document parks its redial past the failure budget; a visible one never
     /// does, and becoming visible is a lifecycle wake.
     PageVisibilityChanged {
@@ -107,13 +106,13 @@ pub enum ClientEvent {
         visible: bool,
     },
     /// A page-lifecycle wake: `pageshow`, `focus`, `resume` (visible only) or
-    /// `online` (`allow_hidden`), v2 `installSyncLifecycleWake`.
+    /// `online` (`allow_hidden`).
     SyncWakeRequested {
         /// Whether a hidden document may act on it (`online` may).
         allow_hidden: bool,
     },
     /// A deliberate transport control: a manual reconnect, or one of the smoke
-    /// backdoor's partition controls (`apps/web/src/store/sync-smoke.ts`).
+    /// backdoor's partition controls.
     SyncTransportControl(crate::handle_sync::lifecycle::TransportControl),
     /// A Connect unary call answered.
     RpcResultReceived(RpcResult),

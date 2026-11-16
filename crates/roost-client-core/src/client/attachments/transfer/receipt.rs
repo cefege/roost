@@ -1,7 +1,7 @@
 //! The two receipts a lost acknowledgement may be settled from, in the order
 //! they are asked, and the `next_seq` rule that decides whether either counts.
-//! Ported from `recoverAcknowledgement` in `attachmentTransfer.ts`. A receipt
-//! that settles a chunk is why an acknowledged chunk is never re-sent.
+//! A receipt that settles a chunk is why an acknowledged chunk is never
+//! re-sent.
 
 use super::{AttachmentTransferAck, InFlightChunk, is_chunk_sha256};
 

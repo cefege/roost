@@ -23,12 +23,8 @@
 //!
 //! `session_liveness` is the same rule as hooks on the replica that owns it.
 //!
-//! Ported from `apps/web/src/store/terminal-stream-repair.ts`
-//! (`armTerminalIdleProbeSince`, `armTerminalProofDeadline`,
-//! `requestTerminalLivenessChallenge`) and `terminal-stream-liveness.ts`
-//! (`clearTerminalSessionLiveness`). The rule this file exists to hold is
-//! `docs/FAILURE-INDEX.md` "The liveness watchdog deletes itself on the failure
-//! it exists to notice".
+//! The rule this file exists to hold is `docs/FAILURE-INDEX.md` "The liveness
+//! watchdog deletes itself on the failure it exists to notice".
 
 use roost_protocol::viewport::{
     TERMINAL_FOREGROUND_IDLE_PROBE_MS, TERMINAL_FOREGROUND_PROBE_DEADLINE_MS,
@@ -60,8 +56,7 @@ pub enum RepairOutcome {
 }
 
 impl RepairOutcome {
-    /// The diagnostic spelling, which is v2's `TerminalRepairOutcome` verbatim for
-    /// every value this client can produce.
+    /// The diagnostic spelling of each outcome.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::None => "none",

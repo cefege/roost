@@ -1,10 +1,7 @@
 //! The already-validated data the registry, presence and control `SyncFrame`
-//! variants carry: the shapes v2 built in its proto→wire adapters and handed to
-//! its `_handle*` projectors.
+//! variants carry.
 //!
 //! Built only by `sync::decode`, read only by the folds under `handle_sync/`.
-//! Ported from `apps/web/src/store/sync-frame.ts:102-371` and
-//! `apps/web/src/lib/pairedBrowserNotice.ts`.
 
 use roost_protocol::wire::pairing::requester_label;
 
@@ -12,14 +9,13 @@ use crate::store::PairRequest;
 
 /// One viewer of a session, from a `session_presence` frame of kind `viewers`.
 ///
-/// v2 folds these into `rootStore.session_viewers[sid]` keyed by `fp`
-/// (`sync-frame.ts:231-262`); the sidebar draws one dot per entry.
+/// The sidebar draws one dot per entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionViewer {
     /// The viewing browser's key fingerprint.
     pub fp: String,
     /// The viewer's own key, which is the fingerprint when the payload named
-    /// none (`viewerKey ?? fp`).
+    /// none.
     pub viewer_key: String,
     /// The viewer's effective columns; `0` when the payload listed only fps.
     pub cols: u32,
@@ -31,8 +27,7 @@ pub struct SessionViewer {
     pub label: Option<String>,
 }
 
-/// One `audit_log` insert, in the legacy wire shape the audit pane renders
-/// (`sync-frame.ts:161-176`).
+/// One `audit_log` insert, in the legacy wire shape the audit pane renders.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuditEntry {
     /// The row id. Rows are deduplicated by it.
@@ -56,8 +51,8 @@ pub struct AuditEntry {
 /// Where one `worker_routable` frame sits inside a chunked retained seed.
 ///
 /// Absent on a live full-set replacement (`snapshot_id` empty on the wire).
-/// Present only after decode has checked the bounds v2 checks
-/// (`sync-inbound.ts:150-163`): `1..=4096` chunks and an index inside them.
+/// Present only after decode has checked the bounds: `1..=4096` chunks and an
+/// index inside them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoutableChunk {
     /// The seed this chunk belongs to. A chunk of a different seed discards
@@ -69,7 +64,7 @@ pub struct RoutableChunk {
     pub chunk_count: u32,
 }
 
-/// One pair-request change (`sync-frame.ts:285-350`).
+/// One pair-request change.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PairRequestChange {
     /// A request to upsert, keyed by its ephemeral id.
@@ -106,7 +101,7 @@ pub struct PairedBrowser {
 }
 
 impl PairedBrowser {
-    /// "Chrome on macOS · Berlin". v2 `formatPairedBrowserLabel`.
+    /// "Chrome on macOS · Berlin".
     pub fn announcement_label(&self) -> String {
         requester_label(
             &self.label,

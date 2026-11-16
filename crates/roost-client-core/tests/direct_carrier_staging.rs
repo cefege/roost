@@ -238,8 +238,8 @@ fn a_stale_or_repeated_mint_is_ignored() {
 /// A second session on a worker joins the carrier the first one opened.
 ///
 /// The carrier authenticated on a grant naming one session; the refreshed grant
-/// names both. v2 hands it to the live connection (`updateGrant`) and stages the
-/// demanded sessions on it — without that, the second session waits on a
+/// names both. The live connection receives the refreshed grant and the demanded
+/// sessions are staged on it — without that, the second session waits on a
 /// negotiation that never runs again, because the worker already has its peer.
 #[test]
 fn a_refreshed_grant_widens_the_live_carrier_and_stages_only_what_it_added() {
@@ -303,7 +303,7 @@ fn candidate_mints(effects: &[Effect]) -> Vec<String> {
 ///
 /// The carrier's grant named the session while its pane was away (a navigation
 /// to the other session), so when a layout splits it back in no refreshed grant
-/// adds it and nothing widens. v2 stages demand that turns active on the
+/// adds it and nothing widens. Demand that turns active is staged on the
 /// worker's current connection; without that the session stays on Sync for the
 /// life of the document.
 #[test]

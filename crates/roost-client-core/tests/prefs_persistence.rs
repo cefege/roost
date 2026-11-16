@@ -8,7 +8,7 @@
 //! is not what it claims to be. Every one of those resolves to the default, and
 //! `load_prefs` has no failure path at all.
 //!
-//! The mutation experiment for this file is in the slice report: in
+//! The mutation experiment for this file: in
 //! `read_flag`, treat an unrecognised stored value as `true` instead of falling
 //! back to `default`, and
 //! `a_corrupt_stored_preference_falls_back_instead_of_failing_the_boot` must fail.

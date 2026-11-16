@@ -1,9 +1,7 @@
 //! Session mutations a surface asks for directly: spawn, kill, rename.
 //!
 //! Called by the smoke backdoor (`spawnShell`, `kill`, `cleanupCreated`) and
-//! the session surfaces through `CoordRpc::call`. The field mapping is v2's
-//! call sites: `apps/web/src/smoke/smokeCreatedResources.ts:84-99`,
-//! `apps/web/src/lib/spawnSession.ts`, `apps/web/src/lib/closeSession.ts`.
+//! the session surfaces through `CoordRpc::call`.
 
 use roost_proto::{
     SessionsKillRequest, SessionsKillResponse, SessionsRenameRequest, SessionsRenameResponse,

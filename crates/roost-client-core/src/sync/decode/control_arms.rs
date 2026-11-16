@@ -2,8 +2,7 @@
 //! results, and route and probe answers.
 //!
 //! Called by `decode::map_arm` after the meta rule has passed. The `subscribed`
-//! and `domain_reset` checks are v2's `handleSubscribed` / `handleDomainReset`
-//! (`apps/web/src/store/sync-inbound.ts:85-148`), whose throws close the link.
+//! and `domain_reset` checks return errors that close the link.
 
 use std::collections::BTreeSet;
 
@@ -18,9 +17,7 @@ use crate::sync::link::SyncDomain;
 use crate::terminal::input::InputOutcome;
 
 /// The barrier: a socket identity, a process epoch, and exactly one positive
-/// generation for every domain. Anything less is "duplicate or malformed
-/// subscribed control" / "invalid subscribed domain generation" /
-/// "incomplete subscribed domain generations" in v2.
+/// generation for every domain. Anything less is refused.
 pub(super) fn subscribed(value: SyncSubscribedFrame) -> Result<SyncFrame, String> {
     if value.socket_id.is_empty() || value.process_epoch.is_empty() {
         return Err("subscribed names no socket id or process epoch".to_owned());

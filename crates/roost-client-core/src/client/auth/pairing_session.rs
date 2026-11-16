@@ -19,9 +19,7 @@
 //! coordinator answers generically for a request it cannot see, so a matching id
 //! is the only evidence the request actually exists.
 //!
-//! Ported from `apps/web/src/components/pairing/onboarding-pairing-ceremony.ts`
-//! and `apps/web/src/client/auth/pairing-approval.ts`; the contract is
-//! `protocol/spec/auth-and-pairing.md:26-29`.
+//! The contract is `protocol/spec/auth-and-pairing.md:26-29`.
 
 use std::fmt;
 
@@ -272,8 +270,7 @@ impl PairingSession {
     /// this tab's record whose re-create comes back `FailedPrecondition`,
     /// because the coordinator is refusing to create a row that already exists.
     /// The refusal IS the acknowledgement, and without this a restored
-    /// ceremony after a reload could never poll itself out of `Created`
-    /// (`onboarding-pairing-ceremony.ts:221-226`).
+    /// ceremony after a reload could never poll itself out of `Created`.
     pub fn mark_acknowledged(&mut self) {
         if self.stage == PairStage::Created {
             self.stage = PairStage::Acknowledged;

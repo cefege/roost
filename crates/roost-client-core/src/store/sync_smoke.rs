@@ -1,9 +1,7 @@
 //! The smoke backdoor's reach into the Sync transport: the partition controls
 //! (each one `ClientEvent::SyncTransportControl`), the redial report, the ready
 //! terminal generation, and the frame faults fenced to it. Called only by
-//! roost-web's `smoke::backdoor`. Ports `apps/web/src/store/sync-smoke.ts`, the
-//! status read of `apps/web/src/store/sync-redial.ts:26-35`, and the arm half of
-//! `apps/web/src/store/terminal-stream-diagnostics.ts:196-225`.
+//! roost-web's `smoke::backdoor`.
 
 pub use crate::handle_sync::lifecycle::TransportControl;
 
@@ -12,7 +10,7 @@ use crate::sync::SyncDomain;
 use crate::sync::redial::SyncLinkLiveness;
 use crate::terminal::token::{TerminalToken, TerminalTransport};
 
-/// What `syncRedialStatus()` reports.
+/// The redial report: failures, next delay, and liveness.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SyncRedialReport {
     /// Consecutive failed dials since this tab last received a Sync frame.
@@ -36,9 +34,9 @@ pub fn sync_redial_report(store: &Store) -> SyncRedialReport {
     }
 }
 
-/// The live socket's terminal generation, once its terminal domain is ready
-/// (v2 `currentSyncV2TerminalState()` with `ready`). A smoke fault armed
-/// against anything else would be fenced to a generation that is not serving.
+/// The live socket's terminal generation, once its terminal domain is ready. A
+/// smoke fault armed against anything else would be fenced to a generation
+/// that is not serving.
 pub fn ready_terminal_generation(store: &Store) -> Option<TerminalToken> {
     if !store.sync.domain_is_ready(SyncDomain::Terminal) {
         return None;
@@ -47,8 +45,8 @@ pub fn ready_terminal_generation(store: &Store) -> Option<TerminalToken> {
 }
 
 /// The generation a session's frames are owned by right now, for arming a
-/// fault against (v2 `currentTerminalSmokeGeneration`): the replica's bound
-/// token, and for a Sync-bound replica only while the terminal domain is ready.
+/// fault against: the replica's bound token, and for a Sync-bound replica only
+/// while the terminal domain is ready.
 pub fn session_fault_generation(store: &Store, session_id: &str) -> Option<TerminalToken> {
     let token = store.terminal(session_id)?.generation()?.clone();
     if token.transport == TerminalTransport::Sync && ready_terminal_generation(store).is_none() {
@@ -59,7 +57,7 @@ pub fn session_fault_generation(store: &Store, session_id: &str) -> Option<Termi
 
 /// Drop every Sync frame for `session_id` until its generation moves. `false`
 /// when the session has no generation to fence the fault to, which arms
-/// nothing (v2 returns without arming in the same case).
+/// nothing.
 pub fn arm_terminal_blackhole(store: &mut Store, session_id: &str) -> bool {
     let Some(generation) = session_fault_generation(store, session_id) else {
         return false;

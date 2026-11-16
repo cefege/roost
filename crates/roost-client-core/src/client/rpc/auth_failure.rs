@@ -1,13 +1,13 @@
 //! Whether an `Unauthenticated` on one call means "this device is no longer
 //! paired" or "this call failed in a way a retry fixes".
 //!
-//! v2 (`connect.ts:38-54`) walks the error's `cause` chain up to four links and
-//! looks for a Connect `Unauthenticated` whose `x-roost-auth-layer` is `device`,
-//! on a method that requires a device credential. Three things must all hold,
-//! and each of them is a way to show the pairing page to a user whose pairing is
-//! fine: the auth layer says a trusted proxy asserted the caller rather than the
-//! device key vouching, the method is one that needs the device at all, and the
-//! code is `Unauthenticated` rather than some other refusal.
+//! The classifier walks the error's `cause` chain up to four links and looks
+//! for a Connect `Unauthenticated` whose `x-roost-auth-layer` is `device`, on a
+//! method that requires a device credential. Three things must all hold, and
+//! each of them is a way to show the pairing page to a user whose pairing is
+//! fine: the auth layer says a trusted proxy asserted the caller rather than
+//! the device key vouching, the method is one that needs the device at all,
+//! and the code is `Unauthenticated` rather than some other refusal.
 //!
 //! The chain arrives as values because the host owns decoding: a `google.rpc.Status`
 //! inside a Connect error body is a wire type, and this crate owns no codec.
@@ -18,7 +18,7 @@ use crate::client::rpc::methods::requires_device_auth;
 
 /// How far down a wrapped refusal's cause chain to look, and no further.
 ///
-/// v2's four. A deeper chain is a host that wrapped something four times on its
+/// Four. A deeper chain is a host that wrapped something four times on its
 /// way out, and a client willing to believe it is a client that will classify a
 /// failure it never actually saw.
 pub const AUTH_FAILURE_CAUSE_DEPTH_MAX: usize = 4;

@@ -1,7 +1,6 @@
 //! Single-message reassembly for one ordered attachment lane, inbound. At most
 //! one partial message is held, message ids must be consecutive from 1, and one
-//! rejection closes the generation. Ported from
-//! `attachment-transfer-packets.ts`. Depends on the parent's parser and the
+//! rejection closes the generation. Depends on the parent's parser and the
 //! lane's byte budget, which it reserves before allocating.
 
 use super::{

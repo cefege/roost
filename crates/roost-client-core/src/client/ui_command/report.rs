@@ -1,8 +1,8 @@
 //! This tab's UI state report: its route and its portable pane layout, and
 //! the cadence the report goes out on.
 //!
-//! Ports `apps/web/src/lib/uiStateReport.ts`. The UI bridge (roost-web SHELL)
-//! builds the report with `build_ui_state_report`, sends it as
+//! The UI bridge (roost-web SHELL) builds the report with
+//! `build_ui_state_report`, sends it as
 //! `client::rpc::calls::ui_state::UiReportState`, and drives
 //! `UiStateReportCadence` from its route, layout-commit, visibility and timer
 //! hooks. Only coordinator-admitted session ids cross the wire.

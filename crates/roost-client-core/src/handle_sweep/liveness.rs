@@ -193,10 +193,9 @@ fn publish_challenge(
 /// baseline. The pane that is silently broken is exactly the one whose baseline
 /// never arrived: a dropped baseline leaves the replica expecting a stream with
 /// nothing behind it, and every rule that fires on a REFUSAL stays silent
-/// because nothing was refused. v2 covers that shape from the view LEASE
-/// (`armTerminalViewRenewal` → `requestTerminalLivenessChallenge`), which is a
-/// second timer with a different owner; this is the one place a sweep already
-/// runs, so the arm belongs here.
+/// because nothing was refused. The view lease's renewal could cover that shape,
+/// but it is a second timer with a different owner; this is the one place a
+/// sweep already runs, so the arm belongs here.
 ///
 /// Never EXTENDS an armed deadline: this runs on every sweep, and an extension
 /// would push the probe out one sweep at a time until it could never come due.

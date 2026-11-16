@@ -1,11 +1,9 @@
 //! Browser-tab UI state: the acknowledged layout apply, and the fence around
 //! it.
 //!
-//! Ported from `apps/web/src/client/ui-state/uiLayoutApplyCore.ts` (`apply`)
-//! and the caller side of `apps/coord/src/ui-state/ui-layout-apply-owner.ts`
-//! (`fence`). Both halves are here because they are one contract: an apply
-//! names an exact tab and socket on the way in, and the answer to that apply is
-//! read against the same fence on the way out.
+//! Both the apply and its fence are here because they are one contract: an
+//! apply names an exact tab and socket on the way in, and the answer to that
+//! apply is read against the same fence on the way out.
 
 pub mod apply;
 pub mod fence;

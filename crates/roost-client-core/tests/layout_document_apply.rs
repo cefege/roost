@@ -2,10 +2,9 @@
 //! refusal that writes nothing, the degraded import, and a direction this build
 //! cannot render.
 //!
-//! Mirrors `apps/web/tests/paneLayoutDocument.test.ts` and
-//! `paneLayoutDocument.degrade.test.ts`. The two-client properties -- a re-fetch
-//! and a broadcast agreeing, and a folder's first arrangement -- live beside
-//! this one in `layout_two_clients.rs`.
+//! The two-client properties -- a re-fetch and a broadcast agreeing, and a
+//! folder's first arrangement -- live beside this one in
+//! `layout_two_clients.rs`.
 
 mod layout_support;
 

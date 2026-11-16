@@ -3,9 +3,7 @@
 //!
 //! Called from `handle_event` (`ClientEvent::TransportProbeRequested`), the
 //! Sync fold and `handle_direct_frame`. A peer route's probes are its
-//! heartbeat's, which the host's peer lane owns. Ports v2
-//! `apps/web/src/store/transport/sync-terminal-control-probe.ts` and the
-//! loopback connection's `probe`.
+//! heartbeat's, which the host's peer lane owns.
 
 use crate::effect::{DirectCommand, Effect, SyncCommand};
 use crate::store::Store;
@@ -17,7 +15,7 @@ use crate::sync::SyncDomain;
 use crate::sync::inbound::TransportProbeResult;
 use crate::terminal::token::TerminalTransport;
 
-/// v2 `probeSyncTerminalWorker` refuses a worker identity longer than this.
+/// A probe refuses a worker identity longer than this.
 const WORKER_FP_MAX_LEN: usize = 128;
 
 /// Send one probe to the worker serving `session_id`, on the route its input
@@ -101,7 +99,7 @@ pub fn request_transport_probe(
 
 /// Settle one probe answer that arrived on `route`. An answer nothing on this
 /// connection is waiting for, from another worker, or with no epoch (the
-/// coordinator's refusal) never becomes telemetry (`resolveControlProbe`).
+/// coordinator's refusal) never becomes telemetry.
 pub(super) fn fold_transport_probe_result(
     store: &mut Store,
     route: &ProbeRoute,

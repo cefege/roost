@@ -296,7 +296,7 @@ fn a_filtered_listing_keeps_dot_directories_out_and_their_names_available_to_mkd
 #[test]
 fn the_home_sentinel_is_a_path_browse_can_start_on_and_up_cannot_leave() {
     let paths = ExactBrowsePaths;
-    // v2's `nativePathJoin` keeps the `~` sentinel and appends with a
+    // Joining keeps the `~` sentinel and appends with a
     // separator, so a child of home is `~/src` — and one `..` from it lands
     // back on `~` rather than on `/`.
     assert_eq!(paths.child(BROWSE_HOME, "src"), "~/src");

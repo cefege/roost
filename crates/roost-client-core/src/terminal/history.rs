@@ -5,10 +5,9 @@
 //! painted row indices and the history total and answer which absolute rows are
 //! missing, so a pager can ask for exactly those.
 //!
-//! Ported from `apps/web/src/client/terminal-stream/cellHistoryRanges.ts`, which
-//! is pure and carries no renderer state. The rules are arithmetic, not policy:
-//! absolute indices are compared, never recomputed, because history is trimmed at
-//! a cap and a re-derived index re-aliases.
+//! The functions are pure and carry no renderer state. The rules are
+//! arithmetic, not policy: absolute indices are compared, never recomputed,
+//! because history is trimmed at a cap and a re-derived index re-aliases.
 
 /// A half-open absolute interval `[start, end)` of history rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

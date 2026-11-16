@@ -1,10 +1,8 @@
 //! Voice dictation's Deepgram configuration: read, write, and test.
 //!
-//! Called by roost-web's Settings voice pane. v2 call sites:
-//! `apps/web/src/components/Settings/TranscriptionPane.tsx:117-176`
-//! (`transcriptionGetConfig`, `transcriptionSetConfig`, `transcriptionTest`).
-//! Reads expose the MASKED key only; `TranscriptionGrantToken` is not ported
-//! here because the settings pane never called it.
+//! Called by roost-web's Settings voice pane. Reads expose the MASKED key
+//! only; `TranscriptionGrantToken`, which hands out the unmasked key, is a
+//! separate method type below that the settings pane does not use.
 
 use roost_proto::{
     TranscriptionConfig, TranscriptionGetConfigRequest, TranscriptionGrantTokenRequest,
@@ -110,9 +108,8 @@ impl UnaryMethod for TestDictationKey {
 /// `TranscriptionGrantToken`: the stored Deepgram key, handed to an
 /// authenticated browser that is about to open Deepgram's own socket.
 ///
-/// v2 call site: `apps/web/src/voice/deepgramKey.ts` (`transcriptionGrantToken`).
-/// The settings pane never needed it, which is why the port stopped at
-/// get/set/test; the dictation engine cannot be built without it.
+/// The settings pane never needs it; the dictation engine cannot be built
+/// without it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct GrantTranscriptionToken;
 

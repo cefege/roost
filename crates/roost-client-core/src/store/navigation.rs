@@ -4,9 +4,8 @@
 //! A detached row. No store proxy, no live reference, no closure — a document is
 //! built from the store's records once and read by every surface, so the three of
 //! them cannot disagree about what a session is called or whether its machine is
-//! reachable. `navigation-search.ts:2-4` states the same rule, and the reason it
-//! matters is that a proxy handed to a subscriber reads the POST-write value
-//! (`docs/FAILURE-INDEX.md:50`).
+//! reachable. The reason it matters is that a proxy handed to a subscriber
+//! reads the POST-write value (`docs/FAILURE-INDEX.md:50`).
 //!
 //! DEVIATION: the query normalizer does not apply NFKC. `unicode-normalization`
 //! is not in this crate's dependency set, and a search index that lowercased one
@@ -118,9 +117,8 @@ pub fn session_href(session_id: &str) -> String {
 ///
 /// The routable set when there is one, and heartbeat freshness before the first
 /// list. Reachability is not heartbeat freshness in general — a worker can keep
-/// heartbeating over the unary transport while its socket is down
-/// (`sync-routable.ts:1-6`) — but before the first list there is nothing else to
-/// ask.
+/// heartbeating over the unary transport while its socket is down — but before
+/// the first list there is nothing else to ask.
 pub fn worker_online(
     worker: &Worker,
     routable_worker_fps: Option<&BTreeSet<String>>,

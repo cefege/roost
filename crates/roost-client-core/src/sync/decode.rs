@@ -1,19 +1,15 @@
-//! Sync socket bytes → one `ClientEvent`: protobuf decode, the v2 meta rule, and
+//! Sync socket bytes → one `ClientEvent`: protobuf decode, the meta rule, and
 //! the proto→wire conversion of every `FirehoseFrame` arm.
 //!
 //! Called by the host's Sync pump on every binary message; the `Ok` event or a
 //! `ClientEvent::SyncFrameRefused` built from the `Err` goes to
 //! `ClientCore::handle`. Depends on `roost_proto` for the wire messages,
 //! `roost_protocol` for the shared wire shapes, and `client::rpc::codec::wire_rows`
-//! for the rows a delta and a hydration list share. Ported from
-//! `apps/web/src/store/sync-inbound.ts` (`handleV2Control`,
-//! `dispatchV2Application`), `apps/web/src/store/sync-frame.ts:102-371` and
-//! `apps/web/src/client/sync/sync-proto-adapters.ts`.
+//! for the rows a delta and a hydration list share.
 //!
-//! A refusal is FATAL for the link, never for one frame: every refusal here is a
-//! case where v2's `_consumeSyncFrame` reaches `_closeFailedSyncLink` — a throw,
-//! or a dispatch that returned `false` and so came back "unapplied"
-//! (`apps/web/src/client/sync/sync-flow.ts:52-55`, `sync-inbound.ts:74-83`).
+//! A refusal is FATAL for the link, never for one frame: every refusal here is
+//! a frame the core cannot apply, so the link is closed
+//! (`handle_sync::close_failed`) and the dial loop redials onto a clean baseline.
 
 mod arms;
 mod control_arms;
@@ -48,10 +44,9 @@ pub enum DecodeRefusal {
         reason: String,
     },
     /// A `FirehoseFrame` whose oneof is empty, including an arm this build's
-    /// proto does not know. v2: `!frame.frame.case` is "unapplied".
+    /// proto does not know.
     NoFrame,
-    /// A control arm stamped with a sequence, domain or domain generation
-    /// (v2 `handleV2Control`: "sequenced v2 control").
+    /// A control arm stamped with a sequence, domain or domain generation.
     SequencedControl {
         /// The arm's proto field name.
         arm: &'static str,
@@ -62,10 +57,7 @@ pub enum DecodeRefusal {
         /// The stamped domain generation.
         domain_generation: u64,
     },
-    /// An application arm without a sequence or without a known domain
-    /// (v2 `dispatchV2Application`: "malformed v2 application frame"; with
-    /// `delivery_seq = 0` v2 routes it to `handleV2Control`, whose default
-    /// case closes the link as an "unknown v2 control").
+    /// An application arm without a sequence or without a known domain.
     UnsequencedApplication {
         /// The arm's proto field name.
         arm: &'static str,
@@ -74,7 +66,7 @@ pub enum DecodeRefusal {
         /// The stamped domain's wire value.
         domain: i32,
     },
-    /// The arm's payload failed a conversion v2 treats as fatal.
+    /// The arm's payload failed a conversion the core treats as fatal.
     MalformedArm {
         /// The arm's proto field name.
         arm: &'static str,

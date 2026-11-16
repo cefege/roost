@@ -12,8 +12,8 @@
 //! request it cannot see, so a matching echo is the only evidence the request
 //! actually exists.
 //!
-//! Ported from `protocol/proto/roost/v1/coordinator.proto:718-765`; the contract
-//! is `protocol/spec/auth-and-pairing.md:26-29`.
+//! Messages: `protocol/proto/roost/v1/coordinator.proto`; the contract is
+//! `protocol/spec/auth-and-pairing.md:26-29`.
 
 /// `PairCreate`: ask for a request bound to this browser's public key.
 #[derive(Debug, Clone, PartialEq, Eq)]

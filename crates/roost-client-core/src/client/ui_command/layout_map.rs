@@ -1,6 +1,5 @@
 //! Maps one layout-shaped legacy UI command onto a folder's pane arrangement.
 //!
-//! Ports `applyUiCommandToLayout` from `apps/web/src/lib/uiCommandCore.ts`.
 //! Pure: the deck host resolves the folder's arrangement, calls this, and
 //! commits what comes back. A bad reference or argument returns `None` with the
 //! input untouched; the acknowledged apply never reaches this mapper.
@@ -24,7 +23,7 @@ pub enum LayoutReshape {
 }
 
 /// Resolve the folder's arrangement, map `command` onto it, and commit the
-/// result: v2's `applyPure`, for `UiCommandAction::ReshapeLayout`.
+/// result, for `UiCommandAction::ReshapeLayout`.
 pub fn reshape_folder_layout(
     records: &mut LayoutRecords,
     ids: &mut dyn PaneIdSource,

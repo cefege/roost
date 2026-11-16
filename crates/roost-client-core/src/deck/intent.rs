@@ -1,8 +1,7 @@
 //! What a deck can ask of the core: the gestures that reshape a folder's
 //! arrangement, the spotlight, closing a tab, and the observation that keeps
 //! the stored arrangement in step with the route. Raised by the web deck as
-//! `ClientEvent::Deck`; applied by `handle_event`. Ports `apps/web/src/lib/deckOps.ts`
-//! and the layout commits of `apps/web/src/components/deck/terminal-deck-{model,operations}.ts`.
+//! `ClientEvent::Deck`; applied by `handle_event`.
 
 mod close;
 mod follow;

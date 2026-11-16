@@ -1,9 +1,9 @@
 //! The runtime pane tree: the ratio clamp at both ends, and the mutations a
 //! tiling gesture takes.
 //!
-//! Mirrors `apps/web/tests/paneLayout.test.ts`, with the case the port makes
-//! load-bearing added: a clamp that has to name every non-finite input before
-//! it clamps either end, because a NaN compares false against both bounds.
+//! One case is load-bearing: a clamp that has to name every non-finite input
+//! before it clamps either end, because a NaN compares false against both
+//! bounds.
 //!
 //! Geometry and the persisted-record bounds live beside this file in
 //! `layout_geometry_records.rs`; this one is the tree alone.
@@ -142,8 +142,8 @@ fn a_split_moves_the_focus_to_the_new_pane_and_leaves_the_source_holding_the_res
     assert_eq!(split.focused_pane_id, "pane-2");
 
     // Splitting a pane by moving its own only tab leaves nothing behind, so the
-    // arrangement is refused rather than doubled. The guard is
-    // `tabs.length <= 1` on the TARGET — v2 `paneLayout.ts:254` — so this has
+    // arrangement is refused rather than doubled. The guard is `tabs.len() <= 1`
+    // on the TARGET, so this has
     // to run against a pane holding exactly one tab. Against `start`, which
     // holds ALPHA and BETA, the guard cannot fire and the assertion was
     // measuring the wrong case.

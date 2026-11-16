@@ -1,9 +1,7 @@
 //! The browser identities authorized on this coordinator: list, revoke, and
 //! rotate this device's own key.
 //!
-//! Called by roost-web's Settings devices pane. v2 call sites:
-//! `apps/web/src/components/Settings/DevicesPane.tsx:35-64` (`devicesList`,
-//! `devicesRevoke`, `rotateCurrentWebKey`). A refusal is an `Err` the pane
+//! Called by roost-web's Settings devices pane. A refusal is an `Err` the pane
 //! renders, never an empty list: a coordinator that denied the read must not
 //! look like a coordinator with no devices.
 

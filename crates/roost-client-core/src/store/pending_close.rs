@@ -10,12 +10,9 @@
 //! that is already pending restarts only that row's window.
 //!
 //! This module is here rather than in the component layer because
-//! `selectors.rs` filters pending closes out of the live lists. v2 keeps that
-//! filter honest by reading a signal (`pendingClose.ts:60-65`); here the filter
-//! reads the store, and a selector that could be handed a stale answer would put
-//! a row back on screen that the user had just dismissed.
-//!
-//! Ported from `apps/web/src/lib/pendingClose.ts`, which no other slice owns.
+//! `selectors.rs` filters pending closes out of the live lists. That filter
+//! reads the store, and a selector that could be handed a stale answer would
+//! put a row back on screen that the user had just dismissed.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -126,9 +123,8 @@ pub fn is_pending_close(store: &Store, session_id: &str) -> bool {
 /// Schedule a close: hide the row now, and owe a kill in `UNDO_WINDOW_MS`.
 ///
 /// A second close for a session that is already pending REPLACES the first,
-/// which restarts that row's window and keeps its card in place — the same shape
-/// as v2's "re-click on hidden row" case, and the reason a row's countdown does
-/// not jump backwards when a user clicks twice.
+/// which restarts that row's window and keeps its card in place — the reason a
+/// row's countdown does not jump backwards when a user clicks twice.
 pub fn schedule_close(
     store: &mut Store,
     session_id: impl Into<String>,
@@ -152,8 +148,7 @@ pub fn schedule_close(
 /// Restore one closed row, and hand back its labels.
 ///
 /// The labels come back so the host can re-commit whatever the close undid — the
-/// pane tiling — AFTER this write, which is the order
-/// `pendingClose.ts:82-87` performs by hand and the reason it is not left to a
+/// pane tiling — AFTER this write, which is why the undo is not left to a
 /// callback the store would have to keep alive.
 pub fn undo_one(store: &mut Store, session_id: &str) -> Option<CloseLabels> {
     let entry = store.pending_closes.entries.remove(session_id)?;

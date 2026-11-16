@@ -1,9 +1,7 @@
 //! The smoke observer on the terminal input path: admitted batches (bounded by
 //! count and bytes), capped outcome counters, and each batch's own outcome for
-//! the waiting `input()` probe. Armed only by roost-web's `smoke::backdoor`; fed
-//! by `InputRouter` admission and settlement. Ports
-//! `apps/web/src/client/carriers/sync-outbound-smoke.ts` and the capture half of
-//! `apps/web/src/smoke/smokeTerminalInputController.ts`.
+//! the waiting `input()` probe. Armed only by a host's smoke hooks; fed by
+//! `InputRouter` admission and settlement.
 
 use std::collections::VecDeque;
 
@@ -39,7 +37,7 @@ pub struct InputOutcomeCounts {
     pub ambiguous: u32,
 }
 
-/// What `terminalInputCapture()` reports.
+/// What the smoke capture reports.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalInputCapture {
     /// Retained batches, oldest first.
@@ -131,7 +129,7 @@ impl SmokeInputObserver {
         self.settled.remove(position)
     }
 
-    /// The bounded capture, as `terminalInputCapture()` reports it.
+    /// The bounded capture.
     pub fn capture(&self) -> TerminalInputCapture {
         TerminalInputCapture {
             batches: self.batches.iter().cloned().collect(),
@@ -140,7 +138,7 @@ impl SmokeInputObserver {
         }
     }
 
-    /// Clear batches, drops and counters (`resetTerminalInputCapture()`). Open
+    /// Clear batches, drops and counters. Open
     /// admissions and outcomes a probe is still waiting on are kept.
     pub fn reset_capture(&mut self) {
         self.batches.clear();

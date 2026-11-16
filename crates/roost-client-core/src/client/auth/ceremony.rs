@@ -12,8 +12,7 @@
 //! pairing code is a six-digit secret a human reads aloud, so the bias would put
 //! a measurable edge on guessing it within the attempt limit.
 //!
-//! Ported from `packages/protocol/src/pairing.ts`; the limits are in
-//! `protocol/spec/auth-and-pairing.md:38-44`.
+//! The limits are in `protocol/spec/auth-and-pairing.md:38-44`.
 
 use std::collections::VecDeque;
 use std::fmt;

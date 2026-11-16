@@ -1,9 +1,8 @@
 //! The folder picker's "New folder" name check, so an invalid name is named
 //! inline before any mkdir leaves the browser; the first failing rule wins and
-//! its message is what the dialog shows. Ports
-//! `apps/web/src/lib/folderNameValidation.ts`; the browse picker calls it.
+//! its message is what the dialog shows. The browse picker calls it.
 
-/// The longest name, in UTF-16 code units as v2 measured it.
+/// The longest name, in UTF-16 code units.
 pub const FOLDER_NAME_MAX: usize = 255;
 
 /// Why a name is refused, as the dialog words it; `Ok(())` when it is fine.

@@ -1,11 +1,10 @@
 //! The exact-target gate an acknowledged apply executes under, and what this
 //! tab does with the command once it owns it.
 //!
-//! Mirrors `apps/web/tests/uiLayoutApply.test.ts`: exact tab/socket targeting,
-//! validation before mutation, one commit, a bounded settlement diagnostic, the
-//! re-read identity before acknowledging, and the no-bridge answer. The eight
-//! legacy UI commands stay outside this path, which is the separation the
-//! `NotMine` arm exists to make visible.
+//! Covers exact tab/socket targeting, validation before mutation, one commit, a
+//! bounded settlement diagnostic, the re-read identity before acknowledging, and
+//! the no-bridge answer. The eight legacy UI commands stay outside this path,
+//! which is the separation the `NotMine` arm exists to make visible.
 
 mod layout_support;
 use roost_client_core::client::ui_state::{

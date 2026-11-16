@@ -5,8 +5,7 @@
 //! `predict` per keystroke, `note_input_written` per input admission,
 //! `on_frame` per frame. `grid` owns every judgement, `expiry` the timing, and
 //! `report` the shapes handed back to the caller; every clock read is a
-//! `now_ms` argument. Ports the state machine of v2's
-//! `apps/web/src/renderer/predictiveEcho.ts`.
+//! `now_ms` argument.
 
 pub mod expiry;
 pub mod grid;
@@ -65,7 +64,7 @@ pub struct PredictiveEcho {
     /// The delay a host should schedule to abandon the oldest prediction.
     expiry_delay_ms: Option<u64>,
     /// A decision changed what the overlay should show. Only the transitions
-    /// that repaint in v2 set it: an acknowledgement changes nothing painted,
+    /// that repaint set it: an acknowledgement changes nothing painted,
     /// and a keystroke refused while nothing is predicted has nothing to clear,
     /// so neither costs the overlay a write.
     repaint_due: bool,

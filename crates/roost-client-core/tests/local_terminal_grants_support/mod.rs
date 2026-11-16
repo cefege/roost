@@ -1,9 +1,8 @@
 //! The fixtures the three direct-terminal grant test binaries share: the
 //! session table, the harness that completes a mint, and the one helper that
 //! leaves a mint outstanding. `Harness` is the subject of every sibling, so it
-//! is defined once here. Ported from `apps/web/tests/localTerminalGrants.test.ts`:
-//! the harness performs the mint where v2 mocked a promise, so every hostile
-//! case v2 mocked one for is a plain call.
+//! is defined once here. The harness performs the mint itself, so every hostile
+//! case is a plain call.
 
 #![allow(dead_code)]
 
@@ -14,7 +13,7 @@ use roost_client_core::client::local::{
     GrantMintAnswer, GrantMintRequest, GrantRefresh, GrantRefreshReason, GrantSessionFact,
 };
 
-/// The session table v2's `rootStore.sessions` mock stands in for.
+/// The session table the grants are minted against.
 pub fn sessions() -> BTreeMap<String, GrantSessionFact> {
     let open = |worker_fp: &str| GrantSessionFact {
         worker_fp: worker_fp.to_string(),
@@ -29,8 +28,7 @@ pub fn sessions() -> BTreeMap<String, GrantSessionFact> {
 
 /// One document's grants plus the requests its mints produced. The harness
 /// completes a mint, so a test holds one OPEN by leaving the decision unconsumed
-/// — what v2's `Promise.withResolvers` did, and the only way to reach the
-/// coalescing and fencing cases.
+/// — the only way to reach the coalescing and fencing cases.
 pub struct Harness {
     pub owner: GrantOwner,
     pub requests: Vec<GrantMintRequest>,
@@ -48,7 +46,7 @@ impl Harness {
         }
     }
 
-    /// v2's `response`. The secret gains a counter because a real coordinator
+    /// The mint answer for `request`. The secret gains a counter because a real coordinator
     /// mints a fresh one every time: a reused fixture secret would model the
     /// replay the client must refuse rather than a renewal.
     pub fn answer_for(&mut self, request: &GrantMintRequest) -> GrantMintAnswer {

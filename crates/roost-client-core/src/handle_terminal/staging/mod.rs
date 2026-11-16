@@ -7,7 +7,6 @@
 //! mints a fresh id per pane, keeps the old one alive until the new one is
 //! proven, and only then retires the old one.
 //!
-//! Ported from `apps/web/src/store/transport/terminal-promotion-candidate.ts`.
 //! Contract: `protocol/spec/direct-terminal.md`; the reasons are in
 //! `docs/phase4-client-contract.md` §8.
 

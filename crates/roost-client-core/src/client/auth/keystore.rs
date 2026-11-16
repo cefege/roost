@@ -17,19 +17,16 @@
 //! writes with [`SecureKeyStore::add_current`], and a second `add` of the same
 //! slot is [`KeyStoreError::AlreadyPresent`] rather than an overwrite — which is
 //! what makes two browsers opening the pairing flow at once end with one device
-//! key instead of one silently replacing the other
-//! (`apps/web/src/client/auth/web-key-storage.ts:144`).
-//!
-//! Ported from `apps/web/src/client/auth/web-key-storage.ts`, whose storage
-//! mechanism is the platform's business and whose discipline is this file's.
+//! key instead of one silently replacing the other. How the slot is stored is
+//! the platform's business; the discipline is this file's.
 
 use std::fmt;
 
 /// The slot the current device key lives in.
 ///
-/// Restated from `web-key-storage.ts:112` because the slot name is part of the
-/// on-disk shape a host must reproduce exactly, and a host that invents one
-/// silently orphans the key a previous release wrote.
+/// The slot name is part of the on-disk shape a host must reproduce exactly,
+/// and a host that invents one silently orphans the key a previous release
+/// wrote.
 pub const DEVICE_KEY_SLOT: &str = "ed25519";
 
 /// The slot an in-progress rotation's replacement key lives in.
@@ -45,7 +42,7 @@ pub const ROTATION_STAGE_SLOT: &str = "ed25519-rotation-v1";
 ///
 /// Not security state — it answers "did this profile lose its key?", which is
 /// what turns a first boot into a silent first boot and an eviction into a
-/// diagnosable one (`web-key.ts:22,39-46`).
+/// diagnosable one.
 pub const KEY_MINTED_FLAG: &str = "roostKeyMinted";
 
 /// A device key, as an opaque handle the store minted.

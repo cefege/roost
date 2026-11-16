@@ -1,11 +1,10 @@
 //! One stored arrangement per folder bucket, and the bounds a persisted one is
 //! read back under.
 //!
-//! Ported from `apps/web/src/store/paneLayoutStore.ts`, minus the two things a
-//! synchronous core cannot own: the per-key reactive signals (a host's job) and
-//! the 300ms persist debounce (a timer, and the core has none). What is left is
-//! the record, and the record is a value a host holds, not a module-level
-//! global -- two clients in one process must not share one.
+//! A synchronous core cannot own the per-key reactive signals (a host's job)
+//! or the 300ms persist debounce (a timer, and the core has none). What is
+//! here is the record, and the record is a value a host holds, not a
+//! module-level global -- two clients in one process must not share one.
 //!
 //! A STORED TREE IS UNTRUSTED ON THE WAY BACK IN. The key/value store is
 //! writable by the user and by any script on the origin, so `restore` refuses a

@@ -12,8 +12,6 @@
 //! Deliberately separate from `bootstrap.rs`, which answers the different
 //! question "was this page served BY a worker" — the coordinator RPCs route off
 //! that fact, and a discovered door must never move them.
-//!
-//! Ported from `apps/web/src/client/carriers/localWorkerDiscovery.ts`.
 
 use crate::client::local::bootstrap::{
     BootstrapOutcome, BootstrapRefusal, LOCAL_BOOTSTRAP_PATH, LocalBootstrap, read_serving_origin,

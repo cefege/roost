@@ -1,8 +1,8 @@
 //! One negotiated WebRTC transport for one direct attachment upload. Called by
 //! `direct` once loopback is unavailable; it owns the two static attachment
-//! channels, authenticates on control and streams chunks on data. Ported from
-//! `attachmentPeer.ts`. Depends on `conversation` for the frame rules,
-//! `packets` for framing, and `signaling` for the SDP.
+//! channels, authenticates on control and streams chunks on data. Depends on
+//! `conversation` for the frame rules, `packets` for framing, and `signaling`
+//! for the SDP.
 
 pub use super::conversation;
 
@@ -139,7 +139,7 @@ impl AttachmentPeerTransfer {
             PeerLane::Data => self.data_open = true,
         }
         if lane == PeerLane::Control {
-            // A client frame, as v2 `attachmentPeer.ts:160-166` queues it.
+            // The hello is a client frame, queued like any other.
             let hello = encode_client_frame(ClientFrame::Hello(Box::new(
                 self.grant.hello(&self.peer_id),
             )));

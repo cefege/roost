@@ -25,7 +25,7 @@ use super::{
 
 /// How long a staged attempt has to earn its baseline.
 ///
-/// v2's candidate deadline, unchanged: a candidate that never answers has not
+/// A candidate that never answers has not
 /// failed in a way a longer wait would reveal, and the canonical route is still
 /// painting behind it the whole time. The cost of waiting is a second view held
 /// by the worker for five seconds; the cost of not waiting is a route elected on

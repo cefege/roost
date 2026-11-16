@@ -16,7 +16,7 @@ use roost_client_core::client::local::{GrantMintAnswer, LocalTerminalGrant};
 /// The connection id a host would mint for one socket.
 pub const CONNECTION: &str = "connection-1";
 
-/// v2's fixture answer: an epoch and both capabilities advertised.
+/// The fixture answer: an epoch and both capabilities advertised.
 pub fn answer() -> GrantMintAnswer {
     GrantMintAnswer {
         grant_id: "grant-a".to_string(),
@@ -42,7 +42,7 @@ pub fn grant_for(session_ids: BTreeSet<String>, grant_id: &str) -> LocalTerminal
         .expect("the fixture answer carries both a grant id and a secret")
 }
 
-/// v2's `readyFrame` defaults: a worker reporting NEITHER an epoch nor a socket
+/// The Ready defaults: a worker reporting NEITHER an epoch nor a socket
 /// id, which is what makes it rolling.
 pub fn ready() -> LoopbackReady {
     LoopbackReady {

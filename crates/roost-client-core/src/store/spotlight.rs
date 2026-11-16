@@ -1,7 +1,6 @@
 //! Spotlight: which session is floated, and how many panes the deck shows.
 //!
-//! Two pieces of state and one predicate, ported from
-//! `apps/web/src/store/spotlight.ts` (15 lines). The pane count is published by
+//! Two pieces of state and one predicate. The pane count is published by
 //! the deck each frame because the context menu gates its spotlight item on it:
 //! floating one pane out of one is a no-op the menu should not offer.
 //!

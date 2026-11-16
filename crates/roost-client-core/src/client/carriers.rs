@@ -2,8 +2,7 @@
 //! what it asks the host to do, and the types a host reads it through. Called
 //! through `PeerSignalling` and `PeerTransport`; the rules live in the
 //! submodules, of which `loopback` holds the gate that keeps a WebRTC peer from
-//! being the default carrier, and `faults` the four rules
-//! `smoke/terminal/terminal-peer.spec.ts:263` names.
+//! being the default carrier, and `faults` the four fault rules.
 
 pub mod deliver;
 pub mod faults;

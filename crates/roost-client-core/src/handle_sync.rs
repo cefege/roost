@@ -14,9 +14,8 @@
 //! three different things to do, and the first of them may only ever touch a
 //! replica that has not been elected.
 //!
-//! Ported from `apps/web/src/client/sync/sync-flow.ts:44-65` and
-//! `apps/web/src/store/sync-inbound.ts:50-90`. Contract: `protocol/spec/sync.md`;
-//! the reasons are in `docs/phase4-client-contract.md` §7 and §11.
+//! Contract: `protocol/spec/sync.md`; the reasons are in
+//! `docs/phase4-client-contract.md` §7 and §11.
 
 use crate::client::client_state::ClientStateStore;
 use crate::effect::{Effect, RpcResult, SyncCommand};
@@ -54,8 +53,8 @@ use crate::terminal::token::TerminalToken;
 ///
 /// Controls are applied immediately even before hydration: `SyncSubscribed` is
 /// what CREATES the domain state, so a control held back for hydration would
-/// leave every later frame with no subscription behind it. The set is v2's
-/// control lane (`apps/web/src/store/sync-inbound.ts:210-236`): every arm the
+/// leave every later frame with no subscription behind it. The set is the
+/// control lane: every arm the
 /// coordinator stamps with `delivery_seq = 0`.
 pub fn is_control(frame: &SyncFrame) -> bool {
     matches!(
@@ -83,8 +82,7 @@ pub fn handle_sync_frame(
     out: &mut Vec<Effect>,
 ) {
     if store.sync.note_frame(generation, now_ms) {
-        // Any frame on the live link proves it works: the backoff starts over
-        // (v2 `_noteSyncV2FrameReceived`).
+        // Any frame on the live link proves it works: the backoff starts over.
         store.sync.redial.note_frame_received();
     }
 

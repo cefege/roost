@@ -1,8 +1,7 @@
 //! FIFO source-buffer ownership for one ordered attachment lane, outbound. A
 //! framed packet stays owned by the queue until the transport accepts it, and
-//! admission is refused before ownership transfers. Ported from
-//! `attachment-transfer-packet-queue.ts`. Depends on the framing and the budget
-//! in the parent module.
+//! admission is refused before ownership transfers. Depends on the framing and
+//! the budget in the parent module.
 
 use std::collections::VecDeque;
 

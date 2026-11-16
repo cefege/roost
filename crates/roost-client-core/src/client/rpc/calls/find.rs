@@ -2,11 +2,8 @@
 //! pane's retained history, and the cancel of a scan already running.
 //!
 //! Called by roost-web's pane mount through `CoordRpc::call`, one page at a time
-//! under the `search_id` a search owns. v2's equivalent is the
-//! `coordClient.sessionsSearchScrollback` call inside
-//! `apps/web/src/client/search/terminalFindPageChain.ts`; the cancellation is v2's
-//! `coordClient.sessionsCancelScrollbackSearch` in
-//! `apps/web/src/renderer/terminalFindController.ts:117`.
+//! under the `search_id` a search owns; the cancellation goes through the same
+//! call path.
 //!
 //! The page is returned UNVALIDATED. Judging it — is this the window the reader
 //! asked for, does every match sit inside it, does the cursor move the right way

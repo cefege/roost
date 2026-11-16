@@ -1,8 +1,6 @@
 //! The smoke input observer as `InputRouter` feeds it: admissions, refusals,
-//! every settlement path, and the capture bounds `terminalInputCapture()`
-//! reports. Pins `terminal::input::smoke_observer` (v2
-//! `apps/web/src/smoke/smokeTerminalInputController.ts` +
-//! `apps/web/src/client/carriers/sync-outbound-smoke.ts`).
+//! every settlement path, and the capture bounds. Pins
+//! `terminal::input::smoke_observer`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_client_core::terminal::input::smoke_observer::{

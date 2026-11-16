@@ -6,10 +6,9 @@
 //! retained floor the worker has already proven and the painted head base the
 //! DOM can splice on either side of.
 //!
-//! Ported from `apps/web/src/client/terminal-stream/scrollbackDemandBounds.ts`,
-//! which is pure and reads no DOM, no module state and no wire. Every bound
-//! here is reproducible from its arguments alone, which is what makes a bound
-//! testable without a renderer.
+//! The bounds are pure and read no DOM, no module state and no wire. Every
+//! bound here is reproducible from its arguments alone, which is what makes a
+//! bound testable without a renderer.
 
 use crate::terminal::history::{HistoryRange, HistoryScrollTarget};
 

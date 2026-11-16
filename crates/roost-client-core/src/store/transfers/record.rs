@@ -51,10 +51,10 @@ impl TransferRoute {
 
 /// Where a transfer is in its life.
 ///
-/// `Stalled` is the one state v2 has no name for: a card that stopped advancing.
-/// It is a deadline, not a verdict — the sweep moves a `running` card here when
-/// nothing has advanced it for the parent's `TRANSFER_STALL_AFTER_MS`, and the
-/// next progress tick moves it back.
+/// `Stalled` is a card that stopped advancing. It is a deadline, not a verdict
+/// — the sweep moves a `running` card here when nothing has advanced it for
+/// the parent's `TRANSFER_STALL_AFTER_MS`, and the next progress tick moves it
+/// back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TransferState {
     /// The card exists and nothing has been sent yet.
@@ -74,11 +74,11 @@ pub enum TransferState {
     /// The bytes left the browser and nothing settled them: the write MAY have
     /// been committed, and the client cannot tell.
     ///
-    /// The one state v2 has no name for, and the one a card must never paper
-    /// over with `Failed`. A rejected write left nothing behind, so re-sending
-    /// it is free; an ambiguous write may already be on the worker, so
-    /// re-sending it is a doubled upload. Only the user can resolve which one
-    /// this was, which is why the state is terminal AND does not self-dismiss.
+    /// The state a card must never paper over with `Failed`. A rejected write
+    /// left nothing behind, so re-sending it is free; an ambiguous write may
+    /// already be on the worker, so re-sending it is a doubled upload. Only the
+    /// user can resolve which one this was, which is why the state is terminal
+    /// AND does not self-dismiss.
     Ambiguous,
 }
 
@@ -144,9 +144,8 @@ impl TransferState {
     ///
     /// Separate from [`TransferState::is_terminal`], because "nothing more can
     /// change this card" and "this card goes away by itself" are different
-    /// claims. v2 draws the line the same way (`transfers.ts:89-98`): a
-    /// successful or deduplicated card dismisses itself, and an ERROR card
-    /// stays until the user closes it, because the failure text is the thing the
+    /// claims. A successful or deduplicated card dismisses itself, and an ERROR
+    /// card stays until the user closes it, because the failure text is the thing the
     /// user needs to read. An AMBIGUOUS card stays for the same reason and one
     /// more: the decision it asks for is the user's, and a card that removed
     /// itself would take that decision away.

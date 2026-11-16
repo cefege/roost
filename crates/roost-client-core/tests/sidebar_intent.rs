@@ -1,6 +1,6 @@
 //! The sidebar's actions through `ClientCore::handle`: the Cmd-F reveal, a
 //! row's navigation bookkeeping, and the cursor's revision contract. The
-//! actions of `SidebarRoot`, `SessionRow` and `lib/sidebarRecent.ts`.
+//! actions of `SidebarRoot` and `SessionRow`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

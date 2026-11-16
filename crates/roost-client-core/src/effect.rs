@@ -31,7 +31,7 @@ pub enum Effect {
         /// The generation to close.
         generation: u64,
         /// Why, for the host's own log. One of the immediate-redial reasons in
-        /// `apps/web/src/client/sync/sync-flow.ts:72-78`, or a host-defined one.
+        /// `sync::redial`, or a host-defined one.
         reason: String,
     },
     /// Send one typed client frame on the Sync socket.
@@ -91,8 +91,8 @@ pub enum Effect {
     ///
     /// The core has no RNG and no JS: it names a session, an attempt and a pane,
     /// and the host answers with `ClientEvent::TerminalViewIdMinted`. Every
-    /// reason the id must be a fresh UUID lives in the worker's admission (v2
-    /// `validateTerminalViewCommand`), which is why the host mints it and the
+    /// reason the id must be a fresh UUID lives in the worker's admission of
+    /// terminal view commands, which is why the host mints it and the
     /// core refuses whatever comes back that is not one.
     MintTerminalViewId {
         /// The session the pane belongs to.
@@ -132,8 +132,7 @@ impl ViewIdTarget {
 /// One typed frame for the Sync socket.
 ///
 /// The frame's `socket_id` is NOT here: the host stamps the id of the socket it
-/// sends on (`client::sync::encode::encode_sync_command`), exactly as v2's link
-/// did (`apps/web/src/store/sync-domain-state.ts:83-98`). A command that named
+/// sends on (`client::sync::encode::encode_sync_command`). A command that named
 /// its own socket could name one the host has already replaced.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyncCommand {

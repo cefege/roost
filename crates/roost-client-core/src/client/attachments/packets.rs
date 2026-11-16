@@ -1,7 +1,6 @@
 //! The attachment-only outer framing on the peer route's two ordered channels.
 //! Magic, version, message id, total bytes, offset — a wire contract that shares
-//! nothing with the terminal peer's lane. Ported from
-//! `attachment-transfer-packets.ts`; the queue is in `packets::queue`, the
+//! nothing with the terminal peer's lane. The queue is in `packets::queue`, the
 //! reassembly in `packets::assembler`, the lane owner in `packets::lanes`.
 
 use std::fmt;

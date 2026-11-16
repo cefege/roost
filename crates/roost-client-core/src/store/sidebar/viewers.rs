@@ -1,7 +1,6 @@
 //! The per-session viewer avatars: one per browser tab viewing a session, its
 //! monogram and hue, and whether it holds the binding minimum the PTY is sized
-//! to. The logic half of `apps/web/src/components/sidebar/ViewersChip.tsx`;
-//! the `ViewersChip` component renders it.
+//! to. This is the logic half; the `ViewersChip` component renders it.
 
 use roost_protocol::viewport::{TerminalGeometry, is_terminal_geometry, minimum_terminal_geometry};
 

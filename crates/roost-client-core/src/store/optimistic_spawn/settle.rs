@@ -93,7 +93,7 @@ pub fn respawn_optimistic_spawn(
 /// The placeholder is NOT removed: it is the tab the user is looking at until
 /// the authoritative row replaces it. What the admission releases is the pending
 /// state — a late rejection arriving after this is `AlreadySettled` and changes
-/// nothing, which is the hole `optimisticSpawn.ts:187-197` leaves open.
+/// nothing.
 pub fn settle_spawn_admitted(store: &mut Store, ticket: &SpawnTicket) -> SpawnSettlement {
     if let Some(reason) = store.spawns.relevance(ticket) {
         return refuse(ticket, reason, "admitted");

@@ -2,10 +2,7 @@
 //! notice, live audit rows, UI commands for the bridge, and the answers to
 //! transport probes.
 //!
-//! Called by `apply_frame` only. Ported from `apps/web/src/store/sync-frame.ts`
-//! (`pairRequestDelta` 285-350, `auditRow` 161-176, `uiCommand` 334-340),
-//! `apps/web/src/lib/pairedBrowserNotice.ts`, and the `_dispatchSyncV2Control`
-//! consumer in `sync-terminal-control-probe.ts:99-119`. Route-claim answers are
+//! Called by `apply_frame` only. Route-claim answers are
 //! `handle_sync::promotion`'s.
 
 use std::collections::BTreeSet;
@@ -116,8 +113,8 @@ fn raise_pair_request_toast(store: &mut Store, request: &PairRequest, now_ms: u6
     );
 }
 
-/// Raise "New browser paired" once per pairing however many frames report it
-/// (v2 `announcePairedBrowser`). Returns whether a card was raised; the caller
+/// Raise "New browser paired" once per pairing however many frames report it.
+/// Returns whether a card was raised; the caller
 /// owns the one revision bump for the whole change.
 fn announce_paired_browser(
     store: &mut Store,
@@ -154,8 +151,8 @@ fn announce_paired_browser(
     true
 }
 
-/// One live audit row, newest first, deduplicated by id as the audit pane does
-/// (`AuditLogPane.tsx:123-129`), keeping the newest [`AUDIT_ROW_RING_MAX`].
+/// One live audit row, newest first, deduplicated by id as the audit pane does,
+/// keeping the newest [`AUDIT_ROW_RING_MAX`].
 pub(super) fn fold_audit_row(store: &mut Store, row: &AuditEntry) {
     if store.audit_rows.iter().any(|held| held.id == row.id) {
         tracing::trace!(target: "sync", audit_id = row.id, "audit row already held");

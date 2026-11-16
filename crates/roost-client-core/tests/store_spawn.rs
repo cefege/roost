@@ -6,7 +6,7 @@
 //! attempt had already begun. The third is decided in the store, by the attempt
 //! the ledger minted, and the call sites never compare anything.
 //!
-//! The mutation experiment for this file is in the slice report: in
+//! The mutation experiment for this file: in
 //! `settle_spawn_rejected`, delete the `relevance` guard at the top, and
 //! `a_superseded_spawn_answer_does_not_roll_back_the_newer_attempt` must fail.
 

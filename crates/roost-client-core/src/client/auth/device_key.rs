@@ -1,7 +1,7 @@
 //! The device key's lifecycle: load or generate, sign, rotate, reset.
 //!
-//! This is the port of `apps/web/src/client/auth/web-key.ts`, and the three
-//! decisions in it are the ones with no visible symptom when they are wrong:
+//! The three decisions here are the ones with no visible symptom when they are
+//! wrong:
 //!
 //! 1. **A first boot that loses the race adopts the winner.** Two browsers
 //!    opening the ceremony at once both read an empty slot, both generate, and
@@ -21,8 +21,7 @@
 //! that; a rotation or a reset drops the cache, because a cached credential
 //! names the key that was just retired.
 //!
-//! Ported from `apps/web/src/client/auth/web-key.ts`; the contract is
-//! `protocol/spec/auth-and-pairing.md:24-25`.
+//! The contract is `protocol/spec/auth-and-pairing.md:24-25`.
 //!
 //! Everything here is the lifecycle a host drives. The half that needs an
 //! answer from OUTSIDE the store — the probe, the recovery it drives, and a

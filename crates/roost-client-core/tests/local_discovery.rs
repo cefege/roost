@@ -1,11 +1,8 @@
 //! Which origin this page talks to, and which worker's door it can reach.
 //!
-//! Ported from `apps/web/tests/client/carriers/localBootstrap.test.ts` and
-//! `.../localWorkerDiscovery.test.ts`. The v2 tests stub `fetch`, `location` and
-//! `localStorage` and assert on the requests that came out; this port describes
-//! the same environment as a value and asserts on the decision, which is the
-//! part that was ever in doubt — a browser here would only be proving that the
-//! stub answered.
+//! The tests describe the browser environment as a value and assert on the
+//! decision, which is the part that was ever in doubt — a browser here would
+//! only be proving that a stub answered.
 //!
 //! The two answers are deliberately different questions. `bootstrap` decides
 //! where coordinator RPCs GO, and an unusable answer must leave the page on its
@@ -30,7 +27,7 @@ use roost_client_core::client::local::outbound::{RouteClaims, SyncTerminalState}
 
 const PAGE_ORIGIN: &str = "https://mic.roost.test";
 
-/// v2's `DOOR_ANSWER`: a coordinator this door does not serve, and the worker
+/// The door's answer: a coordinator this door does not serve, and the worker
 /// fingerprint the door DOES serve.
 const DOOR_ANSWER: &str =
     r#"{"coordinatorUrl":"https://coord.other.test:4102","workerFingerprint":"fp-local-worker"}"#;
@@ -231,7 +228,7 @@ fn an_unreachable_or_unusable_door_leaves_the_page_with_none() {
     }
 }
 
-/// The rule the two v2 discovery files together exist to protect: a worker is
+/// The rule discovery exists to protect: a worker is
 /// adopted ONLY when an origin this browser actually asked answered for it.
 #[test]
 fn discovery_refuses_a_worker_that_is_not_reachable_from_the_browser() {

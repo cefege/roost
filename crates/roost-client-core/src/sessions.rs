@@ -1,7 +1,7 @@
 //! Session projection: one fold, delegated, never mirrored.
 //!
 //! `docs/FAILURE-INDEX.md:27` — "SPA projector hand-mirrors the shared event
-//! fold" — is why this file has no `match` in it. v2's hand-mirrored switch
+//! fold" — is why this file has no `match` in it. A hand-mirrored switch
 //! drifted and silently dropped the `respawned` variant, so the coordinator's
 //! database projection and the browser's in-memory projection disagreed about a
 //! live session. The fix there was delegation; the fix here is to have nothing
@@ -66,9 +66,7 @@ impl SessionPlane {
     /// `fold_event` never mutates its input and returns the whole next map, so
     /// the assignment IS the projection. Only `SessionEvent::Closed` removes a
     /// session, which is what makes a stale or out-of-order event harmless: it
-    /// cannot prune a live session as a side effect. (v2 needed an explicit
-    /// "only `closed` deletes" branch for the same reason —
-    /// `apps/web/src/store/projector.ts:125-133`.)
+    /// cannot prune a live session as a side effect.
     pub fn apply(&mut self, event: &SessionEvent) {
         self.sessions = fold_event(&self.sessions, event);
     }
@@ -126,7 +124,7 @@ mod tests {
 
     #[test]
     fn an_incremental_fold_equals_a_batch_fold() {
-        // The same property the TypeScript property test checked, ported.
+        // An incremental fold must equal a batch fold.
         let events = [opened(SESSION_A), opened(SESSION_B)];
         let mut incremental = SessionPlane::new();
         for event in &events {

@@ -41,7 +41,7 @@ pub enum ClipboardHistoryDelta {
 /// compare two frames compares the fields it cares about.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SyncFrame {
-    /// The v2 announcement: this socket's identity and every domain generation.
+    /// The announcement: this socket's identity and every domain generation.
     Subscribed {
         /// The coordinator's identity for this socket.
         socket_id: String,
@@ -130,9 +130,8 @@ pub enum SyncFrame {
         generation: u64,
     },
     /// A `sessions` JSON event that parsed as JSON but not as a session event.
-    /// The recovery cursor still advances past it and nothing is folded: v2
-    /// moves `_lastSeenEventId` before `foldEventIntoStore` rejects the shape
-    /// (`sync-frame.ts:115-122`, `projector.ts:97-108`).
+    /// The recovery cursor still advances past it and nothing is folded: the
+    /// cursor moves before the shape is rejected.
     SessionEventRejected {
         /// The payload's `_event_id`, or `0` when it carried none.
         event_id: u64,
@@ -146,9 +145,8 @@ pub enum SyncFrame {
         /// Every viewer, replacing the previous list.
         viewers: Vec<SessionViewer>,
     },
-    /// Any other `session_presence` notice, opaque by construction: v2 hands
-    /// the parsed payload to the session's registered presence handler
-    /// (`sync-dispatch.ts:18-20`).
+    /// Any other `session_presence` notice, opaque by construction: the core
+    /// carries the parsed payload and does not interpret it.
     SessionPresence {
         /// The session.
         session_id: String,
@@ -236,11 +234,10 @@ pub enum SyncFrame {
         change: PairRequestChange,
     },
     /// A peer tab's UI report. Browser tabs deliberately do not project peer
-    /// UI state: routing and discarding it is its full consumption
-    /// (`sync-frame.ts:329-333`).
+    /// UI state: routing and discarding it is its full consumption.
     UiState,
-    /// A UI command for this tab's UI bridge, still the proto message: v2 hands
-    /// the frame itself to `_dispatchUiCommand` (`sync-frame.ts:334-340`).
+    /// A UI command for this tab's UI bridge, still the proto message: the
+    /// frame itself goes to the bridge.
     UiCommand {
         /// The command frame.
         command: roost_proto::UiCommandFrame,

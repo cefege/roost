@@ -4,8 +4,7 @@
 //! Called by the host's pump, which dispatches the bytes through
 //! `ConnectClient` and hands the decoded answer back as
 //! `ClientEvent::RpcResultReceived`. Depends on `roost_proto` for the messages
-//! and on `wire_rows` for the rows; v2's equivalent is the generated
-//! `CoordinatorService` client under `apps/web/src/client/rpc/connect.ts`.
+//! and on `wire_rows` for the rows.
 
 use std::fmt;
 

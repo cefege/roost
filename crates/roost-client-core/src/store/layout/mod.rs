@@ -1,5 +1,5 @@
 //! The pane arrangement for ONE folder bucket, and the portable document it
-//! travels as. Ported from `apps/web/src/store/paneLayout*.ts`.
+//! travels as.
 //!
 //! TWO VOCABULARIES, AND THE BOUNDARY IS THE POINT. `tree` is the RUNTIME
 //! arrangement -- runtime pane ids, tab order, focus -- and it exists in no
@@ -47,8 +47,8 @@ pub use tree_edit::{
 /// A trait rather than a counter because pane identity must not be derivable
 /// from the arrangement: two sessions may hold the same position in two trees,
 /// and a deterministic id from that position would make a split look like it
-/// already existed. v2 used `crypto.randomUUID()`, so a browser host
-/// implements this over WebCrypto and a test over a counted sequence.
+/// already existed. A browser host implements this over WebCrypto's
+/// `crypto.randomUUID()` and a test over a counted sequence.
 pub trait PaneIdSource {
     /// One fresh runtime id, distinct from every id this source has returned.
     fn mint_pane_id(&mut self) -> String;

@@ -2,8 +2,7 @@
 //! and how far along that stream its canonical grid is.
 //!
 //! Read by `handle_sweep::request_repair_if_due` and the route-loss path in
-//! `handle_input`, which put it on `SyncCommand::TerminalResync`. Ported from
-//! v2's `sendTerminalResyncCommand` (`apps/web/src/store/terminal-stream-repair.ts:221-235`).
+//! `handle_input`, which put it on `SyncCommand::TerminalResync`.
 
 use crate::terminal::session::TerminalSession;
 
@@ -20,7 +19,7 @@ pub struct ResyncPosition {
 
 impl TerminalSession {
     /// The position a resync should name, or `None` when the replica expects no
-    /// stream yet. v2 sends NO resync then: a baseline request with no stream to
+    /// stream yet. NO resync is sent then: a baseline request with no stream to
     /// be a baseline of is a request the authority cannot place, and the view
     /// acceptance that installs the expectation brings a fresh full anyway.
     pub fn resync_position(&self) -> Option<ResyncPosition> {

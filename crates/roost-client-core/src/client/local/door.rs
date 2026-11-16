@@ -10,8 +10,7 @@
 //! not contradict the grant's. A worker answering without an epoch AND without a
 //! socket id is a ROLLING one and gets a fresh per-connection namespace.
 //!
-//! Ported from `apps/web/src/store/transport/local-terminal.ts:98-217`. The
-//! worker end is `crates/roost-worker/src/local_door.rs`, which REPLACES a
+//! The worker end is `crates/roost-worker/src/local_door.rs`, which REPLACES a
 //! socket presented a secret it already accepted rather than multiplying sinks;
 //! [`SecretUseLedger`] is the client half of that same rule.
 

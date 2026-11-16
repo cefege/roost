@@ -5,10 +5,7 @@
 //! assembler, the repair latch, and the views that hold leases — and it admits
 //! nothing that has not passed `frame_fold` first.
 //!
-//! Ported from `apps/web/src/store/terminal-stream-replica.ts` (admission),
-//! `apps/web/src/store/terminal-stream-state.ts` (the record) and
-//! `apps/web/src/store/terminal-stream-chunks.ts` (the chunk path). The rules and
-//! their sources are in `docs/phase4-client-contract.md` §6.
+//! The rules and their sources are in `docs/phase4-client-contract.md` §6.
 
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -47,7 +44,7 @@ pub struct TerminalSession {
     pub wire_grid_epoch: Option<String>,
     /// The last sequence seen on the wire.
     pub wire_seq: Option<u64>,
-    /// Decoded wire frames by kind (v2 `noteWireFrame`), for the smoke counters.
+    /// Decoded wire frames by kind, for the smoke counters.
     pub frame_counts: crate::terminal::frame_counts::FrameCounts,
     /// The revision every renderer repaints on, and the deltas since the last
     /// full a renderer folds so their appended history is painted.

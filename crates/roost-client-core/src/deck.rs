@@ -1,9 +1,7 @@
 //! The terminal deck's state and derivations: the stored arrangement per
 //! folder, the intents a deck raises against it, and the per-frame view a host
 //! paints. Called by `handle_event` (intents) and by the web deck component
-//! (views). Depends on `store::layout` for the tree and its edits. Ports
-//! `apps/web/src/components/deck/terminal-deck-model.ts`, the layout half of
-//! `terminal-deck-operations.ts`, and `apps/web/src/lib/{deckOps,deckRouteSelection,deckWarmSet,deckTabBadge}.ts`.
+//! (views). Depends on `store::layout` for the tree and its edits.
 
 pub mod intent;
 pub mod route_selection;

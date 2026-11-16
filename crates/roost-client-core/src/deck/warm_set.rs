@@ -1,7 +1,6 @@
 //! The bounded warm set: which parked terminals the deck keeps mounted beside
 //! the ones it paints. Held by the web deck component and advanced whenever the
-//! slotted sessions or the open set move. Pure; ports
-//! `apps/web/src/lib/deckWarmSet.ts`.
+//! slotted sessions or the open set move. Pure.
 //!
 //! A parked pane keeps its renderer and scrollback, so switching back is a
 //! visibility flip rather than a remount. It also stays laid out (a parked pane

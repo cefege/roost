@@ -5,8 +5,7 @@
 //! lane is BLOCKED and Sync claims the route back
 //! (`handle_input::reclaim_lost_route`); a refused batch waits for that claim.
 //! Owned by `InputRouter`; driven by `handle_sync::lifecycle` and
-//! `handle_input`. Ports the route-retirement half of v2
-//! `terminal-input-route-claim.ts` (`retireTerminalInputRouteState`).
+//! `handle_input`.
 
 use crate::terminal::input::InputPhase;
 use crate::terminal::token::TerminalTransport;

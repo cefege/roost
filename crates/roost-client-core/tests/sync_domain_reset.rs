@@ -3,9 +3,7 @@
 //! a cursor ahead of the log also drops that cursor, and the frames held while
 //! the reset domain re-hydrates are acknowledged once it publishes.
 //!
-//! Ported from v2 `handleDomainReset` (`apps/web/src/store/sync-inbound.ts:131-148`):
-//! `ready = false` on both branches, `_triggerSyncDomainHydration` only when
-//! `reset.subscribed`. Uses the shared ready-link fixture in `support`.
+//! Uses the shared ready-link fixture in `support`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

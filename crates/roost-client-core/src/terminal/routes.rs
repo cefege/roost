@@ -6,8 +6,7 @@
 //! wants this file, and a caller asking "may this session promote?" wants the
 //! registry's preconditions.
 //!
-//! Ported from `apps/web/src/store/terminal-stream-transport.ts`; every
-//! precondition and its reason is in `docs/phase4-client-contract.md` §8.
+//! Every precondition and its reason is in `docs/phase4-client-contract.md` §8.
 
 pub mod registry;
 
@@ -31,7 +30,7 @@ pub struct DirectCarrier {
     /// The generation it presents.
     pub token: TerminalToken,
     /// The far end's own id for this connection, from its `Ready`: the socket a
-    /// proof on `token` names (v2's token `socketId`). Not part of `token`,
+    /// proof on `token` names. Not part of `token`,
     /// whose equality is the fence and must not change with a diagnostic.
     pub socket_id: String,
     /// The sessions its grant admits, exact. A grant is scope-bound

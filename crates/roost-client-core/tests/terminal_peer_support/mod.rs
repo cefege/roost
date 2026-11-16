@@ -24,8 +24,8 @@ pub const GRANT_TTL_MS: u64 = 60 * 60_000;
 /// A UUID, because the coordinator refuses any other shape.
 pub const FIRST_PEER_ID: &str = "6f9d2c1a-3b4e-4c5d-8e7f-0a1b2c3d4e5f";
 
-/// A SHA-256 SDP with one UDP candidate: the exact shape v2's fake browser
-/// produced (`terminalPeerConnection.test.ts:31-45`), so the machine's
+/// A SHA-256 SDP with one UDP candidate: the shape a real browser produces, so
+/// the machine's
 /// readability check is exercised against an SDP the real inspector accepts
 /// rather than one written to suit it.
 pub fn usable_sdp() -> String {

@@ -1,11 +1,10 @@
 //! The mutations: every one is `Layout -> Layout`, pure, and returns the tree
 //! unchanged rather than failing.
 //!
-//! Ported from the mutation half of `apps/web/src/store/paneLayout.ts`. The
-//! reason a mutation returns the input instead of an error is the same one the
-//! v2 original had: a tiling gesture arrives from a pointer that has already
-//! moved on, and a layout that refuses the gesture is a layout that stays
-//! consistent, where a half-applied one is a grid the user cannot interpret.
+//! A mutation returns the input instead of an error because a tiling gesture
+//! arrives from a pointer that has already moved on, and a layout that refuses
+//! the gesture is a layout that stays consistent, where a half-applied one is
+//! a grid the user cannot interpret.
 //!
 //! A mutation is therefore a REPLACEMENT, never an edit in place, and a caller
 //! that commits the result is the only writer of a stored arrangement.

@@ -1,10 +1,10 @@
 //! Web Push: the VAPID key a subscription needs, and the subscription itself.
 //!
 //! Called by roost-web's `web_push` lifecycle and Settings notifications pane.
-//! v2 call sites: `apps/web/src/browser/push-client.ts` (`pushGetConfig`,
-//! `pushSubscribe`, `pushUnsubscribe`). The browser-side permission prompt and
-//! the PushManager stay in the host; these three calls, the VAPID key decode and
-//! the subscription's JSON shape are the coordinator's half.
+//! The browser-side permission prompt and the PushManager stay in the host;
+//! these three calls (`pushGetConfig`, `pushSubscribe`, `pushUnsubscribe`), the
+//! VAPID key decode and the subscription's JSON shape are the coordinator's
+//! half.
 
 use std::fmt;
 

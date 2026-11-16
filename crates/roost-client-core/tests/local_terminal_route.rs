@@ -1,12 +1,11 @@
 //! The route a session's input is elected onto: an elected direct carrier wins,
 //! and one whose grant has run out is refused rather than quietly moved.
 //!
-//! Ported from `apps/web/tests/localTerminal.test.ts`, which drives a fake socket
-//! because the v2 class owns one. The handshake that admits a carrier is
+//! The handshake that admits a carrier is
 //! `local_terminal_ready.rs` and the credential's own rules are
 //! `local_terminal_credential.rs`; this file starts once a route is registered
 //! and a grant is installed, and asks only where the session's input goes.
-//! v2's mock of the input router is replaced by the real `InputRouter`, so
+//! The real `InputRouter` stands in for the lane, so
 //! "closing retires the token" is proved by the lane's outcome. Where a door is
 //! dialled AT is discovery's question.
 //!
@@ -130,8 +129,8 @@ fn an_elected_direct_route_wins_and_a_dead_grant_refuses_rather_than_falling_bac
 
 /// A worker whose last carrier died still has panes wanting its sessions, so the
 /// carrier that replaces it can be promoted. The demand belongs to the views,
-/// not to a connection (v2 `#unregister` keeps `#demands`; only `retireWorker`
-/// drops them).
+/// not to a connection: unregistering one keeps the demand, and only retiring
+/// the worker drops it.
 #[test]
 fn a_replacement_carrier_is_promotable_after_the_last_one_dies() {
     let (mut registry, _) = registry_with_a_loopback_route();

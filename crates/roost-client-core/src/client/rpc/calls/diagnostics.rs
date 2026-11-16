@@ -2,8 +2,7 @@
 //! browser's own layer attached as the opaque SPA payload.
 //!
 //! Called by roost-web's smoke backdoor (`terminalStreamProbe`) through
-//! `CoordRpc::call`. v2 call site: `apps/web/src/smoke/smokeTerminalStreamProbe.ts:30-32`
-//! (`coordClient.diagSnapshot`).
+//! `CoordRpc::call`.
 
 use roost_proto::{DiagSnapshotRequest, DiagSnapshotResponse};
 

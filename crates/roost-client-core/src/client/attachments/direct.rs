@@ -1,9 +1,8 @@
 //! Which direct carrier one upload may use: a matching local door, then the
 //! peer, then coordinator relay. Called by the upload driver; it decides the
 //! route order and names the reason there is none, and the host performs every
-//! open and send it asks for. Ported from `attachmentDirect.ts`. Depends on
-//! `grant`, `transfer` and `loopback`. The refusals it returns are the whole
-//! direct-then-peer fallback.
+//! open and send it asks for. Depends on `grant`, `transfer` and `loopback`.
+//! The refusals it returns are the whole direct-then-peer fallback.
 
 pub mod loopback;
 pub mod relay;
@@ -66,8 +65,8 @@ impl DirectRoute {
 }
 
 /// How one route's attempt ended. A route is tried by opening it AND sending
-/// the whole file on it, because v2's fallback boundary is the first chunk
-/// leaving, not the carrier opening (`attachmentDirect.ts:100-120`).
+/// the whole file on it, because the fallback boundary is the first chunk
+/// leaving, not the carrier opening.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RouteOutcome {
     /// The route carried every chunk and the worker committed the file.
@@ -77,7 +76,7 @@ pub enum RouteOutcome {
     Refused(AttachmentTransferCarrierError),
     /// The route failed in a way that is not a carrier refusal — a thrown
     /// error, a socket constructor that does not exist. Not a fallback signal:
-    /// v2 propagated these rather than treating them as an unavailable route.
+    /// it is propagated rather than treated as an unavailable route.
     Fatal(String),
 }
 
@@ -227,8 +226,8 @@ pub async fn upload_attachment_direct<E: AttachmentDirectEnvironment>(
             // A refusal that CROSSED the boundary is not a clean fallback: this
             // route put bytes on the wire, and only its own status control may
             // settle them. Falling through to the peer would write them twice.
-            // v2's gate is the same check (`attachmentDirect.ts:117`:
-            // `!error.sentChunk && !connection?.sentChunk`).
+            // The gate is cumulative: it needs both the error and the connection
+            // to say nothing went out.
             RouteOutcome::Refused(error) if error.sent_chunk => {
                 return DirectAttempt::FailedWithBytes(error);
             }

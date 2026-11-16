@@ -1,14 +1,14 @@
 //! The Connect client: what one call looks like on the wire, and what happens
 //! to it when the credential cannot be minted.
 //!
-//! v2 kept two rules in one interceptor (`connect.ts:100-115`) and they are the
-//! two rules this subtree exists to reproduce. A signing failure still
+//! This subtree holds two rules in one interceptor. A signing failure still
 //! dispatches the request, unauthenticated — never drops it, because a device
 //! whose key is temporarily unusable must still reach the pairing gate, and a
-//! hard failure here bricks the one surface that could fix it. And every request
-//! carries this tab's id, including the ones whose body never mentions a tab,
-//! because the coordinator's tab fence reads the header and a request that
-//! omits it is refused with a DIFFERENT error than one that sends it empty.
+//! hard failure here bricks the one surface that could fix it. And every
+//! request carries this tab's id, including the ones whose body never mentions
+//! a tab, because the coordinator's tab fence reads the header and a request
+//! that omits it is refused with a DIFFERENT error than one that sends it
+//! empty.
 //!
 //! Depends on `roost_protocol::wire::headers` for the header names and on
 //! `Effect::RpcCall` for the call vocabulary. It performs no I/O: the transport

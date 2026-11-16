@@ -1,9 +1,8 @@
 //! The "Arrange" presets: a folder's sessions turned into a tidy tree, and the
 //! one non-rebuild preset that only rebalances the tree already there.
 //!
-//! Ported from `apps/web/src/store/paneLayoutPresets.ts`. `layout_rects`
-//! renders any tree, so a preset needs no renderer change; `reconcile` then
-//! folds in whatever live session the preset did not place.
+//! `layout_rects` renders any tree, so a preset needs no renderer change;
+//! `reconcile` then folds in whatever live session the preset did not place.
 //!
 //! `Balance` is deliberately NOT a rebuild. It keeps the current panes, tab
 //! groups and focus and recomputes only the ratios, because "make the panes

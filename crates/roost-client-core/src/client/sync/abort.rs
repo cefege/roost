@@ -1,11 +1,11 @@
 //! Why a live socket is being retired, and the one owner of the reconnect loop.
 //!
-//! The five reasons are the ones v2 redials on immediately rather than backing
-//! off (`sync-flow.ts:72-78`). A backoff exists for a network that is not there
-//! yet; a tab that became visible, a human who asked, a socket that stopped
-//! delivering, a coordinator that closed for backpressure, and a terminal whose
-//! view stopped being acknowledged are five things the client already knows how
-//! to fix, and making the user wait out a backoff for any of them is the defect.
+//! The five reasons are the ones the client redials on immediately rather than
+//! backing off. A backoff exists for a network that is not there yet; a tab
+//! that became visible, a human who asked, a socket that stopped delivering, a
+//! coordinator that closed for backpressure, and a terminal whose view stopped
+//! being acknowledged are five things the client already knows how to fix, and
+//! making the user wait out a backoff for any of them is the defect.
 //!
 //! Nothing else is a reason. A close with no reason attached is the network's,
 //! and the network gets the backoff.
@@ -57,11 +57,11 @@ impl AbortReason {
 
 /// The one owner of an infinite reconnect loop.
 ///
-/// v2 reaches for a closure (`createSingleSyncLoopStarter`, `sync-flow.ts:81-89`)
-/// because module scope was the only state available. Two loops means two socket
-/// generations competing for one store, and the loser is not detectable: both
-/// dials succeed, both install links, and the store keeps whichever the second
-/// `open_link` accepted. A named owner is greppable, and a test can ask it.
+/// A single owned value, not module-scope state, which would permit two loops.
+/// Two loops means two socket generations competing for one store, and the
+/// loser is not detectable: both dials succeed, both install links, and the
+/// store keeps whichever the second `open_link` accepted. A named owner is
+/// greppable, and a test can ask it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SingleSyncLoop {
     started: bool,

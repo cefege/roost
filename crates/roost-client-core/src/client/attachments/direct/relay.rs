@@ -1,7 +1,6 @@
 //! The coordinator relay: the carrier that is always left, so it has no
-//! admission and no digest. Ported from the fallback loop in
-//! `apps/web/src/lib/attachments.ts`. Depends on the same `SliceRequest` the
-//! direct route uses, so a caller drives both the same way.
+//! admission and no digest. Depends on the same `SliceRequest` the direct route
+//! uses, so a caller drives both the same way.
 
 use crate::client::attachments::direct::AttachmentDirectUploadRequest;
 use crate::client::attachments::transfer::{AttachmentTransferResult, SliceRequest};

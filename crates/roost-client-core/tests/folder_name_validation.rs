@@ -1,6 +1,5 @@
-//! The folder picker's "New folder" check: v2
-//! `apps/web/tests/folderNameValidation.test.ts` over
-//! `store::folder_name_validation`. (`folderActivity.test.ts` runs in
+//! The folder picker's "New folder" check, over
+//! `store::folder_name_validation`. (The folder-activity cases run in
 //! `roost-web/tests/worker_paths.rs`, against the browser's real path codec.)
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]

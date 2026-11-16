@@ -1,8 +1,6 @@
 //! The browser leaves `Checking` for `Authorized` only when the protected
 //! terminal snapshot publishes: the sessions hydration is the coordinator's
-//! proof this device is trusted, and no other domain's hydration is. Ported
-//! from `apps/web/src/store/sync-bootstrap.ts:242-244`
-//! (`onTerminalSnapshotApplied` → `markProtectedSnapshotPublished`).
+//! proof this device is trusted, and no other domain's hydration is.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

@@ -1,9 +1,8 @@
 //! One session's uploaded attachments, and the delete that removes one.
 //!
-//! Called by roost-web's Settings files pane. v2 call sites:
-//! `apps/web/src/components/Settings/AttachmentsPane.tsx:86,132`
-//! (`listAttachments`, `deleteAttachment`). The upload itself is the composer's
-//! path and is not here.
+//! Called by roost-web's Settings files pane (`listAttachments`,
+//! `deleteAttachment`). The upload itself is the composer's path and is not
+//! here.
 
 use roost_proto::{
     DeleteAttachmentRequest, DeleteAttachmentResponse, ListAttachmentsRequest,
