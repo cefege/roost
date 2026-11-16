@@ -109,9 +109,8 @@ jobs:
             target: aarch64-apple-darwin
             roost_asset: roost
             keeper_asset: roost-keeper
-          # Cross-compiled: macos-15 is arm64, so this row needs the target
-          # installed explicitly. rust-toolchain.toml only adds wasm32.
-          - runner: macos-15
+          # Build Intel macOS natively, independently of arm64 runner capacity.
+          - runner: macos-15-intel
             target: x86_64-apple-darwin
             roost_asset: roost-darwin-x64
             keeper_asset: roost-keeper-darwin-x64
