@@ -70,17 +70,6 @@ pub fn deck_pointer_target(_event: &PointerEvent) -> DeckPointerTarget {
     DeckPointerTarget::default()
 }
 
-/// No timer runs natively.
-#[derive(Debug)]
-pub struct Timeout;
-
-impl Timeout {
-    /// No timer.
-    pub fn after(_delay_ms: u32, _callback: impl FnOnce() + 'static) -> Option<Self> {
-        None
-    }
-}
-
 /// No observer runs natively.
 #[derive(Debug)]
 pub struct SizeWatch;
@@ -129,18 +118,3 @@ impl Listeners {
         None
     }
 }
-
-/// No menu.
-pub fn run_menu_keys(
-    _event: &KeyboardEvent,
-    _menu_id: &str,
-    _on_escape: impl FnOnce(),
-    _on_tab: impl FnOnce() + 'static,
-) {
-}
-
-/// No menu.
-pub fn focus_menu(_menu_id: &str, _edge: crate::components::context_menu::MenuFocusEdge) {}
-
-/// No element.
-pub fn focus_by_id(_id: &str) {}

@@ -21,6 +21,7 @@ use crate::components::browse::listing;
 use crate::components::browse::view::{PickerReading, read_picker};
 use crate::components::browse::{BrowseStatus, newest_session_cwd};
 use crate::components::layout::window_size::use_is_compact;
+use crate::components::ui::dom::focus_by_id;
 use crate::components::ui::{Dialog, DialogContent, DialogTitle};
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
@@ -119,7 +120,7 @@ pub fn BrowsePicker(worker_fp: String) -> Element {
             move |action| {
                 if let PickerKey::EditPath(path) = action {
                     path_input.set(path);
-                    dom::focus_by_id("browse-path-input");
+                    focus_by_id("browse-path-input");
                 } else {
                     let reading = browse_reading(&pump, &key_worker.peek(), *show_hidden.peek());
                     run_key(action, &pump, &reading, cursor, ticket, &navigate);

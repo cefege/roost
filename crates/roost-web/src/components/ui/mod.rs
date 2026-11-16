@@ -41,6 +41,7 @@ pub mod input_prompt;
 pub mod item;
 pub mod kbd;
 pub mod list;
+pub mod menu_focus;
 pub mod menu_items;
 pub mod menu_overlay;
 pub mod metric_tile;

@@ -7,13 +7,13 @@
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
 
+use super::menu_focus::MenuFocusEdge;
 use super::menu_items::{MenuItemHooks, render_menu_group, render_menu_item, render_menu_label};
 use super::menu_overlay::{
     MenuContext, MenuRoot, MenuSide, MenuSurface, anchored_placement, provide_menu_root,
     request_close, request_open,
 };
 use super::separator::Separator;
-use crate::components::context_menu::MenuFocusEdge;
 use crate::components::ui::field::scoped_element_id;
 
 /// `trigger_id` and `menu_id` exist for callers whose trigger id is already

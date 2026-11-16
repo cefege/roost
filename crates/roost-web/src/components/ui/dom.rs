@@ -236,3 +236,116 @@ fn focus_without_scrolling(element: &web_sys::HtmlElement) {
         }
     }
 }
+
+/// A one-shot timer, cancelled when dropped.
+#[cfg(target_arch = "wasm32")]
+pub struct Timeout {
+    id: i32,
+    _callback: wasm_bindgen::closure::Closure<dyn FnMut()>,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Timeout {
+    /// Run `callback` after `delay_ms`.
+    pub fn after(delay_ms: u32, callback: impl FnOnce() + 'static) -> Option<Self> {
+        use wasm_bindgen::JsCast as _;
+
+        let mut callback = Some(callback);
+        let closure = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
+            if let Some(callback) = callback.take() {
+                callback();
+            }
+        });
+        let id = web_sys::window()?
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                closure.as_ref().unchecked_ref(),
+                i32::try_from(delay_ms).unwrap_or(i32::MAX),
+            )
+            .ok()?;
+        Some(Self {
+            id,
+            _callback: closure,
+        })
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for Timeout {
+    fn drop(&mut self) {
+        if let Some(window) = web_sys::window() {
+            window.clear_timeout_with_handle(self.id);
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl std::fmt::Debug for Timeout {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Timeout")
+            .field("id", &self.id)
+            .finish()
+    }
+}
+
+/// No timer runs natively.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug)]
+pub struct Timeout;
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Timeout {
+    /// No timer.
+    pub fn after(_delay_ms: u32, _callback: impl FnOnce() + 'static) -> Option<Self> {
+        None
+    }
+}
+
+/// Apply one key to the open menu `menu_id`: roving focus, activation,
+/// Escape and Tab (`menu_focus::run_menu_key`).
+#[cfg(target_arch = "wasm32")]
+pub fn run_menu_keys(
+    event: &KeyboardEvent,
+    menu_id: &str,
+    on_escape: impl FnOnce(),
+    on_tab: impl FnOnce() + 'static,
+) {
+    let Some(native) = event.data().downcast::<web_sys::KeyboardEvent>().cloned() else {
+        return;
+    };
+    let Some(menu) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.get_element_by_id(menu_id))
+    else {
+        return;
+    };
+    super::menu_focus::run_menu_key(&native, &menu, on_escape, on_tab);
+}
+
+/// Apply one key to the open menu; there is no menu natively.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run_menu_keys(
+    _event: &KeyboardEvent,
+    _menu_id: &str,
+    _on_escape: impl FnOnce(),
+    _on_tab: impl FnOnce() + 'static,
+) {
+}
+
+/// Focus the element with `id`, if it is still in the document.
+#[cfg(target_arch = "wasm32")]
+pub fn focus_by_id(id: &str) {
+    use wasm_bindgen::JsCast as _;
+
+    if let Some(element) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.get_element_by_id(id))
+        .and_then(|element| element.dyn_into::<web_sys::HtmlElement>().ok())
+    {
+        let _ = element.focus();
+    }
+}
+
+/// Focus the element with `id`; there is no document natively.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn focus_by_id(_id: &str) {}

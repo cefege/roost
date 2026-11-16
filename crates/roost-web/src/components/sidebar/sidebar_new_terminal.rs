@@ -5,10 +5,10 @@
 use dioxus::prelude::*;
 
 use crate::components::browse::listing;
-use crate::components::context_menu::MenuFocusEdge;
 use crate::components::ui::dropdown_menu::{
     DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 };
+use crate::components::ui::menu_focus::MenuFocusEdge;
 use crate::components::ui::menu_overlay::{
     MenuContext, MenuSide, anchored_placement, request_open,
 };

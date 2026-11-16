@@ -9,7 +9,7 @@ use std::rc::Rc;
 use dioxus::prelude::*;
 use dioxus::web::WebEventExt as _;
 
-use super::deck_dom::{self, ClientBox, SizeWatch, Timeout};
+use super::deck_dom::{self, ClientBox, SizeWatch};
 use super::pane_strip_double_press::DoublePress;
 use super::pane_strip_gesture::{StripDragOutlets, StripGesture};
 use super::pane_tab::PaneTab;
@@ -18,6 +18,7 @@ use super::pane_tab_list::{PaneTabList, TAB_LIST_MENU_ID};
 use super::pane_tab_new_menu::PaneTabNewMenu;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::terminal::terminal_transport_indicator::TerminalTransportIndicator;
+use crate::components::ui::dom::Timeout;
 use crate::components::ui::{
     DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Icon, IconType, Tabs, TabsList,
     TabsVariant, Toolbar,

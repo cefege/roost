@@ -1,17 +1,17 @@
 //! Port of rust-ui `context_menu`: a controlled root whose trigger region opens
 //! a fixed `role="menu"` panel at the pointer on right-click. Shared state and
 //! items live in `ui/menu_overlay.rs` and `ui/menu_items.rs`; focus and key
-//! helpers come from `components::context_menu`.
+//! helpers come from `ui::menu_focus`.
 
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
 
+use super::menu_focus::MenuFocusEdge;
 use super::menu_items::{MenuItemHooks, render_menu_group, render_menu_item, render_menu_label};
 use super::menu_overlay::{
     MenuContext, MenuPlacement, MenuRoot, MenuSide, MenuSurface, provide_menu_root, request_open,
 };
 use super::separator::Separator;
-use crate::components::context_menu::MenuFocusEdge;
 use crate::components::ui::field::scoped_element_id;
 
 #[component]

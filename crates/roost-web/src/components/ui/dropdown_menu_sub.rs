@@ -9,12 +9,12 @@ use tw_merge::tw_merge;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 
+use super::dom::run_menu_keys;
 use super::field::scoped_element_id;
-use super::menu_overlay::{MenuContext, request_close};
-use crate::components::context_menu::{
+use super::menu_focus::{
     MenuFocusEdge, attempt_menu_focus, focus_menu_edge, use_floating_menu_dismiss,
 };
-use crate::components::deck::deck_dom::run_menu_keys;
+use super::menu_overlay::{MenuContext, request_close};
 use crate::components::layout::portal::Portal;
 use crate::components::ui::icon::Icon;
 

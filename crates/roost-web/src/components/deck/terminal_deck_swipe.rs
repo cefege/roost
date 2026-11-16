@@ -11,13 +11,14 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use super::deck_dom::{self, DeckTouch, Listeners, Timeout};
+use super::deck_dom::{self, DeckTouch, Listeners};
 use super::deck_swipe::{
     Swipe, SwipeCompletion, SwipeMode, SwipePhase, SwipeRelease, arm_swipe, cancel_swipe,
     new_fab_progress, release_swipe, route_outlives_swipe, should_commit_switch, track_swipe,
 };
 use super::deck_swipe_touch::{SwipeTouchTracker, TouchStep};
 use super::terminal_deck_operations::DeckOperations;
+use crate::components::ui::dom::Timeout;
 use crate::motion::edge_swipe_drawer::open_offset_px;
 
 /// What a touch reads from the newest render.

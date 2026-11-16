@@ -11,25 +11,6 @@ pub const FILTER_ID: &str = "browse-filter-input";
 /// The new-folder name field's element id, so opening the dialog can focus it.
 pub const NEW_FOLDER_ID: &str = "browse-new-folder-input";
 
-/// Focus the element with `id`, if it is in the document.
-#[cfg(target_arch = "wasm32")]
-pub fn focus_by_id(id: &str) {
-    use wasm_bindgen::JsCast as _;
-
-    let Some(element) = web_sys::window()
-        .and_then(|window| window.document())
-        .and_then(|document| document.get_element_by_id(id))
-        .and_then(|element| element.dyn_into::<web_sys::HtmlElement>().ok())
-    else {
-        return;
-    };
-    let _ = element.focus();
-}
-
-/// Focus the element with `id`, if it is in the document.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn focus_by_id(_id: &str) {}
-
 /// Whether the element a key press landed on is `id` or lives inside it.
 #[cfg(target_arch = "wasm32")]
 #[must_use]

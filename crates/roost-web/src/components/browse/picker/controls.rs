@@ -13,6 +13,7 @@ use crate::components::browse::listing;
 use crate::components::browse::picker::control_set::PickerControls;
 use crate::components::browse::picker::parts::{commit_new_folder, history_move};
 use crate::components::browse::view::PickerReading;
+use crate::components::ui::dom::focus_by_id;
 use crate::pump::Pump;
 use crate::routes::browse_href;
 
@@ -52,7 +53,7 @@ pub fn build_controls(
             };
             listing::apply(&pump, &mut ticket, intent);
             if !open {
-                dom::focus_by_id(dom::FILTER_ID);
+                focus_by_id(dom::FILTER_ID);
             }
         }
     });
@@ -75,7 +76,7 @@ pub fn build_controls(
                 busy: false,
                 error: None,
             });
-            dom::focus_by_id(dom::NEW_FOLDER_ID);
+            focus_by_id(dom::NEW_FOLDER_ID);
         }
     });
     let on_select_server =

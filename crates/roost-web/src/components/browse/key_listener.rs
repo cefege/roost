@@ -14,6 +14,8 @@ use crate::components::browse::dom;
 #[cfg(target_arch = "wasm32")]
 use crate::components::browse::keys::picker_key;
 #[cfg(target_arch = "wasm32")]
+use crate::components::ui::dom::focus_by_id;
+#[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
 
 /// The listener, for the life of the page.
@@ -72,7 +74,7 @@ pub fn install_picker_keys(
                     && !event.default_prevented()
                 {
                     event.prevent_default();
-                    dom::focus_by_id("browse-path-input");
+                    focus_by_id("browse-path-input");
                     return;
                 }
                 let target = event

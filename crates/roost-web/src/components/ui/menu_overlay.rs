@@ -2,14 +2,14 @@
 //! the root context, open and close transitions, focus requests, keyboard
 //! routing and placement. Used by `ui/dropdown_menu.rs`, `ui/context_menu.rs`
 //! and `ui/menu_items.rs`; placement reuses `ui::anchored_panel` and focus and
-//! key routing reuse `deck::deck_dom`.
+//! key routing reuse `ui::menu_focus` and `ui::dom`.
 
 use dioxus::prelude::*;
 
-use crate::components::context_menu::{
+use super::dom::{focus_by_id, run_menu_keys};
+use super::menu_focus::{
     MenuFocusEdge, MenuFocusRequest, attempt_menu_focus, focus_menu_edge, use_floating_menu_dismiss,
 };
-use crate::components::deck::deck_dom::{focus_by_id, run_menu_keys};
 use crate::components::ui::anchored_panel::anchored_placement_style;
 
 /// The side of the trigger a dropdown opens on when both sides have room.

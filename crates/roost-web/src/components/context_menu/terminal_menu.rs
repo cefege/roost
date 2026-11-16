@@ -8,12 +8,12 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use crate::components::context_menu::MenuFocusEdge;
-#[cfg(target_arch = "wasm32")]
-use crate::components::context_menu::focus_menu_edge;
 use crate::components::deck::deck_dom;
 use crate::components::ui::context_menu::{ContextMenu, ContextMenuContent, ContextMenuItem};
 use crate::components::ui::dom::{FocusOpener, focused_element, restore_focus, viewport_height};
+use crate::components::ui::menu_focus::MenuFocusEdge;
+#[cfg(target_arch = "wasm32")]
+use crate::components::ui::menu_focus::focus_menu_edge;
 use crate::components::ui::menu_overlay::{MenuContext, MenuPlacement, request_open};
 use crate::components::ui::{
     AutoFocusRequest, Button, ButtonVariant, Sheet, SheetContent, SheetSide, SheetTitle,
@@ -262,7 +262,7 @@ fn run_terminal_menu_key(event: &KeyboardEvent, menu_id: &str, on_escape: impl F
             .and_then(|window| window.document())
             .and_then(|document| document.get_element_by_id(menu_id))
     {
-        crate::components::context_menu::run_menu_key(&native, &menu, on_escape, || {});
+        crate::components::ui::menu_focus::run_menu_key(&native, &menu, on_escape, || {});
     }
     #[cfg(not(target_arch = "wasm32"))]
     let _ = (event, menu_id, on_escape);

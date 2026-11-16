@@ -8,9 +8,9 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use crate::components::context_menu::MenuFocusEdge;
 use crate::components::ui::context_menu::{ContextMenu, ContextMenuContent};
 use crate::components::ui::dom::{FocusOpener, focused_element, restore_focus};
+use crate::components::ui::menu_focus::MenuFocusEdge;
 use crate::components::ui::menu_overlay::{MenuContext, MenuPlacement, request_open};
 
 /// A row menu at viewport (`x`, `y`) holding `children` items. `on_close` runs

@@ -200,42 +200,6 @@ pub fn deck_pointer_target(event: &PointerEvent) -> DeckPointerTarget {
     }
 }
 
-/// A one-shot timer, cancelled when dropped.
-pub struct Timeout {
-    id: i32,
-    _callback: Closure<dyn FnMut()>,
-}
-
-impl Timeout {
-    /// Run `callback` after `delay_ms`.
-    pub fn after(delay_ms: u32, callback: impl FnOnce() + 'static) -> Option<Self> {
-        let mut callback = Some(callback);
-        let closure = Closure::<dyn FnMut()>::new(move || {
-            if let Some(callback) = callback.take() {
-                callback();
-            }
-        });
-        let id = web_sys::window()?
-            .set_timeout_with_callback_and_timeout_and_arguments_0(
-                closure.as_ref().unchecked_ref(),
-                i32::try_from(delay_ms).unwrap_or(i32::MAX),
-            )
-            .ok()?;
-        Some(Self {
-            id,
-            _callback: closure,
-        })
-    }
-}
-
-impl Drop for Timeout {
-    fn drop(&mut self) {
-        if let Some(window) = web_sys::window() {
-            window.clear_timeout_with_handle(self.id);
-        }
-    }
-}
-
 /// A `ResizeObserver` that calls back on any watched element's resize.
 pub struct SizeWatch {
     observer: web_sys::ResizeObserver,
@@ -285,53 +249,8 @@ impl Drop for SizeWatch {
     }
 }
 
-impl std::fmt::Debug for Timeout {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("Timeout")
-            .field("id", &self.id)
-            .finish()
-    }
-}
-
 impl std::fmt::Debug for SizeWatch {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.debug_struct("SizeWatch").finish_non_exhaustive()
-    }
-}
-
-/// Apply one key to the open menu `menu_id`: roving focus, activation,
-/// Escape and Tab (`context_menu::run_menu_key`).
-pub fn run_menu_keys(
-    event: &KeyboardEvent,
-    menu_id: &str,
-    on_escape: impl FnOnce(),
-    on_tab: impl FnOnce() + 'static,
-) {
-    let Some(native) = event.data().downcast::<web_sys::KeyboardEvent>().cloned() else {
-        return;
-    };
-    let Some(menu) = web_sys::window()
-        .and_then(|window| window.document())
-        .and_then(|document| document.get_element_by_id(menu_id))
-    else {
-        return;
-    };
-    crate::components::context_menu::run_menu_key(&native, &menu, on_escape, on_tab);
-}
-
-/// Focus the first or last item of menu `menu_id` once it mounts.
-pub fn focus_menu(menu_id: &str, edge: crate::components::context_menu::MenuFocusEdge) {
-    crate::components::context_menu::focus_menu_edge(menu_id, edge);
-}
-
-/// Focus the element with `id`, if it is still in the document.
-pub fn focus_by_id(id: &str) {
-    if let Some(element) = web_sys::window()
-        .and_then(|window| window.document())
-        .and_then(|document| document.get_element_by_id(id))
-        .and_then(|element| element.dyn_into::<web_sys::HtmlElement>().ok())
-    {
-        let _ = element.focus();
     }
 }

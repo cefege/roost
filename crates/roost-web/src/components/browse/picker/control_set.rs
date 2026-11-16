@@ -7,6 +7,7 @@
 use dioxus::prelude::*;
 
 use crate::components::browse::dom;
+use crate::components::ui::dom::focus_by_id;
 use crate::components::ui::focus_scope::AutoFocusRequest;
 
 /// Every handler the four bands and the two dialogs report back through.
@@ -70,7 +71,7 @@ pub struct PickerControls {
 /// tabbable: the entry region's arrows and the unavailable panel's Tab are both
 /// reader affordances the dialog's default would swallow.
 pub fn focus_region(unavailable: bool) {
-    dom::focus_by_id(if unavailable {
+    focus_by_id(if unavailable {
         crate::components::browse::unavailable::REGION_ID
     } else {
         dom::RESULTS_ID

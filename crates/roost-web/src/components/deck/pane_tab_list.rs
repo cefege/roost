@@ -8,7 +8,7 @@ use dioxus::prelude::*;
 use roost_client_core::store::selectors::session_by_id;
 
 use super::deck_dom;
-use crate::components::context_menu::MenuFocusEdge;
+use crate::components::ui::menu_focus::{MenuFocusEdge, focus_menu_edge};
 use crate::components::ui::{Command, CommandInput, DropdownMenuItem, Icon, IconType};
 use crate::pump::use_store;
 use crate::session_naming::session_title;
@@ -86,7 +86,7 @@ pub fn PaneTabList(
                             }
                             let down = key == "ArrowDown";
                             highlighted.set(if down { 0 } else { key_matches.len() - 1 });
-                            deck_dom::focus_menu(
+                            focus_menu_edge(
                                 TAB_LIST_MENU_ID,
                                 if down {
                                     MenuFocusEdge::First
