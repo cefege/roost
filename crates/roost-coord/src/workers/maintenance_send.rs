@@ -2,9 +2,7 @@
 //! routable generation with its pending-RPC correlation kept, so a lost
 //! transport rejects this exact maintenance step instead of reading as a
 //! completed update. Called by `deploy::keeper_update`; correlates through
-//! `services.scrollback.pending()`. Ports `sendKeeperUpdatePreparation` of
-//! apps/coord/src/workers/worker-send-maintenance.ts; its Windows half,
-//! `sendWindowsUpdateBroker`, is not carried (the signed updater is paused).
+//! `services.scrollback.pending()`.
 
 use std::time::Duration;
 

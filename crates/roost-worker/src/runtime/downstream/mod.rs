@@ -142,9 +142,6 @@ impl Dispatcher {
             CoordWorkerDownstream::AttachmentDirectStatusRequest(request) => {
                 self.attachment_status(request, link);
             }
-            CoordWorkerDownstream::UpdateBroker(request) => {
-                link.reply(replies::update_broker_refusal(request));
-            }
             // v2's absent-owner behaviour for these is `deps.onX?.()`: nothing
             // is sent (coord-link-direct-terminal.ts:155-157,193-195;
             // coord-link-downstream.ts:297-300,324-331).
@@ -167,17 +164,9 @@ impl Dispatcher {
                 self.terminal_direct_retire(&request);
             }
             CoordWorkerDownstream::AttachmentChunk(chunk) => self.attachment_chunk(chunk),
-            frame @ (CoordWorkerDownstream::CoordMovePrepare(_)
-            | CoordWorkerDownstream::CoordMoveSnapshotStart(_)
-            | CoordWorkerDownstream::CoordMoveSnapshotChunk(_)
-            | CoordWorkerDownstream::CoordRelocate(_)) => retired(frame.kind()),
             CoordWorkerDownstream::LiveMetricsSubscription(request) => {
                 self.live_metrics_subscription(request)
             }
         }
     }
-}
-
-fn retired(kind: &'static str) {
-    tracing::debug!(kind, "a retired downstream schema tag was ignored");
 }

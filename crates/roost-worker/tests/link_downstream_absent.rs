@@ -3,7 +3,7 @@
 //! reach the link, and a worker with no owners at all refuses input the way
 //! v2 does. Ports the absent-dependency branches of
 //! `apps/worker/src/transport/coord-link-downstream.ts` and
-//! `coord-link-direct-terminal.ts`, and the POSIX update-broker answer.
+//! `coord-link-direct-terminal.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod link_downstream_support;
@@ -12,11 +12,10 @@ use std::time::Instant;
 
 use link_downstream_support::{FakeLink, Fakes, OwnerMode, SESSION, settle_tasks};
 use roost_proto::{
-    DAttachmentChunk, DAttachmentDirectStatusRequest, DCoordMovePrepare, DCoordMoveSnapshotChunk,
-    DCoordMoveSnapshotStart, DCoordRelocate, DInputRequest, DKeeperUpdatePrepare,
+    DAttachmentChunk, DAttachmentDirectStatusRequest, DInputRequest, DKeeperUpdatePrepare,
     DLocalAttachmentGrant, DLocalAttachmentGrantRevoke, DLocalAttachmentPeerCancel,
     DLocalAttachmentPeerOffer, DLocalTerminalPeerCancel, DLocalTerminalPeerOffer,
-    DTerminalDirectRetire, DTerminalInputRouteClaim, DTerminalTransportProbe, DUpdateBroker,
+    DTerminalDirectRetire, DTerminalInputRouteClaim, DTerminalTransportProbe,
 };
 use roost_protocol::wire::coord_worker::{
     CoordWorkerDownstream as Down, CoordWorkerUpstream as Up, TerminalInputStatus,
@@ -91,36 +90,6 @@ fn unsupported_grants_and_keeper_update_answer_v2s_rpc_errors() {
         answers_without_owners(Down::KeeperUpdatePrepare(prepare)),
         rpc_error("k1", "keeper update preparation unsupported by this worker")
     );
-}
-
-/// v2's running POSIX worker: an undefined action is refused by the dispatch
-/// (`coord-link-downstream.ts:342-344`); a defined one reaches `onUpdateBroker`,
-/// whose darwin/linux arm throws (`coord-link-deps.ts:379-381`), and the
-/// `.catch` answers the thrown message (`coord-link-downstream.ts:362-364`).
-#[test]
-fn update_broker_answers_as_v2s_posix_worker() {
-    let broker = |action: &str| DUpdateBroker {
-        request_id: "u1".to_owned(),
-        action: action.to_owned(),
-        ..Default::default()
-    };
-    assert_eq!(
-        answers(Down::UpdateBroker(broker("REBOOT"))),
-        rpc_error("u1", "unsupported updater action: REBOOT")
-    );
-    assert_eq!(
-        answers(Down::UpdateBroker(broker(""))),
-        rpc_error("u1", "unsupported updater action: ")
-    );
-    for action in ["START", "STATUS"] {
-        assert_eq!(
-            answers(Down::UpdateBroker(broker(action))),
-            rpc_error(
-                "u1",
-                "Windows update broker command received on a POSIX worker"
-            )
-        );
-    }
 }
 
 #[test]
@@ -198,16 +167,12 @@ fn peer_offers_are_disabled_and_an_unknown_upload_is_not_found() {
 }
 
 #[test]
-fn optional_callbacks_and_retired_tags_are_inert() {
+fn optional_callbacks_are_inert() {
     let inert = [
         Down::TerminalTransportProbe(DTerminalTransportProbe::default()),
         Down::LocalTerminalPeerCancel(DLocalTerminalPeerCancel::default()),
         Down::LocalAttachmentPeerCancel(DLocalAttachmentPeerCancel::default()),
         Down::TerminalDirectRetire(DTerminalDirectRetire::default()),
-        Down::CoordMovePrepare(DCoordMovePrepare::default()),
-        Down::CoordMoveSnapshotStart(DCoordMoveSnapshotStart::default()),
-        Down::CoordMoveSnapshotChunk(DCoordMoveSnapshotChunk::default()),
-        Down::CoordRelocate(DCoordRelocate::default()),
     ];
     for frame in inert {
         let kind = frame.kind();

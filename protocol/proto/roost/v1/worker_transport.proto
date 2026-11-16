@@ -370,57 +370,6 @@ message DAttachmentChunk {
   uint32 seq = 7;
 }
 
-message DCoordMovePrepare {
-  string request_id = 1;
-  string handoff_id = 2;
-  string source_url = 3;
-  string target_url = 4;
-  string expected_coord_kid = 5;
-  string expected_git_sha = 6;
-  uint64 estimated_db_size = 7;
-  string action = 8;
-}
-
-message DCoordMoveSnapshotStart {
-  string request_id = 1;
-  string handoff_id = 2;
-  uint64 total_size = 3;
-  string sha256 = 4;
-  bytes coord_key_pem = 5;
-  bytes authorized_keys = 6;
-  string secret_sha256 = 7;
-  repeated string expected_worker_fps = 8;
-}
-
-message DCoordMoveSnapshotChunk {
-  string handoff_id = 1;
-  uint32 seq = 2;
-  bytes data = 3;
-  bool last = 4;
-}
-
-message DCoordRelocate {
-  string request_id = 1;
-  string handoff_id = 2;
-  string source_url = 3;
-  string target_url = 4;
-  string action = 5;
-}
-
-// Authenticated coordinator control for the out-of-job Windows updater. The
-// worker validates the detached vendor signature before it creates the local
-// journal and asks SCM to start RoostUpdaterV2. STATUS replays persisted
-// progress and never starts a second broker.
-message DUpdateBroker {
-  string request_id = 1;
-  string job_id = 2;
-  string action = 3; // START | STATUS
-  string manifest_url = 4;
-  string signature_url = 5;
-  string manifest_sha256 = 6;
-  string publisher_sha256 = 7;
-}
-
 // Runs only under the coordinator's exclusive channel-creation drain. A
 // journaled action carries its complete immutable envelope; maintenance is the
 // explicit refresh path. Both reply through WRpcOk/WRpcError.
@@ -569,11 +518,13 @@ message DTerminalDirectRetire {
 message DLiveMetricsSubscription { bool active = 1; }
 
 message CoordWorkerDown {
-  reserved 11, 16, 37, 38, 39, 40, 41, 43, 44, 45, 46, 47, 48, 49, 50;
+  reserved 7, 8, 9, 10, 11, 16, 30, 37, 38, 39, 40, 41, 43, 44, 45, 46, 47, 48, 49, 50;
   reserved "viewport_request", "agent_tool_call", "agent_tool_cancel",
       "agent_conversation_closed", "agent_tool_background", "agent_jobs_abort",
       "agent_prompt", "omp_prompt", "omp_cancel", "omp_events_ack", "omp_close",
-      "omp_open", "omp_respond", "omp_set_mode", "omp_ui";
+      "omp_open", "omp_respond", "omp_set_mode", "omp_ui", "coord_move_prepare",
+      "coord_move_snapshot_start", "coord_move_snapshot_chunk", "coord_relocate",
+      "update_broker";
   oneof frame {
     DHelloAck hello_ack = 1;
     DPing ping = 2;
@@ -581,14 +532,9 @@ message CoordWorkerDown {
     DBinary binary = 4;
     DEventAck event_ack = 5;
     DAttachmentChunk attachment_chunk = 6;
-    DCoordMovePrepare coord_move_prepare = 7;
-    DCoordMoveSnapshotStart coord_move_snapshot_start = 8;
-    DCoordMoveSnapshotChunk coord_move_snapshot_chunk = 9;
-    DCoordRelocate coord_relocate = 10;
     DInputRequest input_request = 12;
     DTerminalStreamState terminal_stream_state = 13;
     DTerminalSnapshotRequest terminal_snapshot_request = 14;
-    DUpdateBroker update_broker = 30;
     DKeeperUpdatePrepare keeper_update_prepare = 15;
     DTerminalPipelineSnapshotRequest terminal_pipeline_snapshot = 17;
     DTerminalViewRelay terminal_view_relay = 18;

@@ -9,14 +9,13 @@ use serde_json::Value;
 
 use super::kind_of;
 use super::payloads::{
-    Binary, DAttachmentChunk, DAttachmentDirectStatusRequest, DCoordMovePrepare,
-    DCoordMoveSnapshotChunk, DCoordMoveSnapshotStart, DCoordRelocate, DInputRequest,
+    Binary, DAttachmentChunk, DAttachmentDirectStatusRequest, DInputRequest,
     DKeeperUpdatePrepare, DLocalAttachmentGrant, DLocalAttachmentGrantRevoke,
     DLocalAttachmentPeerCancel, DLocalAttachmentPeerOffer, DLocalTerminalGrant,
     DLocalTerminalGrantRevoke, DLocalTerminalPeerCancel, DLocalTerminalPeerOffer,
     DTerminalDirectRetire, DTerminalInputRouteClaim, DTerminalPipelineSnapshotRequest,
     DTerminalStreamState, DTerminalTransportProbe, DTerminalViewRelay, DTerminalViewSocketClosed,
-    DUpdateBroker, EventAck, TerminalSnapshotRequest,
+    EventAck, TerminalSnapshotRequest,
 };
 use crate::validate::nonnegative;
 use crate::wire::brand::TraceId;
@@ -126,20 +125,6 @@ pub enum CoordWorkerDownstream {
     /// flight for it is identity-fenced rather than delivered.
     #[serde(rename = "terminal-direct-retire")]
     TerminalDirectRetire(DTerminalDirectRetire),
-    /// The coordinator move handshake. Authenticated coordinator control; the
-    /// worker validates the detached vendor signature before acting.
-    #[serde(rename = "coord-move-prepare")]
-    CoordMovePrepare(DCoordMovePrepare),
-    #[serde(rename = "coord-move-snapshot-start")]
-    CoordMoveSnapshotStart(DCoordMoveSnapshotStart),
-    #[serde(rename = "coord-move-snapshot-chunk")]
-    CoordMoveSnapshotChunk(DCoordMoveSnapshotChunk),
-    #[serde(rename = "coord-relocate")]
-    CoordRelocate(DCoordRelocate),
-    /// The out-of-job update broker. Runs only under the coordinator's
-    /// exclusive channel-creation drain.
-    #[serde(rename = "update-broker")]
-    UpdateBroker(DUpdateBroker),
     /// A journaled keeper update, carrying its complete immutable envelope.
     #[serde(rename = "keeper-update-prepare")]
     KeeperUpdatePrepare(DKeeperUpdatePrepare),
@@ -175,11 +160,6 @@ impl CoordWorkerDownstream {
             Self::TerminalInputRouteClaim(_) => "terminal-input-route-claim",
             Self::TerminalTransportProbe(_) => "terminal-transport-probe",
             Self::TerminalDirectRetire(_) => "terminal-direct-retire",
-            Self::CoordMovePrepare(_) => "coord-move-prepare",
-            Self::CoordMoveSnapshotStart(_) => "coord-move-snapshot-start",
-            Self::CoordMoveSnapshotChunk(_) => "coord-move-snapshot-chunk",
-            Self::CoordRelocate(_) => "coord-relocate",
-            Self::UpdateBroker(_) => "update-broker",
             Self::KeeperUpdatePrepare(_) => "keeper-update-prepare",
             Self::LiveMetricsSubscription(_) => "live-metrics-subscription",
         }

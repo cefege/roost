@@ -118,21 +118,6 @@ pub(super) fn to_proto(frame: &CoordWorkerDownstream) -> ProtocolResult<CoordWor
         CoordWorkerDownstream::TerminalDirectRetire(retire) => {
             Frame::TerminalDirectRetire(Box::new((*retire).clone()))
         }
-        CoordWorkerDownstream::CoordMovePrepare(prepare) => {
-            Frame::CoordMovePrepare(Box::new((*prepare).clone()))
-        }
-        CoordWorkerDownstream::CoordMoveSnapshotStart(start) => {
-            Frame::CoordMoveSnapshotStart(Box::new((*start).clone()))
-        }
-        CoordWorkerDownstream::CoordMoveSnapshotChunk(chunk) => {
-            Frame::CoordMoveSnapshotChunk(Box::new((*chunk).clone()))
-        }
-        CoordWorkerDownstream::CoordRelocate(relocate) => {
-            Frame::CoordRelocate(Box::new((*relocate).clone()))
-        }
-        CoordWorkerDownstream::UpdateBroker(broker) => {
-            Frame::UpdateBroker(Box::new((*broker).clone()))
-        }
         CoordWorkerDownstream::KeeperUpdatePrepare(prepare) => {
             Frame::KeeperUpdatePrepare(Box::new((*prepare).clone()))
         }
@@ -241,19 +226,6 @@ pub(super) fn from_proto(message: &CoordWorkerDown) -> ProtocolResult<CoordWorke
         Frame::TerminalDirectRetire(retire) => {
             CoordWorkerDownstream::TerminalDirectRetire((**retire).clone())
         }
-        Frame::CoordMovePrepare(prepare) => {
-            CoordWorkerDownstream::CoordMovePrepare((**prepare).clone())
-        }
-        Frame::CoordMoveSnapshotStart(start) => {
-            CoordWorkerDownstream::CoordMoveSnapshotStart((**start).clone())
-        }
-        Frame::CoordMoveSnapshotChunk(chunk) => {
-            CoordWorkerDownstream::CoordMoveSnapshotChunk((**chunk).clone())
-        }
-        Frame::CoordRelocate(relocate) => {
-            CoordWorkerDownstream::CoordRelocate((**relocate).clone())
-        }
-        Frame::UpdateBroker(broker) => CoordWorkerDownstream::UpdateBroker((**broker).clone()),
         Frame::KeeperUpdatePrepare(prepare) => {
             CoordWorkerDownstream::KeeperUpdatePrepare((**prepare).clone())
         }

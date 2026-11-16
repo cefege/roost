@@ -10,7 +10,7 @@
 use roost_proto::buffa::MessageField;
 use roost_proto::{
     AttachmentTransferStatus, DAttachmentDirectStatusRequest, DLocalAttachmentPeerOffer,
-    DLocalTerminalPeerOffer, DTerminalInputRouteClaim, DTerminalStreamState, DUpdateBroker,
+    DLocalTerminalPeerOffer, DTerminalInputRouteClaim, DTerminalStreamState,
     TerminalInputRouteResult, WAttachmentDirectStatus, WLocalAttachmentPeerError,
     WLocalTerminalPeerError, WTerminalInputRouteResult,
 };
@@ -31,9 +31,6 @@ pub(super) const LOCAL_ATTACHMENT_GRANTS_UNSUPPORTED: &str =
     "local attachment grants unsupported by this worker";
 pub(super) const KEEPER_UPDATE_PREPARE_UNSUPPORTED: &str =
     "keeper update preparation unsupported by this worker";
-/// v2 `coord-link-deps.ts:381`: the broker is Windows-only.
-pub(super) const UPDATE_BROKER_POSIX: &str =
-    "Windows update broker command received on a POSIX worker";
 /// v2 `refusedClaim`'s reason.
 const ROUTE_CLAIM_BUSY: &str = "route_claim_busy";
 /// v2 `sendUnavailableAttachmentStatus`'s error.
@@ -225,17 +222,4 @@ pub(super) fn attachment_status_unavailable(
         }),
         ..Default::default()
     })
-}
-
-/// The update broker on a POSIX worker, as v2's RUNNING worker answers it: an
-/// action the broker does not define is refused as such
-/// (`coord-link-downstream.ts:342-344`); a defined one reaches `onUpdateBroker`,
-/// which throws on darwin/linux (`coord-link-deps.ts:379-381`), and the
-/// `.catch` answers that message (`coord-link-downstream.ts:362-364`).
-pub(super) fn update_broker_refusal(request: DUpdateBroker) -> CoordWorkerUpstream {
-    if request.action != "START" && request.action != "STATUS" {
-        let message = format!("unsupported updater action: {}", request.action);
-        return rpc_error(request.request_id, message);
-    }
-    rpc_error(request.request_id, UPDATE_BROKER_POSIX)
 }

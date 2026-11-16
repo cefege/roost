@@ -304,6 +304,12 @@ and the `task_delta` Sync frame, the `roost api tasks`, `task-enqueue` and
 `ShellIntent::OpenQueueTaskDialog`), which no worker ever executed. The `tasks`
 and `mcp_relays` tables stay in place as inert history.
 
+Also dropped from the worker link: the `DUpdateBroker` frame (the Windows
+update broker's coordinator control) and the `DCoordMovePrepare`,
+`DCoordMoveSnapshotStart`, `DCoordMoveSnapshotChunk` and `DCoordRelocate`
+coordinator-move frames, with their `CoordWorkerDown` fields 7-10 and 30
+reserved.
+
 The dedicated OMP integration is retired too: managed ACP processes, HTML chat,
 agent RPCs and Sync frames, status detection/reporting, fenced prompts, agent
 configuration and autolaunch, the `roost skill` command, bundled executables,

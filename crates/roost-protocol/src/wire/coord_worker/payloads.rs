@@ -22,13 +22,12 @@ use crate::wire::coord_worker::{DIR_FROM_PTY, DIR_TO_PTY};
 use crate::{ProtocolError, ProtocolResult};
 
 pub use roost_proto::{
-    DAttachmentChunk, DAttachmentDirectStatusRequest, DCoordMovePrepare, DCoordMoveSnapshotChunk,
-    DCoordMoveSnapshotStart, DCoordRelocate, DInputRequest, DKeeperUpdatePrepare,
+    DAttachmentChunk, DAttachmentDirectStatusRequest, DInputRequest, DKeeperUpdatePrepare,
     DLocalAttachmentGrant, DLocalAttachmentGrantRevoke, DLocalAttachmentPeerCancel,
     DLocalAttachmentPeerOffer, DLocalTerminalGrant, DLocalTerminalGrantRevoke,
     DLocalTerminalPeerCancel, DLocalTerminalPeerOffer, DTerminalDirectRetire,
     DTerminalInputRouteClaim, DTerminalPipelineSnapshotRequest, DTerminalStreamState,
-    DTerminalTransportProbe, DTerminalViewRelay, DTerminalViewSocketClosed, DUpdateBroker,
+    DTerminalTransportProbe, DTerminalViewRelay, DTerminalViewSocketClosed,
     WAttachmentDirectStatus, WCellGrid, WCellGridChunk, WLocalAttachmentPeerAnswer,
     WLocalAttachmentPeerError, WLocalTerminalPeerAnswer, WLocalTerminalPeerError,
     WTerminalInputRouteResult, WTerminalPipelineSnapshot, WTerminalTransportProbeResult,

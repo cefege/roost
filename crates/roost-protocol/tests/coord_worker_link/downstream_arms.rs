@@ -127,26 +127,6 @@ pub fn downstream_arms() -> Vec<(&'static str, CoordWorkerDownstream)> {
             CoordWorkerDownstream::TerminalDirectRetire(Default::default()),
         ),
         (
-            "coord-move-prepare",
-            CoordWorkerDownstream::CoordMovePrepare(Default::default()),
-        ),
-        (
-            "coord-move-snapshot-start",
-            CoordWorkerDownstream::CoordMoveSnapshotStart(Default::default()),
-        ),
-        (
-            "coord-move-snapshot-chunk",
-            CoordWorkerDownstream::CoordMoveSnapshotChunk(Default::default()),
-        ),
-        (
-            "coord-relocate",
-            CoordWorkerDownstream::CoordRelocate(Default::default()),
-        ),
-        (
-            "update-broker",
-            CoordWorkerDownstream::UpdateBroker(Default::default()),
-        ),
-        (
             "keeper-update-prepare",
             CoordWorkerDownstream::KeeperUpdatePrepare(Default::default()),
         ),
