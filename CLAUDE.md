@@ -249,139 +249,143 @@ going on in 30 seconds?"** If no, refactor before commit.
 
 **Name every dropped path in the commit body.** Only paths unreachable in an
 all-v3 fleet are dropped, plus features the operator retired. The list so
-far: the v2 Windows update broker (Windows workers use the Scheduled Task
-service path and the v3 coordinator-following updater; initial installation uses
-`install.ps1` or `cargo xtask fleet install`), the legacy unimplemented `Sync`
-server-streaming RPC, the sixteen proto-declared RPCs no v3 handler answered
-(dashboard access, owner activation, password and federated login, reset and
-link, credentials, coordinator move and relocation mint/redeem, `MiscFlags`),
-the `coordinator_relocation` Sync frame with the `relocated_to_url` and
-`handoff_id` fields of `AuthCoordIdentityResponse`, the legacy
-`/w/:workspaceId[/t/:channelId]` routes,
-`client-seq.txt`, the keeper "Bun ABI" identity field, the Bun-specific zlib
-workaround, capability fallbacks for peers lacking a capability every v3 peer
-advertises, the whole v2 TypeScript product tree (`apps/`, `packages/`, the
-product `scripts/`), the v2 Homebrew formula (`Formula/`), which a tap reads
-from the default branch, not from `v3`; v3 installs through `install.sh`
-— and automatic OMP conversation restoration with the private
+far:
+
+*v2 leftovers.* The v2 Windows update broker (Windows workers use the
+Scheduled Task service path and the v3 coordinator-following updater; initial
+installation uses `install.ps1` or `cargo xtask fleet install`), the legacy
+unimplemented `Sync` server-streaming RPC, the sixteen proto-declared RPCs no
+v3 handler answered (dashboard access, owner activation, password and
+federated login, reset and link, credentials, coordinator move and relocation
+mint/redeem, `MiscFlags`), the `coordinator_relocation` Sync frame with the
+`relocated_to_url` and `handoff_id` fields of `AuthCoordIdentityResponse`, the
+legacy `/w/:workspaceId[/t/:channelId]` routes, `client-seq.txt`, the keeper
+"Bun ABI" identity field, the Bun-specific zlib workaround, capability
+fallbacks for peers lacking a capability every v3 peer advertises, the whole
+v2 TypeScript product tree (`apps/`, `packages/`, the product `scripts/`), and
+the v2 Homebrew formula (`Formula/`), which a tap reads from the default
+branch, not from `v3`; v3 installs through `install.sh`.
+
+*Agent runtimes.* Automatic OMP conversation restoration with the private
 conversation-reference pipeline that only it read (the `agent.reference`
 report method, the installed `roost-omp-agent-reference.ts` extension, the
 `agent_reference` session event, `SessionsListResponse.recovery_metadata`,
-`ROOST_AGENT_CONVERSATION_RESTORE`); OMP's own `omp --resume` covers it; the
+`ROOST_AGENT_CONVERSATION_RESTORE`; OMP's own `omp --resume` covers it); the
 Node agent-host sidecar (`agent-host/`, its image, Helm container and PVC),
-the pi-env tool tunnel, Pi conversations and the agent-host's stored
-provider logins (not migrated; operators sign in again), and the terminal
-composer's strip of sent-image previews (the operator retired it; uploads
-still type their paths, and staged terminal images use compact inline
-thumbnails with progress overlays and a completion check instead of a duplicate
-transfer card; hidden uploads and failures remain visible in the transfer dock),
-and the per-message "Fork from here" button on every assistant reply in agent chat (the
-operator retired it; OMP's own `/fork` still forks a conversation, and Roost's
-`AgentChatFork` RPC, its route row and the "Conversation forked" notice are all
-gone), and the whole `roost-agent` crate: the native engine, its
+the pi-env tool tunnel, Pi conversations and the agent-host's stored provider
+logins (not migrated; operators sign in again); the terminal composer's strip
+of sent-image previews (the operator retired it; uploads still type their
+paths, and staged terminal images use compact inline thumbnails with progress
+overlays and a completion check instead of a duplicate transfer card; hidden
+uploads and failures remain visible in the transfer dock); the per-message
+"Fork from here" button on every assistant reply in agent chat (the operator
+retired it; OMP's own `/fork` still forks a conversation, and Roost's
+`AgentChatFork` RPC, its route row and the "Conversation forked" notice are
+all gone); and the whole `roost-agent` crate: the native engine, its
 conversation/journal store, tool-call registry, scheduler, executor, native
-transcript/inspect/turn RPC paths and their fixtures. The alternative runtimes and
-tool engine (`third_party/pi-durable-rs/`, `crates/roost-agent-tools/`), their
-conformance tool/fixtures (`tools/pi-durable-conformance/`,
-`protocol/conformance/pi-durable/`), `docs/plans/pi-durable-rust.md` and
-`docs/plans/native-tui-parity.md` are removed. Non-OMP terminal identities,
-process/screen rules, the Pi status extension and the multi-agent/custom-command
-launcher are removed too. No agent backend is planned or supported.
+transcript/inspect/turn RPC paths and their fixtures. The alternative
+runtimes and tool engine (`third_party/pi-durable-rs/`,
+`crates/roost-agent-tools/`), their conformance tool and fixtures
+(`tools/pi-durable-conformance/`, `protocol/conformance/pi-durable/`),
+`docs/plans/pi-durable-rust.md` and `docs/plans/native-tui-parity.md` are
+removed. Non-OMP terminal identities, process/screen rules, the Pi status
+extension and the multi-agent/custom-command launcher are removed too. The
+whole provider-account layer went with them: the `roost-llm` crate (model
+catalogs, wire clients, OAuth logins, credential rotation, usage and
+judging), the coordinator's credential store and login registry, the
+`AgentAuth*`, `AgentAccountsList`, `AgentAccountRemove`, `AgentUsageGet`,
+`AgentModelsList` and `AgentSettingsGet`/`Set` RPCs with their messages and
+route rows, the wire types behind them, and `ROOST_COORDINATOR_SECRET_KEY`,
+which only the credential store read (the Helm Secret still carries it so rows
+written by older releases stay decryptable; no code reads it); the native-only
+`AgentChatInspect`, `AgentChatAnswer`, `AgentChatRewind` and
+`AgentChatPlanDecide` RPCs; and the `archived-native-ui` cargo feature with
+the 51 Rust-native chat and settings modules it kept compiled. The dedicated
+OMP integration is retired as well: managed ACP processes, HTML chat, agent
+RPCs and Sync frames, status detection/reporting, fenced prompts, agent
+configuration and autolaunch, the `roost skill` command, bundled executables,
+and TUI/HTML parity packaging (the `deploy/omp` parity runner scaffold
+included). User-installed programs and their configuration are not removed.
+Existing keeper-owned terminal PTYs remain ordinary terminals. No agent
+backend is planned or supported.
 
-Also dropped in the same sweep: the whole provider-account layer — the
-`roost-llm` crate (model catalogs, wire clients, OAuth logins, credential
-rotation, usage and judging), the coordinator's credential store and login
-registry, the `AgentAuth*`, `AgentAccountsList`, `AgentAccountRemove`,
-`AgentUsageGet`, `AgentModelsList` and `AgentSettingsGet`/`Set` RPCs with their
-messages and route rows, the wire types behind them, and
-`ROOST_COORDINATOR_SECRET_KEY`, which only the credential store read (the Helm
-Secret still carries it so rows written by older releases stay decryptable; no
-code reads it); the native-only `AgentChatInspect`, `AgentChatAnswer`,
-`AgentChatRewind` and `AgentChatPlanDecide` RPCs; and the `archived-native-ui`
-cargo feature with the 51 Rust-native chat and settings modules it kept
-compiled.
+*MCP relays and the task queue.* The MCP relay registry (the `McpList`,
+`McpCreate`, `McpDelete` and `McpPublish` RPCs, `SYNC_DOMAIN_MCP` and the
+`mcp_msg` Sync frame), which nothing relayed through, and the task queue (the
+`TasksList`, `TasksEnqueue`, `TasksNextPending`, `TasksSetState` and
+`TasksCancel` RPCs, `SYNC_DOMAIN_TASKS` and the `task_delta` Sync frame, the
+`roost api tasks`, `task-enqueue` and `task-cancel` verbs, and the palette's
+"Queue task for this folder" row with `ShellIntent::OpenQueueTaskDialog`),
+which no worker ever executed. The `tasks` and `mcp_relays` tables stay in
+place as inert history.
 
-Also dropped: the MCP relay registry (the `McpList`, `McpCreate`, `McpDelete`
-and `McpPublish` RPCs, `SYNC_DOMAIN_MCP` and the `mcp_msg` Sync frame), which
-nothing relayed through, and the task queue (the `TasksList`, `TasksEnqueue`,
-`TasksNextPending`, `TasksSetState` and `TasksCancel` RPCs, `SYNC_DOMAIN_TASKS`
-and the `task_delta` Sync frame, the `roost api tasks`, `task-enqueue` and
-`task-cancel` verbs, and the palette's "Queue task for this folder" row with
-`ShellIntent::OpenQueueTaskDialog`), which no worker ever executed. The `tasks`
-and `mcp_relays` tables stay in place as inert history.
+*Worker link, peer and keeper.* From the worker link: the `DUpdateBroker`
+frame (the Windows update broker's coordinator control), the
+`DCoordMovePrepare`, `DCoordMoveSnapshotStart`, `DCoordMoveSnapshotChunk` and
+`DCoordRelocate` coordinator-move frames (their `CoordWorkerDown` fields 7-10
+and 30 reserved), the unsequenced `DBinary` PTY input frame (`CoordWorkerDown`
+field 4, reserved; the keyboard path is the sequenced `input_request`, and the
+keeper client's `write_input` went with it), and the raw PTY metadata uplink:
+the `WBinary` frame (`CoordWorkerUp` field 10, reserved), the
+`terminal_metadata_v1` capability and the
+`TERMINAL_PIPELINE_REASON_RAW_METADATA_PENDING` pipeline reason (18, reserved),
+with the outbox's `RawMetadata` lane and the coordinator's per-lane binary
+counts. Terminal titles and activity travel only as compact terminal metadata,
+and a hello is acknowledged with `terminal-view-owner-v1` alone. The browser
+control frames `git-diff`, `set-title`, `detach`, `get-home` and `cursor-pos`
+are gone from `ClientControlFrame` with the worker's presence owner and
+`get-home` file command; `SessionsCursorPos` still publishes presence from the
+coordinator and no longer relays to the worker. The worker's peer smoke fault
+injection is dropped: the `PeerTestFaults` state with its one-shot offer
+faults (`invalid_sdp`, `missing_grant`, `expired_grant`, `identity_mismatch`),
+the outgoing-packet blackhole, the ignored direct retirement, the malformed
+control and packet injection and the history-delivery pause, together with the
+`test_faults` and `expire_grant` dependencies that carried them; no ordinary
+worker ever armed any of it. The keeper's legacy history drain and
+resize-status ops are dropped: the `GetHistory`, `GetHistoryResp` and
+`ResizeStatus` frames (tags `0xE4`, `0xE5` and `0x36`, retired and never
+reassigned), the client's `legacy_history`, `resize_status` and
+`resize_with_intervening` calls with the keeper's `ring_bytes` view, and the
+Win32 named-pipe client pid and file-identity wrappers in `win32_ffi`. A resize
+whose answer never arrives is recovered with `GetTerminalState`.
 
-Also dropped from the worker link: the `DUpdateBroker` frame (the Windows
-update broker's coordinator control) and the `DCoordMovePrepare`,
-`DCoordMoveSnapshotStart`, `DCoordMoveSnapshotChunk` and `DCoordRelocate`
-coordinator-move frames, with their `CoordWorkerDown` fields 7-10 and 30
-reserved; and the unsequenced `DBinary` PTY input frame (`CoordWorkerDown`
-field 4, reserved), whose keyboard path is the sequenced `input_request`; the
-keeper client's `write_input` went with it. The browser control frames
-`git-diff`, `set-title`, `detach`, `get-home` and `cursor-pos` are gone from
-`ClientControlFrame` with the worker's presence owner and `get-home` file
-command; `SessionsCursorPos` still publishes presence from the coordinator
-and no longer relays to the worker.
-
-The worker's raw PTY metadata uplink is dropped: the `WBinary` frame
-(`CoordWorkerUp` field 10, reserved), the `terminal_metadata_v1` capability and
-the `TERMINAL_PIPELINE_REASON_RAW_METADATA_PENDING` pipeline reason (18,
-reserved), with the outbox's `RawMetadata` lane, the coordinator's per-lane
-binary counts and the `transport.raw_metadata_drop` doctor signal. Terminal
-titles and activity travel only as compact terminal metadata, and a hello is
-acknowledged with `terminal-view-owner-v1` alone.
-
-The worker's peer smoke fault injection is dropped: the `PeerTestFaults`
-state with its one-shot offer faults (`invalid_sdp`, `missing_grant`,
-`expired_grant`, `identity_mismatch`), the outgoing-packet blackhole, the
-ignored direct retirement, the malformed control and packet injection and the
-history-delivery pause, together with the `test_faults` and `expire_grant`
-dependencies that carried them. No ordinary worker ever armed any of it.
-
-The keeper's legacy history drain and resize-status ops are dropped: the
-`GetHistory`, `GetHistoryResp` and `ResizeStatus` frames (tags `0xE4`, `0xE5`
-and `0x36`, retired and never reassigned), the client's `legacy_history`,
-`resize_status` and `resize_with_intervening` calls with the keeper's
-`ring_bytes` view, and the Win32 named-pipe client pid and file-identity
-wrappers in `win32_ffi`. A resize whose answer never arrives is recovered with
-`GetTerminalState`.
-
-Eleven doctor signal kinds with no producer or no reachable failure path are
-retired from `SignalKind` (`roost-observability`): `spa.chunk_reload`,
-`reconnect.give_up`, `spawn.agent_launch_dropped`,
+*Doctor signals.* Eleven signal kinds with no producer or no reachable failure
+path are retired from `SignalKind` (`roost-observability`):
+`spa.chunk_reload`, `reconnect.give_up`, `spawn.agent_launch_dropped`,
 `terminal.stream_result_mismatch`, `terminal.stream_invariant_failure`,
 `terminal.hyperlink_saturated`, `terminal.history_conflict`, `cell.paint_lag`,
 `transport.event_drop`, `transport.raw_metadata_drop` and
 `bytes.metadata_loss`. A log line carrying one reads back as an unrecognised
 token; 62 kinds remain.
 
-The dedicated OMP integration is retired too: managed ACP processes, HTML chat,
-agent RPCs and Sync frames, status detection/reporting, fenced prompts, agent
-configuration and autolaunch, the `roost skill` command, bundled executables,
-and TUI/HTML parity packaging. User-installed programs and their configuration
-are not removed. Existing keeper-owned terminal PTYs remain ordinary terminals.
-
-`CoordBoot::from_env` is dropped: the CLI resolves its configuration through
-`roost_host::load_coord_config` and hands `serve` a finished `CoordBoot`.
-`serve` and `prepare_coordinator_database` return a typed `ServeError`, the
-cluster loop a `ClusterError`, and `roost-coord` and `roost-cli` no longer
-depend on `anyhow`.
-
-`roost-vcs` no longer retains the source checkout's live changes: the
-`keep_changes` option with its `copy_live_state` plain-copy fallback and the
-`KeepChangesAtOtherCommit` refusal, and the `CloneMode` selector, are dropped.
-`worktree add` always tries a reflink clone and falls back to a plain checkout.
-
-The CLI verbs `roost state` (a STATE.md snapshot of a checkout), `roost test`
-(the repository test profiles) and `roost import-v2` (carrying a v2
-coordinator's account, devices and keys into a v3 database) are dropped, with
-the `import_v2` plan and copy modules and their fixtures; each now fails as an
+*Coordinator, CLI and tooling.* `CoordBoot::from_env` is dropped: the CLI
+resolves its configuration through `roost_host::load_coord_config` and hands
+`serve` a finished `CoordBoot`. `serve` and `prepare_coordinator_database`
+return a typed `ServeError`, the cluster loop a `ClusterError`, and
+`roost-coord` and `roost-cli` no longer depend on `anyhow`. The CLI verbs
+`roost state` (a STATE.md snapshot of a checkout), `roost test` (the
+repository test profiles) and `roost import-v2` (carrying a v2 coordinator's
+account, devices and keys into a v3 database) are dropped, with the
+`import_v2` plan and copy modules and their fixtures; each now fails as an
 unrecognised subcommand. `install.sh` recognises a v3 binary by
 `db-to-postgres` in its `--help`, and the `.gitignore` entries for `STATE.md`
-and `coordinator_v2.db*` went with the verbs.
+and `coordinator_v2.db*` went with the verbs. `roost-vcs` no longer retains
+the source checkout's live changes: the `keep_changes` option with its
+`copy_live_state` plain-copy fallback and the `KeepChangesAtOtherCommit`
+refusal, and the `CloneMode` selector, are dropped; `worktree add` always tries
+a reflink clone and falls back to a plain checkout. `roost-bench` measures the
+v3 stack only: its v2 (Bun) stack with `StackId`, `prepare_v2`, the `--stacks`
+and `--v2-root` options, the v2 browser pairing and the v2-over-v3 ratio
+column are dropped.
 
-`roost-bench` measures the v3 stack only: its v2 (Bun) stack with `StackId`,
-`prepare_v2`, the `--stacks` and `--v2-root` options, the v2 browser pairing
-and the v2-over-v3 ratio column are dropped.
+*Browser and repository residue.* The `roost-shell-tokenize` crate (its
+ECMAScript whitespace table lives in `roost-web-terminal`, and its shell
+tokenizers had no caller), the ghost-cursor DOM and the renderer incident
+observer in `roost-web-terminal`, the dated wave-gate and gate-baseline logs
+under `docs/` with the phase 3 contract's size-cap exemption section (that
+rationale now lives in the `STRUCTURAL_EXEMPTIONS` doc comment in
+`xtask/src/file_size.rs`), and the Claude Code slash-command snapshot under
+`docs/snapshots/`.
 
 The sidebar holds terminal folders only. Folder order is static until a user
 drags it, and the saved order synchronizes across that account's devices.
@@ -693,7 +697,9 @@ keeper pid changed. It no longer touches the coordinator.
 
 [`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index.
 Each `###` entry has `**Symptom**` (the grep string), `**Wrong**`, `**Right**`,
-and `**Guard**` (the test or lint check that pins it). It is the only actively
+and `**Guard**` (the test or lint check that pins it; a `**Guard**` starting
+`owed:` names a test that does not exist yet, and `browser smoke only` marks a
+failure that needs a real engine). It is the only actively
 maintained institutional memory in this repo and
 it is grep-first by design — grep it BEFORE writing code that matches a
 symptom.
