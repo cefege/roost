@@ -12,7 +12,9 @@ use dioxus::prelude::*;
 use super::composer_specimen::ComposerSpecimen;
 use super::content_primitives::ContentPrimitives;
 use super::control_states::DesignControlStates;
+use super::data_specimen::DataSpecimen;
 use super::loader_specimen::LoaderSpecimen;
+use super::navigation_specimen::NavigationSpecimen;
 use super::overlay_states::DesignOverlayStates;
 use super::palette_family::PaletteFamily;
 use super::settings_navigation_specimen::SettingsNavigationSpecimen;
@@ -82,6 +84,8 @@ pub fn DesignGallery(on_navigate: EventHandler<String>) -> Element {
             GallerySection { title: "Loader", LoaderSpecimen {} }
             GallerySection { title: "Toast", ToastSpecimen {} }
             GallerySection { title: "Content primitives", ContentPrimitives {} }
+            GallerySection { title: "Navigation", NavigationSpecimen {} }
+            GallerySection { title: "Data", DataSpecimen {} }
             GallerySection { title: "Overlay states", DesignOverlayStates {} }
         }
     }

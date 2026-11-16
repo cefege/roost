@@ -7,8 +7,9 @@
 use dioxus::prelude::*;
 
 use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Checkbox, Chip, IconButton, IconType, List, ListRow,
-    SectionTitle, Select, SelectOption, Switch, SwitchRow, TextField,
+    Button, ButtonSize, ButtonVariant, Checkbox, Chip, Field, FieldDescription, FieldError,
+    FieldLabel, IconButton, IconType, Input, InputType, List, ListRow, SectionTitle, Select,
+    SelectOption, Switch, SwitchRow, TextField,
 };
 
 /// The select specimens' options.
@@ -31,6 +32,7 @@ pub fn DesignControlStates() -> Element {
     let mut checked = use_signal(|| false);
     let mut select_value = use_signal(|| "surface".to_string());
     let mut text_value = use_signal(String::new);
+    let mut input_value = use_signal(String::new);
     let mut textarea_value = use_signal(String::new);
     let mut switch_row_on = use_signal(|| true);
     let mut selected_chip = use_signal(|| false);
@@ -121,6 +123,42 @@ pub fn DesignControlStates() -> Element {
                         label: "Invalid select",
                         options: surface_options(),
                         error: rsx! { "Choose a supported surface role." },
+                    }
+                    Field {
+                        FieldLabel { html_for: "design-input-text", "Plain input" }
+                        Input {
+                            id: "design-input-text",
+                            value: input_value(),
+                            placeholder: "roost",
+                            oninput: move |event: FormEvent| input_value.set(event.value()),
+                        }
+                        FieldDescription { "The bare single-line input the text fields compose." }
+                    }
+                    Field { disabled: true,
+                        FieldLabel { html_for: "design-input-disabled", "Disabled input" }
+                        Input {
+                            id: "design-input-disabled",
+                            value: "Unavailable",
+                            disabled: true,
+                        }
+                    }
+                    Field { invalid: true,
+                        FieldLabel { html_for: "design-input-invalid", "Invalid input" }
+                        Input {
+                            id: "design-input-invalid",
+                            value: "invalid name",
+                            aria_invalid: true,
+                        }
+                        FieldError { "Use lowercase letters, numbers, and hyphens." }
+                    }
+                    Field {
+                        FieldLabel { html_for: "design-input-file", "File input" }
+                        Input {
+                            id: "design-input-file",
+                            r#type: InputType::File,
+                            accept: ".json,.txt",
+                        }
+                        FieldDescription { "The native file chooser in the shared field styling." }
                     }
                 }
             }

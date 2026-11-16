@@ -1,11 +1,14 @@
-//! Dialog, sheet and nested-menu specimens for the design gallery.
-//! `gallery.rs` mounts the controls; local signals own their open state.
-//! Shared UI primitives own anchoring, portals, focus and dismissal.
+//! Dialog, alert dialog, sheet, context-menu and nested-menu specimens for the
+//! design gallery. `gallery.rs` mounts the controls; local signals own their
+//! open state. Shared UI primitives own anchoring, portals, focus and dismissal.
 
 use dioxus::prelude::*;
 
 use crate::components::ui::{
-    Button, ButtonVariant, Dialog, DialogAction, DialogBody, DialogContent, DialogDescription,
+    AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+    AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, ButtonVariant, ContextMenu,
+    ContextMenuContent, ContextMenuGroup, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator,
+    ContextMenuTrigger, Dialog, DialogAction, DialogBody, DialogContent, DialogDescription,
     DialogFooter, DialogHeader, DialogTitle, DropdownMenu, DropdownMenuContent, DropdownMenuSub,
     DropdownMenuSubContent, DropdownMenuSubItem, DropdownMenuSubTrigger, DropdownMenuTrigger,
     IconType, PhoneSheetContent, Sheet, SheetContent, SheetHeader, SheetSide, SheetTitle,
@@ -13,6 +16,7 @@ use crate::components::ui::{
 
 const BODY_TEXT_CLASS: &str = "m-0 text-sm text-muted-foreground";
 const SHEET_BODY_CLASS: &str = "grid min-w-[min(20rem,80vw)] gap-4 p-4";
+const CONTEXT_REGION_CLASS: &str = "flex h-9 items-center rounded-md border border-dashed border-border px-3 text-sm text-muted-foreground";
 
 #[component]
 pub fn DesignOverlayStates() -> Element {
@@ -23,6 +27,8 @@ pub fn DesignOverlayStates() -> Element {
     let mut phone_sheet_open = use_signal(|| false);
     let mut menu_open = use_signal(|| false);
     let mut submenu_open = use_signal(|| false);
+    let mut alert_open = use_signal(|| false);
+    let mut context_open = use_signal(|| false);
 
     rsx! {
         div { class: "flex flex-wrap items-center gap-3",
@@ -31,6 +37,12 @@ pub fn DesignOverlayStates() -> Element {
                 icon: IconType::SquareArrowOutUpRight,
                 onclick: move |_| dialog_open.set(true),
                 "Open dialog"
+            }
+            Button {
+                variant: ButtonVariant::Destructive,
+                icon: IconType::TriangleAlert,
+                onclick: move |_| alert_open.set(true),
+                "Open alert dialog"
             }
             Button {
                 variant: ButtonVariant::Secondary,
@@ -166,6 +178,41 @@ pub fn DesignOverlayStates() -> Element {
                             "Phone sheets rise from the lower edge with a top-only radius and a scrim, the pi-pocket look chosen for phones."
                         }
                     }
+                }
+            }
+
+            AlertDialog {
+                open: alert_open(),
+                on_open_change: move |open: bool| alert_open.set(open),
+                AlertDialogContent {
+                    AlertDialogHeader {
+                        AlertDialogTitle { "Discard this draft?" }
+                        AlertDialogDescription {
+                            "A backdrop click does nothing: the only ways out are the two actions."
+                        }
+                    }
+                    AlertDialogFooter {
+                        AlertDialogCancel { "Keep editing" }
+                        AlertDialogAction { "Discard" }
+                    }
+                }
+            }
+
+            ContextMenu {
+                open: context_open(),
+                on_open_change: move |open: bool| context_open.set(open),
+                aria_label: "Specimen actions",
+                ContextMenuTrigger {
+                    div { class: CONTEXT_REGION_CLASS, "Right-click this region" }
+                }
+                ContextMenuContent {
+                    ContextMenuLabel { "Terminal" }
+                    ContextMenuGroup {
+                        ContextMenuItem { "Copy" }
+                        ContextMenuItem { "Find" }
+                    }
+                    ContextMenuSeparator {}
+                    ContextMenuItem { disabled: true, "Unavailable" }
                 }
             }
         }
