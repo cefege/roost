@@ -1,6 +1,6 @@
-//! `roost-bench run`: preflight, then for each round each stack in turn —
-//! boot, pair a fresh Chromium, drive every scenario under a sampler bracket,
-//! stop — and finally write the report. Called by `main.rs`.
+//! `roost-bench run`: preflight, then for each round — boot, pair a fresh
+//! Chromium, drive every scenario under a sampler bracket, stop — and finally
+//! write the report. Called by `main.rs`.
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -21,8 +21,8 @@ use crate::stack::{MARKER_ENV, RoundLayout, StackHandle, boot_stack};
 
 /// The settle before the idle-RSS reading, once the session page is up.
 const IDLE_SETTLE: Duration = Duration::from_secs(2);
-/// The operator's door override, the same key in both clients
-/// (`roost-client-core` `client::local::discovery`, v2 `localWorkerDiscovery.ts`).
+/// The operator's door override
+/// (`roost-client-core` `client::local::discovery::LOCAL_WORKER_ORIGIN_KEY`).
 const LOCAL_WORKER_ORIGIN_KEY: &str = "roost.localWorkerOrigin";
 /// How long a fresh profile is given to open a first-visit dialog.
 const FIRST_VISIT_DIALOG_SETTLE: Duration = Duration::from_millis(2500);
@@ -41,7 +41,7 @@ pub async fn run(args: &RunArgs) -> Result<WrittenReport, BenchError> {
     std::fs::create_dir_all(&run_dir)
         .map_err(|error| BenchError::io(format!("creating {}", run_dir.display()), error))?;
     let machine = machine_info().await;
-    tracing::info!(run_id = %run_id, run_dir = %run_dir.display(), rounds = args.rounds, stacks = ?args.stacks, "bench run start");
+    tracing::info!(run_id = %run_id, run_dir = %run_dir.display(), rounds = args.rounds, "bench run start");
 
     let mut report = RunReport {
         run_id: run_id.clone(),
@@ -51,14 +51,12 @@ pub async fn run(args: &RunArgs) -> Result<WrittenReport, BenchError> {
         rounds: Vec::new(),
     };
     for round in 1..=args.rounds {
-        for &stack in &args.stacks {
-            let mut layout = RoundLayout::create(&run_dir, &run_id, stack, round)?;
-            layout.child_log_level.clone_from(&args.child_log_level);
-            let record = run_round(layout, &prepared).await?;
-            report.rounds.push(record);
-            // Rewritten after every round, so an aborted run still leaves data.
-            write_report(&run_dir, &report)?;
-        }
+        let mut layout = RoundLayout::create(&run_dir, &run_id, round)?;
+        layout.child_log_level.clone_from(&args.child_log_level);
+        let record = run_round(layout, &prepared).await?;
+        report.rounds.push(record);
+        // Rewritten after every round, so an aborted run still leaves data.
+        write_report(&run_dir, &report)?;
     }
     let written = write_report(&run_dir, &report)?;
     tracing::info!(report = %written.markdown_path.display(), "bench run done");
@@ -66,19 +64,18 @@ pub async fn run(args: &RunArgs) -> Result<WrittenReport, BenchError> {
 }
 
 async fn run_round(layout: RoundLayout, prepared: &Prepared) -> Result<RoundRecord, BenchError> {
-    let stack = layout.stack;
-    tracing::info!(stack = stack.as_str(), round = layout.round, root = %layout.root.display(), "round start");
+    tracing::info!(round = layout.round, root = %layout.root.display(), "round start");
     let sampler = Sampler::start(&layout.marker, &layout.root)?;
     let startup = sampler.mark("startup");
     let handle = match boot_stack(layout, prepared).await {
         Ok(handle) => handle,
         Err(error) => {
-            crate::stack::sweep_marked(&sampler, stack.as_str()).await;
+            crate::stack::sweep_marked(&sampler).await;
             sampler.stop();
             return Err(error);
         }
     };
-    let mut record = RoundRecord::new(stack, handle.layout.round);
+    let mut record = RoundRecord::new(handle.layout.round);
     let session = open_session(&handle, &mut record).await;
     record.usage.push(sampler.finish(startup));
     if let Some(session_id) = &session {
@@ -90,7 +87,6 @@ async fn run_round(layout: RoundLayout, prepared: &Prepared) -> Result<RoundReco
     handle.stop(&sampler).await;
     sampler.stop();
     tracing::info!(
-        stack = stack.as_str(),
         round = record.round,
         errors = record.errors.len(),
         "round done"
@@ -159,8 +155,8 @@ async fn ready_session<'browser>(
         .client
         .mint_bootstrap("browser", "bench-browser")
         .await?;
-    let page = pair_browser(browser, layout.stack, &layout.coord_url(), &token).await?;
-    // Both clients probe the default door port unless the operator override
+    let page = pair_browser(browser, &layout.coord_url(), &token).await?;
+    // The client probes the default door port unless the operator override
     // names another; the default port belongs to this machine's installed
     // worker, so the round's own door is named the way an operator would.
     page.eval::<serde_json::Value>(&format!(
@@ -214,16 +210,11 @@ async fn measure(
     record.usage.push(sampler.finish(bracket));
     match outcome {
         Ok(samples) => {
-            tracing::info!(
-                scenario = name,
-                stack = record.stack.as_str(),
-                samples = samples.len(),
-                "scenario done"
-            );
+            tracing::info!(scenario = name, samples = samples.len(), "scenario done");
             record.samples.extend(samples);
         }
         Err(error) => {
-            tracing::warn!(scenario = name, stack = record.stack.as_str(), %error, "scenario failed");
+            tracing::warn!(scenario = name, %error, "scenario failed");
             record.errors.insert(name.to_string(), error.to_string());
         }
     }
@@ -231,13 +222,12 @@ async fn measure(
 
 async fn preflight(prepared: &Prepared, allow_stale: bool) -> Result<(), BenchError> {
     let repo = paths::repo_root();
-    let v3_head = capture_stdout("git", &["rev-parse", "HEAD"], &repo).await?;
-    let v2_head = capture_stdout("git", &["rev-parse", "HEAD"], &prepared.v2_root).await?;
-    if !allow_stale && (v3_head != prepared.v3_sha || v2_head != prepared.v2_sha) {
+    let head = capture_stdout("git", &["rev-parse", "HEAD"], &repo).await?;
+    if !allow_stale && head != prepared.roost_sha {
         return Err(BenchError::Preflight(format!(
-            "prepare built v3 {} / v2 {}, but HEAD is v3 {v3_head} / v2 {v2_head}; \
+            "prepare built {}, but HEAD is {head}; \
              re-run `roost-bench prepare` or pass --allow-stale",
-            prepared.v3_sha, prepared.v2_sha
+            prepared.roost_sha
         )));
     }
     for required in [
@@ -247,7 +237,6 @@ async fn preflight(prepared: &Prepared, allow_stale: bool) -> Result<(), BenchEr
     ] {
         require(&required)?;
     }
-    require(&paths::v2_web_dist(&prepared.v2_root).join("index.html"))?;
     require(&prepared.chrome)?;
     let nproc = nproc();
     let load = std::fs::read_to_string("/proc/loadavg").unwrap_or_default();

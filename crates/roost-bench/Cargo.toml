@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Boots the v2 (Bun) and v3 (Rust) stacks side by side and measures them through a real headless Chromium"
+description = "Boots the v3 stack and measures its latency and footprint through a real headless Chromium"
 publish = false
 
 [[bin]]

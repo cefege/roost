@@ -199,9 +199,9 @@ impl BenchPage {
         Ok(())
     }
 
-    /// Close any first-visit dialog (v2 opens "What's new" on a fresh
-    /// profile) with Escape, as the user would; the client records it as seen,
-    /// so later navigations in this profile skip it. Returns how many closed.
+    /// Close any first-visit dialog with Escape, as the user would; the client
+    /// records it as seen, so later navigations in this profile skip it.
+    /// Returns how many closed.
     pub async fn dismiss_open_dialogs(&self, settle: Duration) -> Result<usize, BenchError> {
         const VISIBLE_DIALOG: &str = "Array.from(document.querySelectorAll('.roost-dialog, dialog[open], [role=dialog]')).some((node) => node.getClientRects().length > 0)";
         if self

@@ -26,12 +26,7 @@ pub fn runs_root() -> PathBuf {
     bench_root().join("runs")
 }
 
-/// The `main` worktree `prepare` creates when no `--v2-root` is given.
-pub fn default_v2_root() -> PathBuf {
-    bench_root().join("v2-src")
-}
-
-/// The Chromium Playwright installed; the same binary the deleted perf oracle drove.
+/// The Chromium Playwright installs.
 pub fn default_chrome() -> PathBuf {
     let home = std::env::var_os("HOME").map_or_else(PathBuf::new, PathBuf::from);
     home.join(".cache/ms-playwright/chromium-1234/chrome-linux64/chrome")
@@ -47,8 +42,4 @@ pub fn v3_keeper() -> PathBuf {
 
 pub fn v3_web_dist() -> PathBuf {
     repo_root().join("target/dx/roost-web/release/web/public")
-}
-
-pub fn v2_web_dist(v2_root: &std::path::Path) -> PathBuf {
-    v2_root.join("apps/web/dist")
 }

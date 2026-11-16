@@ -1,6 +1,6 @@
 // roost-bench in-page probe, installed on every new document before the app's
-// own scripts. It reads only DOM both renderers share (`.wterm` root,
-// `.cell-row` rows), so one probe measures the Bun and the Rust client alike.
+// own scripts. It reads only DOM the renderer exposes (`.wterm` root,
+// `.cell-row` rows).
 // Timestamps are epoch ms on the page clock (timeOrigin + now). A waiter is
 // ARMED before the driver dispatches input, so the hit time is taken inside
 // the MutationObserver callback that saw the text, never at the moment the

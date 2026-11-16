@@ -1,57 +1,21 @@
-//! Booting one stack (coordinator + worker) in isolation: free loopback ports,
+//! Booting the stack (coordinator + worker) in isolation: free loopback ports,
 //! a fresh `HOME`, a scrubbed environment, and a per-round directory. Called by
-//! `run`; `spec` says WHAT each stack runs, `boot` says HOW it is started and
+//! `run`; `spec` says WHAT each process runs, `boot` says HOW it is started and
 //! stopped.
 
 mod boot;
 mod ports;
 mod spec;
-mod v2;
-mod v3;
 
 use std::path::{Path, PathBuf};
-
-use serde::{Deserialize, Serialize};
 
 use crate::error::BenchError;
 
 pub use boot::{StackHandle, StartupTimings, boot_stack, sweep_marked};
 
-/// The two stacks under comparison.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Serialize,
-    Deserialize,
-    clap::ValueEnum,
-)]
-#[serde(rename_all = "lowercase")]
-pub enum StackId {
-    /// Branch `main`: Bun + TypeScript + SolidJS.
-    V2,
-    /// This tree: Rust + Dioxus/wasm.
-    V3,
-}
-
-impl StackId {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::V2 => "v2",
-            Self::V3 => "v3",
-        }
-    }
-}
-
-/// Every path and port one (stack, round) owns.
+/// Every path and port one round owns.
 #[derive(Debug, Clone)]
 pub struct RoundLayout {
-    pub stack: StackId,
     pub round: u32,
     pub root: PathBuf,
     /// `HOME` and `TMPDIR` for every child.
@@ -71,13 +35,8 @@ pub struct RoundLayout {
 }
 
 impl RoundLayout {
-    pub fn create(
-        run_dir: &Path,
-        run_id: &str,
-        stack: StackId,
-        round: u32,
-    ) -> Result<Self, BenchError> {
-        let root = run_dir.join(stack.as_str()).join(format!("round{round}"));
+    pub fn create(run_dir: &Path, run_id: &str, round: u32) -> Result<Self, BenchError> {
+        let root = run_dir.join(format!("round{round}"));
         let home = root.join("home");
         let worker_data = root.join("worker-data");
         let chrome_profile = root.join("chrome-profile");
@@ -90,7 +49,6 @@ impl RoundLayout {
             BenchError::io(format!("creating {}", authorized_keys.display()), error)
         })?;
         Ok(Self {
-            stack,
             round,
             coord_db: root.join("coord.db"),
             coord_log: root.join("coord.log"),
@@ -98,7 +56,7 @@ impl RoundLayout {
             authorized_keys,
             coord_port: ports::free_loopback_port()?,
             door_port: ports::free_loopback_port()?,
-            marker: format!("{run_id}/{}/{round}", stack.as_str()),
+            marker: format!("{run_id}/{round}"),
             child_log_level: None,
             root,
             home,

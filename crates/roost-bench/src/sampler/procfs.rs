@@ -57,15 +57,7 @@ pub fn classify(cmdline: &[String], comm: &str) -> Role {
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
     let verb = cmdline.get(1).map(String::as_str);
-    if joined.contains("apps/coord/src/main.ts") {
-        Role::Coord
-    } else if joined.contains("apps/worker/src/main.ts") {
-        Role::Worker
-    } else if joined.contains("multiplexed-main")
-        || program == "roost-keeper"
-        || comm == "roost-keeper"
-        || (program == "bun" && joined.contains("keeper"))
-    {
+    if program == "roost-keeper" || comm == "roost-keeper" {
         Role::Keeper
     } else if program == "roost" && verb == Some("coord") {
         Role::Coord

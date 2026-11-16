@@ -1,4 +1,4 @@
-//! One headless Chromium per (stack, round), driven over CDP by chromiumoxide.
+//! One headless Chromium per round, driven over CDP by chromiumoxide.
 //! Called by `run` and the scenarios; owns the probe script every page gets
 //! (`probe.js`) and the pairing ceremony that enrolls the browser's own key.
 
@@ -15,7 +15,6 @@ use futures::StreamExt as _;
 use tokio::task::JoinHandle;
 
 use crate::error::BenchError;
-use crate::stack::StackId;
 
 pub use page::BenchPage;
 pub use socket_trace::{TraceEvent, TraceKind};
@@ -102,14 +101,10 @@ impl BenchBrowser {
 /// app renders as a paired client. Returns the page, left on `/`.
 pub async fn pair_browser(
     browser: &BenchBrowser,
-    stack: StackId,
     coord_url: &str,
     token: &str,
 ) -> Result<BenchPage, BenchError> {
-    let pair_url = match stack {
-        StackId::V3 => format!("{coord_url}/pair#pair={token}"),
-        StackId::V2 => format!("{coord_url}/#pair={token}"),
-    };
+    let pair_url = format!("{coord_url}/pair#pair={token}");
     let page = browser.open_page(&pair_url).await?;
     let started = Instant::now();
     // The app scrubs the fragment when it captures the token, then redeems and
@@ -132,7 +127,6 @@ pub async fn pair_browser(
             .await;
         if shell_drawn.is_ok() {
             tracing::info!(
-                stack = stack.as_str(),
                 elapsed_ms = started.elapsed().as_millis() as u64,
                 "browser paired"
             );
@@ -140,7 +134,7 @@ pub async fn pair_browser(
         }
     }
     Err(BenchError::timeout(
-        format!("{} browser pairing", stack.as_str()),
+        "browser pairing".to_owned(),
         PAIRED_DEADLINE,
     ))
 }

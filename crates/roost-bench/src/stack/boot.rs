@@ -67,11 +67,10 @@ async fn boot_children(
     prepared: &Prepared,
     children: &mut Vec<(&'static str, Child)>,
 ) -> Result<(CoordClient, String, StartupTimings), BenchError> {
-    let stack = layout.stack.as_str();
     let coord = coord_spec(layout, prepared);
     let coord_started = Instant::now();
     children.push(("coord", spawn_logged(&coord, layout, &layout.coord_log)?));
-    tracing::info!(stack, command = %coord.describe(), port = layout.coord_port, "coordinator spawned");
+    tracing::info!(command = %coord.describe(), port = layout.coord_port, "coordinator spawned");
     wait_for_listener(layout, children).await?;
     let coord_listen_ms = elapsed_ms(coord_started);
 
@@ -79,20 +78,20 @@ async fn boot_children(
     seed_with_retry(layout, &device).await?;
     let client = CoordClient::new(layout.coord_url(), device);
     let token = client
-        .mint_bootstrap("worker", &format!("bench-{stack}"))
+        .mint_bootstrap("worker", "bench")
         .await
-        .map_err(|error| boot_failure(layout, &layout.coord_log, error.to_string()))?;
+        .map_err(|error| boot_failure(&layout.coord_log, error.to_string()))?;
 
-    let worker = worker_spec(layout, prepared, &token);
+    let worker = worker_spec(layout, &token);
     let worker_started = Instant::now();
     children.push(("worker", spawn_logged(&worker, layout, &layout.worker_log)?));
-    tracing::info!(stack, command = %worker.describe(), door = layout.door_port, "worker spawned");
+    tracing::info!(command = %worker.describe(), door = layout.door_port, "worker spawned");
     let worker_fp = wait_for_routable(layout, &client, children).await?;
     let timings = StartupTimings {
         coord_listen_ms,
         worker_routable_ms: elapsed_ms(worker_started),
     };
-    tracing::info!(stack, worker_fp = %worker_fp, ?timings, "stack booted");
+    tracing::info!(worker_fp = %worker_fp, ?timings, "stack booted");
     Ok((client, worker_fp, timings))
 }
 
@@ -102,24 +101,24 @@ impl StackHandle {
     pub async fn stop(mut self, sampler: &Sampler) {
         self.children.reverse();
         stop_children(&mut self.children).await;
-        sweep_marked(sampler, self.layout.stack.as_str()).await;
+        sweep_marked(sampler).await;
     }
 }
 
 /// SIGTERM, then SIGKILL every round process still alive, and report survivors.
-pub async fn sweep_marked(sampler: &Sampler, stack: &str) {
+pub async fn sweep_marked(sampler: &Sampler) {
     let leftovers = sampler.live_pids();
     if leftovers.is_empty() {
         return;
     }
-    tracing::info!(stack, pids = ?leftovers, "terminating leftover round processes");
+    tracing::info!(pids = ?leftovers, "terminating leftover round processes");
     signal_pids("TERM", &leftovers).await;
     tokio::time::sleep(Duration::from_secs(1)).await;
     signal_pids("KILL", &sampler.live_pids()).await;
     tokio::time::sleep(Duration::from_secs(2)).await;
     let survivors = sampler.live_pids();
     if !survivors.is_empty() {
-        tracing::warn!(stack, pids = ?survivors, "round processes survived SIGKILL");
+        tracing::warn!(pids = ?survivors, "round processes survived SIGKILL");
     }
 }
 
@@ -182,7 +181,6 @@ async fn wait_for_listener(
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     Err(boot_failure(
-        layout,
         &layout.coord_log,
         format!("no listener on {address} within {COORD_LISTEN_DEADLINE:?}"),
     ))
@@ -196,7 +194,7 @@ async fn seed_with_retry(layout: &RoundLayout, device: &BenchDevice) -> Result<(
         match seed_device(&layout.coord_db, device).await {
             Ok(()) => return Ok(()),
             Err(error) if started.elapsed() >= SEED_DEADLINE => {
-                return Err(boot_failure(layout, &layout.coord_log, error.to_string()));
+                return Err(boot_failure(&layout.coord_log, error.to_string()));
             }
             Err(error) => tracing::debug!(%error, "seed not ready; retrying"),
         }
@@ -224,7 +222,6 @@ async fn wait_for_routable(
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     Err(boot_failure(
-        layout,
         &layout.worker_log,
         format!("worker not routable within {WORKER_ROUTABLE_DEADLINE:?} {last_error}"),
     ))
@@ -241,22 +238,17 @@ fn ensure_running(
             } else {
                 &layout.worker_log
             };
-            return Err(boot_failure(
-                layout,
-                log,
-                format!("{name} exited: {status}"),
-            ));
+            return Err(boot_failure(log, format!("{name} exited: {status}")));
         }
     }
     Ok(())
 }
 
-fn boot_failure(layout: &RoundLayout, log: &std::path::Path, reason: String) -> BenchError {
+fn boot_failure(log: &std::path::Path, reason: String) -> BenchError {
     let text = std::fs::read_to_string(log).unwrap_or_default();
     let lines: Vec<&str> = text.lines().collect();
     let tail = lines[lines.len().saturating_sub(LOG_TAIL_LINES)..].join("\n");
     BenchError::Boot {
-        stack: layout.stack.as_str(),
         reason,
         log: log.to_path_buf(),
         tail,

@@ -1,7 +1,7 @@
-//! `roost-bench`: boots the v2 (Bun) and v3 (Rust) stacks in isolation on
-//! this machine, drives one headless Chromium through the same scenarios on
-//! each, samples process CPU/RSS, and writes a side-by-side report. The entry
-//! point prints the report path and table; every other module logs via tracing.
+//! `roost-bench`: boots the v3 stack in isolation on this machine, drives one
+//! headless Chromium through the scenarios, samples process CPU/RSS, and
+//! writes a latency and footprint report. The entry point prints the report
+//! path and table; every other module logs via tracing.
 
 #![forbid(unsafe_code)]
 

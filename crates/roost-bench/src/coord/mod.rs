@@ -1,6 +1,6 @@
 //! Talking to a coordinator as the harness: a device key seeded straight into
 //! its database (`seed`), the JWT that key signs (`jwt`), and the handful of
-//! RPCs a run needs (`rpc`). Works unchanged against the v2 and v3 coordinators.
+//! RPCs a run needs (`rpc`).
 
 mod jwt;
 mod rpc;

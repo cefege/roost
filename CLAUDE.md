@@ -379,6 +379,10 @@ unrecognised subcommand. `install.sh` recognises a v3 binary by
 `db-to-postgres` in its `--help`, and the `.gitignore` entries for `STATE.md`
 and `coordinator_v2.db*` went with the verbs.
 
+`roost-bench` measures the v3 stack only: its v2 (Bun) stack with `StackId`,
+`prepare_v2`, the `--stacks` and `--v2-root` options, the v2 browser pairing
+and the v2-over-v3 ratio column are dropped.
+
 The sidebar holds terminal folders only. Folder order is static until a user
 drags it, and the saved order synchronizes across that account's devices.
 There is no agent Recent view. The custom `ui::Surface`/`SurfaceLevel` skin

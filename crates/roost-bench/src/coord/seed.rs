@@ -1,8 +1,7 @@
 //! Enroll the harness's `BenchDevice` in a coordinator's database: adopt the
 //! one self-hosted account the coordinator created at boot and attach the key
-//! to it. The same two inserts the deleted smoke harness ran against both
-//! coordinators (`main:smoke/terminal/stack-runtime.ts`); the tables are in
-//! `crates/roost-coord/migrations/sqlite/0001_init.sql`.
+//! to it: the same two inserts any enrolled browser's pairing makes; the tables
+//! are in `crates/roost-coord/migrations/sqlite/0001_init.sql`.
 
 use std::path::Path;
 use std::time::Duration;

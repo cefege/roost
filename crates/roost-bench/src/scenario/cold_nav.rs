@@ -2,9 +2,9 @@
 //! start → first painted terminal cells. The first navigation follows an HTTP
 //! cache clear (`cold_nav_first_ms`); the other four reuse it
 //! (`cold_nav_warm_ms`). Every navigation also splits its boot: the
-//! document's DOMContentLoaded (`boot_dcl_ms`, both stacks) and, from v3's
-//! phase marks and the wasm's resource timing, wasm fetch → module start →
-//! terminal mount → first applied cells (`boot_*_ms`).
+//! document's DOMContentLoaded (`boot_dcl_ms`) and, from the client's phase
+//! marks and the wasm's resource timing, wasm fetch → module start → terminal
+//! mount → first applied cells (`boot_*_ms`).
 
 use std::time::Duration;
 
@@ -54,8 +54,8 @@ pub async fn cold_nav(session: &SessionPage<'_>) -> Result<Vec<Sample>, BenchErr
     Ok(samples)
 }
 
-/// Every phase mark's first `sinceNavigationMs`, by name; `null` on v2, which
-/// has no phase timeline.
+/// Every phase mark's first `sinceNavigationMs`, by name; `null` when the page
+/// recorded no phase timeline.
 fn all_phases(timeline: Option<String>) -> Value {
     let Some(timeline) = timeline.and_then(|text| serde_json::from_str::<Value>(&text).ok()) else {
         return Value::Null;

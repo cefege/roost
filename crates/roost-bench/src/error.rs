@@ -25,9 +25,8 @@ pub enum BenchError {
         waited_ms: u128,
         detail: String,
     },
-    #[error("{stack} failed to boot: {reason}\n--- {log} (tail) ---\n{tail}")]
+    #[error("the stack failed to boot: {reason}\n--- {log} (tail) ---\n{tail}")]
     Boot {
-        stack: &'static str,
         reason: String,
         log: PathBuf,
         tail: String,

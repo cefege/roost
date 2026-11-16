@@ -1,4 +1,4 @@
-//! `roost-bench prepare`: build both stacks once and record what was built in
+//! `roost-bench prepare`: build the stack once and record what was built in
 //! `target/bench/prepared.json`, which `run` refuses to start without. Called by
 //! `main.rs`; depends on `exec` for the build steps and `paths` for locations.
 
@@ -8,15 +8,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::cli::PrepareArgs;
 use crate::error::BenchError;
-use crate::exec::{capture_stdout, run_locked_build, run_step, tool_present};
+use crate::exec::{capture_stdout, run_locked_build, tool_present};
 use crate::paths;
 
-/// What `prepare` built, and from which commits.
+/// What `prepare` built, and from which commit.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Prepared {
-    pub v3_sha: String,
-    pub v2_sha: String,
-    pub v2_root: PathBuf,
+    pub roost_sha: String,
     pub chrome: PathBuf,
 }
 
@@ -59,13 +57,8 @@ pub async fn prepare(args: &PrepareArgs) -> Result<PathBuf, BenchError> {
     .await?;
     build_v3_web(&repo).await?;
 
-    let v2_root = args.v2_root.clone().unwrap_or_else(paths::default_v2_root);
-    prepare_v2(&repo, &v2_root).await?;
-
     let prepared = Prepared {
-        v3_sha: capture_stdout("git", &["rev-parse", "HEAD"], &repo).await?,
-        v2_sha: capture_stdout("git", &["rev-parse", "HEAD"], &v2_root).await?,
-        v2_root,
+        roost_sha: capture_stdout("git", &["rev-parse", "HEAD"], &repo).await?,
         chrome,
     };
     let manifest = paths::prepared_manifest();
@@ -75,12 +68,12 @@ pub async fn prepare(args: &PrepareArgs) -> Result<PathBuf, BenchError> {
     })?;
     std::fs::write(&manifest, text)
         .map_err(|error| BenchError::io(format!("writing {}", manifest.display()), error))?;
-    tracing::info!(manifest = %manifest.display(), v3_sha = %prepared.v3_sha, v2_sha = %prepared.v2_sha, "bench prepared");
+    tracing::info!(manifest = %manifest.display(), roost_sha = %prepared.roost_sha, "bench prepared");
     Ok(manifest)
 }
 
 async fn check_prerequisites(chrome: &Path) -> Result<(), BenchError> {
-    for tool in ["bun", "dx", "flock", "git"] {
+    for tool in ["dx", "flock", "git"] {
         if !tool_present(tool).await {
             return Err(BenchError::Prerequisite(format!("`{tool}` is not on PATH")));
         }
@@ -116,28 +109,6 @@ async fn build_v3_web(repo: &Path) -> Result<(), BenchError> {
         repo,
     )
     .await?;
-    require_file(&dist.join("index.html"))
-}
-
-/// A `main` checkout with its dependencies installed and its SPA built. A root
-/// that already carries both (an installed v2 release) is used as it is.
-async fn prepare_v2(repo: &Path, v2_root: &Path) -> Result<(), BenchError> {
-    if !v2_root.exists() {
-        let target = v2_root.to_string_lossy();
-        run_step(
-            "git",
-            &["worktree", "add", "--detach", &target, "main"],
-            repo,
-        )
-        .await?;
-    }
-    let dist = paths::v2_web_dist(v2_root);
-    if v2_root.join("node_modules").is_dir() && dist.join("index.html").is_file() {
-        tracing::info!(v2_root = %v2_root.display(), "v2 checkout already installed and built");
-        return Ok(());
-    }
-    run_step("bun", &["install", "--frozen-lockfile"], v2_root).await?;
-    run_step("bun", &["run", "--cwd", "apps/web", "build"], v2_root).await?;
     require_file(&dist.join("index.html"))
 }
 

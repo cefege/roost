@@ -143,10 +143,11 @@ const ALLOWED: &[(&str, &[&str])] = &[
             "roost-vcs",
         ],
     ),
-    // The v2-vs-v3 benchmark harness: a developer tool, never shipped. It
-    // dials the coordinator through the generated Connect client and reuses
+    // The v3 latency and footprint benchmark: a developer tool, never shipped.
+    // It dials the coordinator through the generated Connect client, signs its
+    // device credential with the shared `roost-protocol` JWT shape and reuses
     // the workspace tracing setup; it boots the products as child processes,
-    // never as libraries, so the same code measures the Bun stack too.
+    // never as libraries.
     (
         "roost-bench",
         &["roost-proto", "roost-protocol", "roost-observability"],
