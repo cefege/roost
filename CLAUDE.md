@@ -192,6 +192,12 @@ Non-negotiable for every change.
 
 9. **No global mutable state.** `static` is for constants only. All state has
    an owner you can grep for, and every side effect is explicit.
+   Document-wide browser singletons — the microphone graph and its ownership
+   slot, the permission latch, the shell's voice-control slot, the
+   composer-shell geometry slot, the pre-launch serving-origin answer, the
+   visibility pin, and the document perf/phase rings — may live in a
+   `thread_local!` owned by one module that exposes accessor functions; state
+   with a component, `ComposerContext` or `Pump` owner lives there instead.
 
 10. **One concept per type.** `Worker` is the identity of a machine in the
     registry. `Session` is the user-facing row. `Channel` is a PTY

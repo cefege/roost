@@ -10,7 +10,7 @@ use dioxus::prelude::*;
 #[cfg(not(target_arch = "wasm32"))]
 use super::dom::warm_mic_for;
 use super::dom::{EngineHosts, is_secure_context};
-use super::watchdog::{arm_watchdog, clear_watchdog};
+use super::watchdog::FinalizeWatchdog;
 use crate::pump::Pump;
 #[cfg(target_arch = "wasm32")]
 use crate::voice::deepgram_engine::{EngineEvent, EngineSink};
@@ -39,6 +39,8 @@ pub(super) struct ComposerContext {
     pub(super) on_discard: EventHandler<()>,
     pub(super) on_submit: EventHandler<()>,
     pub(super) read_context: Option<ContextReader>,
+    /// The deadline a finalize waits under; it dies with this context.
+    pub(super) watchdog: FinalizeWatchdog,
 }
 
 impl ComposerContext {
@@ -84,7 +86,7 @@ impl ComposerContext {
     /// carries a different token, and a slot only its holder may release
     /// leaves the page's microphone unstartable for good.
     pub(super) fn finish(self: &Rc<Self>) {
-        clear_watchdog();
+        self.watchdog.clear();
         let recording = self.machine().state().is_dictating();
         self.apply(VoiceEvent::Deactivated);
         if !recording {
@@ -131,13 +133,13 @@ impl ComposerContext {
                 VoiceEffect::ClearEngineText => self.hosts.borrow().reset(),
                 VoiceEffect::ArmFinalizeWatchdog => {
                     let weak = Rc::downgrade(self);
-                    arm_watchdog(move || {
+                    self.watchdog.arm(move || {
                         if let Some(context) = weak.upgrade() {
                             context.apply(VoiceEvent::WatchdogExpired);
                         }
                     });
                 }
-                VoiceEffect::ClearFinalizeWatchdog => clear_watchdog(),
+                VoiceEffect::ClearFinalizeWatchdog => self.watchdog.clear(),
                 VoiceEffect::Commit(text) => {
                     self.on_transcript.call(text.clone());
                     self.on_live_transcript.call(None);

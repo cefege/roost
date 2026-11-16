@@ -4,7 +4,7 @@
 //! Its contract is dedup probe, then direct carriers, then relay. A failure
 //! after crossing the byte boundary is ambiguous and is never retried.
 
-use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
 use std::rc::Rc;
 
 use roost_client_core::client::attachments::direct::upload_attachment_direct;
@@ -33,22 +33,22 @@ pub enum UploadUpdate {
 
 pub type UploadObserver = Rc<dyn Fn(&str, UploadUpdate)>;
 
-thread_local! {
-    /// The uploads waiting for their turn, in the order they were picked.
-    ///
-    /// Serial because the order IS the payload: a multi-file gesture stores the
-    /// files in pick order and types the paths in that order, so two concurrent
-    /// uploads would type them in an order nobody chose.
-    static PENDING: RefCell<Vec<QueuedUpload>> = const { RefCell::new(Vec::new()) };
-    /// Whether a queued upload is running. A flag rather than a promise chain,
-    /// because a chain is poisoned by the first rejection, and one failed
-    /// upload must not strand every later one.
-    static RUNNING: Cell<bool> = const { Cell::new(false) };
+/// The uploads waiting for their turn, in the order they were picked, and
+/// whether one is running. Owned by the `Pump`, which outlives every pane.
+///
+/// Serial because the order IS the payload: a multi-file gesture stores the
+/// files in pick order and types the paths in that order, so two concurrent
+/// uploads would type them in an order nobody chose. `running` is a flag
+/// rather than a promise chain, because a chain is poisoned by the first
+/// rejection, and one failed upload must not strand every later one.
+#[derive(Default)]
+pub(crate) struct UploadQueue {
+    pending: VecDeque<QueuedUpload>,
+    running: bool,
 }
 
 /// One picked file, waiting for its turn.
 struct QueuedUpload {
-    pump: Pump,
     session_id: String,
     worker_fp: Option<String>,
     upload_id: String,
@@ -88,8 +88,8 @@ pub fn enqueue_attachments(
     if files.is_empty() {
         return;
     }
-    PENDING.with(|pending| {
-        let mut queue = pending.borrow_mut();
+    {
+        let mut queue = pump.uploads().borrow_mut();
         for file in files {
             let Some(upload_id) = file.upload_id.clone().or_else(mint_upload_id) else {
                 tracing::warn!(
@@ -112,8 +112,7 @@ pub fn enqueue_attachments(
                 upload = %upload_id,
                 "attachment upload queued"
             );
-            queue.push(QueuedUpload {
-                pump: pump.clone(),
+            queue.pending.push_back(QueuedUpload {
                 session_id: context.session_id.clone(),
                 worker_fp: context.worker_fp.clone(),
                 upload_id,
@@ -124,35 +123,36 @@ pub fn enqueue_attachments(
                 observer: observer.clone(),
             });
         }
-    });
-    drain_queue();
+    }
+    drain_queue(pump);
 }
 
 /// Run queued uploads until the queue is empty.
-fn drain_queue() {
-    if RUNNING.get() {
-        return;
-    }
-    RUNNING.set(true);
-    let next = PENDING.with(|pending| {
-        let mut queue = pending.borrow_mut();
-        (!queue.is_empty()).then(|| queue.remove(0))
-    });
+fn drain_queue(pump: &Pump) {
+    let next = {
+        let mut queue = pump.uploads().borrow_mut();
+        if queue.running {
+            return;
+        }
+        let next = queue.pending.pop_front();
+        queue.running = next.is_some();
+        next
+    };
     let Some(job) = next else {
-        RUNNING.set(false);
         return;
     };
+    let pump = pump.clone();
     wasm_bindgen_futures::spawn_local(async move {
-        run_one(job).await;
+        run_one(&pump, job).await;
         // Released before the next turn is taken: a flag still held here is a
         // queue that runs its first file and strands every later one.
-        RUNNING.set(false);
-        drain_queue();
+        pump.uploads().borrow_mut().running = false;
+        drain_queue(&pump);
     });
 }
 
 /// Upload one file and settle its transfer row.
-async fn run_one(job: QueuedUpload) {
+async fn run_one(pump: &Pump, job: QueuedUpload) {
     let upload_id = job.upload_id.clone();
     let plan = match UploadPlan::for_file(
         &job.session_id,
@@ -164,36 +164,33 @@ async fn run_one(job: QueuedUpload) {
     ) {
         Ok(plan) => plan,
         Err(refusal) => {
-            refuse(&job, &upload_id, refusal);
+            refuse(pump, &job, &upload_id, refusal);
             return;
         }
     };
 
-    let pump = job.pump.clone();
     let id = upload_id.clone();
     if plan.probe_first {
-        write_store(&pump, |store| {
+        write_store(pump, |store| {
             upload_card::mark_hashing(store, &id);
         });
         notify(&job, UploadUpdate::Hashing);
-        if let Some(path) = deduplicated_path(&job, &plan).await {
-            write_store(&pump, |store| upload_card::mark_deduplicated(store, &id));
-            insert_path(&job, &path);
+        if let Some(path) = deduplicated_path(pump, &job, &plan).await {
+            write_store(pump, |store| upload_card::mark_deduplicated(store, &id));
+            insert_path(pump, &job, &path);
             notify(&job, UploadUpdate::Done);
             return;
         }
     }
 
-    write_store(&pump, |store| {
+    write_store(pump, |store| {
         upload_card::mark_running(store, &id);
     });
     notify(&job, UploadUpdate::Uploading { bytes_sent: 0 });
-    let outcome = upload_on_a_carrier(&job, &plan).await;
-    let committed = write_store(&pump, |store| {
-        upload_card::settle_card(store, &id, &outcome)
-    });
+    let outcome = upload_on_a_carrier(pump, &job, &plan).await;
+    let committed = write_store(pump, |store| upload_card::settle_card(store, &id, &outcome));
     if let Some(path) = committed {
-        insert_path(&job, &path);
+        insert_path(pump, &job, &path);
         notify(&job, UploadUpdate::Done);
     } else {
         let (reason, retryable) = match &outcome {
@@ -220,7 +217,7 @@ fn notify(job: &QueuedUpload, update: UploadUpdate) {
 
 /// A file the size of which no peer could read exactly, refused before a
 /// carrier was chosen and before a card could imply any bytes moved.
-fn refuse(job: &QueuedUpload, upload_id: &str, refusal: PlanRefusal) {
+fn refuse(pump: &Pump, job: &QueuedUpload, upload_id: &str, refusal: PlanRefusal) {
     let reason = refusal.message();
     tracing::warn!(
         target: "attachments",
@@ -231,7 +228,7 @@ fn refuse(job: &QueuedUpload, upload_id: &str, refusal: PlanRefusal) {
     );
     let id = upload_id.to_owned();
     let message = reason.to_owned();
-    write_store(&job.pump, |store| {
+    write_store(pump, |store| {
         upload_card::refuse_card(store, &id, &job.file.name, &message);
     });
     notify(
@@ -246,7 +243,7 @@ fn refuse(job: &QueuedUpload, upload_id: &str, refusal: PlanRefusal) {
 /// Hash the file and ask the worker whether it already holds these exact
 /// bytes, answering the path it holds them under. The plan only probes a file
 /// small enough to read whole; a failed read or hash uploads without a probe.
-async fn deduplicated_path(job: &QueuedUpload, plan: &UploadPlan) -> Option<String> {
+async fn deduplicated_path(pump: &Pump, job: &QueuedUpload, plan: &UploadPlan) -> Option<String> {
     let read = super::dom::read_file_range(&job.file.file, 0, plan.total_bytes).await;
     let digest = match read {
         Some(bytes) => content_digest(&bytes).await,
@@ -265,7 +262,7 @@ async fn deduplicated_path(job: &QueuedUpload, plan: &UploadPlan) -> Option<Stri
         }
     };
     upload_host::probe_deduplicated(
-        &job.pump,
+        pump,
         &plan.direct_request.session_id,
         &digest,
         plan.total_bytes,
@@ -276,11 +273,10 @@ async fn deduplicated_path(job: &QueuedUpload, plan: &UploadPlan) -> Option<Stri
 }
 
 /// Choose a carrier and run the upload on it.
-async fn upload_on_a_carrier(job: &QueuedUpload, plan: &UploadPlan) -> UploadOutcome {
-    let pump = job.pump.clone();
+async fn upload_on_a_carrier(pump: &Pump, job: &QueuedUpload, plan: &UploadPlan) -> UploadOutcome {
     let upload_id = plan.upload_id.clone();
     let on_progress = |settled: u64| {
-        write_store(&pump, |store| {
+        write_store(pump, |store| {
             upload_card::record_progress(store, &upload_id, settled);
         });
         notify(
@@ -291,7 +287,7 @@ async fn upload_on_a_carrier(job: &QueuedUpload, plan: &UploadPlan) -> UploadOut
         );
     };
     let mut environment = BrowserDirectEnvironment {
-        pump: &job.pump,
+        pump,
         identity: &job.identity,
         request: &plan.direct_request,
         file: &job.file.file,
@@ -317,7 +313,7 @@ async fn upload_on_a_carrier(job: &QueuedUpload, plan: &UploadPlan) -> UploadOut
                 ?reason,
                 "no direct attachment route; the coordinator relays this upload"
             );
-            relay(job, plan).await
+            relay(pump, job, plan).await
         }
         CarrierChoice::Direct { result, .. } => UploadOutcome::Accepted(result),
         CarrierChoice::FailedWithBytes { reason } => UploadOutcome::Ambiguous { reason },
@@ -329,18 +325,17 @@ async fn upload_on_a_carrier(job: &QueuedUpload, plan: &UploadPlan) -> UploadOut
 
 /// The whole-file upload over the coordinator relay, reporting each settled
 /// slice to the card.
-async fn relay(job: &QueuedUpload, plan: &UploadPlan) -> UploadOutcome {
-    let pump = job.pump.clone();
+async fn relay(pump: &Pump, job: &QueuedUpload, plan: &UploadPlan) -> UploadOutcome {
     let upload_id = plan.upload_id.clone();
-    write_store(&pump, |store| {
+    write_store(pump, |store| {
         upload_card::mark_route(
             store,
             &upload_id,
             roost_client_core::store::transfers::TransferRoute::Coordinator,
         );
     });
-    let result = upload_host::relay_upload(&pump, plan, &job.file.file, |settled| {
-        write_store(&pump, |store| {
+    let result = upload_host::relay_upload(pump, plan, &job.file.file, |settled| {
+        write_store(pump, |store| {
             upload_card::record_progress(store, &upload_id, settled);
         });
         notify(
@@ -360,9 +355,9 @@ async fn relay(job: &QueuedUpload, plan: &UploadPlan) -> UploadOutcome {
 /// Type a committed path into the session's PTY, when the WORKER's shell rules
 /// say it may be typed. The rules are the worker's because the path is typed
 /// into the worker's shell, not the reader's.
-fn insert_path(job: &QueuedUpload, abs_path: &str) {
+fn insert_path(pump: &Pump, job: &QueuedUpload, abs_path: &str) {
     let worker_os = {
-        let core = job.pump.core();
+        let core = pump.core();
         let borrowed = core.borrow();
         let Some(worker_fp) = job.worker_fp.as_deref() else {
             return;

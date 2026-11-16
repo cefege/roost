@@ -18,6 +18,7 @@ use super::dom::{
 };
 use super::send::{FinalizeSendDoor, use_finalize_send_door};
 use super::shell::use_voice_shell_controls;
+use super::watchdog::FinalizeWatchdog;
 use crate::components::ui::{ButtonSize, ButtonVariant, IconButton};
 use crate::pump::use_store;
 use crate::voice::engine::Engine;
@@ -97,6 +98,7 @@ pub fn MobileVoiceInput(
             on_discard,
             on_submit,
             read_context,
+            watchdog: FinalizeWatchdog::default(),
         })
     });
     use_finalize_send_door(send_door, &context);

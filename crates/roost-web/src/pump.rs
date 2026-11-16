@@ -39,6 +39,7 @@ use std::rc::Rc;
 use dioxus::prelude::*;
 use roost_client_core::{ClientCore, ClientEvent, Store, SyncCommand};
 
+use crate::components::terminal_chrome::upload::UploadQueue;
 use crate::platform::connect::CoordRpc;
 
 pub use boot::start_pump;
@@ -97,6 +98,9 @@ struct PumpInner {
     /// a reader clicks a result, the search page unmounts, and the pane that
     /// answers still has to be told what to look for.
     find_intents: RefCell<FindIntentRegistry>,
+    /// The attachment uploads waiting for their turn. Held here rather than in
+    /// a component because the queue outlives the pane that picked the files.
+    uploads: RefCell<UploadQueue>,
     /// The history reads sent on a direct carrier and not yet answered, by
     /// request id: the carrier has no RPC framing to carry the reply.
     direct_history: RefCell<direct_history::DirectHistoryReads>,
@@ -152,6 +156,7 @@ impl Pump {
                 #[cfg(target_arch = "wasm32")]
                 listeners: RefCell::new(Vec::new()),
                 find_intents: RefCell::new(FindIntentRegistry::new()),
+                uploads: RefCell::new(UploadQueue::default()),
                 direct_history: RefCell::new(direct_history::DirectHistoryReads::default()),
                 direct_images: RefCell::new(direct_images::DirectImageReads::default()),
                 sweeps: Listeners::new(),
@@ -360,6 +365,11 @@ impl Pump {
             .find_intents
             .borrow_mut()
             .unregister(session_id, registration);
+    }
+
+    /// The serial attachment-upload queue this document holds.
+    pub(crate) fn uploads(&self) -> &RefCell<UploadQueue> {
+        &self.inner.uploads
     }
 }
 
