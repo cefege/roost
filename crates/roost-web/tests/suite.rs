@@ -142,6 +142,8 @@ mod ui_dialog;
 mod ui_field;
 #[path = "ui_list.rs"]
 mod ui_list;
+#[path = "ui_placement.rs"]
+mod ui_placement;
 #[path = "ui_progress.rs"]
 mod ui_progress;
 #[path = "ui_select.rs"]

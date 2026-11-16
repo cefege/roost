@@ -5,8 +5,9 @@
 use dioxus::prelude::*;
 use roost_client_core::store::selectors::session_by_id;
 
-use super::deck_dom::{ClientBox, DeckContainer};
+use super::deck_dom::DeckContainer;
 use super::inline_style::px;
+use crate::components::ui::placement::ClientRect;
 use crate::components::ui::{HoverCardPresentation, Icon, IconType};
 use crate::platform::worker_paths::short_worker_path;
 use crate::pump::use_store;
@@ -21,7 +22,7 @@ struct HoverCardReading {
 
 /// The card for `session_id`, under `anchor`.
 #[component]
-pub fn PaneTabHoverCard(session_id: String, anchor: ClientBox) -> Element {
+pub fn PaneTabHoverCard(session_id: String, anchor: ClientRect) -> Element {
     let pump = use_store();
     let container = try_use_context::<DeckContainer>();
     let reading = {

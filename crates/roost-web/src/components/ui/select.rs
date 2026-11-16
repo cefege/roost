@@ -1,7 +1,7 @@
 //! `Select`: the single-value select, a labelled trigger button and a floating
 //! listbox. Composed by the settings panes (TV mode, theme, terminal, voice) and editor
 //! forms; `select_listbox.rs` renders the open listbox and the rules live in
-//! `select_navigation.rs` and `select_placement.rs`.
+//! `select_navigation.rs` and `placement.rs`.
 //!
 //! The value is the caller's: the trigger shows the option whose `value` equals
 //! the `value` prop, and choosing reports the new value through `on_change` ONLY
@@ -21,12 +21,12 @@ use super::dom::key_event_time_ms;
 use super::field::{
     FieldDescription, FieldError, described_by, description_id, error_id, scoped_element_id,
 };
+use super::placement::ClientRect;
 use super::select_listbox::SelectListbox;
 use super::select_navigation::{
     OpenFocus, TriggerKeyAction, Typeahead, initial_highlight, trigger_key_action,
     typeahead_character, typeahead_match,
 };
-use super::select_placement::AnchorRect;
 
 /// The placeholder shown when no option matches the value.
 pub const DEFAULT_SELECT_PLACEHOLDER: &str = "Select an option";
@@ -93,7 +93,7 @@ pub fn Select(
     let base_id = use_hook(|| scoped_element_id("select"));
     let mut open = use_signal(|| false);
     let highlighted = use_signal(|| None::<usize>);
-    let mut anchor = use_signal(|| None::<AnchorRect>);
+    let mut anchor = use_signal(|| None::<ClientRect>);
     let mut trigger = use_signal(|| None::<Rc<MountedData>>);
     let mut pointer_type = use_signal(String::new);
     let mut typeahead = use_signal(Typeahead::default);
@@ -152,7 +152,7 @@ pub fn Select(
         if let Some(mounted) = trigger() {
             spawn(async move {
                 if let Ok(rect) = mounted.get_client_rect().await {
-                    anchor.set(Some(AnchorRect {
+                    anchor.set(Some(ClientRect {
                         left: rect.origin.x,
                         top: rect.origin.y,
                         width: rect.size.width,

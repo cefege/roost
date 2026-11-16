@@ -3,6 +3,7 @@
 //! Terminal progress and bells remain accessible through the cue.
 
 use crate::components::terminal_signal_marks::progress_presentation;
+use crate::components::ui::placement::ClientRect;
 use crate::components::ui::{
     ButtonSize, Icon, IconButton, IconType, Separator, SeparatorOrientation, StatusDot, TabsTrigger,
 };
@@ -84,7 +85,7 @@ pub fn PaneTab(
     style: String,
     hover_card_available: bool,
     on_pointer_down: EventHandler<PointerEvent>,
-    on_hover_start: EventHandler<super::deck_dom::ClientBox>,
+    on_hover_start: EventHandler<ClientRect>,
     on_hover_end: EventHandler<()>,
     on_close: EventHandler<MouseEvent>,
 ) -> Element {

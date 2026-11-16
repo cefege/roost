@@ -1,7 +1,7 @@
 //! The open select's floating listbox: the content surface, the `listbox` and
 //! its `option`s, keyboard movement, type-ahead and dismissal. Rendered by
 //! `select.rs` only while open; the rules it applies are `select_navigation`'s
-//! and `select_placement`'s, and its browser readings come from `ui::dom`.
+//! and `placement`'s, and its browser readings come from `ui::dom`.
 //!
 //! Focus sits on the `listbox` and the highlighted option is named by
 //! `aria-activedescendant`, so every option stays out of the tab order while
@@ -14,11 +14,11 @@ use icons::common::IconType;
 
 use super::Icon;
 use super::dom::{key_event_time_ms, viewport_height};
+use super::placement::{ClientRect, PlacementSide, listbox_placement, listbox_style};
 use super::select::SelectOption;
 use super::select_navigation::{
     ListboxKeyAction, Typeahead, listbox_key_action, typeahead_character, typeahead_match,
 };
-use super::select_placement::{AnchorRect, PlacementSide, listbox_placement, listbox_style};
 
 /// The surface the listbox sits on. Its position is the inline style from
 /// `listbox_style`, so only the paint and the scroll bounds are classes here.
@@ -58,7 +58,7 @@ pub fn SelectListbox(
     options: Vec<SelectOption>,
     selected: Option<usize>,
     highlighted: Signal<Option<usize>>,
-    anchor: AnchorRect,
+    anchor: ClientRect,
     trigger_id: String,
     listbox_id: String,
     label_id: Option<String>,

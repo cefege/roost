@@ -1,31 +1,24 @@
-//! The browser arm of `deck_dom`: element reads, timers and size observers,
-//! over `web-sys`. The event listeners are in `web_listeners`.
+//! The browser arm of `deck_dom`: element reads and size observers, over
+//! `web-sys`. The event listeners are in `web_listeners`.
 
 use dioxus::prelude::*;
 use dioxus::web::WebEventExt as _;
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen::closure::Closure;
 
-use super::{ClientBox, DeckPointerTarget, clips_rail};
+use super::{DeckPointerTarget, clips_rail};
 use crate::components::deck::pane_strip_drag::TabRect;
+use crate::components::ui::dom::client_rect_of;
+use crate::components::ui::placement::ClientRect;
 
 pub(super) fn element(mounted: &MountedData) -> Option<web_sys::Element> {
     mounted.try_as_web_event()
 }
 
 /// The element's bounding box.
-pub fn client_box(mounted: &MountedData) -> Option<ClientBox> {
+pub fn client_box(mounted: &MountedData) -> Option<ClientRect> {
     let element = element(mounted)?;
-    Some(box_of(element.get_bounding_client_rect()))
-}
-
-fn box_of(rect: web_sys::DomRect) -> ClientBox {
-    ClientBox {
-        left: rect.left(),
-        top: rect.top(),
-        width: rect.width(),
-        height: rect.height(),
-    }
+    Some(client_rect_of(&element))
 }
 
 /// The element's content box (`clientWidth`, `clientHeight`).
@@ -72,14 +65,14 @@ pub fn rail_overflowing(rail: &MountedData) -> bool {
     let Some(element) = element(rail) else {
         return false;
     };
-    let bounds = box_of(element.get_bounding_client_rect());
+    let bounds = client_rect_of(&element);
     let Ok(tabs) = element.query_selector_all("[data-deck-tab]") else {
         return false;
     };
     (0..tabs.length()).any(|index| {
         tabs.item(index)
             .and_then(|tab| tab.dyn_into::<web_sys::Element>().ok())
-            .is_some_and(|tab| clips_rail(bounds, box_of(tab.get_bounding_client_rect())))
+            .is_some_and(|tab| clips_rail(bounds, client_rect_of(&tab)))
     })
 }
 

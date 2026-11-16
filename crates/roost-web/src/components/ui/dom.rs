@@ -1,7 +1,8 @@
-//! The DOM half of the modal and select primitives: re-asserting a controlled
-//! checkbox, the dialog's focus moves, and the two browser readings `Select`
-//! places its listbox with. Every rule these apply lives in a target-independent
-//! sibling (`focus_scope`, `select_navigation`, `select_placement`).
+//! The DOM half of the modal, menu and select primitives: re-asserting a
+//! controlled checkbox, the dialog's focus moves, the browser readings `Select`
+//! places its listbox with, element rects, one-shot timers, and menu key and
+//! focus-by-id calls. Every rule these apply lives in a target-independent
+//! sibling (`focus_scope`, `select_navigation`, `placement`, `menu_focus`).
 //! Each function has a native arm because the components compile for the native
 //! target too; there is no document there, so that arm answers "no element" or
 //! does nothing.
@@ -11,6 +12,20 @@ use dioxus::prelude::*;
 use super::focus_scope::FocusEdge;
 #[cfg(target_arch = "wasm32")]
 use super::focus_scope::{FOCUS_TRAP_ATTRIBUTE, FOCUSABLE_SELECTOR, is_in_tab_order};
+#[cfg(target_arch = "wasm32")]
+use super::placement::ClientRect;
+
+/// The element's bounding rect in client px.
+#[cfg(target_arch = "wasm32")]
+pub fn client_rect_of(element: &web_sys::Element) -> ClientRect {
+    let rect = element.get_bounding_client_rect();
+    ClientRect {
+        left: rect.left(),
+        top: rect.top(),
+        width: rect.width(),
+        height: rect.height(),
+    }
+}
 
 /// The element that held focus when a dialog opened, so closing it can hand
 /// focus back. Uninhabited natively, where nothing is ever focused.

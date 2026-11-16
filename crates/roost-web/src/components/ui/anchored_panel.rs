@@ -1,12 +1,12 @@
 //! DOM measurement for fixed floating panels anchored to a trigger found by element id.
-//! Placement arithmetic lives in `components::menu_placement`; this file only reads the
+//! Placement arithmetic lives in `ui::placement`; this file only reads the
 //! trigger, its containing block and the viewport.
 //! Called by `ui::menu_overlay` and `ui::select_listbox`; native builds return `None`.
 
 #[cfg(target_arch = "wasm32")]
-use crate::components::deck::deck_dom::ClientBox;
+use super::dom::client_rect_of;
 #[cfg(target_arch = "wasm32")]
-use crate::components::menu_placement::{Horizontal, MenuPlacement, Vertical, place_menu};
+use super::placement::{ClientRect, Horizontal, MenuPlacement, Vertical, place_menu};
 
 /// Places a fixed panel beside the trigger. Scrollable dialogs also consume the
 /// available height and width; other floating surfaces keep their overflow.
@@ -27,11 +27,11 @@ pub fn anchored_placement_style(
             .closest("[data-pane-slot]")
             .ok()
             .flatten()
-            .map(|pane| client_box_of(&pane))
+            .map(|pane| client_rect_of(&pane))
             .unwrap_or(containing);
         let left = viewport.left.max(panel_bounds.left);
         let top = viewport.top.max(panel_bounds.top);
-        ClientBox {
+        ClientRect {
             left,
             top,
             width: (viewport.right().min(panel_bounds.right()) - left).max(0.0),
@@ -40,7 +40,7 @@ pub fn anchored_placement_style(
     } else {
         viewport
     };
-    let placement = place_menu(client_box_of(&trigger), bounds, containing, prefer_up);
+    let placement = place_menu(client_rect_of(&trigger), bounds, containing, prefer_up);
     Some(if scrollable {
         placement.style()
     } else {
@@ -87,7 +87,7 @@ fn position_longhands(placement: &MenuPlacement) -> String {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn viewport_box(window: &web_sys::Window) -> ClientBox {
+fn viewport_box(window: &web_sys::Window) -> ClientRect {
     let width = window
         .inner_width()
         .ok()
@@ -98,7 +98,7 @@ fn viewport_box(window: &web_sys::Window) -> ClientBox {
         .ok()
         .and_then(|value| value.as_f64())
         .unwrap_or(0.0);
-    ClientBox {
+    ClientRect {
         left: 0.0,
         top: 0.0,
         width,
@@ -106,24 +106,16 @@ fn viewport_box(window: &web_sys::Window) -> ClientBox {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-fn client_box_of(element: &web_sys::Element) -> ClientBox {
-    let rect = element.get_bounding_client_rect();
-    ClientBox {
-        left: rect.left(),
-        top: rect.top(),
-        width: rect.width(),
-        height: rect.height(),
-    }
-}
-
 /// The nearest ancestor with a transform, including independent transform longhands.
 #[cfg(target_arch = "wasm32")]
-fn containing_block_box(window: &web_sys::Window, trigger: &web_sys::Element) -> Option<ClientBox> {
+fn containing_block_box(
+    window: &web_sys::Window,
+    trigger: &web_sys::Element,
+) -> Option<ClientRect> {
     let mut ancestor = trigger.parent_element();
     while let Some(element) = ancestor {
         if has_transform(window, &element) {
-            return Some(client_box_of(&element));
+            return Some(client_rect_of(&element));
         }
         ancestor = element.parent_element();
     }

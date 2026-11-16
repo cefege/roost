@@ -1,6 +1,6 @@
-//! The deck's browser adapter: element measurement, the size observers, the
-//! one-shot timers, and the window/document listeners a drag, a chord or a
-//! swipe needs. Called by `terminal_deck`, `pane_strip` and `pane_divider`.
+//! The deck's browser adapter: element measurement, the size observers, and
+//! the window/document listeners a drag, a chord or a swipe needs. Called by
+//! `terminal_deck`, `pane_strip` and `pane_divider`.
 //! Every rule these feed is in a target-independent sibling; a native build
 //! gets inert arms (no element, no listener), because it paints nothing.
 
@@ -18,30 +18,7 @@ pub use web::*;
 #[cfg(target_arch = "wasm32")]
 pub use web_listeners::Listeners;
 
-/// A bounding box in client px.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct ClientBox {
-    /// Left edge.
-    pub left: f64,
-    /// Top edge.
-    pub top: f64,
-    /// Width.
-    pub width: f64,
-    /// Height.
-    pub height: f64,
-}
-
-impl ClientBox {
-    /// The bottom edge.
-    pub fn bottom(&self) -> f64 {
-        self.top + self.height
-    }
-
-    /// The right edge.
-    pub fn right(&self) -> f64 {
-        self.left + self.width
-    }
-}
+use crate::components::ui::placement::ClientRect;
 
 /// How far a tab may leave the rail's box before it counts as clipped, px.
 ///
@@ -57,7 +34,7 @@ pub const CLIP_SLOP_PX: f64 = 1.0;
 /// extent past its own client width; either parks the chevron on a rail where
 /// nothing is out of reach. Only a tab's own box against the rail's answers the
 /// question the chevron exists for.
-pub fn clips_rail(rail: ClientBox, tab: ClientBox) -> bool {
+pub fn clips_rail(rail: ClientRect, tab: ClientRect) -> bool {
     tab.right() > rail.right() + CLIP_SLOP_PX || tab.left < rail.left - CLIP_SLOP_PX
 }
 
@@ -109,7 +86,7 @@ impl std::fmt::Debug for DeckContainer {
 impl DeckContainer {
     /// The deck's box now; the zero box when no deck is mounted (a popup
     /// outside the deck is already in viewport coordinates).
-    pub fn origin(&self) -> ClientBox {
+    pub fn origin(&self) -> ClientRect {
         use dioxus::prelude::*;
         self.0
             .peek()
@@ -128,8 +105,8 @@ mod tests {
     /// `--workbench-tab-width-min`: the width a tab rests at in a packed rail.
     const FLOOR_PX: f64 = 68.0;
 
-    fn rail_box(width: f64) -> ClientBox {
-        ClientBox {
+    fn rail_box(width: f64) -> ClientRect {
+        ClientRect {
             left: RAIL_LEFT,
             top: 35.0,
             width,
@@ -137,8 +114,8 @@ mod tests {
         }
     }
 
-    fn tab_box(index: f64, width: f64) -> ClientBox {
-        ClientBox {
+    fn tab_box(index: f64, width: f64) -> ClientRect {
+        ClientRect {
             left: RAIL_LEFT + index * width,
             top: 35.0,
             width,
@@ -175,7 +152,7 @@ mod tests {
     fn a_tab_scrolled_out_to_the_left_is_clipped() {
         // The rail is scrolled to its end, so the first tab's box begins to the
         // left of the rail's own left edge.
-        let scrolled_out = ClientBox {
+        let scrolled_out = ClientRect {
             left: RAIL_LEFT - 52.0,
             top: 35.0,
             width: 200.0,

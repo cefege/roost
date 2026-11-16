@@ -9,7 +9,7 @@ use std::rc::Rc;
 use dioxus::prelude::*;
 use dioxus::web::WebEventExt as _;
 
-use super::deck_dom::{self, ClientBox, SizeWatch};
+use super::deck_dom::{self, SizeWatch};
 use super::pane_strip_double_press::DoublePress;
 use super::pane_strip_gesture::{StripDragOutlets, StripGesture};
 use super::pane_tab::PaneTab;
@@ -19,6 +19,7 @@ use super::pane_tab_new_menu::PaneTabNewMenu;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::terminal::terminal_transport_indicator::TerminalTransportIndicator;
 use crate::components::ui::dom::Timeout;
+use crate::components::ui::placement::ClientRect;
 use crate::components::ui::{
     DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Icon, IconType, Tabs, TabsList,
     TabsVariant, Toolbar,
@@ -48,7 +49,7 @@ pub fn PaneStrip(
     let gesture = StripGesture::use_strip_gesture();
     let closing = use_signal(BTreeSet::<String>::new);
     let mut list_open = use_signal(|| false);
-    let mut hover = use_signal(|| None::<(String, ClientBox)>);
+    let mut hover = use_signal(|| None::<(String, ClientRect)>);
     let overflowing = use_signal(|| false);
     let mut filler_press = use_signal(DoublePress::default);
     let timers: Rc<RefCell<Vec<Timeout>>> = use_hook(Rc::default);
@@ -167,7 +168,7 @@ pub fn PaneStrip(
                                 on_hover_start: {
                                     let hover_timer = Rc::clone(&hover_timer);
                                     let session_id = session_id.clone();
-                                    move |anchor: ClientBox| {
+                                    move |anchor: ClientRect| {
                                         if !hover_card_available || gesture.drag.peek().is_some() || *list_open.peek() {
                                             return;
                                         }

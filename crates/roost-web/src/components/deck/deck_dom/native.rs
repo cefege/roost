@@ -3,12 +3,13 @@
 
 use dioxus::prelude::*;
 
-use super::{ClientBox, DeckPointerTarget, DeckTouch};
+use super::{DeckPointerTarget, DeckTouch};
 use crate::components::deck::pane_strip_drag::TabRect;
+use crate::components::ui::placement::ClientRect;
 use crate::platform::browser_platform::ShortcutKey;
 
 /// No element.
-pub fn client_box(_mounted: &MountedData) -> Option<ClientBox> {
+pub fn client_box(_mounted: &MountedData) -> Option<ClientRect> {
     None
 }
 

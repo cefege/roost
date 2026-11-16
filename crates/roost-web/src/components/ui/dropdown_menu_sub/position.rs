@@ -1,6 +1,6 @@
 //! DOM measurement and style publication for an open dropdown submenu.
 //! The submenu panel calls this after mounting; pure placement math stays in
-//! `dropdown_menu_sub_placement` and the parent owns menu lifecycle and focus.
+//! `ui::placement` and the parent owns menu lifecycle and focus.
 
 use dioxus::prelude::*;
 use std::rc::Rc;
@@ -8,9 +8,11 @@ use std::rc::Rc;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 
-#[cfg(target_arch = "wasm32")]
-use super::super::dropdown_menu_sub_placement::{SubmenuRect, place_submenu};
 use super::{DropdownMenuSubSide, SubmenuRoot};
+#[cfg(target_arch = "wasm32")]
+use crate::components::ui::dom::client_rect_of;
+#[cfg(target_arch = "wasm32")]
+use crate::components::ui::placement::place_submenu;
 
 pub(super) async fn place_panel(
     context: Signal<SubmenuRoot>,
@@ -33,14 +35,8 @@ pub(super) async fn place_panel(
         else {
             return;
         };
-        let trigger_rect = trigger.get_bounding_client_rect();
         let placement = place_submenu(
-            SubmenuRect {
-                left: trigger_rect.left(),
-                top: trigger_rect.top(),
-                width: trigger_rect.width(),
-                height: trigger_rect.height(),
-            },
+            client_rect_of(&trigger),
             panel_rect.size.width,
             panel_rect.size.height,
             window

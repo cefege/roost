@@ -1,17 +1,17 @@
 //! The select's behaviour as data: what choosing reports, what each key does on
 //! the trigger and in the listbox, how type-ahead finds an option, and where the
 //! listbox is placed. Exercises `roost_web::components::ui::{select,
-//! select_navigation, select_placement}`, the Rust port of the rust-ui select
+//! select_navigation, placement}`, the Rust port of the rust-ui select
 //! behaviour that the md select carried.
 
+use roost_web::components::ui::placement::{
+    ClientRect, PlacementSide, TRIGGER_GAP_PX, listbox_placement, listbox_style,
+};
 use roost_web::components::ui::select::{SelectOption, select_change, select_disabled};
 use roost_web::components::ui::select_navigation::{
     ListboxKeyAction, OpenFocus, TYPEAHEAD_RESET_MS, TriggerKeyAction, Typeahead,
     initial_highlight, listbox_key_action, trigger_key_action, typeahead_character,
     typeahead_match,
-};
-use roost_web::components::ui::select_placement::{
-    AnchorRect, PlacementSide, SELECT_GUTTER_PX, listbox_placement, listbox_style,
 };
 
 fn options() -> Vec<SelectOption> {
@@ -180,7 +180,7 @@ fn typeahead_matches_from_the_highlight_then_from_the_top() {
 
 #[test]
 fn the_listbox_opens_below_its_trigger_at_the_trigger_width() {
-    let anchor = AnchorRect {
+    let anchor = ClientRect {
         left: 40.0,
         top: 100.0,
         width: 220.0,
@@ -188,14 +188,14 @@ fn the_listbox_opens_below_its_trigger_at_the_trigger_width() {
     };
     let placement = listbox_placement(anchor, Some(120.0), Some(800.0));
     assert_eq!(placement.side, PlacementSide::Bottom);
-    assert_eq!(placement.top, 100.0 + 36.0 + SELECT_GUTTER_PX);
+    assert_eq!(placement.top, 100.0 + 36.0 + TRIGGER_GAP_PX);
     assert_eq!((placement.left, placement.width), (40.0, 220.0));
     assert_eq!(listbox_placement(anchor, None, None), placement);
 }
 
 #[test]
 fn the_listbox_flips_above_only_when_below_overflows_and_above_has_more_room() {
-    let near_bottom = AnchorRect {
+    let near_bottom = ClientRect {
         left: 0.0,
         top: 700.0,
         width: 200.0,
@@ -203,10 +203,10 @@ fn the_listbox_flips_above_only_when_below_overflows_and_above_has_more_room() {
     };
     let flipped = listbox_placement(near_bottom, Some(200.0), Some(800.0));
     assert_eq!(flipped.side, PlacementSide::Top);
-    assert_eq!(flipped.top, 700.0 - SELECT_GUTTER_PX - 200.0);
+    assert_eq!(flipped.top, 700.0 - TRIGGER_GAP_PX - 200.0);
     assert!(listbox_style(&flipped).contains("--kb-select-content-transform-origin: bottom;"));
 
-    let near_top = AnchorRect {
+    let near_top = ClientRect {
         left: 0.0,
         top: 20.0,
         width: 200.0,

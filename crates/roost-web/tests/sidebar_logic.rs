@@ -10,15 +10,14 @@ use roost_protocol::wire::{
     ChannelId, HostIdentity, Session, SessionId, SessionKind, SessionStatus, Worker, WorkerFp,
     WorkerOs,
 };
-use roost_web::components::deck::deck_dom::ClientBox;
 use roost_web::components::machines::machine_identity::{
     LinuxDistributionBrand, machine_identity_presentation,
 };
-use roost_web::components::menu_placement::{Vertical, place_menu};
 use roost_web::components::sidebar::row_swipe::{RowSwipe, SwipeRelease};
 use roost_web::components::sidebar::session_row::session_row_is_active;
 use roost_web::components::sidebar::sidebar_new_terminal::MACHINE_MENU_SIDE;
 use roost_web::components::ui::IconType;
+use roost_web::components::ui::placement::{ClientRect, Vertical, place_menu};
 use roost_web::session_naming::{folder_headline, program_subtitle, session_title};
 
 const FP: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -272,13 +271,13 @@ fn row_touch_cancellation_and_finger_changes_never_close() {
 
 #[test]
 fn the_machine_menu_opens_upward_from_its_trigger() {
-    let viewport = ClientBox {
+    let viewport = ClientRect {
         left: 0.0,
         top: 0.0,
         width: 1_200.0,
         height: 1_000.0,
     };
-    let trigger = ClientBox {
+    let trigger = ClientRect {
         left: 200.0,
         top: 900.0,
         width: 80.0,
@@ -298,13 +297,13 @@ fn the_machine_menu_opens_upward_from_its_trigger() {
 
 #[test]
 fn the_machine_menu_drops_below_when_no_room_is_above() {
-    let viewport = ClientBox {
+    let viewport = ClientRect {
         left: 0.0,
         top: 0.0,
         width: 1_200.0,
         height: 1_000.0,
     };
-    let trigger = ClientBox {
+    let trigger = ClientRect {
         left: 200.0,
         top: 100.0,
         width: 80.0,

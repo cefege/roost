@@ -30,7 +30,6 @@ pub mod hooks;
 pub mod layout;
 pub mod machines;
 pub mod main_pane;
-pub mod menu_placement;
 pub mod mobile_voice;
 pub mod not_found;
 pub mod notifications;
