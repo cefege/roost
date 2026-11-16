@@ -136,8 +136,7 @@ pub fn App() -> Element {
     // The pump is built once, in the root scope that owns the revision signal,
     // and started in the same hook: the core it drives is the provided one.
     let revision = use_signal(|| 0_u64);
-    // The persisted palette lands before the first component paints (v2
-    // `main.tsx` applies it before `render`).
+    // The persisted palette lands before the first component paints.
     use_hook(theme::apply_stored_theme);
     theme::use_follow_system_appearance();
     let queue = try_consume_context::<diag_upload::DiagUploadQueue>();

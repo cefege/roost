@@ -2,7 +2,7 @@
 //! tab and socket, executed against this tab's store and answered on the socket
 //! it named.
 //!
-//! Ports the browser adapter of `apps/web/src/lib/uiLayoutApply.ts` over
+//! This is the browser adapter over
 //! `execute_targeted_layout_apply`. The decision — which refusals happen before
 //! the single write, and what each arm answers — belongs to
 //! `client::ui_state::apply`; this file supplies the tab identity, the folder

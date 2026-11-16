@@ -7,8 +7,6 @@
 //! sidebar repaints this list in the same revision. The content panel above
 //! joins through the same projection, which is why a content result can name
 //! the session it belongs to.
-//!
-//! Ports `apps/web/src/components/search/GlobalSearchPage.tsx:195-307`.
 
 use dioxus::prelude::*;
 use roost_client_core::store::navigation::NavigationSearchDocument;

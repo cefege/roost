@@ -2,8 +2,6 @@
 //! clamps and only then hands ↑/↓ to focus travel, the right stick never moves
 //! focus, B peels one layer per press, the shoulders cycle tabs and panes with
 //! wraparound, and the legend hides after its idle window.
-//! Pins behaviour of `apps/web/src/lib/padActions.ts` that
-//! `smoke/terminal/gamepad-nav.spec.ts` drives end to end.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

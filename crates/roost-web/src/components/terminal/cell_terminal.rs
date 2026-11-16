@@ -2,8 +2,7 @@
 //! mounted in, its stream indicator, paste guard, startup card and offline
 //! notice. Rendered by DECK's `TerminalDeck` per mounted session; the renderer,
 //! view lease, pager and keyboard live in the imperative `pane_mount` behind
-//! `PaneHandle`. Ports `apps/web/src/components/terminal/CellTerminal.tsx`,
-//! `cell-terminal-types.ts` and `cell-terminal-runtime.ts`.
+//! `PaneHandle`.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -65,7 +64,7 @@ struct PaneStoreView {
     nav_pad_open: bool,
 }
 
-/// The pane. Props are v2's `CellTerminalProps`, snake-cased.
+/// The pane.
 #[component]
 pub fn CellTerminal(
     session: Session,

@@ -1,9 +1,7 @@
 //! The inline geometry the workbench shell writes: the grid's height and
 //! sidebar-width properties, the editor region's keyboard shift and composer
 //! reservation, the `--roost-main-left` offset, when the compact top bar
-//! shows, and where the compact drawer stands on each route. Ports
-//! `shellStyle`, `editorStyle` and the memos of
-//! `apps/web/src/components/layout/AppShell.tsx`; read by `AppShell`.
+//! shows, and where the compact drawer stands on each route. Read by `AppShell`.
 //!
 //! A compact terminal route reserves the composer's RESTING row whether or not
 //! the composer is mounted, and the soft keyboard only translates the region:

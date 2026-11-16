@@ -1,9 +1,7 @@
 //! The pane's keyboard: the off-screen textarea controller whose bytes go to
 //! the PTY as `ClientEvent::TerminalInput`, the document keydown that reserves
 //! copy/paste/find chords and recovers focus, the display's focus on press and click,
-//! and the multiline paste guard. Ports
-//! `apps/web/src/components/terminal/cell-terminal-input.ts`, the focus arms
-//! of `cell-terminal-interactions.ts` and the keydown of `cell-terminal-lifecycle.ts`.
+//! and the multiline paste guard.
 
 use std::rc::Rc;
 
@@ -222,8 +220,7 @@ fn on_display_mouse_down(shared: &PaneShared, event: &Event) {
     }
 }
 
-/// A completed press on the display takes the keyboard (v2
-/// `cell-terminal-interactions.ts` `onDisplayClick`). The press alone is not
+/// A completed press on the display takes the keyboard. The press alone is not
 /// enough: the browser's own mousedown default moves focus to the nearest
 /// focusable ancestor — the body — after the press handler ran, so the click
 /// is what leaves the textarea focused. A click that ended a text selection

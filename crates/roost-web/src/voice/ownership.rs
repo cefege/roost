@@ -4,8 +4,7 @@
 //!
 //! The claim is a compare-and-set on a token, which is what makes two taps in one
 //! task produce exactly one open device: the second tap runs after the first has
-//! already claimed, and loses. Ports `apps/web/src/voice/voiceState.ts`
-//! (`activeVoiceOwner`, `claimVoice`, `releaseVoice`) without the module-level
+//! already claimed, and loses. There is no module-level
 //! signal — the global holder is `super::ownership::slot` in the browser, and
 //! this type is the whole of what it holds.
 
@@ -106,8 +105,7 @@ pub use page::with_slot;
 /// A shell action (a pad binding, a keyboard shortcut) can reach the mic, but a
 /// browser only honours a microphone request inside a gesture, so a
 /// permission-queried `granted` — or a mic still warm from a previous
-/// recording — is what makes a non-gesture start legal. Ports
-/// `voiceState.ts`'s `noteMicPermissionGranted` / `micStartableWithoutGesture`.
+/// recording — is what makes a non-gesture start legal.
 #[derive(Debug, Default)]
 pub struct MicPermission {
     granted: bool,
@@ -142,9 +140,8 @@ impl MicPermission {
     }
 }
 
-/// What a dictation command arriving from outside the DOM does: v2's
-/// `voiceControls.toggle()`, which either asks the mounted composer to toggle
-/// or refuses to idle.
+/// What a dictation command arriving from outside the DOM does: it either asks
+/// the mounted composer to toggle or refuses to idle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShellToggle {
     /// Toggle the mounted composer's recording.

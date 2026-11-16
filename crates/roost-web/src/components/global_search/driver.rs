@@ -8,8 +8,6 @@
 //! with, and issues the calls. It reads no rows: the fold that publishes them
 //! is `handle_sync`'s, because a page has to be fenced against the search that
 //! asked for it and only the controller knows which search that is.
-//!
-//! Ports the calls of `apps/web/src/lib/globalContentSearchController.ts`.
 
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::ClientEvent;

@@ -1,8 +1,6 @@
 //! The pane's input and lifecycle rules: paste framing and the multiline
 //! guard, the one-shot Ctrl latch, the chords the pane reserves ahead of the
-//! PTY, page-lifecycle routing, and the paint feed's coalescing. Ports the rule
-//! cases of `apps/web/tests/cellTerminalDocumentLifecycle.test.ts` and the input
-//! paths of `apps/web/src/components/terminal/cell-terminal-input.ts`.
+//! PTY, page-lifecycle routing, and the paint feed's coalescing.
 
 use roost_protocol::cell::CellGridFrame;
 use roost_web::components::terminal::document_lifecycle::{

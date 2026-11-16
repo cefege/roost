@@ -1,9 +1,7 @@
 //! What one pane knows about its view lease, read off the store, and the
 //! startup notice that turns it into the card the operator sees while the
 //! pane opens. Target-independent; read by `cell_terminal` and the wasm pane
-//! mount. Ports `terminalViewportLoadingNotice` of
-//! `apps/web/src/components/terminal/TerminalStartupOverlay.tsx` and the
-//! loading gate of `apps/web/src/components/terminal/cell-terminal-presentation.ts`.
+//! mount.
 
 use roost_client_core::Store;
 use roost_client_core::terminal::view::ViewIntent;

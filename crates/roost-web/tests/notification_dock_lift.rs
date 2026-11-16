@@ -6,8 +6,8 @@
 //! measurement because a composer grows.
 //!
 //! Native, because the whole decision is a function of values the dock already
-//! holds — the same separation `notificationDockLift.ts` keeps in v2, and the
-//! reason this is a sibling binary rather than an inline module.
+//! holds, which is also why this is a sibling binary rather than an inline
+//! module.
 
 use roost_web::components::layout::notification_dock_lift::notification_dock_lift;
 use roost_web::components::layout::shell_style::ComposerGeometry;

@@ -6,9 +6,6 @@
 //! deduplicated, rejected, ambiguous — are decided in one place. AMBIGUOUS is
 //! the one that matters: the bytes may be on the worker's disk, so it is its
 //! own terminal state, and it is the state a user must NOT be tempted to retry.
-//! Ports the card half of `enqueueAttachmentTo` in
-//! `apps/web/src/lib/attachments.ts` and the outcomes of
-//! `apps/web/src/store/transfers.ts`.
 
 use roost_client_core::client::attachments::transfer::AttachmentTransferResult;
 use roost_client_core::client::attachments::transfer::ledger::{

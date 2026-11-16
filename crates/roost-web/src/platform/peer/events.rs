@@ -7,8 +7,8 @@
 //! callback that reached for the store from inside one would be a re-entrant
 //! borrow on a single-threaded event loop. So every callback here pushes a
 //! [`PeerEvent`] and rings the host's notify, and the host drains the sink on
-//! the next task — v2 handled each data-channel message as it arrived, and a
-//! frame left for the host's slow tick reaches the screen up to a tick late.
+//! the next task — a frame left for the host's slow tick would reach the screen
+//! up to a tick late, so each data-channel message is handled as it arrives.
 //!
 //! Target-independent on purpose: the queue, its bound and the settle order are
 //! decided by native tests, and only the JS closures that push into it are

@@ -132,10 +132,10 @@ pub async fn fetch_bootstrap(_url: &str) -> BootstrapAnswer {
 thread_local! {
     /// The answer the SERVING origin gave before the application graph loaded.
     ///
-    /// v2 holds the same fact in a module-level variable that `connect.ts` reads
-    /// synchronously at module scope (`localBootstrap.ts:18-29`), because the
-    /// graph may not start before the routing decision is final: a page a worker
-    /// served would otherwise point every coordinator RPC at that worker.
+    /// The same fact is held in a module-level value that is read synchronously
+    /// at start-up, because the graph may not start before the routing decision
+    /// is final: a page a worker served would otherwise point every coordinator
+    /// RPC at that worker.
     static PRIMED: RefCell<Option<LocalBootstrap>> = const { RefCell::new(None) };
 }
 
@@ -186,12 +186,12 @@ pub fn primed_serving_bootstrap() -> Option<LocalBootstrap> {
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn prime_serving_bootstrap() {}
 
-/// The coordinator every Connect call goes to, resolved as `connect.ts` does.
+/// The coordinator every Connect call goes to.
 ///
-/// Three rungs, in the order that file names them: a worker-served bootstrap
+/// Three rungs: a worker-served bootstrap
 /// wins outright, then a stored override for a page that recorded itself
 /// self-hosted, then the page's own origin. The override rung is gated on the
-/// deployment mode there and here because a stale override on someone else's
+/// deployment mode because a stale override on someone else's
 /// page would otherwise aim their calls at a stranger's machine.
 #[cfg(target_arch = "wasm32")]
 pub fn coordinator_base_url_for_page() -> String {

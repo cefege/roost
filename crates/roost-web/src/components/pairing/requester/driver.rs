@@ -6,9 +6,6 @@
 //! not a stage — when to call, what to do with a failure, and when to stop.
 //! Split out because the two halves change for different reasons, and a driver
 //! that also rendered the card would be one file over the cap.
-//!
-//! Ports the operation object and its three actions in
-//! `apps/web/src/components/pairing/onboarding-pairing-ceremony.ts:33-47,120-374`.
 
 mod confirm;
 mod create;

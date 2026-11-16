@@ -121,8 +121,8 @@ pub fn classify_bytes(data: Vec<u8>, byte_size: u64, file_path: &str) -> ViewerC
     if byte_size > MAX_VIEWED_FILE_BYTES {
         return ViewerContent::TooLarge { byte_size };
     }
-    // A fatal decode, the same rule v2's `TextDecoder` was given: a file that
-    // is not UTF-8 has no lines to number, and a lossy decode would invent them.
+    // A fatal decode: a file that is not UTF-8 has no lines to number, and a
+    // lossy decode would invent them.
     let Ok(text) = String::from_utf8(data) else {
         return ViewerContent::Binary { byte_size };
     };

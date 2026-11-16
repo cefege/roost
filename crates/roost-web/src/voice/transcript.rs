@@ -3,8 +3,7 @@
 //! The field is never handed the provisional words: the settled text is
 //! appended to the real draft, and the hypothesis rides in a ghost mirror laid
 //! exactly over the field, so a wrong guess can be dropped without ever having
-//! touched the value. Ports `apps/web/src/components/terminal/TerminalComposeDictation.ts`
-//! (`glued`, `paintDictation`, `provisionalFrom`).
+//! touched the value.
 
 use super::state::LiveTranscript;
 

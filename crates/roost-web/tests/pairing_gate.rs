@@ -4,8 +4,6 @@
 //! router's own URL grammar. Symptoms this pins: an authorized reader opens
 //! `/pair` and gets an empty page; the onboarding page paints over the
 //! checking screen.
-//! Ports the `/pair` branch of `apps/web/src/App.tsx:149-151` and the branch
-//! in `Onboarding.tsx:109-154`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

@@ -5,8 +5,7 @@
 //! Opened by `upload_host` when no matching door carried the upload. The SDP
 //! rules are `client::attachments::signaling`'s and the frame and packet rules
 //! `client::attachments::peer::AttachmentPeerTransfer`'s; this owns the browser
-//! objects, their callbacks, and the deadlines. Ports `attachmentPeer.ts` and
-//! `attachmentPeerSignaling.ts` in `apps/web/src/client/attachments/`.
+//! objects, their callbacks, and the deadlines.
 
 use js_sys::Reflect;
 use roost_client_core::client::attachments::conversation::ConversationOutcome;
@@ -129,7 +128,7 @@ impl AttachmentPeerCarrier {
         .await
         .map_err(|_| "setLocalDescription failed".to_owned())?;
         if string_prop(&self.connection, "iceGatheringState").as_deref() != Some("complete") {
-            // v2 offers whatever was gathered when the deadline lapses rather
+            // Offer whatever was gathered when the deadline lapses rather
             // than failing: a host candidate is often all a loopback peer needs.
             let deadline = Deadline::after(ICE_GATHERING_DEADLINE_MS);
             loop {
@@ -162,7 +161,7 @@ impl AttachmentPeerCarrier {
     }
 
     /// Wait for both channels to open and the worker's `Ready`. The hello
-    /// deadline starts when the control channel opens, as v2's does; before
+    /// deadline starts when the control channel opens; before
     /// that only the negotiation deadline bounds the wait.
     async fn await_authentication(&mut self) -> Result<(), AttachmentTransferCarrierError> {
         let mut deadline = Deadline::after(NEGOTIATION_DEADLINE_MS);

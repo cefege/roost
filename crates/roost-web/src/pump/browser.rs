@@ -2,9 +2,7 @@
 //! the sweep tick, visibility, and the lifecycle wakes.
 //!
 //! wasm32 only; installed once by `pump::boot`. The listeners live as long as
-//! the pump (held in `PumpInner::listeners`). Ported from
-//! `apps/web/src/store/sync-redial.ts:99-135` (`installSyncLifecycleWake`) and
-//! `apps/web/src/browser/pageVisible.ts` (the visibility read).
+//! the pump (held in `PumpInner::listeners`).
 
 use roost_client_core::ClientEvent;
 use wasm_bindgen::JsCast as _;

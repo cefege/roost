@@ -1,8 +1,7 @@
 //! Draining the Sync-queued UI commands and performing each one as the browser
 //! operations it stands for.
 //!
-//! Ports `handleUiCommand` from `apps/web/src/lib/uiCommandDispatch.ts`. The
-//! resolution — which tab a frame is for, whether the session it names is open,
+//! The resolution — which tab a frame is for, whether the session it names is open,
 //! and what each command means for a folder — is `client::ui_command::dispatch`;
 //! this file is the half that needs a router and a deck.
 //!
@@ -132,7 +131,7 @@ fn deck_folder(pump: &Pump, folder_key: &str) -> Option<DeckFolder> {
 
 /// Focus the pane HOLDING `session_id`, which is not the pane showing it.
 ///
-/// v2's `focusPaneOp` navigates to the addressed pane's own selected tab, so
+/// The pane operation navigates to the addressed pane's own selected tab, so
 /// the resolved pane id is what the intent takes and the route follows the
 /// intent's own navigation.
 fn focus_pane(pump: &Pump, shell: &ShellFacts, folder_key: &str, session_id: &str) {

@@ -3,9 +3,7 @@
 //!
 //! Called by `pump::effects` (`DialSync`, `SendSync`, `CloseSyncLink`) and by
 //! the socket's own notify. Depends on `platform::sync_socket` and the client
-//! core's `sync::decode` and `client::sync::encode`. Ported from the socket
-//! half of `apps/web/src/store/sync.ts:171-265` and
-//! `apps/web/src/store/sync-inbound.ts:52-85` (`_consumeSyncFrame`).
+//! core's `sync::decode` and `client::sync::encode`.
 
 use std::rc::Rc;
 
@@ -105,7 +103,7 @@ fn drain(pump: &Pump) {
 
 /// Decode one binary message and hand it to the core. The `subscribed`
 /// announcement opens the link first: its socket id and epoch exist nowhere
-/// else (v2 `handleSubscribed` builds `link.v2` from them).
+/// else (the link is built from them).
 fn deliver(pump: &Pump, generation: u64, bytes: &[u8]) {
     match decode_firehose(bytes, SyncFrameMeta { generation }) {
         Ok(event) => {

@@ -1,7 +1,6 @@
 //! The document phase ring the oracle's navigation probe reads: oldest-first
 //! order across eviction, the once-per-key rule, and the timeline's clock and
-//! driver fields. Pins `platform::browser::phase_marks` (v2
-//! `apps/web/src/browser/diag.ts` `markPhase`, `markPhaseOnce`, `phaseTimeline`).
+//! driver fields. Pins `platform::browser::phase_marks`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_web::platform::browser::phase_marks::{
@@ -51,7 +50,7 @@ fn a_mark_is_stamped_against_the_time_origin_and_the_navigation_start() {
     assert_eq!(mark["name"], json!("terminal_mount"));
     assert_eq!(mark["epochMs"], json!(1_000_040.0));
     assert_eq!(mark["sinceNavigationMs"], json!(30.0));
-    // Detail is scalar-only, as v2's phase detail type.
+    // Detail is scalar-only.
     assert_eq!(mark["detail"], json!({ "sessionId": "s1" }));
     assert!(mark.get("onceKey").is_none());
 }

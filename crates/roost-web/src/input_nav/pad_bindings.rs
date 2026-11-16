@@ -3,7 +3,6 @@
 //! while held. Data only — no DOM, no Gamepad objects — so the mapper
 //! (`pad_mapper`), the transient legend and the controller map read ONE table.
 //! Called by `pad_mapper`, `pad_router`, and the legend/map components.
-//! Ported from `apps/web/src/lib/padBindings.ts`.
 
 /// One controller intent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -47,7 +46,7 @@ pub enum PadAction {
 }
 
 impl PadAction {
-    /// The v2 wire name, used in log lines and the controller map's keys.
+    /// The kebab-case name, used in log lines and the controller map's keys.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::MoveUp => "move-up",

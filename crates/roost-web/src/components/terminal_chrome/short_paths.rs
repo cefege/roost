@@ -2,11 +2,9 @@
 //! that changes it.
 //!
 //! Read from the storage key it has always used rather than re-declared in the
-//! store, because a preference written by the v2 build has to mean the same
+//! store, because a preference written by an earlier build has to mean the same
 //! thing to this one: a user who chose short paths does not silently get full
-//! ones after the port, and the difference is visible in their scrollback.
-//! Ports `getShortPathPref` / `setShortPathPref` in
-//! `apps/web/src/lib/attachments.ts`.
+//! ones, and the difference is visible in their scrollback.
 
 use roost_client_core::KeyValueStore;
 

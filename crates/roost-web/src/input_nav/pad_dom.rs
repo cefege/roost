@@ -3,7 +3,7 @@
 //! untrusted key cannot make, and the key pad's first-key focus retry — plus
 //! [`dispatch_pad_actions`], the App's gamepad callback body, which runs the
 //! router and arms the legend's idle hide. wasm32 only; the rules live in
-//! `pad_router`. Ported from the DOM half of `apps/web/src/lib/padActions.ts`.
+//! `pad_router`.
 
 use dioxus::prelude::{ReadableExt as _, Signal, WritableExt as _};
 use roost_web_terminal::reader_scroll::scroll_terminal_reader_box;

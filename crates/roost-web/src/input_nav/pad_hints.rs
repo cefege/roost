@@ -2,7 +2,6 @@
 //! legend names in each surface context (default, menu, overlay, terminal,
 //! keypad, dictation), read from the one binding table in `pad_bindings`.
 //! Called by `pad_router` and the legend component.
-//! Ported from `apps/web/src/lib/padBindings.ts` (`padHints`).
 
 use crate::input_nav::pad_bindings::PadControl;
 
@@ -35,7 +34,7 @@ impl PadHintContext {
         Self::Dictation,
     ];
 
-    /// The v2 name, for log lines.
+    /// The kebab-case name, for log lines.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Default => "default",

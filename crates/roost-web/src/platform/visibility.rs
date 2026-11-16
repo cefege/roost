@@ -1,13 +1,13 @@
 //! Document visibility, and the automation pin that overrides it.
 //!
-//! Ports `apps/web/src/browser/pageVisible.ts`. The pin exists so a spec can
+//! The pin exists so a spec can
 //! keep a background tab live, or deterministically exercise hidden-tab
 //! lifecycle, without asking Chromium to schedule the page a particular way —
 //! and the oracle needs both, because several specs assert behaviour that
 //! differs between a foregrounded and a backgrounded tab.
 //!
-//! WHY THE PIN LIVES UNDER `page_visible()` RATHER THAN IN ITS CALLERS. v2
-//! states the rule: every consumer reads visibility through this module,
+//! WHY THE PIN LIVES UNDER `page_visible()` RATHER THAN IN ITS CALLERS. The
+//! rule: every consumer reads visibility through this module,
 //! because a raw `document.hidden` read bypasses the pin. A component that
 //! read the document directly would be correct in a browser and wrong under the
 //! oracle, which is the worst kind of divergence — it passes review and fails
@@ -54,8 +54,7 @@ pub fn page_visible() -> bool {
 /// every later assertion about visibility.
 ///
 /// A pin change is a `visibilitychange` edge, and dispatching it is what makes
-/// it one. v2 states the rule in the same place (`setVisibilityOverride`), and
-/// the reason is that visibility has two kinds of consumer: the ones that poll
+/// it one. Visibility has two kinds of consumer: the ones that poll
 /// `page_visible()`, which see the new pin on their next read, and the ones
 /// that CACHE it — a pane's `page_visible`, the foreground gate — which learn
 /// of an edge only from the event. Without the dispatch a pinned pane keeps

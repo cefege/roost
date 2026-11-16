@@ -9,11 +9,9 @@
 //! observer reports under the dock's LIVE identity: it outlives every claim the
 //! dock makes.
 //!
-//! The immediate measurement is v2's `publishDockHeight(el)` inside
-//! `mountDock` (`apps/web/src/components/terminal/TerminalComposeButton.tsx`):
-//! the dock's own ref measures the node it was just handed, because a ref can
-//! run before the element is laid out and a later observer delivery is a frame
-//! the shell has already reserved from.
+//! The immediate measurement: the dock's own ref measures the node it was just
+//! handed, because a ref can run before the element is laid out and a later
+//! observer delivery is a frame the shell has already reserved from.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;

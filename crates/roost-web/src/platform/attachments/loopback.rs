@@ -4,8 +4,7 @@
 //! Opened by `upload_host` when the discovered door names the session's worker.
 //! The frame rules — hello, Ready admission, ack and status settlement — are
 //! `client::attachments::direct::loopback::LoopbackTransfer`'s; this owns the
-//! socket, its callbacks and the three deadlines. Ports
-//! `apps/web/src/client/carriers/attachment-loopback.ts`.
+//! socket, its callbacks and the three deadlines.
 
 use js_sys::Uint8Array;
 use roost_client_core::client::attachments::conversation::ConversationOutcome;

@@ -2,8 +2,7 @@
 //! long enough to be "not responding": silent re-claims first, the offline
 //! notice only once they all failed. Output silence is never evidence; only a
 //! detached view the operator is looking at is. Target-independent; the wasm
-//! pane mount feeds it and fires its deadline. Ports
-//! `apps/web/src/browser/offlineWatch.ts` (used only by the terminal pane).
+//! pane mount feeds it and fires its deadline.
 
 /// A viewed, detached pane waits this long before each silent re-claim.
 pub const OFFLINE_GRACE_MS: u64 = 3_000;

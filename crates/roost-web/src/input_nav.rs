@@ -10,8 +10,6 @@
 //! Mounted from the App: [`install_spatial_navigation`],
 //! [`install_gamepad_source`] and [`install_remote_keys`] each return a guard
 //! the App drops on unmount.
-//! Ports `apps/web/src/browser/gamepadSource.ts` and
-//! `apps/web/src/lib/{padActions,padBindings,padFolders,padMode,spatialNavigation,directionalInput,tvMode}.ts`.
 
 pub mod gamepad_source;
 pub mod keypad_focus;

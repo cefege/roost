@@ -1,8 +1,7 @@
 //! One render's worth of deck state, derived from the store in one borrow:
 //! the followed session and its folder, the arrangement, the painted panes,
 //! each session's slot, the parked sizes and the phone tab order. Read by
-//! `terminal_deck` during render. Target-independent; ports the memos of
-//! `apps/web/src/components/deck/terminal-deck-model.ts` over
+//! `terminal_deck` during render. Target-independent, over
 //! `roost_client_core::deck::view`.
 
 use std::collections::BTreeMap;
@@ -138,11 +137,9 @@ pub fn deck_frame(store: &Store, paths: &dyn WorkerPaths, inputs: &DeckInputs<'_
     }
 }
 
-/// The open sessions in the order v2's deck mounted them. v2 walked the session
-/// record in insertion order, where a session lands after every one that
-/// existed when it was created; the store here is keyed by id, so its own order
-/// would put a split's new terminal before or after its sibling by UUID. Slot
-/// DOM order is the keyboard Tab order and what a reader walking the panes
+/// The open sessions in creation order. The store is keyed by id, so its own
+/// order would put a split's new terminal before or after its sibling by UUID.
+/// Slot DOM order is the keyboard Tab order and what a reader walking the panes
 /// sees, so it must follow creation, with the id only breaking a tie.
 fn open_sessions_oldest_first(store: &Store) -> Vec<String> {
     let mut open: Vec<&Session> = store

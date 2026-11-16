@@ -1,6 +1,5 @@
 //! The compact sidebar drawer and the window touch listeners that
-//! let a left-edge swipe open it and a leftward swipe close it. Ports
-//! `apps/web/src/components/layout/MobileSidebarDrawer.tsx`; mounted by
+//! let a left-edge swipe open it and a leftward swipe close it. Mounted by
 //! `AppShell` only in the compact layout, with the sidebar surface as children.
 //! The gesture is `drawer_gesture`; the drawer transforms are
 //! `motion::drawer_drag`; open/close are the store's `SidebarIntent`s.

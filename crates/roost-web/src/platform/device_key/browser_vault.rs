@@ -1,9 +1,7 @@
 //! The browser vault: WebCrypto Ed25519 and SHA-256, IndexedDB persistence
 //! (`indexed_db`), and the `roostKeyMinted` flag in `localStorage`. Owned by
 //! `platform::device_key`, which hands it to the lifecycle as its `KeyVault`.
-//! `wasm32` only; web-sys calls and nothing that decides. Ported from
-//! `generateKeyPair`, `fingerprintFor` and `signCoordinatorJwtWithKeyPair` in
-//! `apps/web/src/client/auth/web-key.ts`.
+//! `wasm32` only; web-sys calls and nothing that decides.
 
 use js_sys::{Array, ArrayBuffer, Uint8Array};
 use roost_client_core::KeyValueStore as _;

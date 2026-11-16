@@ -210,8 +210,8 @@ fn KeyRecoverySection(busy: bool, error: Option<String>, on_reset: EventHandler<
 /// Spend `token` on this browser's key.
 ///
 /// The transport's own words are returned rather than a rewritten summary, so a
-/// `FailedPrecondition: pairing client must reload` reads as the instruction it
-/// is (`redeemPairToken.ts:42-52`).
+/// `FailedPrecondition: pairing client must reload` reads as the instruction
+/// it is.
 async fn redeem_setup_token(pump: &Pump, token: &str) -> Result<(), String> {
     if !token.starts_with(SETUP_TOKEN_PREFIX) {
         return Err("That is not a Roost setup token.".to_string());

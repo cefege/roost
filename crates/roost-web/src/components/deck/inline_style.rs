@@ -1,8 +1,7 @@
 //! An ordered inline-style declaration list: what the deck's geometry and
 //! swipe mappings return and what a deck element's `style` attribute renders.
 //! Read by `terminal_deck_geometry`, `deck_swipe_style` and the deck
-//! components. Pure; stands in for the `Record<string, string>` style maps of
-//! `apps/web/src/lib/deckSwipe.ts` and `components/deck/terminal-deck-geometry.ts`.
+//! components. Pure.
 
 /// CSS declarations in insertion order; a later value for a property
 /// replaces the earlier one in place, the way an object spread does.

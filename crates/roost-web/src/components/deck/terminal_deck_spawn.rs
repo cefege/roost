@@ -86,7 +86,7 @@ mod web {
     use crate::platform::worker_paths::BrowserWorkerPaths;
     use crate::pump::Pump;
 
-    /// v2 `waitForSession`: poll every 25ms for up to 2s, then land anyway —
+    /// Poll every 25ms for up to 2s, then land anyway —
     /// the layout reconciles the tab once its row arrives.
     const ROW_WAIT_STEP_MS: u64 = 25;
     const ROW_WAIT_STEPS: u32 = 80;

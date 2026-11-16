@@ -4,7 +4,6 @@
 //! it is the one a browser hands out at most once: the tap that warms the device
 //! and the recording that follows are the same open, and the second one must
 //! not be a second charge against a browser that may never answer the first.
-//! Ports the `warming` promise of `apps/web/src/voice/audioPcmCapture.ts`.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;

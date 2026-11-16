@@ -4,7 +4,6 @@
 //! The arithmetic lives in `super::keyterm_lexicon` and is pure; this is the
 //! storage seam around it. A tab that cannot read storage still records: the
 //! lexicon is a bias, and a missing bias must never cost a recording.
-//! Ports the storage half of `apps/web/src/voice/keytermLexicon.ts`.
 
 use super::keyterm_lexicon::{self, Lexicon, STORAGE_KEY, TOP_TERMS};
 

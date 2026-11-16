@@ -1,7 +1,6 @@
 //! The primary folders sidebar: its filter, pinned new-terminal bar, rows,
-//! chips and adapters. Ports `apps/web/src/components/sidebar/`; `AppShell`
-//! mounts `SidebarRoot`; its state and derivations live in
-//! `roost_client_core::store::sidebar`.
+//! chips and adapters. `AppShell` mounts `SidebarRoot`; its state and
+//! derivations live in `roost_client_core::store::sidebar`.
 
 pub mod all_view;
 pub mod context_menu_frame;

@@ -2,7 +2,6 @@
 //! DIFFERENT folder's newest session, wrap at the end, and refuse to re-open
 //! the folder already showing — else a pad dead-ends at the last folder or
 //! reloads the pane deck the user is already looking at.
-//! Ports `apps/web/tests/padFolders.test.ts`.
 
 use roost_web::input_nav::pad_folders::{FolderLead, next_folder_session_id};
 

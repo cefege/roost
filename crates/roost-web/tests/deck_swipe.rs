@@ -1,6 +1,6 @@
 //! The compact deck bar swipe: the commit decision, the settle timing, the end
 //! affordances, the card-dismiss pair, and every style the deck paints from a
-//! live swipe. Ports `apps/web/tests/deckSwipe.test.ts`.
+//! live swipe.
 
 use roost_client_core::store::layout::PaneRect;
 use roost_web::components::deck::deck_swipe::{

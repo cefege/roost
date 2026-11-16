@@ -45,7 +45,7 @@ fn a_settings_pane_still_highlights_settings() {
 
 #[test]
 fn a_path_that_matches_no_destination_highlights_nothing() {
-    // v2's rail greys out every item on an unmatched path. Defaulting to the
+    // The rail greys out every item on an unmatched path. Defaulting to the
     // first item would claim a reader is looking at sessions when they are not.
     assert_eq!(active_destination("/pair"), None);
     assert_eq!(active_destination("/design"), None);

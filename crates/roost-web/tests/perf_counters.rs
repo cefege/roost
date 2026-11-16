@@ -1,7 +1,6 @@
 //! The document performance counters `perfProbe` and `resetPerfCounters`
 //! answer from: the long-task window, the stall throttle, and the input round
-//! trip ring. Pins `platform::browser::perf_counters` (v2
-//! `apps/web/src/browser/leakWatch.ts`, `terminal-input-lanes.ts` RTT stamps).
+//! trip ring. Pins `platform::browser::perf_counters`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_web::platform::browser::perf_counters::{INPUT_RTT_CAPACITY, PerfCounters};

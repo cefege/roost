@@ -1,9 +1,8 @@
 //! A session row's right-click menu: Rename…, Duplicate terminal, Restart, the
 //! machine's OS hand-offs (Finder / Screen sharing, network share / Remote
 //! Desktop), and below a separator Close terminal (the row's own undoable
-//! close) and, while the machine is offline, Force remove. Ports
-//! `apps/web/src/components/sidebar/SessionRowContextMenu.tsx`; `SessionRow`
-//! opens it. Spawn and kill go through `client::rpc::calls::sessions`.
+//! close) and, while the machine is offline, Force remove. `SessionRow` opens
+//! it. Spawn and kill go through `client::rpc::calls::sessions`.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;

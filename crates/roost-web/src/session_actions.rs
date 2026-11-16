@@ -1,7 +1,7 @@
 //! What a session close shows and where it lands: the three undo-card labels
 //! every close path (deck tab ✕, sidebar ✕/swipe, "Close terminal") computes
-//! identically. Ports `closeLabelsFor` from `apps/web/src/lib/closeSession.ts`
-//! (its `siblingOrHomeHref` is `route_session::sibling_or_home_href`); read by
+//! identically (the label builder is `close_labels_for`; the landing is
+//! `route_session::sibling_or_home_href`); read by
 //! the sidebar rows and the deck, which hand the labels to `DeckIntent::CloseTab`.
 
 use roost_client_core::Store;

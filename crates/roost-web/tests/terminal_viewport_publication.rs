@@ -1,8 +1,6 @@
 //! One pane's geometry claims: a resize burst publishes once after it settles,
 //! an unmeasured box retries on the next frame then once after 100 ms, and a
-//! zero-sized deck is absorbed by a 250 ms grace instead of withdrawing. Ports
-//! `apps/web/tests/cellTerminalViewport.test.ts` and the timing cases of
-//! `apps/web/tests/cellTerminalViewport.parkGrace.test.ts`.
+//! zero-sized deck is absorbed by a 250 ms grace instead of withdrawing.
 
 use roost_web::components::terminal::viewport_publication::{ViewportHost, ViewportPublication};
 

@@ -1,6 +1,6 @@
 //! The sidebar's browser adapters: the document-level Cmd-F listener, focusing
-//! the filter input on the next frame, the debounce timer, and the
-//! `terminalOwnsKeyboard` DOM read v2's `SidebarRoot.tsx` made. Called only by
+//! the filter input on the next frame, the debounce timer, and the DOM read that
+//! says whether a terminal owns the keyboard. Called only by
 //! `sidebar_root`; the chord decision is `platform::browser_platform`'s.
 
 use std::cell::RefCell;

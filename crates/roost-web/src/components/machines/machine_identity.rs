@@ -1,7 +1,7 @@
 //! The safe presentation of a machine's static identity: icon, label, title,
 //! Apple chip badge and Linux distribution brand, from the worker's advertised
-//! platform and host identity only — never from its mutable label. Ports
-//! `apps/web/src/lib/machineIdentity.ts`; `MachineIdentityMark` renders it.
+//! platform and host identity only — never from its mutable label.
+//! `MachineIdentityMark` renders it.
 
 use crate::components::ui::IconType;
 use roost_protocol::wire::{HostIdentity, Worker, WorkerOs};
@@ -55,9 +55,9 @@ const MACBOOK_HARDWARE_MODEL_IDS: [&str; 16] = [
 ];
 
 /// `(prefix, brand, label)`: the lower-cased distribution name starts with
-/// `prefix`, then whitespace or the end. v2's optional ` GNU/Linux` and
-/// ` Linux` suffixes begin with whitespace, so that alternative already
-/// accepts every name they would.
+/// `prefix`, then whitespace or the end. A ` GNU/Linux` or ` Linux` suffix
+/// begins with whitespace, so that alternative already accepts every name it
+/// would.
 const LINUX_DISTRIBUTIONS: [(&str, LinuxDistributionBrand, &str); 5] = [
     (
         "alpine linux",

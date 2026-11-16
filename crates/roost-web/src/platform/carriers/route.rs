@@ -13,9 +13,6 @@
 //! admits, so a second registration REPLACES the first and the displaced
 //! connection id is handed back — which is what lets the caller retire exactly
 //! the one the registry was serving.
-//!
-//! Ported from the `TerminalDirectRegistry` slot bookkeeping in
-//! `apps/web/src/store/terminal-stream-transport.ts:119-180`.
 
 use std::collections::BTreeMap;
 

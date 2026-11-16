@@ -2,8 +2,7 @@
 //! finger, clear of the drawer's edge band), the axis lock that leaves
 //! vertical travel to the terminal, the release velocity over the last
 //! samples, and which touches end an armed drag without a release. Fed by
-//! `terminal_deck_swipe`'s listener; target-independent. Ports the listener
-//! half of `apps/web/src/components/deck/terminal-deck-swipe.ts`.
+//! `terminal_deck_swipe`'s listener; target-independent.
 
 use super::deck_dom::DeckTouch;
 use crate::motion::edge_swipe_drawer::{EDGE_PX, LockedAxis, lock_axis};

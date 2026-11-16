@@ -50,7 +50,7 @@ pub struct SubmissionStatus {
 /// a keydown would commit the wrong candidate — and a touch device's Return is
 /// the soft keyboard's newline key, so submitting there would eat a line the
 /// operator meant to break. Both refusals are silent: the newline is what the
-/// key was for. Ports `TerminalComposeButton.tsx:359-370`.
+/// key was for.
 fn enter_submits(event: &KeyboardEvent) -> bool {
     !event.is_composing() && !deck_dom::is_touch_device()
 }
@@ -99,9 +99,9 @@ pub fn TerminalComposer(
     let dictation = use_dictation(draft);
     // Set by a submission for the one write that clears the draft: the field
     // keeps its grown height through the gesture that sent it, and shrinks once
-    // the submission is behind it, as v2's `sendLine` re-grows only after its
-    // admission settles. A click that repaints the terminal must see the
-    // composer at the geometry the reader clicked at.
+    // the submission is behind it, after its admission settles. A click that
+    // repaints the terminal must see the composer at the geometry the reader
+    // clicked at.
     let hold_height = use_hook(|| Rc::new(Cell::new(false)));
 
     // A controlled textarea is `rows="1"`, so without a re-measure after every
@@ -385,7 +385,7 @@ pub fn TerminalComposer(
             }
         }
     };
-    // The viewport dock is portaled out of the deck, as v2's is to `<body>`: the
+    // The viewport dock is portaled out of the deck, to `<body>`: the
     // deck is transformed and clips its overflow, so a fixed dock inside it is
     // placed by the deck — and scrolled with it whenever the focused field asks
     // its scroll ancestors to reveal the caret.

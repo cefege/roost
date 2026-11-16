@@ -2,7 +2,7 @@
 //! against: the one this page's door discovery adopted.
 //!
 //! Called by `components::terminal_chrome::upload_host` at upload time, which
-//! is when v2 reads it (`readLocalWorkerDoor()` in `attachmentDirect.ts`).
+//! is when the door is read.
 //! Depends on `super::carriers`, which owns discovery; this only reads it.
 
 use roost_client_core::client::local::discovery::LocalWorkerDoor;

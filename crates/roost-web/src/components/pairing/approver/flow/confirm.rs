@@ -3,10 +3,6 @@
 //!
 //! A child of the flow module because it reads the parent's private ceremony
 //! handle; splitting it out is also what keeps the parent under the file cap.
-//!
-//! Ports the `awaiting_confirmation` and `cancelling` phases of
-//! `apps/web/src/components/pairing/PairApprovalProvider.tsx:210-292` and the
-//! evidence rules in `store/auth/pair-approval-lifecycle.ts:92-124`.
 
 use dioxus::prelude::ReadableExt as _;
 

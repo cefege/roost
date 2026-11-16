@@ -1,6 +1,5 @@
 //! The compact drawer's swipe geometry: which axis a touch locks to, where the
-//! drawer sits under the finger, and whether a release commits. Ports
-//! `apps/web/src/lib/edgeSwipeDrawer.ts`; read by
+//! drawer sits under the finger, and whether a release commits. Read by
 //! `components::layout::drawer_gesture` (the gesture state machine).
 //!
 //! Open is rightward-positive and close is leftward-negative: a flick in the

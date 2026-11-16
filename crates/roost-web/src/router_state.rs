@@ -1,8 +1,7 @@
 //! In-app navigation: the path the shell renders, kept in step with the address
-//! bar in both directions, and the v2 `useNavigate`/`useLocation` pair every
+//! bar in both directions, and the navigate/location pair every
 //! component below the gate reads from context. Owned by `GatedApp`; every rail,
-//! title, sidebar row, deck tab and error link navigates through it. Ports the
-//! router half of `apps/web/src/App.tsx`.
+//! title, sidebar row, deck tab and error link navigates through it.
 //!
 //! WHY THIS EXISTS. `pushState` moves the address bar without reloading, and
 //! nothing re-renders on its own, so a link that only changed the URL left the
@@ -76,12 +75,12 @@ pub fn provide_router(path: Signal<String>, navigate: EventHandler<String>) {
     use_context_provider(|| RouterContext { path, navigate });
 }
 
-/// v2 `useNavigate`: the handler an in-app link or action calls with an href.
+/// The navigate handler: what an in-app link or action calls with an href.
 pub fn use_navigate() -> EventHandler<String> {
     use_context::<RouterContext>().navigate
 }
 
-/// v2 `useLocation().pathname`: the rendered path. Reading it subscribes.
+/// The location: the rendered path. Reading it subscribes.
 pub fn use_location() -> Signal<String> {
     use_context::<RouterContext>().path
 }

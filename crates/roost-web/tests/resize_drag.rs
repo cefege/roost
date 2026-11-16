@@ -1,5 +1,4 @@
-//! Resize-drag ownership and the pointer resize lifecycle. Ports
-//! `apps/web/tests/resizeDrag.test.ts` against
+//! Resize-drag ownership and the pointer resize lifecycle, against
 //! `roost_web::motion::resize_drag::{ResizeDragOwners, PointerResizeSession}` —
 //! the token and settle rules the wasm32 listener adapter only executes.
 #![allow(clippy::unwrap_used, clippy::expect_used)]

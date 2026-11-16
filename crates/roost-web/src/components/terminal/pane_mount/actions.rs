@@ -2,9 +2,7 @@
 //! released: a native state machine answers into a `Vec<PaneAction>` while
 //! the pane state is borrowed, and `perform` runs them afterwards, so a view
 //! dispatch or a renderer write can never meet a borrow it re-enters. Also the
-//! two hosts those machines read (viewport publication, DOM repair). Ports the
-//! glue of `apps/web/src/components/terminal/cell-terminal-viewport.ts`,
-//! `cell-terminal-lifecycle.ts` and `cell-terminal-presentation.ts`.
+//! two hosts those machines read (viewport publication, DOM repair).
 
 use roost_client_core::terminal::token::TerminalTransport;
 use roost_client_core::{ClientEvent, TransportControl};

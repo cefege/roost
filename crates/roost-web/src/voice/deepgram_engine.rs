@@ -6,7 +6,6 @@
 //! in `super::handshake`. The decision half of this protocol (the URL, the close
 //! codes, the failure vocabulary) is pure and tested there; this is the half that
 //! opens sockets and keeps timers.
-//! Ports `apps/web/src/voice/deepgramDictation.ts`.
 
 use std::cell::{RefCell, RefMut};
 use std::future::Future;

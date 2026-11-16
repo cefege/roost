@@ -4,12 +4,12 @@
 //! losing it to a navigation is the one composer failure that loses keystrokes.
 //! The map sits under `DRAFTS_KEY`, an allowlisted client-state key, so the
 //! account carries it between laptops: an operator switching laptops keeps
-//! unsent text. Keeps v2's key and `{ sessionId: text }` shape, so a draft
-//! written by either build is read by the other.
+//! unsent text. The key and the `{ sessionId: text }` shape are stable, so a
+//! draft written by an earlier build is still read.
 
 use roost_client_core::KeyValueStore;
 
-/// The one key every draft shares, and the exact name v2 wrote.
+/// The one key every draft shares; its spelling is part of the stored format.
 pub const DRAFTS_KEY: &str = "roost.composerDrafts.v1";
 
 /// The stored map, or an empty one when storage is unreadable. A private-mode

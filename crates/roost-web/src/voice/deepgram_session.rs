@@ -4,7 +4,6 @@
 //! about — the settled words, whether the device attached, whether anything was
 //! heard at all — and it is the same state the engine mutates. Keeping it here
 //! names the two halves: the engine acts, this remembers.
-//! Ports the closure state of `apps/web/src/voice/deepgramDictation.ts`.
 
 use web_sys::WebSocket;
 

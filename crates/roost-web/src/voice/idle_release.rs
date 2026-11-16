@@ -4,8 +4,7 @@
 //! lit, so an idle graph is released `idle_release_ms` after its last recording
 //! and at once when the page is hidden. Neither release touches a recording: a
 //! graph with a sink attached, or an open still in flight, is not idle.
-//! Called by `super::audio_capture`; ports `armIdle` / `releaseMicIfIdle` of
-//! `apps/web/src/voice/audioPcmCapture.ts`.
+//! Called by `super::audio_capture`.
 
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;

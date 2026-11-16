@@ -3,8 +3,6 @@
 //! input→echo round trips fed by the pane's input dispatch and frame paint.
 //! Read by the smoke `perfProbe` member and zeroed by `resetPerfCounters`; a
 //! main-thread stall long enough to freeze the UI is logged as it happens.
-//! Ports `apps/web/src/browser/leakWatch.ts` and the RTT stamps of
-//! `apps/web/src/client/carriers/terminal-input-lanes.ts`.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};

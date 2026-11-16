@@ -1,5 +1,5 @@
 //! A damped-spring solver for drag-follow and settle motion (tab reorder,
-//! smooth scroll). Ports `apps/web/src/lib/spring.ts`; read by the deck's tab
+//! smooth scroll). Read by the deck's tab
 //! strip. Physics runs in SECONDS: position in px, velocity in px/s.
 //!
 //! `spring_step` and `is_spring_at_rest` are pure; `animate_spring` is the one

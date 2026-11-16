@@ -2,8 +2,8 @@
 //! synthetic keys, implemented over `document` by `pad_dom`) and
 //! [`PadSurfaces`] (app state and the [`PadShellAction`]s the SHELL executes:
 //! palette, controller map, key pad, sidebar, dictation, deck, navigation).
-//! Types only; the routing rules are `pad_router`. Split out of the port of
-//! `apps/web/src/lib/padActions.ts` so the rules stay native-testable.
+//! Types only; the routing rules are `pad_router`, kept apart so they stay
+//! native-testable.
 
 /// A key the router dispatches as one untrusted `keydown` on the focused
 /// element, so every roving surface that already owns arrows/Enter/Escape

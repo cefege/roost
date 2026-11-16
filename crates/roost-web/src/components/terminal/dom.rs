@@ -1,8 +1,7 @@
 //! The browser clock the terminal components' timers read: wall time, page
 //! visibility, and an awaitable delay. Called by `terminal_startup_overlay`;
 //! the native arms answer a fixed clock and never resolve a delay, because the
-//! native target renders nothing to animate. Ports the `setTimeout` /
-//! `performance.now()` reads of `apps/web/src/components/terminal/TerminalStartupOverlay.tsx`.
+//! native target renders nothing to animate.
 
 /// Milliseconds since the Unix epoch.
 #[cfg(target_arch = "wasm32")]

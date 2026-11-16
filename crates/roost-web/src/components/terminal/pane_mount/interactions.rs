@@ -2,8 +2,7 @@
 //! (`PaneSelection`) and the paint hold it drives, mouse forwarding to the
 //! application, the link attachment, copy-on-select, and the document/window
 //! listeners that exist only while the pane is visibly active. Driven by the
-//! pane mount's flag, lifecycle and input paths. Ports
-//! `apps/web/src/components/terminal/cell-terminal-interactions.ts`.
+//! pane mount's flag, lifecycle and input paths.
 
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
@@ -37,7 +36,7 @@ pub(in crate::components::terminal) struct PaneInteractions {
     foreground: RefCell<Vec<(EventTarget, &'static str, Listener)>>,
 }
 
-/// v2 `foregroundWorkActive`: the view is active and the page is visible.
+/// Foreground work is active: the view is active and the page is visible.
 fn foreground_active(shared: &PaneShared) -> bool {
     let state = shared.state.borrow();
     state.flags.view_active() && state.page_visible

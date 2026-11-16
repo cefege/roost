@@ -4,7 +4,6 @@
 //! nothing — the whole difference between "one nudge moves one row" and "one
 //! nudge scrolls the pane away". Also pins the held-state publication the live
 //! controller map highlights from, and when the poll loop runs at all.
-//! Ports `apps/web/tests/browser/gamepadSource.test.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

@@ -1,9 +1,8 @@
 //! The global keydown router: the command palette (⌘K), the help overlay
 //! (Shift+?), terminal zoom (⌘=/⌘-/⌘0), settings (⌘,) and ↑/↓/⏎ over the
-//! sidebar's flat cursor, with the terminal keeping every key it owns. Ports
-//! `apps/web/src/lib/keyboardShortcuts.ts`; installed once by `App` (the
-//! listener is `keyboard_shortcuts_dom`), and the overlay flags it owns are read
-//! by the palette, help overlay and controller map.
+//! sidebar's flat cursor, with the terminal keeping every key it owns. Installed
+//! once by `App` (the listener is `keyboard_shortcuts_dom`), and the overlay
+//! flags it owns are read by the palette, help overlay and controller map.
 //!
 //! `keydown_action` is the whole decision; the listener only gathers
 //! [`KeydownContext`] from the document and performs the answer.

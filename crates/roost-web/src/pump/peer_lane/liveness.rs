@@ -4,8 +4,8 @@
 //!
 //! Owned by `pump::peer_lane`, driven by the tick. The heartbeat runs while the
 //! page is visible and the worker's authenticated peer either serves a view
-//! from an ACTIVE attempt — v2's `TerminalPeerOwner.heartbeat` guard — or is
-//! held ready by pre-warm, and the miss that exhausts `HEARTBEAT_MISS_LIMIT` is reported to the
+//! from an ACTIVE attempt or is held ready by pre-warm, and the miss that
+//! exhausts `HEARTBEAT_MISS_LIMIT` is reported to the
 //! core as `ProbeMissed`, whose fault closes the attempt. Every
 //! published value was measured: the round trip is a probe's, the candidate kind
 //! is the browser's report, and nothing here defaults a zero a reader could not
@@ -70,8 +70,8 @@ pub(super) fn start_due_probes(pump: &Pump, now_ms: u64) {
 
 impl Pump {
     /// Send one heartbeat probe now on the peer presenting `token`, outside the
-    /// heartbeat's schedule, for a reader that wants a fresh measurement (v2
-    /// `TerminalPeerConnection.probe`). `false` when no attempt presents it.
+    /// heartbeat's schedule, for a reader that wants a fresh measurement.
+    /// `false` when no attempt presents it.
     pub fn probe_peer_route(&self, token: &TerminalToken, now_ms: u64) -> bool {
         let target = {
             let held = self.inner.peer_attempts.borrow();
@@ -244,7 +244,7 @@ fn with_heartbeat<T>(
 ///
 /// The probe's round trip is published for BOTH `rtt_ms` and
 /// `worker_control_rtt_ms`: the probe rides the control lane, so the round trip
-/// it measured IS the control lane's, as v2 published it from the same probe.
+/// it measured IS the control lane's.
 fn publish(pump: &Pump, attempt_id: u64, now_ms: u64) {
     let Some((worker_fp, peer_id, queued, candidate_type, reading)) = pump
         .inner

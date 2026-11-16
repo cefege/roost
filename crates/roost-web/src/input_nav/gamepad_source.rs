@@ -5,7 +5,7 @@
 //! standard pad is connected and controller mode is not off, so a desktop
 //! without one pays nothing — that decision is [`PadPollGate`], native-tested.
 //! Called by the App (`install_gamepad_source`). Depends on `pad_mapper`,
-//! `modality`, `modality_dom`. Ported from `apps/web/src/browser/gamepadSource.ts`.
+//! `modality`, `modality_dom`.
 
 use crate::input_nav::modality::ModeChoice;
 use crate::input_nav::pad_mapper::PadSnapshot;

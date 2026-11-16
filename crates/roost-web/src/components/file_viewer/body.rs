@@ -2,11 +2,8 @@
 //! per-line control that copies a link to that line. Called by
 //! `file_viewer` once a read produced text; depends on `syntax_lite` for the
 //! colours and on `file_viewer::state` for the colour of each token.
-//!
-//! Ports the `lines().length > 0` branch of
-//! `apps/web/src/components/browse/FileViewerSheet.tsx`. The row is a flex line
-//! of gutter, text and control, which is what makes the control reachable by
-//! Tab from anywhere the reader's focus lands in the body.
+//! The row is a flex line of gutter, text and control, which is what makes the
+//! control reachable by Tab from anywhere the reader's focus lands in the body.
 
 use dioxus::prelude::*;
 

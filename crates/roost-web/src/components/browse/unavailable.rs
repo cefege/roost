@@ -4,8 +4,8 @@
 //! route that produced it names a machine no registry row will ever match, and a
 //! reader who lands here has to be able to leave with the keyboard.
 //!
-//! Called by `browse::picker::page`. Ports the `scopeUnavailable` branch of
-//! `apps/web/src/components/browse/WorkerBrowsePage.tsx`.
+//! Called by `browse::picker::page`, which renders it for a machine the registry
+//! lacks.
 
 use dioxus::prelude::*;
 

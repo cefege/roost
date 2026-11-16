@@ -1,9 +1,7 @@
 //! Stable URLs a worker path is written as: `/t/:workerFp/*folderPath` keys a
 //! terminal on (machine, spawn folder) rather than the ephemeral session id, so
 //! a bookmark survives a session dying and respawning in the same folder, and
-//! `/file/:workerFp/*path` names one file on one machine. Ports
-//! `apps/web/src/lib/terminalHref.ts` and `workerFileHref` /
-//! `parseWorkerFileHref` of `apps/web/src/lib/nativePath.ts`.
+//! `/file/:workerFp/*path` names one file on one machine.
 //!
 //! Minting and reading a file route are here together, and the file viewer is
 //! the only reader, because a route carries a splat: a producer that encodes

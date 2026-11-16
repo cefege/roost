@@ -2,7 +2,6 @@
 //! clicks are bound at all (they are the only path to the mic and to another
 //! folder), no discrete command auto-repeats, and the transient legend can
 //! never name a control the controller map does not describe.
-//! Ports `apps/web/tests/padBindings.test.ts`.
 
 use roost_web::input_nav::pad_bindings::{PAD_CONTROL_GUIDE, PadAction, PadControl, button_action};
 use roost_web::input_nav::pad_hints::{PadHint, PadHintContext, pad_hints};

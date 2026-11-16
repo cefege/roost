@@ -1,9 +1,7 @@
 //! The two value types one terminal pane passes between its Dioxus component
 //! and its imperative mount: the props-derived flags the mount gates on, and
 //! the signals the mount writes so the component re-renders only when what it
-//! shows changed. Read by `cell_terminal` and the wasm `pane_mount`. Ports the
-//! `viewActive` memo and the pane signals of
-//! `apps/web/src/components/terminal/CellTerminal.tsx`.
+//! shows changed. Read by `cell_terminal` and the wasm `pane_mount`.
 
 use dioxus::prelude::*;
 use roost_web_terminal::terminal_presentation::TerminalPresentationState;

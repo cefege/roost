@@ -1,9 +1,7 @@
 //! The global keydown router's decisions: ⏎ never teleports the reader while a
 //! terminal deck is on screen, a terminal keeps its body-focused Ctrl keys,
 //! off-sidebar arrows stay native scroll, prevented keys are left alone, and
-//! the platform chords (zoom, settings, palette) route. Ports
-//! `apps/web/tests/keyboardShortcuts.test.ts` and
-//! `apps/web/tests/browser/browserPlatform.test.ts`.
+//! the platform chords (zoom, settings, palette) route.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_web::keyboard_shortcuts::{KeydownAction, KeydownContext, keydown_action};
@@ -26,7 +24,7 @@ fn ctrl(value: &str) -> ShortcutKey {
     }
 }
 
-/// The sidebar's cursor parked on a second row, as v2's fixture does.
+/// The sidebar's cursor parked on a second row.
 fn context(deck_present: bool) -> KeydownContext {
     KeydownContext {
         platform: BrowserPlatform::Linux,

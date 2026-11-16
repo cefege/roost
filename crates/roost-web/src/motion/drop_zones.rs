@@ -1,6 +1,6 @@
 //! Drag-to-tile routing: whether a tab dropped on a pane SPLITS it on a side
-//! (pointer in the outer band) or MERGES into it (pointer in the centre). Ports
-//! `apps/web/src/lib/dropZones.ts`; read by the deck's drop routing and its
+//! (pointer in the outer band) or MERGES into it (pointer in the centre). Read
+//! by the deck's drop routing and its
 //! drop-zone overlay.
 //!
 //! The band is `max(80px, 25%)` of each dimension; the nearest in-band edge

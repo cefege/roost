@@ -4,9 +4,8 @@
 //! Owned by the pairing surface and read by both halves of it — the requester's
 //! card and the approver's code dialog — because the two describe the same
 //! server statuses, and a card that spelled `verification_failed` one way and
-//! the dialog another would be a second answer to one question. The seven
-//! sentences are v2's verbatim (`OnboardingRequestCard.tsx:83-97`); the specs
-//! read them.
+//! the dialog another would be a second answer to one question. Tests read the
+//! seven sentences verbatim.
 //!
 //! Every function here is pure so the wording is testable natively, where there
 //! is no document to select out of.
@@ -16,8 +15,7 @@ use roost_client_core::client::auth::PairPollStatus;
 /// The `StatusDot` status name for a stage.
 ///
 /// A failure sentence outranks the stage: a confirmation refused inside
-/// `verification_required` is an error even though the stage is not, and v2
-/// reads the same way (`OnboardingRequestCard.tsx:33-46`).
+/// `verification_required` is an error even though the stage is not.
 pub fn poll_indicator(
     status: &PairPollStatus,
     failure: Option<&str>,
@@ -69,8 +67,8 @@ pub fn poll_message(
         }
     };
     if failed {
-        // v2's `pollStatus === "error"` copy, reached only while the page's own
-        // notice is not already saying the same thing more precisely.
+        // The generic copy, reached only while the page's own notice is not
+        // already saying the same thing more precisely.
         return Some("Request failed — request again.".to_string());
     }
     Some(message.to_string())

@@ -3,7 +3,6 @@
 //! `gamepad.css` key every override off one root attribute and no component
 //! needs a TV or controller branch. Run before first paint by the App; the
 //! choice setters are what Settings calls. Decisions live in `modality`.
-//! Ported from the DOM halves of `apps/web/src/lib/{tvMode,padMode}.ts`.
 
 use dioxus::prelude::{ReadableExt as _, Signal, WritableExt as _};
 use roost_client_core::KeyValueStore;

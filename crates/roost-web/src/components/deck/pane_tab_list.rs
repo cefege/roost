@@ -1,8 +1,7 @@
 //! The filterable overflow menu for tabs that do not fit a pane strip: a
 //! filter field, the matching tabs, and the selected tab's check. It is the
 //! content of `PaneStrip`'s `DropdownMenu`, which owns placement, dismissal
-//! and focus restore; this owns only its filter and highlight. Ports
-//! `apps/web/src/components/deck/PaneTabList.tsx`.
+//! and focus restore; this owns only its filter and highlight.
 
 use dioxus::prelude::*;
 use roost_client_core::store::selectors::session_by_id;

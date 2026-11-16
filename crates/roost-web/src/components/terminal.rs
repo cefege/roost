@@ -2,7 +2,6 @@
 //! `TerminalCard` (its tab-grid card), `TerminalTransportIndicator`, the
 //! session-keyed `pane_registry` that resolves a session to its mounted
 //! renderer, and the native state machines the imperative `pane_mount` drives.
-//! Ports `apps/web/src/components/terminal/`.
 
 pub mod card_swipe;
 pub mod cell_terminal;

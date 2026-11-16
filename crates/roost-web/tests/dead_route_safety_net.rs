@@ -1,8 +1,8 @@
 //! The dead-route safety net: a blip back to a live session inside the grace
 //! window never bounces; recoverable stable-route misses bounce to a sibling or
-//! home, while an exact-session miss stays on its identity. Ports
-//! `apps/web/tests/deadRouteSafetyNet.test.ts`; the host's timer is simulated
-//! by holding the armed ticket and calling `fire` when it would expire.
+//! home, while an exact-session miss stays on its identity. The host's timer is
+//! simulated by holding the armed ticket and calling `fire` when it would
+//! expire.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_client_core::store::{

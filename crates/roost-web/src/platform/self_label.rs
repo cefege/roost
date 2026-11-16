@@ -2,9 +2,9 @@
 //! coordinator when it pairs, stored as the key's label and shown on viewer
 //! chips instead of a fingerprint prefix.
 //!
-//! Called by the pump's pair redeem and the pairing ceremony. Ported from
-//! `apps/web/src/browser/browserSelfLabel.ts`: `userAgentData` first, the UA
-//! string as the fallback, because a browser cannot read the OS hostname.
+//! Called by the pump's pair redeem and the pairing ceremony: `userAgentData`
+//! first, the UA string as the fallback, because a browser cannot read the OS
+//! hostname.
 
 /// The label from what the browser reports.
 pub fn browser_self_label(

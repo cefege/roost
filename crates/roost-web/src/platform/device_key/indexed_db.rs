@@ -2,7 +2,7 @@
 //! delete of the device-key slot. Owned by `platform::device_key`'s browser
 //! vault; `wasm32` only, and it only makes web-sys calls — the schema and its
 //! upgrade are planned in `schema`, and every decision about a result is the
-//! lifecycle's. Ported from `apps/web/src/client/auth/web-key-storage.ts`.
+//! lifecycle's.
 
 use js_sys::{Function, Promise, Reflect};
 use wasm_bindgen::closure::Closure;
@@ -81,7 +81,7 @@ async fn open_database() -> Result<IdbDatabase, String> {
         .map_err(|e| describe_js(&e))?;
     let upgrading = request.clone();
     // Returning the error makes wasm-bindgen throw it inside the handler, which
-    // aborts the version change and fails the open — v2's behaviour, because a
+    // aborts the version change and fails the open, because a
     // half-upgraded database is not one to read a key from.
     let on_upgrade =
         Closure::<dyn FnMut() -> Result<(), JsValue>>::new(move || upgrade_schema(&upgrading));

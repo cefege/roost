@@ -1,6 +1,6 @@
-//! Mounting a subtree outside the element it is rendered in, as v2's Solid
-//! `<Portal>` moves the compact composer dock and the terminal key pad to
-//! `<body>`. A `position: fixed` box under a transformed, scrollable ancestor —
+//! Mounting a subtree outside the element it is rendered in: the compact
+//! composer dock and the terminal key pad move to `<body>`. A `position: fixed`
+//! box under a transformed, scrollable ancestor —
 //! the terminal deck — is placed and scrolled by that ancestor; one under the
 //! portal root is placed by the viewport. `app.rs` renders [`PortalRoot`] once;
 //! [`Portal`] moves its subtree there on mount and removes it on drop.

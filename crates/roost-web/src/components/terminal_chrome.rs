@@ -6,8 +6,6 @@
 //! placement) by whoever owns the pane. The only document-wide listeners here
 //! are the drag listeners of `file_drop_dom`; trusted key routing stays with
 //! the app root.
-//! Ports `apps/web/src/components/terminal/TerminalComposeButton.tsx` and
-//! `apps/web/src/components/terminal/TerminalCaptureConsentDialog.tsx`.
 
 pub mod attachment_picker;
 pub mod capture_consent;

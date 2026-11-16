@@ -1,9 +1,7 @@
 //! MainPane's wiring of the dead-route safety net: evaluate on every change of
 //! the route's resolution, run the grace timer, and on a durable miss navigate
 //! to the newest open sibling in the viewed session's folder, else home. The
-//! machine is `crate::dead_route_safety_net`; this file is its host. Ports the
-//! `installDeadRouteSafetyNet` call and `bounceTarget` in
-//! `apps/web/src/components/MainPane.tsx`.
+//! machine is `crate::dead_route_safety_net`; this file is its host.
 
 use std::cell::RefCell;
 use std::rc::Rc;

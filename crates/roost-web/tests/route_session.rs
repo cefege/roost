@@ -1,9 +1,7 @@
 //! Route → session resolution and the stable terminal URL: every terminal route
 //! shape resolves to the session MainPane renders; non-terminal routes resolve
 //! to nothing; `/t/` hrefs round-trip; the close/bounce landing is the newest
-//! open sibling in the folder, else home. Ports
-//! `apps/web/tests/{activeSessionForPath,terminalHref}.test.ts` and the sibling
-//! cases of `deadRouteSafetyNet.test.ts`.
+//! open sibling in the folder, else home.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_client_core::ClientCore;

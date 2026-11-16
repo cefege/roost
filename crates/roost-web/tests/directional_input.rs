@@ -2,7 +2,6 @@
 //! games must not flip the UI: `auto` latches only on real input, and the
 //! latch — not "forced on" — is what the Start guide reads. TV or controller
 //! either one makes input directional.
-//! Pins `apps/web/src/lib/{padMode,directionalInput}.ts`.
 
 use roost_client_core::{KeyValueStore as _, MemoryKeyValueStore};
 use roost_web::input_nav::modality::{ModeChoice, NavModality, PAD_MODE_KEY};

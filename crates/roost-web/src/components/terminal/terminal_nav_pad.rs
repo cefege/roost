@@ -3,8 +3,7 @@
 //! face, which the TV input tray's toggle shares.
 //!
 //! Renders as body-level fixed overlays, OUTSIDE the composer dock's subtree,
-//! so opening it moves neither the dock nor the terminal. Ports
-//! `apps/web/src/components/terminal/TerminalNavButtons.tsx`.
+//! so opening it moves neither the dock nor the terminal.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;

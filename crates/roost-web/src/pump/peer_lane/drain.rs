@@ -37,7 +37,7 @@ use crate::platform::peer::PeerEvent;
 pub(in crate::pump) fn install_tick(pump: &Pump) {
     // Left to the tick, a frame waits up to a whole tick and two viewers of one
     // session paint it a tick apart. Sync and loopback drain on the next task
-    // for the same reason, as v2 handled every data-channel message on arrival.
+    // for the same reason: every data-channel message is handled on arrival.
     let notify: Rc<dyn Fn()> = {
         let pump = pump.clone();
         Rc::new(move || schedule_drain(&pump))

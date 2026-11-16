@@ -8,8 +8,6 @@
 //! navigation projection the metadata list reads. A match whose session is not
 //! in that projection is named as such rather than dropped: silently hiding it
 //! would report the fleet as having fewer matches than it has.
-//!
-//! Ports `apps/web/src/components/search/GlobalSearchContentResults.tsx`.
 
 use dioxus::prelude::*;
 use roost_client_core::client::global_search::GlobalSearchResults;

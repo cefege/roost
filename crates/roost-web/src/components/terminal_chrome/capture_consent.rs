@@ -4,7 +4,6 @@
 //! actions. Nothing is sent before consent is given, and the confirmation
 //! outlives the menu that raised it — the menu dismisses so the operator can
 //! read this without the menu's scrim over it.
-//! Ports `apps/web/src/components/terminal/TerminalCaptureConsentDialog.tsx`.
 
 use dioxus::prelude::*;
 use roost_protocol::terminal_capture::TERMINAL_CAPTURE_LIMITS;

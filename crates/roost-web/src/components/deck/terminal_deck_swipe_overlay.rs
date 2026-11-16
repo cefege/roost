@@ -1,8 +1,7 @@
 //! The phone's forward-swipe affordance: the new-terminal surface peeking
 //! from behind the shrinking terminal, and the + FAB that grows under the
 //! finger and blooms into the new terminal on commit. Rendered once by
-//! `TerminalDeck`; the geometry is `deck_swipe_style`. Ports
-//! `apps/web/src/components/deck/TerminalDeckSwipeOverlay.tsx`.
+//! `TerminalDeck`; the geometry is `deck_swipe_style`.
 
 use dioxus::prelude::*;
 use roost_client_core::store::layout::PaneRect;

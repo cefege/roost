@@ -1,6 +1,6 @@
 //! A minimal line-by-line syntax highlighter: keywords, strings, comments and
 //! numbers over a JS/Go/Python/Rust/shell keyword set, with block-comment state
-//! carried across lines. Ports `apps/web/src/lib/syntaxLite.ts`; read by the
+//! carried across lines. Read by the
 //! file viewer sheet (BROWSE), which maps each kind to a `--syntax-<kind>` token.
 
 use std::collections::BTreeSet;

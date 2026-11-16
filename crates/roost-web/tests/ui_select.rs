@@ -24,7 +24,7 @@ fn options() -> Vec<SelectOption> {
 
 #[test]
 fn choosing_the_current_option_reports_nothing() {
-    // v2's guard: re-choosing the value already shown is not a save, so a
+    // Re-choosing the value already shown is not a save, so a
     // rejected-save spec sees exactly one request.
     assert_eq!(select_change(&options(), "accent", 1), None);
     assert_eq!(

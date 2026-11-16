@@ -1,7 +1,7 @@
 //! Passive selected-terminal carrier label for desktop and compact terminal
 //! headers. DECK's pane strip and mobile bar supply the session; the store's
 //! `terminal_transport` selector is the only source of baseline-qualified
-//! carrier state. Ports `apps/web/src/components/terminal/TerminalTransportIndicator.tsx`.
+//! carrier state.
 
 use dioxus::prelude::*;
 use roost_client_core::store::terminal_transport::session_terminal_transport_presentation;

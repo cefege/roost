@@ -1,7 +1,6 @@
 //! The Start-button overlay: a controller silhouette whose caps sit where they
 //! sit on the hardware, each naming its action and each lit while its physical
-//! button is held, so a reader learns their own pad. Ports
-//! `apps/web/src/components/palette/ControllerMap.tsx`; the wording is read from
+//! button is held, so a reader learns their own pad. The wording is read from
 //! `input_nav::pad_bindings::PAD_CONTROL_GUIDE` and only the GEOMETRY is this
 //! file's, so the transient legend in `pad_hints` cannot disagree with the map.
 //!

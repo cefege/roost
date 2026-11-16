@@ -1,8 +1,7 @@
 //! The browser's WebRTC stack, as one `PeerTransport`, and the only file in this
 //! tree that names a WebRTC binding. Owned by `platform`, driven by the client
-//! core's `PeerSignalling` machine. Ported from
-//! `apps/web/src/store/transport/terminal-peer-connection.ts`: the three static
-//! ordered channels and the offer/answer handshake, and nothing else.
+//! core's `PeerSignalling` machine: the three static ordered channels and the
+//! offer/answer handshake, and nothing else.
 //!
 //! The bindings are reached through `js_sys::Reflect` rather than `web_sys`
 //! because this crate's `web-sys` feature list carries no WebRTC features — no
@@ -271,7 +270,7 @@ impl PeerTransport for BrowserPeer {
 
     /// Read the local description, with the browser's ICE-TCP candidates
     /// removed: the offer is UDP-only before it crosses to the coordinator,
-    /// exactly as v2's `filterBrowserTerminalPeerUdpCandidates` leaves it.
+    /// exactly as `filter_browser_terminal_peer_udp_candidates` leaves it.
     fn local_offer(&self, attempt_id: u64) -> Result<String, TransportError> {
         let peer = self.peers.get(attempt_id).ok_or_else(interop::closed)?;
         let sdp = dom::gathered_sdp(&peer.browser.connection)?;

@@ -2,7 +2,7 @@
 //! the control the user is pointing at, not merely the nearest one; the first
 //! press from `<body>` lands somewhere; and the arrow is left alone wherever
 //! something else owns it.
-//! Ports `apps/web/tests/spatialNavigation.test.ts`, plus the guard for
+//! Also the guard for
 //! `docs/FAILURE-INDEX.md` "The first D-pad press does nothing because `<body>`
 //! counts as the origin".
 

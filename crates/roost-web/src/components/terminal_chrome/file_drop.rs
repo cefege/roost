@@ -1,8 +1,7 @@
 //! What a drag over the page means: whether the browser's own drop (opening
 //! the file, following the link) is suppressed, and which terminal pane takes
 //! the drop and how. Target-independent so the rules are tested natively; the
-//! listeners that apply them are `file_drop_dom`. Ports the drop half of
-//! `apps/web/src/components/terminal/cell-terminal-interactions.ts`.
+//! listeners that apply them are `file_drop_dom`.
 
 /// The `DataTransfer.types` entry a drag of one or more files carries.
 const FILES_TYPE: &str = "Files";
@@ -53,7 +52,7 @@ pub fn page_blocks_default(kinds: DragKinds, target_editable: bool) -> bool {
 ///
 /// A drag over a pane belongs to that pane. A drag over anything else — the
 /// portaled composer, the chrome around the deck — belongs to the focused
-/// pane, as every drop did in v2.
+/// pane.
 pub fn pane_claims(over_pane: Option<&str>, own_session_id: &str, focused: bool) -> bool {
     match over_pane {
         Some(session_id) => session_id == own_session_id,

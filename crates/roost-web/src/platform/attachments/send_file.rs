@@ -4,7 +4,7 @@
 //! Called by `upload_host`'s carrier routes once a carrier is open. The slice
 //! and settle rules are `client::attachments::transfer::DirectUpload`'s and the
 //! receipt rule is `transfer::receipt::settle_from_receipt`; this file performs
-//! the awaits between them. Ports `sendAttachmentFile` in `attachmentTransfer.ts`.
+//! the awaits between them.
 
 use roost_client_core::client::attachments::transfer::receipt::{
     AttachmentTransferStatus, ReceiptOutcome, ReceiptSource, settle_from_receipt,

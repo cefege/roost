@@ -3,11 +3,10 @@
 //! presentation behind both), and how a new one joins — the deploy dialog, its
 //! local-access guide, and the enrollment policy both decide with.
 //!
-//! Ports `apps/web/src/components/machines/` and
-//! `apps/web/src/lib/machineIdentity.ts`. The policy half is split the way the
-//! product has to reason about it: `enrollment_origin` answers "may another
-//! machine dial this?", `deploy_state` answers "what may this dialog do next?",
-//! and `deploy_calls` is the only place a coordinator is asked.
+//! The policy half is split the way the product has to reason about it:
+//! `enrollment_origin` answers "may another machine dial this?", `deploy_state`
+//! answers "what may this dialog do next?", and `deploy_calls` is the only
+//! place a coordinator is asked.
 
 pub mod deploy_calls;
 pub mod deploy_dialog;

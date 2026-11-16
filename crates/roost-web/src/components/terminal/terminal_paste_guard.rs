@@ -1,7 +1,6 @@
 //! The multiline paste confirmation: mounted by `CellTerminal` only while a
 //! paste is pending, because a closed dialog inside the pane would fold its
-//! prose into the terminal's text and read as painted output. Ports the
-//! paste-guard `Dialog` of `apps/web/src/components/terminal/CellTerminal.tsx`.
+//! prose into the terminal's text and read as painted output.
 
 use dioxus::prelude::*;
 use roost_protocol::terminal_input::count_line_breaks;

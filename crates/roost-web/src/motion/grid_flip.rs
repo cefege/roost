@@ -1,6 +1,6 @@
 //! FLIP move-animation for a grid whose children carry `data-flip-key`: after a
-//! commit, each survivor slides from its old slot to its new one. Ports
-//! `apps/web/src/lib/gridFlip.ts`; called by the settings machine grid.
+//! commit, each survivor slides from its old slot to its new one. Called by the
+//! settings machine grid.
 //!
 //! `flip_offset` is the decision; the wasm32 half measures and writes styles.
 

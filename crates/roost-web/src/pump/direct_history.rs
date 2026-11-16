@@ -4,8 +4,7 @@
 //!
 //! Owned by `pump`; called by a pane's scrollback pager
 //! (`components::terminal::pane_mount::backfill_io`) and answered from the peer
-//! and loopback drains. Ports `apps/web/src/lib/scrollbackDirectHistory.ts`
-//! with the request waiters of `store/transport/terminal-peer-connection.ts`.
+//! and loopback drains; the request waiters live here.
 
 use std::collections::BTreeMap;
 
@@ -17,7 +16,7 @@ use roost_client_core::{TerminalToken, TerminalTransport};
 
 use super::Pump;
 
-/// How long a direct history read may go unanswered (v2 `SCROLLBACK_TIMEOUT_MS`).
+/// How long a direct history read may go unanswered.
 pub const DIRECT_HISTORY_TIMEOUT_MS: u64 = 15_000;
 
 /// The worker's refusal of a page its carrier cannot hold. The coordinator,
@@ -58,7 +57,7 @@ pub(super) struct DirectHistoryReads {
 impl Pump {
     /// The direct route a history read for `session_id` may take: the elected
     /// route's generation, and only while the session's replica is fenced to
-    /// exactly it (v2 `electedDirectHistoryConnection`). Any other moment reads
+    /// exactly it. Any other moment reads
     /// from the coordinator.
     pub fn elected_direct_history_route(&self, session_id: &str) -> Option<TerminalToken> {
         let core = self.inner.core.borrow();
@@ -113,8 +112,7 @@ impl Pump {
 
 /// A carrier closed: every read whose route is no longer the session's elected
 /// one is lost now rather than at its deadline, so its pager sees the route
-/// change instead of a timeout that may still find the old route elected (v2
-/// `TerminalPeerConnection.close` rejecting its scrollback waiters).
+/// change instead of a timeout that may still find the old route elected.
 ///
 /// Checked on a later turn: a close performed inside a dispatch only queues its
 /// `CarrierLost`, and the route has not moved until that event is handled.

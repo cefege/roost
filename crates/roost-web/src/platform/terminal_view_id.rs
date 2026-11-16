@@ -16,7 +16,7 @@
 /// A fresh view id, or `None` when this document cannot mint one.
 ///
 /// `None` is a real answer. The worker refuses any view id that is not a UUID
-/// (v2 `validateTerminalViewCommand`: "invalid terminal view id"), so a fallback
+/// (`validateTerminalViewCommand`: "invalid terminal view id"), so a fallback
 /// of some other shape would be refused on the wire and there is nothing to gain
 /// by inventing one here.
 pub fn mint_view_id() -> Option<String> {
@@ -25,14 +25,13 @@ pub fn mint_view_id() -> Option<String> {
 
 /// A fresh peer id for one WebRTC negotiation, or `None` when this document
 /// cannot mint one. The coordinator refuses a peer id that is not a UUID
-/// ("terminal peer peer_id is invalid"); v2 mints it the same way
-/// (`createTerminalDirectRequestId`).
+/// ("terminal peer peer_id is invalid").
 pub fn mint_peer_id() -> Option<String> {
     random_uuid()
 }
 
 /// A fresh request id for one transport probe, or `None` when this document
-/// cannot mint one. v2 mints it the same way (`createTerminalDirectRequestId`).
+/// cannot mint one.
 pub fn mint_probe_request_id() -> Option<String> {
     random_uuid()
 }

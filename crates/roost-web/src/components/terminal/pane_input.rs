@@ -1,9 +1,7 @@
 //! The pane's input rules that are not the textarea controller's: composer
 //! and paste payload framing, the multiline paste guard, the one-shot Ctrl
 //! latch, and the document chords the pane reserves ahead of PTY encoding.
-//! Target-independent; read by the wasm pane mount and `cell_terminal`. Ports
-//! the rules of `apps/web/src/components/terminal/cell-terminal-input.ts` and
-//! the reserved-chord arm of `cell-terminal-lifecycle.ts`.
+//! Target-independent; read by the wasm pane mount and `cell_terminal`.
 
 use roost_protocol::terminal_input::{
     CR_BYTES, MULTILINE_PASTE_MIN_NEWLINES, build_pty_payload, count_line_breaks,

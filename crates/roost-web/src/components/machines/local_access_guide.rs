@@ -1,6 +1,5 @@
 //! The operator-managed expansion path: what to set up when Roost answers only
-//! on this machine's loopback, and how to come back and check. Ports
-//! `apps/web/src/components/machines/MachineLocalAccessGuide.tsx`.
+//! on this machine's loopback, and how to come back and check.
 //!
 //! It owns no RPC and no transition state — the deploy dialog supplies both —
 //! so the one thing it must never do is invite a grant. A reader on a local-only

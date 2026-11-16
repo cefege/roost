@@ -6,8 +6,7 @@
 //!
 //! Presentation and the in-bar key handling only. The query, the match list, the
 //! cursor and the reveal are the `TerminalFind` controller's, and this file
-//! renders what its publication says. Ports
-//! `apps/web/src/components/terminal/TerminalFindBar.tsx`.
+//! renders what its publication says.
 //!
 //! The bar owns the keyboard while it is open: `Enter` and `Mod+G` step, `Esc`
 //! dismisses, and every other key belongs to the input. It is rendered as a
@@ -50,7 +49,7 @@ pub struct FindBarState {
     pub alt_screen: bool,
 }
 
-/// The count the reader reads, as v2 renders it.
+/// The count the reader reads.
 ///
 /// Empty before a query is typed, `0/0` for a query that matched nothing, and
 /// `n/total` with a trailing `+` when older matches are known to exist. The

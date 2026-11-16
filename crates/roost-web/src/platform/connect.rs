@@ -3,9 +3,7 @@
 //!
 //! Owned by the pump (one per document, in context); called by the pump for the
 //! core's `Effect::Rpc` and by surfaces for `client::rpc::calls::*`. Depends on
-//! `platform::rpc` (the fetch transport) and `platform::device_key`. Ported from
-//! `apps/web/src/client/rpc/connect.ts` (`coordClient`, `publicCoordClient`,
-//! the bearer interceptor at `:117-132`).
+//! `platform::rpc` (the fetch transport) and `platform::device_key`.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -61,7 +59,7 @@ impl CoordRpc {
     }
 
     /// A bearer for a call made now, or `None` when there is no key or it
-    /// cannot sign. v2's interceptor sends the request anyway: a device that
+    /// cannot sign. The request is sent anyway: a device that
     /// cannot sign must still reach the pairing gate.
     pub async fn bearer(&self) -> Option<String> {
         let key = self.device_key()?;
@@ -87,7 +85,7 @@ impl CoordRpc {
         M::decode_response(&answer).map_err(CallError::Codec)
     }
 
-    /// Call one method WITHOUT a credential (v2 `publicCoordClient`).
+    /// Call one method WITHOUT a credential.
     pub async fn call_public<M: UnaryMethod>(&self, request: &M) -> Result<M::Response, CallError> {
         let body = request.encode_request().map_err(CallError::Codec)?;
         let answer = self.send(M::METHOD, body, None).await?;
@@ -96,7 +94,7 @@ impl CoordRpc {
 
     /// Perform one of the core's calls and map the answer back for
     /// `ClientEvent::RpcResultReceived`. Identity discovery is the one public
-    /// call (`sync-bootstrap.ts:177`); every other call carries the bearer.
+    /// call; every other call carries the bearer.
     pub async fn call_core(&self, call: &RpcCall) -> RpcResult {
         let call_id = roost_client_core::client::rpc::methods::connect_call_id(call);
         let method = connect_method(call);

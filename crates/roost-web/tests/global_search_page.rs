@@ -79,9 +79,9 @@ fn one_page_over_every_eligible_session_reads_as_complete() {
 
 #[test]
 fn the_headline_counts_rows_the_projection_knows_and_the_incomplete_panel_owns_the_rest() {
-    // v2 joins the coordinator's rows through the navigation projection and
-    // counts what survived the join; the rows that did not are reported beside
-    // it as missing coverage rather than folded into the headline.
+    // The coordinator's rows are joined through the navigation projection and
+    // what survived the join is counted; the rows that did not are reported
+    // beside it as missing coverage rather than folded into the headline.
     let results = GlobalSearchResults {
         matches: vec![match_in(SESSION, 7)],
         searched_sessions: 1,

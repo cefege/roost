@@ -1,7 +1,7 @@
 //! The palette overlay is ONE node, and closing it takes that node off the page.
 //!
 //! THE REGRESSION. The palette is a `Sheet` — a `Dialog` that carries the
-//! `data-testid` the specs select — around a body that v2 also tagged
+//! `data-testid` the specs select — around a body that must not also carry
 //! `command-palette`. Both answers were live at once, so every assertion that
 //! names the palette by test id resolved to two elements: a pad's X button that
 //! opened it was a strict-mode violation, and a spec asserting the palette was

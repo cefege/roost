@@ -1,8 +1,6 @@
 //! Where a terminal slot paints: its pane's terminal area below the strip, the
 //! floated spotlight card, or parked off-screen at the size it will be
-//! revealed at. Read by `terminal_deck` for every mounted session. Pure; ports
-//! `apps/web/src/components/deck/terminal-deck-geometry.ts` (its slot-equality
-//! helpers are Solid memo comparators; a Dioxus prop's `PartialEq` replaces them).
+//! revealed at. Read by `terminal_deck` for every mounted session. Pure.
 
 use roost_client_core::deck::{DeckSize, TerminalSessionSlot};
 

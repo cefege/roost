@@ -5,9 +5,8 @@
 //! Split out from the host because both answers are facts about the request
 //! that a test can pin without a browser, a coordinator or a worker. The host
 //! half is `super::upload`, which performs the plan this module decides.
-//! Ports the decision half of `apps/web/src/lib/attachments.ts` (the
-//! `DEDUP_MAX_BYTES` cap and the direct-then-relay order) and the refusal
-//! vocabulary of `client::attachments::direct`.
+//! It decides the `DEDUP_MAX_BYTES` cap, the direct-then-relay order and the
+//! refusal vocabulary of `client::attachments::direct`.
 
 use roost_client_core::client::attachments::direct::{
     AttachmentDirectUploadRequest, DirectAttempt, DirectRoute, DirectUnavailableReason,

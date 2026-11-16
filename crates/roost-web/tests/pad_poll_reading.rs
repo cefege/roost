@@ -15,7 +15,7 @@ use roost_web::input_nav::pad_mapper::PadHoldState;
 
 const BUTTON_DOWN: usize = 13;
 
-/// The shape `smoke/terminal/fixtures.ts` installs: 16 buttons, 4 axes, the
+/// The shape a browser smoke fixture installs: 16 buttons, 4 axes, the
 /// standard mapping string.
 fn stand_in_pad() -> PadReading {
     PadReading::from_parts(true, "standard", vec![false; 16], vec![0.0; 4])

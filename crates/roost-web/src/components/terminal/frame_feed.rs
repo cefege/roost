@@ -3,10 +3,7 @@
 //! last full; the pane paints on the browser frame after the revision moved,
 //! folding the deltas it has not painted — so their appended history reaches
 //! the DOM — or the canonical full when it cannot. Target-independent; driven
-//! by the wasm pane mount. Replaces the subscriber half of v2's
-//! `apps/web/src/components/terminal/cell-terminal-renderer.ts`
-//! (`view.subscribeRenderer`) and the coalescing of
-//! `apps/web/src/renderer/terminal-render-scheduler.ts`.
+//! by the wasm pane mount.
 
 use roost_protocol::cell::CellGridFrame;
 
@@ -90,8 +87,7 @@ impl FrameFeed {
     }
 
     /// The replica moved while the pane could not paint: the deltas it missed
-    /// are not folded later, the next paint takes the canonical full, as v2's
-    /// scheduler parks a background renderer's queued deltas into one.
+    /// are not folded later, the next paint takes the canonical full instead.
     pub fn park(&mut self) {
         self.delta_base = None;
     }

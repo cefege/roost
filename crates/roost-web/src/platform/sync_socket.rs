@@ -5,8 +5,8 @@
 //! core states (`SyncDial`) — never on a store rule.
 //!
 //! The core owns the generation and the fencing decision; this owns the wire.
-//! Three behaviours from v2 (`apps/web/src/store/sync.ts`) are load-bearing and
-//! are reproduced here rather than left to the caller:
+//! Three behaviours are load-bearing and
+//! are held here rather than left to the caller:
 //!
 //! - the credential rides a SUBPROTOCOL, never the query string, so it does not
 //!   land in an access log;
@@ -303,7 +303,7 @@ impl SyncSocket for WebSocketSyncSocket {
             }) as Box<dyn FnMut(MessageEvent)>)
         };
         let on_error = {
-            // v2 logs and changes nothing: `onclose` always follows, and acting
+            // Nothing is logged or changed: `onclose` always follows, and acting
             // here as well is how a socket gets retired twice.
             Closure::wrap(Box::new(move |_event: ErrorEvent| {}) as Box<dyn FnMut(ErrorEvent)>)
         };

@@ -6,7 +6,6 @@
 //! content of this file. It builds into locals and publishes to the singleton in
 //! one step at the end, because an open outlives its own deadline and a late
 //! completion must not overwrite a graph a later tap already built.
-//! Ports `openPipeline` of `apps/web/src/voice/audioPcmCapture.ts`.
 
 use js_sys::Reflect;
 use wasm_bindgen::closure::Closure;

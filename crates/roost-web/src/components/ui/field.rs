@@ -3,9 +3,9 @@
 //! `aria-describedby` rules the form controls share, so every control names its
 //! description and error the same way.
 //!
-//! The rules are ported from the md `form_field` primitive: the caller's own ids
-//! come first, then the visible description, then the error, so a screen reader
-//! reads the caller's context, then the help, then what is wrong.
+//! The rules: the caller's own ids come first, then the visible description,
+//! then the error, so a screen reader reads the caller's context, then the
+//! help, then what is wrong.
 
 use dioxus::core::current_scope_id;
 use dioxus::prelude::*;

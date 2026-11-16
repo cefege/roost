@@ -5,8 +5,6 @@
 //! whose route chooser (`client::attachments::direct`) decides which carrier
 //! runs. The frame rules are the client core's (`direct::loopback`, `peer`,
 //! `transfer`); this module owns the sockets, the timers and the awaiting.
-//! Ported from `apps/web/src/client/carriers/attachment-loopback.ts`,
-//! `apps/web/src/client/attachments/attachmentPeer.ts` and `attachmentTransfer.ts`.
 
 pub mod inbox;
 pub mod loopback;

@@ -1,6 +1,5 @@
 //! The one folder mark for the whole app: Material's filled folder silhouette,
-//! painted in `currentColor` so the caller owns its hue. Ports
-//! `apps/web/src/components/browse/FolderGlyph.tsx`; the sidebar's folder and
+//! painted in `currentColor` so the caller owns its hue. The sidebar's folder and
 //! session rows draw it, and the browse and home surfaces will.
 
 use dioxus::prelude::*;

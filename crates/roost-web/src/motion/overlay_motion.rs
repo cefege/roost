@@ -1,7 +1,6 @@
 //! Enter motion for bespoke overlays that mount on a bare condition (command
 //! palette, help overlay, docked consoles): a transform-only slide-up played on
-//! mount through the Web Animations API. Ports
-//! `apps/web/src/lib/overlayMotion.ts`; called by those overlays' `onmounted`.
+//! mount through the Web Animations API. Called by those overlays' `onmounted`.
 //!
 //! Exit is instant by design, and opacity is never animated, so a frozen
 //! animation can never leave an overlay invisible.

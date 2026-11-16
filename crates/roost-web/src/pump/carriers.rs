@@ -25,9 +25,6 @@
 //! MINTING the credential a carrier spends is `carriers::mint`: this file holds
 //! the connections and writes to them, and the mint is the one thing here that
 //! opens nothing.
-//!
-//! Ported from the two arms of `apps/web/src/store/transport/local-terminal.ts`
-//! and the send path of `terminal-peer-connection.ts`.
 
 mod mint;
 

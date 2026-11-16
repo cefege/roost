@@ -6,7 +6,6 @@
 //! [`PadShellAction`] the SHELL executes. Also owns the transient legend state.
 //! Called by the App's gamepad callback (`install_gamepad_source`); depends on
 //! `pad_surfaces`, `pad_bindings`, `pad_folders`, `roost_web_terminal::reader_scroll`.
-//! Ported from `apps/web/src/lib/padActions.ts`.
 
 use roost_web_terminal::reader_scroll::PAD_SCROLL_STEP_PX;
 

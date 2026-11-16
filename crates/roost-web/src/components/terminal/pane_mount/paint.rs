@@ -1,9 +1,7 @@
 //! The pane's paint loop and presentation: on each pump revision it notes a
 //! replica advance and re-reads the lease; on the next browser frame it paints
 //! the store's canonical frame into the renderer, feeds the pager and the
-//! presentation controller, and publishes what the component shows. Ports the
-//! renderer subscriber of `apps/web/src/components/terminal/cell-terminal-renderer.ts`
-//! and the presentation glue of `cell-terminal-presentation.ts`.
+//! presentation controller, and publishes what the component shows.
 
 use std::rc::Rc;
 
@@ -169,8 +167,7 @@ fn paint_owed(shared: &PaneShared, now: u64) {
         let mut renderer = shared.renderer.borrow_mut();
         let work = state.backfill.on_full_frame(&mut *renderer);
         let inputs = presentation_inputs(&state, status, &renderer, now);
-        // Only a delta batch is output; a full is an attach or a repair, as
-        // v2's renderer delivery marks it.
+        // Only a delta batch is output; a full is an attach or a repair.
         let mark = PresentationFrameMark {
             full: painted_as == PaintedAs::Full,
             grid_epoch: &canonical.grid_epoch,
@@ -204,8 +201,7 @@ fn mark_painted_frame(shared: &PaneShared, canonical: &CellGridFrame, full: bool
 
 /// Fold the deltas the renderer has not seen, so the history they appended is
 /// painted; the canonical full when there are none or the renderer refuses the
-/// chain (a skipped delivery, a different grid). v2's scheduler makes the same
-/// fallback (`terminal-render-scheduler.ts` `fallback_full`). `None` when the
+/// chain (a skipped delivery, a different grid). `None` when the
 /// renderer refused the full too.
 fn apply_owed_frames(
     shared: &PaneShared,

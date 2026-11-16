@@ -4,8 +4,7 @@
 //! Split out of `super::audio_capture` because the worklet source is a program
 //! in its own right and the two attach paths are alternatives: the worklet runs
 //! off the main thread, and the script processor exists only for the browsers
-//! where it will not load. Ports the attach half of
-//! `apps/web/src/voice/audioPcmCapture.ts`.
+//! where it will not load.
 
 use js_sys::Float32Array;
 use wasm_bindgen::closure::Closure;

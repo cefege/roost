@@ -3,9 +3,7 @@
 //!
 //! Split out of `super::input` so the component reads as the state
 //! machine's only owner and the vocabulary of its own surface — glyph names,
-//! captions, the watchdog — sits apart from the effects it performs. Ports the
-//! icon/label maps and the iOS-safe open order of
-//! `apps/web/src/components/MobileVoiceInput.tsx`.
+//! captions, the watchdog — sits apart from the effects it performs.
 
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;

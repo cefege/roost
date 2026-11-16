@@ -1,12 +1,10 @@
 //! Which dictation engine this browser will use, decided from what the
 //! coordinator stores and what the browser exposes.
 //!
-//! Split out from the component because the answer is a contract the Playwright
-//! oracles read off the DOM (`data-engine`), and because it is the one decision
+//! Split out from the component because the answer is a contract the
+//! end-to-end oracles read off the DOM (`data-engine`), and because it is the one decision
 //! that must be right before a microphone is opened: a browser with neither
 //! engine must say so, not open a device and record silence.
-//! Ports the engine selection of `apps/web/src/components/MobileVoiceInput.tsx`
-//! (`useDeepgram`, `webSupported`, `deepgramSupported`, `engineAvailable`).
 
 /// What the browser exposes. Probed by `super::capabilities`; passed in here so
 /// the decision itself needs no browser.
@@ -57,8 +55,8 @@ impl Engine {
         !matches!(self, Self::Unavailable)
     }
 
-    /// The `data-engine` value. Verbatim the string v2 emits, because the specs
-    /// select on it.
+    /// The `data-engine` value, which the specs
+    /// select on.
     #[must_use]
     pub fn data_engine(&self) -> &'static str {
         match self {

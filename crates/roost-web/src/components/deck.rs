@@ -1,7 +1,6 @@
 //! The terminal deck: the persistent surface that keeps every warm terminal
 //! mounted and paints the folder's panes, strips, dividers and phone bar.
 //! Rendered by the shell's `MainPane`; state lives in `roost_client_core::deck`.
-//! Ports `apps/web/src/components/deck/*`.
 
 pub mod arrange_menu;
 pub mod deck_dom;

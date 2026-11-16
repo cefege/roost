@@ -1,6 +1,6 @@
 //! Cross-fade a synchronous DOM mutation through the View Transitions API where
 //! the browser has it and the reader has not asked for reduced motion; apply it
-//! instantly otherwise. Ports `apps/web/src/browser/viewTransition.ts`; read by
+//! instantly otherwise. Read by
 //! the theme switch and the settings push/pop.
 //!
 //! Only SYNCHRONOUS mutations: the new snapshot is taken as `mutate` returns.

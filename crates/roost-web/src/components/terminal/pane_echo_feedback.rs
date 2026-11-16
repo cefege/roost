@@ -1,9 +1,7 @@
 //! What the pane's predictive echo does with each input answer: place a guess
 //! for an admitted keystroke, acknowledge a written batch, and wipe every
 //! guess (and the predicted caret) the moment a batch's fate is refused or
-//! uncertain. Target-independent; read by the wasm `pane_mount::echo`. Ports
-//! `reportImmediateRejection` / `watchAcceptedAdmission` of
-//! `apps/web/src/components/terminal/cell-terminal-input.ts`.
+//! uncertain. Target-independent; read by the wasm `pane_mount::echo`.
 
 use roost_client_core::InputOutcome;
 use roost_client_core::terminal::input::outcome_feed::ViewAdmission;

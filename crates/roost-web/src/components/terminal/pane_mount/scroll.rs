@@ -2,9 +2,7 @@
 //! scroll parks or follows the reader and pages history, the jump-to-bottom
 //! button resumes it, a box resize re-pins the reader, and a lifted pointer
 //! resumes a DOM repair a gesture deferred.
-//! Called from the pane's listeners in `browser`. Ports the scroll arms of
-//! `apps/web/src/components/terminal/cell-terminal-lifecycle.ts` and
-//! `cell-terminal-dom-repair.ts`.
+//! Called from the pane's listeners in `browser`.
 
 use roost_web_terminal::terminal_presentation::TerminalPresentationState;
 use roost_web_terminal::{BOTTOM_FOLLOW_SETTLE_MS, ReaderIntent};

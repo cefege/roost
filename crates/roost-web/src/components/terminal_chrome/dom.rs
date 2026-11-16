@@ -1,9 +1,6 @@
 //! The browser halves of the terminal chrome: blurring a mounted field, and
 //! the file input a picker opens. Target-independent rules live in the
 //! components; this module exists so a `web_sys` type never appears in one.
-//! Ports the `HTMLTextAreaElement` / `HTMLInputElement` reaches of
-//! `apps/web/src/components/terminal/TerminalComposeButton.tsx` and
-//! `apps/web/src/renderer/terminalComposeSelection.ts`.
 
 use dioxus::prelude::*;
 #[cfg(target_arch = "wasm32")]

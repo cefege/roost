@@ -7,11 +7,6 @@
 //! blip has told a human a six-digit number and then forgotten it. So a
 //! transient failure retries and keeps everything, and only a considered refusal
 //! retires the ceremony.
-//!
-//! Ports `apps/web/src/client/auth/pairing-transient-error.ts` and the two
-//! `backoffDelayMs` call sites in
-//! `apps/web/src/store/auth/pair-approval-lifecycle.ts:68-73,149-155` and
-//! `onboarding-pairing-ceremony.ts:28-30,130-140`.
 
 use roost_client_core::client::carriers::retry_delay_ms as carrier_retry_delay_ms;
 use roost_client_core::client::rpc::{AuthFailureKind, CallError, ConnectCode};
@@ -80,8 +75,7 @@ impl ApprovalFailure {
     /// An `Unauthenticated` is an authority loss ONLY when the coordinator
     /// classifies it as a device rejection, which `methods.rs:32-42` decides by
     /// method name. On the other methods the same code is a stale credential
-    /// behind a front door, and v2 retries it
-    /// (`pair-approval-lifecycle.ts:68-73`); treating every 401 as terminal
+    /// behind a front door, and it is retried; treating every 401 as terminal
     /// would strand an approver whose credential had merely aged out.
     pub fn classify(error: &CallError, method: &str) -> Self {
         if error.code() == Some(&ConnectCode::Unauthenticated)

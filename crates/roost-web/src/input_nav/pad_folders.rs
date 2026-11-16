@@ -3,7 +3,6 @@
 //! session id. Pure over a folder list, so the cycling contract has exactly one
 //! implementation. Called by `pad_router`; the list comes from the shell's
 //! folder groups through `PadSurfaces::folder_cycle`.
-//! Ported from `apps/web/src/lib/padFolders.ts`.
 
 /// One sidebar folder, as far as the cycle cares.
 #[derive(Debug, Clone, PartialEq, Eq)]

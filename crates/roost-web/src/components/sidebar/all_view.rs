@@ -1,6 +1,6 @@
 //! The Folders panel body: the no-machines empty state until a worker exists,
 //! then the always-mounted `FolderList`, interactive only while the panel is.
-//! Ports `apps/web/src/components/sidebar/AllView.tsx`; `SidebarRoot` renders it.
+//! `SidebarRoot` renders it.
 
 use dioxus::prelude::*;
 

@@ -16,8 +16,7 @@ const DICTATION_SCROLLBACK_ROWS: usize = 250;
 /// The live terminal context one dictation is scored against.
 ///
 /// The composer's own draft is added by `super::terminal_chrome::composer`; this
-/// supplies the two halves the renderer owns. Ports v2's `readContext` at
-/// `cell-terminal-input.ts:190`.
+/// supplies the two halves the renderer owns.
 pub(super) fn dictation_context(
     panes: super::pane_registry::PaneRegistry,
     session_id: &str,

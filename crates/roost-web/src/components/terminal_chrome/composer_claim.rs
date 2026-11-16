@@ -17,12 +17,9 @@
 //! reactive dependency. Without it the effect runs once at mount and the claim
 //! is frozen at whatever the drawer was doing then.
 //!
-//! Ports `activeViewportToken` / `composerActive` from
-//! `apps/web/src/components/terminal/TerminalComposeButton.tsx`, where Solid
-//! unmounts the portaled dock under the drawer and disposing it drops the
-//! composer owner. Here the dock is covered two ways — the pane stops mounting
-//! it, and the composer itself renders nothing — so the claim follows the
-//! visibility answer instead of the component's lifetime.
+//! The dock is covered two ways — the pane stops mounting it, and the composer
+//! itself renders nothing — so the claim follows the visibility answer instead
+//! of the component's lifetime.
 
 use std::rc::Rc;
 

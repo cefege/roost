@@ -19,9 +19,6 @@
 //! - a `send` that throws is reported as `false`, never propagated: a write that
 //!   did not happen is a fact the state machine settles, not an exception raised
 //!   in the middle of a keystroke.
-//!
-//! Ported from `apps/web/src/store/transport/local-terminal.ts:126-141` (`start`,
-//! `sendFrame`, `finish`).
 
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;

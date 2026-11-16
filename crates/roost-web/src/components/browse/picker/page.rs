@@ -2,7 +2,7 @@
 //! composition of the four bands from the store read the shell already holds.
 //! Called by `browse::picker::BrowsePicker`; the handlers come from
 //! `picker::controls`, the markup from `picker::regions`. It holds no state of
-//! its own. Ports `apps/web/src/components/browse/WorkerBrowsePage.tsx`.
+//! its own.
 
 use dioxus::prelude::*;
 

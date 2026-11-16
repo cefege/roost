@@ -2,8 +2,7 @@
 //! terminal phase marks, always on, so an ordinary cold navigation can be
 //! measured without enabling diagnostics first. Marked from the app entry,
 //! the pump's Sync delivery, the pane mount and the smoke paint proofs; read
-//! through `window.__roostPhaseTimeline()`. Ports `apps/web/src/browser/diag.ts`
-//! (`markPhase`, `markPhaseOnce`, `phaseTimeline`).
+//! through `window.__roostPhaseTimeline()`.
 
 use std::cell::RefCell;
 
@@ -113,8 +112,9 @@ impl PhaseRing {
         self.write(name, Some(once_key.to_owned()), detail, clock)
     }
 
-    /// The timeline, oldest mark first, under v2's keys. `driver_epoch_ms` is
-    /// the driver's pre-navigation stamp, reported only when it is finite.
+    /// The timeline, oldest mark first, under the keys the smoke members read.
+    /// `driver_epoch_ms` is the driver's pre-navigation stamp, reported only when
+    /// it is finite.
     pub fn timeline_json(&self, clock: PhaseClock, driver_epoch_ms: Option<f64>) -> Value {
         let marks: Vec<Value> = self.retained().map(mark_json).collect();
         json!({

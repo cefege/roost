@@ -1,8 +1,6 @@
 //! One terminal card in the mobile terminal grid: a header (glyph, title,
 //! subtitle and close control) over a preview of the terminal's newest
 //! painted rows, with swipe-to-close. Rendered by DECK's mobile tab sheet.
-//! Ports `apps/web/src/components/terminal/TerminalCard.tsx` and the
-//! `renderPreview` of `apps/web/src/renderer/terminalPreview.ts`.
 
 use dioxus::prelude::*;
 use roost_client_core::store::Session;
@@ -20,7 +18,7 @@ use crate::session_naming::{program_subtitle, session_title};
 /// How long a dismissed card slides before it closes.
 const DISMISS_SLIDE_MS: u64 = 180;
 
-/// The card. Props are v2's, snake-cased.
+/// The card.
 #[component]
 #[allow(clippy::too_many_arguments)]
 pub fn TerminalCard(
@@ -45,7 +43,7 @@ pub fn TerminalCard(
             .or_else(|| program_subtitle(store, &session));
         (session_title(store, &session), subtitle)
     };
-    // Taken once, when the card mounts (the sheet opens), like v2.
+    // Taken once, when the card mounts (the sheet opens).
     let preview = use_hook(|| panes.preview_rows(session.id.as_str()));
     let mut swipe = use_signal(CardSwipe::default);
     let mut swiping = use_signal(|| false);

@@ -1,8 +1,6 @@
 //! The desktop sidebar region: the collapsed/expanded rail's container, the
 //! `sidebar-desktop` slot the sidebar surface mounts into, and the resizer.
-//! Ported from the `workbench-sidebar-region` arm of
-//! `apps/web/src/components/layout/AppShell.tsx`; mounted by `AppShell` on a
-//! desktop layout.
+//! Mounted by `AppShell` on a desktop layout.
 //!
 //! THE REGION IS A SLOT: it owns the width, the collapse state and the resizer,
 //! not a session list. A collapsed region is `inert` and `aria-hidden`, not

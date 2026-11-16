@@ -5,9 +5,8 @@
 //! transport moves bytes and reports a refusal verbatim, and decoding either end
 //! belongs to whoever owns the generated types.
 //!
-//! The shape it reproduces is v2's `createConnectTransport({ useBinaryFormat:
-//! true })` (`apps/web/src/client/rpc/connect.ts`): one POST per call, a
-//! protobuf body with no five-byte envelope, and three headers that are not
+//! The shape is a Connect unary transport with the binary format: one POST per
+//! call, a protobuf body with no five-byte envelope, and three headers that are not
 //! optional. It is UNARY because every RPC in the contract is unary; adding a
 //! server-streaming method to this trait would be a protocol change, not a
 //! transport change.
@@ -45,10 +44,10 @@ pub struct UnaryRequest {
     pub body: Vec<u8>,
     /// The bearer credential, when one could be minted.
     ///
-    /// `None` is a real state and the caller sends anyway: v2's interceptor
-    /// caught a signing failure, signalled it, and issued the request
-    /// unauthenticated, because a device that cannot sign is a device whose
-    /// bootstrap calls still have to reach the coordinator.
+    /// `None` is a real state and the caller sends anyway: a signing failure is
+    /// signalled and the request goes out unauthenticated, because a device that
+    /// cannot sign is a device whose bootstrap calls still have to reach the
+    /// coordinator.
     pub bearer: Option<String>,
 }
 
@@ -81,7 +80,7 @@ pub enum ConnectTransportError {
     },
     /// The coordinator refused the call. The response is whole so the caller
     /// can read the Connect code out of the body and the auth layer out of the
-    /// headers — v2's `classifyAuthFailure` needs both.
+    /// headers — the auth classifier needs both.
     Refused(UnaryResponse),
     /// The response body could not be read. A distinct case from `Network`
     /// because the request DID reach the coordinator and may have committed.
@@ -134,7 +133,7 @@ pub struct FetchConnectTransport {
 impl FetchConnectTransport {
     /// A transport against `base_url`, presenting `tab_id` on every call.
     ///
-    /// The tab id is the identity of THIS document, and v2 set it
+    /// The tab id is the identity of THIS document, and it is set
     /// unconditionally and independently of auth: a request that arrives without
     /// it cannot be correlated with a socket, and the coordinator uses it to
     /// attribute the row in `audit_log`.

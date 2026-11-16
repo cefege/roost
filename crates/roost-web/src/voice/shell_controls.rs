@@ -2,8 +2,7 @@
 //!
 //! A pad binding and a keyboard shortcut reach dictation from outside the DOM,
 //! and only the mounted composer owns the recording — so it publishes its
-//! commands here and the page keeps one, exactly as `voiceControls()` did in
-//! `apps/web/src/voice/voiceState.ts`. The registry is a `thread_local` because
+//! commands here and the page keeps one. The registry is a `thread_local` because
 //! the reader is a poll callback with no component to re-render.
 //!
 //! Identity is the claim's token, so a replacement composer can register before

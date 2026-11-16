@@ -3,8 +3,7 @@
 //! locally at once, and escalates to recovering the owning generation only if
 //! the deadline passes unreconciled. Both steps wait out a pointer gesture so
 //! live DOM never moves under the reader's hand. Target-independent; the wasm
-//! pane mount supplies the host and fires `on_deadline`. Ports
-//! `apps/web/src/components/terminal/cell-terminal-dom-repair.ts`.
+//! pane mount supplies the host and fires `on_deadline`.
 
 use roost_web_terminal::RendererEpochSeq;
 

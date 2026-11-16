@@ -1,7 +1,6 @@
 //! The folder picker's header band: close, the folder and its machine, the
 //! filter, files, and New folder actions, and the machine switcher when several
-//! machines are online. Called by `browse::picker`; ports
-//! `apps/web/src/components/browse/BrowseToolbar.tsx`. The switcher is the `ui`
+//! machines are online. Called by `browse::picker`. The switcher is the `ui`
 //! dropdown menu, which places it and handles its dismissal.
 
 use dioxus::prelude::*;

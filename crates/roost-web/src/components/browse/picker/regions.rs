@@ -1,8 +1,7 @@
 //! The picker's markup: the toolbar band, the path band, the entry region (or
 //! the machine-unavailable panel), the launch bar and the new-folder dialog.
 //! Every value arrives computed and every control reports back; the page owns
-//! the state and the store owns the directory. Called by `browse::picker::page`;
-//! ports `apps/web/src/components/browse/WorkerBrowsePage.tsx`.
+//! the state and the store owns the directory. Called by `browse::picker::page`.
 
 #![allow(clippy::too_many_arguments)]
 

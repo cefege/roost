@@ -3,9 +3,8 @@
 //! The engine decision in `super::engine` is pure; this is the half that has to
 //! look at the window, and it is separate because a browser without an
 //! `AudioContext` and a page served over plain http are different refusals with
-//! different fixes. Ports the probing half of
-//! `apps/web/src/components/MobileVoiceInput.tsx` (`webSupported`,
-//! `deepgramSupported`) and of `voiceState.ts` (`probeMicPermission`).
+//! different fixes. It probes the Deepgram and Web Speech support and the
+//! microphone permission.
 
 use std::cell::Cell;
 

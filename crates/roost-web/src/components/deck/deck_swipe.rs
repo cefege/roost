@@ -2,9 +2,7 @@
 //! settle timing, the end-of-list affordances, the arm/track/end state
 //! machine the touch adapter drives, and when the route has outlived a swipe.
 //! Read by `terminal_deck_swipe` (wasm) and `deck_swipe_style`; the
-//! card-dismiss pair is read by the terminal card grid. Pure; ports
-//! `apps/web/src/lib/deckSwipe.ts` and the transitions of
-//! `apps/web/src/components/deck/terminal-deck-swipe.ts`.
+//! card-dismiss pair is read by the terminal card grid. Pure.
 
 /// A deliberate drag commits at 40% of the width.
 pub const SWITCH_DIST_FRAC: f64 = 0.4;

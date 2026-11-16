@@ -1,8 +1,7 @@
 //! Settings → Network → Machines: the registered fleet, one row each.
 //!
-//! Ports `apps/web/src/components/Settings/MachinesPane.tsx`; each row is
-//! `machine_row::MachineRowView`, the port of `MachineCard.tsx`. The list comes
-//! from the store's worker registry, which is the Sync feed's projection.
+//! Each row is `machine_row::MachineRowView`. The list comes from the store's
+//! worker registry, which is the Sync feed's projection.
 //!
 //! "Add machine" mounts `machines::deploy_dialog::MachineDeployDialog` for as
 //! long as the reader is enrolling one, so the dialog's identity read, its mint

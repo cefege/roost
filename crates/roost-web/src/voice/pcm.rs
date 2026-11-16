@@ -6,7 +6,6 @@
 //! that is fast-forwarded or slowed rather than as an error. The browser hands
 //! float mono at whatever rate the context runs (48 kHz on most machines); the
 //! engine needs signed 16-bit mono at 16 kHz in fixed-size chunks.
-//! Ports the resampler half of `apps/web/src/voice/audioPcmCapture.ts`.
 
 /// The rate the engine's URL declares, and therefore the rate its decoder
 /// assumes. Anything else is a transcript at the wrong speed.

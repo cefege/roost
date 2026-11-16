@@ -2,8 +2,7 @@
 //! performance counters. Both are always on and document-scoped, because the
 //! questions they answer ("how long did this cold navigation take to paint?",
 //! "how much of that window was main-thread jank?") cannot be asked after the
-//! fact. Read by the smoke members; ports `apps/web/src/browser/diag.ts`'s
-//! phase recorder and `apps/web/src/browser/leakWatch.ts`.
+//! fact. Read by the smoke members.
 
 pub mod perf_counters;
 pub mod phase_marks;

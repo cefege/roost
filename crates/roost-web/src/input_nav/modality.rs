@@ -7,7 +7,6 @@
 //! browser reads (query, UA) and the root-attribute writes live in
 //! `modality_dom`. Called by `spatial_dom`, `gamepad_source`, `pad_router`, the
 //! terminal components and Settings. Depends on `roost_client_core::KeyValueStore`.
-//! Ported from `apps/web/src/lib/{tvMode,padMode,directionalInput}.ts`.
 
 use roost_client_core::KeyValueStore;
 

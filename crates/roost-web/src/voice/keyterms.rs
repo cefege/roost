@@ -5,8 +5,7 @@
 //! failure is not silence but a confident wrong word. Scoring the visible grid,
 //! the recent scrollback and the operator's own typing costs nothing at open
 //! time and fixes the most common of those.
-//! Ports `apps/web/src/voice/keytermContext.ts`, with the stop set in
-//! `super::keyterm_stopwords`.
+//! The stop set is in `super::keyterm_stopwords`.
 
 use std::collections::HashMap;
 use std::rc::Rc;

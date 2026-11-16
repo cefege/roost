@@ -1,8 +1,7 @@
 //! The session-keyed pane registry: the newest mount wins, a stale mount's
 //! unregister cannot orphan its successor, counters survive remounts, and the
-//! painted-marker search reads painted rows only. Ports the registry contract
-//! of `apps/web/src/renderer/terminalPreview.ts` (`registerRenderer`) and the
-//! preview row pick of `renderPreview`.
+//! painted-marker search reads painted rows only. It also pins the preview row
+//! pick.
 
 use std::rc::Rc;
 use std::sync::Arc;

@@ -3,8 +3,7 @@
 //! The search page keeps its query and case setting in the route so shared
 //! links and browser history restore the same search.
 //! This codec reads and serializes those parameters.
-//! Ports the parameters of `apps/web/src/components/search/GlobalSearchPage.tsx:35-47`
-//! and its `updateRoute` at `:69-80`.
+
 use roost_client_core::client::global_search::GlobalSearchQuery;
 
 use crate::routes::{percent_decode, percent_encode};

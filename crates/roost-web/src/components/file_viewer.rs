@@ -8,8 +8,6 @@
 //! around whatever the answer was. The rules that turn an answer into a state
 //! are `file_viewer::state`'s, the text is `file_viewer::body`'s, and every
 //! state that is not text is `file_viewer::states`'s.
-//!
-//! Ports `apps/web/src/components/browse/FileViewerSheet.tsx`.
 
 pub mod body;
 pub mod dom;
@@ -47,8 +45,7 @@ use crate::terminal_href::{file_target, worker_os};
 use body::FileBody;
 use state::ViewerContent;
 
-/// How much of a fingerprint the header names the machine with. v2 sliced the
-/// same eight characters.
+/// How much of a fingerprint the header names the machine with.
 const FP_HEADER_CHARS: usize = 8;
 
 /// The file preview for `route`. A route that names no machine and no file has

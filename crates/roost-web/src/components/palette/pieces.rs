@@ -1,7 +1,6 @@
 //! Presentational pieces of the command palette: the kind badge, one result row
 //! and the keyboard-legend footer. Called by `palette::body` only; depends on
-//! `ui` primitives and `roost_client_core::store::palette`. Ports
-//! `CommandPalettePieces.tsx` and the row markup of `CommandPaletteBody.tsx`.
+//! `ui` primitives and `roost_client_core::store::palette`.
 //!
 //! Every colour is a theme role and every size a type-scale step, so the palette
 //! reads like the rest of the chrome in both themes. Each class string is a

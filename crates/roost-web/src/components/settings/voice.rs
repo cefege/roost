@@ -1,8 +1,7 @@
 //! Settings → Interface → Voice: dictation's provider and behaviour.
 //!
-//! Ports `apps/web/src/components/Settings/TranscriptionPane.tsx`; the language
-//! list is `voice_languages`, the Deepgram matrix this pane selects from.
-//! Depends on `roost-client-core`'s `TranscriptionGetConfig`/
+//! The language list is `voice_languages`, the Deepgram matrix this pane
+//! selects from. Depends on `roost-client-core`'s `TranscriptionGetConfig`/
 //! `TranscriptionSetConfig`/`TranscriptionTest` calls.
 //!
 //! The key is WRITE-ONLY in this surface: the coordinator returns the mask, and

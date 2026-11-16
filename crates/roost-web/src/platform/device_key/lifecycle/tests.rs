@@ -1,6 +1,5 @@
 //! Native tests for the device-key lifecycle, over a fake vault whose futures
-//! are always ready. Ports `apps/web/tests/webKeyJwtCache.test.ts` (the JWT
-//! reuse window) and the first-boot add race of `web-key.ts`.
+//! are always ready. Covers the JWT reuse window and the first-boot add race.
 
 use std::cell::{Cell, RefCell};
 use std::pin::pin;
@@ -15,7 +14,7 @@ use super::{
 };
 use crate::platform::device_key::bearer_cache::BearerCache;
 
-/// 2026-07-11T00:00:00Z, the instant v2's cache test pins its clock to.
+/// 2026-07-11T00:00:00Z, the instant the cache tests pin their clock to.
 const T0_MS: u64 = 1_783_728_000_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -199,8 +198,8 @@ fn a_public_key_of_the_wrong_width_is_refused() {
     assert!(DeviceIdentity::from_exports(&[0; 32], &[0; 20]).is_err());
 }
 
-/// v2 `webKeyJwtCache.test.ts` "reuses one token within 240s, re-mints past
-/// the TTL": zero additional signatures inside the window, a new `iat` past it,
+/// A bearer is reused within 240s and re-minted past the TTL:
+/// zero additional signatures inside the window, a new `iat` past it,
 /// and the new token becomes the cached one.
 #[test]
 fn a_bearer_is_reused_within_the_window_and_re_minted_past_it() {

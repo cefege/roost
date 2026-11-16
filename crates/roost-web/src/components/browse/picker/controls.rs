@@ -2,8 +2,7 @@
 //! the store read the page already holds. Split from `picker::page` for the line
 //! cap: this file is wiring, and the page beside it is lifecycle.
 //!
-//! Called by `browse::picker::page`. Ports the handler half of
-//! `apps/web/src/components/browse/WorkerBrowsePage.tsx`.
+//! Called by `browse::picker::page`.
 
 use dioxus::prelude::*;
 use roost_client_core::store::browse_state::intent::BrowseIntent;

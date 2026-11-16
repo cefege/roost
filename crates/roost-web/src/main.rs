@@ -7,9 +7,8 @@
 //! any diagnostic that prints the address. The serving-origin probe runs before
 //! the graph for the same class of reason: the coordinator a page dials is
 //! decided from that answer, and a graph that started first would aim its first
-//! RPC at the WORKER whenever a worker served this document (v2
-//! `localBootstrap.ts:18-29`, `connect.ts:69-93`). Both are bounded, and both
-//! fail closed onto the page's own origin.
+//! RPC at the WORKER whenever a worker served this document. Both are bounded,
+//! and both fail closed onto the page's own origin.
 //! This is a `main`, not a `#[wasm_bindgen(start)]`, because `dx` builds a
 //! binary target: a wasm-bindgen start hook is only found in a library, and a
 //! `cdylib`-only crate has no `main` for the native build of the same tree.

@@ -1,6 +1,5 @@
 //! The palette's body: the catalog, the filter, the result rows and the list
-//! keys. Ports `apps/web/src/components/palette/CommandPaletteBody.tsx`; the
-//! rows and the legend it renders live in `palette::pieces`.
+//! keys. The rows and the legend it renders live in `palette::pieces`.
 //!
 //! The body exists only while the palette is open, which is what makes "clear
 //! the query and focus the field on open" a mount-time fact instead of a reset

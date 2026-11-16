@@ -15,7 +15,7 @@
 /// Whether the compact shell should mount the portaled composer dock for this
 /// pane.
 ///
-/// The same five conditions v2 gates on: the pane is in the layout, it is the
+/// Five conditions must hold: the pane is in the layout, it is the
 /// focused one, the shell is compact, the drawer is not over it, and its
 /// surface is actually visible. A composer portaled over a hidden surface is a
 /// composer the user cannot see and cannot dismiss.

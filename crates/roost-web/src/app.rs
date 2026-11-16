@@ -1,7 +1,7 @@
 //! The router: which surface a path names, the gate every protected surface
 //! waits behind, and the authorized shell's context (router, overlays,
-//! keyboard). Ported from `apps/web/src/App.tsx`'s `RootShell` and route table,
-//! with `routes::Route` as the only URL grammar; mounted by `crate::App`.
+//! keyboard), with `routes::Route` as the only URL grammar; mounted by
+//! `crate::App`.
 //!
 //! THE GATE IS THE CLOSED DEFAULT. `BrowserAccessState::Checking` is where the
 //! store starts and where an auth-generation advance puts it back, so a client
@@ -40,7 +40,7 @@ pub enum ServedSurface {
     /// `/` — the landing page inside the workbench.
     Home,
     /// Every terminal route plus `/file/…` and `/search`: ONE surface, so moving
-    /// between them keeps the pane and its deck mounted (v2's path-array route).
+    /// between them keeps the pane and its deck mounted (one path-array route).
     MainPane,
     /// `/settings` and `/settings/:pane` — the settings shell, which owns the
     /// rail itself because the rail is route state and not chrome.
@@ -58,8 +58,8 @@ pub enum ServedSurface {
 }
 
 impl ServedSurface {
-    /// Whether the surface is drawn inside `AppShell` (v2 nests every route but
-    /// `/pair` and `/design` under the shell route).
+    /// Whether the surface is drawn inside `AppShell`: every route but `/pair`
+    /// and `/design` lives under the shell route.
     pub const fn in_shell(self) -> bool {
         !matches!(self, Self::Design | Self::Pair)
     }
@@ -162,7 +162,7 @@ pub fn GatedApp() -> Element {
         // The unauthorized branch draws nothing of its own: the pairing
         // surface below draws the requester panel at every path, so an unpaired
         // reader at `/`, `/settings/devices` or `/search` gets the working
-        // requester card (v2 `App.tsx:149-151`).
+        // requester card.
         Gate::Unauthorized => rsx! {},
         Gate::Authorized => rsx! {
             // The UI bridge is a SIBLING of the shell, not a child of it: its
@@ -177,21 +177,21 @@ pub fn GatedApp() -> Element {
     // The pairing surface sits OUTSIDE the gate, at a fixed place in this
     // template, so `checking → unauthorized → authorized` never remounts it:
     // the requester's recovery poll that finishes a ceremony after the gate
-    // flipped, and the approver's code dialog, both live in its scope (v2
-    // mounts both providers above the gate, `App.tsx:138-141`).
+    // flipped, and the approver's code dialog, both live in its scope: both
+    // providers sit above the gate.
     rsx! {
         {gated}
         crate::components::pairing::PairSurface {}
         // Last, so a portaled fixed box stacks above every surface rendered
-        // before it at the same z-index, as v2's `<body>` children do.
+        // before it at the same z-index.
         crate::components::layout::portal::PortalRoot {}
     }
 }
 
 /// The document-wide input owners, installed once for the life of the root:
 /// the TV/pad modality on `<html>`, D-pad spatial navigation, the Gamepad poll
-/// and its shell, the global keyboard router (v2 `main.tsx`
-/// `applyTvMode`/`applyPadMode` and `App`'s `onMount`), and the guard that
+/// and its shell, the global keyboard router (applied once at start-up and in
+/// the root's mount), and the guard that
 /// keeps a file dropped on the page from opening in the tab.
 #[cfg(target_arch = "wasm32")]
 fn install_document_input(pump: crate::pump::Pump, path: Signal<String>) {
@@ -259,7 +259,7 @@ struct PadShellContext {
 ///
 /// The poll owns the button→intent mapping and the router owns what an intent
 /// means; this only joins them to the store, the overlays, the deck and the
-/// router, which is the wiring `apps/web/src/App.tsx` did at `onMount`.
+/// router, wired once when the root mounts.
 ///
 /// NOT a component, and deliberately hook-free: its caller runs it from inside a
 /// `use_hook` initializer, where a hook would re-borrow the list that
@@ -295,7 +295,7 @@ fn install_gamepad_router(
 }
 
 /// The overlay hosts an authorized browser mounts once identity discovery has
-/// settled (v2 `RootShell`'s `coordinatorDiscovered` group).
+/// settled: the group that needs the coordinator's identity.
 #[component]
 fn AuthorizedOverlays() -> Element {
     let pump = crate::pump::use_store();

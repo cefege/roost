@@ -1,13 +1,11 @@
 //! The requester's state and the hook that drives it: one ceremony for the
 //! pairing surface, whether that surface is the unauthorized gate or `/pair`.
 //!
-//! Ported from `apps/web/src/components/pairing/PairingRequesterProvider.tsx`
-//! and the controller it creates. Its owner, `PairSurface`, is mounted by
-//! `app::GatedApp` above the access gate, as v2 mounts the provider, so a
-//! `checking → unauthorized → authorized` transition never drops the loop: the
-//! recovery poll that answers a lost confirmation finishes the ceremony (clears
-//! the tab-scoped record, opens home) after the gate has already flipped. A
-//! reload restores the ceremony from that record on mount.
+//! Its owner, `PairSurface`, is mounted by `app::GatedApp` above the access
+//! gate, so a `checking → unauthorized → authorized` transition never drops the
+//! loop: the recovery poll that answers a lost confirmation finishes the
+//! ceremony (clears the tab-scoped record, opens home) after the gate has
+//! already flipped. A reload restores the ceremony from that record on mount.
 
 mod driver;
 
@@ -177,8 +175,7 @@ impl PairingRequester {
 /// Create the request, then poll it until the ceremony ends.
 ///
 /// The loop IS the future, so unmounting the surface drops it: a page that
-/// navigated away mid-ceremony leaves no timer behind, which is the guarantee
-/// v2 gets from `onCleanup` cancelling its scheduled action.
+/// navigated away mid-ceremony leaves no timer behind.
 async fn drive(rig: RequesterRig, generation: u64) {
     if rig.is_stale(generation) {
         return;

@@ -1,8 +1,6 @@
 //! The `/help` route: the keybindings page, and the Shift+? overlay host that
-//! `HelpSurface` owns so one mount covers both. Ports
-//! `apps/web/src/components/palette/Help.tsx` (the page) and the mounting of
-//! `HelpOverlay` from `App.tsx`; the overlay itself is `help::overlay` and both
-//! read the catalogue in `help::shortcuts`.
+//! `HelpSurface` owns so one mount covers both. The overlay itself is
+//! `help::overlay` and both read the catalogue in `help::shortcuts`.
 //!
 //! The page is not a second copy of the shortcut list: every row is a
 //! `ShortcutEntry`, so a binding cannot be right on one surface and wrong on
@@ -102,10 +100,10 @@ impl Drop for EscapeBackListener {
     }
 }
 
-/// Leave the page the way it was entered, as `navigate(-1)` did.
+/// Leave the page the way it was entered.
 ///
-/// A browser that opened `/help` directly has no entry to go back to, and v2
-/// left the reader where they were in that case too.
+/// A browser that opened `/help` directly has no entry to go back to; the reader
+/// is left where they were in that case too.
 #[cfg(target_arch = "wasm32")]
 fn go_back() {
     let moved = web_sys::window()

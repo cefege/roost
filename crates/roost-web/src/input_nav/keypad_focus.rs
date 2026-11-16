@@ -4,7 +4,6 @@
 //! turn — retry by frame, bounded, and stop as soon as a key actually took
 //! focus. The retry rule is [`FirstKeyFocusRetry`]; the frame loop is wasm.
 //! Called by `pad_dom::BrowserPadDom::start_keypad_focus`.
-//! Ported from `apps/web/src/store/terminalNavPad.ts` (`focusTerminalNavPadFirstKey`).
 
 /// The key pad's first enabled key.
 pub const KEYPAD_FIRST_KEY_SELECTOR: &str = "[data-keypad-grid] button:not(:disabled)";

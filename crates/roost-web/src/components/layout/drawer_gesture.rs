@@ -1,7 +1,6 @@
 //! The compact drawer's swipe gesture as a state machine: a left-edge touch
 //! arms an open, any touch on an open drawer arms a close, the axis locks, the
 //! drawer follows the finger, and the release commits by distance or flick.
-//! Ports the handlers of `apps/web/src/components/layout/MobileSidebarDrawer.tsx`;
 //! driven by `mobile_sidebar_drawer`'s window touch listeners, with the geometry
 //! from `motion::edge_swipe_drawer`.
 

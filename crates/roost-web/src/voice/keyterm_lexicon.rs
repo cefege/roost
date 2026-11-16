@@ -9,11 +9,10 @@
 //! Pure on purpose. Decay, pruning and the cap are arithmetic over a map, and a
 //! map is the one thing this tree can test without a browser. The host that
 //! reads and writes `roost.keytermLexicon.v1` is `super::lexicon_store`.
-//! Ports `apps/web/src/voice/keytermLexicon.ts`.
 
 use std::collections::HashMap;
 
-/// Where the persisted vocabulary lives. Verbatim v2's key.
+/// Where the persisted vocabulary lives.
 pub const STORAGE_KEY: &str = "roost.keytermLexicon.v1";
 
 /// What every remembered score is multiplied by on each merge. A term said once
@@ -142,7 +141,7 @@ mod tests {
         );
         // Twelve sessions of silence is where 0.9^n crosses 0.3: the term heard
         // once is still worth a term after a handful of quiet sessions, and not
-        // after a dozen. The constants are v2's, so the number is theirs too.
+        // after a dozen.
         assert_eq!(rounds, 12);
         assert!(DECAY.powi(11) >= PRUNE_BELOW && DECAY.powi(12) < PRUNE_BELOW);
     }

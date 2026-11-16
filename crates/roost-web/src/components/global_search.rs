@@ -10,9 +10,6 @@
 //! against the search that asked for it belongs to `roost_client_core`. What is
 //! left for this module is reading that state, asking for the pages it has not
 //! read yet, and telling the reader what it has.
-//!
-//! Ports `apps/web/src/components/search/GlobalSearchPage.tsx` and
-//! `GlobalSearchContentResults.tsx`, over `roost_client_core::client::global_search`.
 
 pub mod content;
 pub mod driver;

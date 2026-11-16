@@ -3,7 +3,6 @@
 //! the 250 ms grace that absorbs a zero-sized deck instead of withdrawing.
 //! Target-independent: the pane's wasm mount arms real timers at
 //! `next_deadline_ms` and an animation frame while `wants_animation_frame`.
-//! Ports `apps/web/src/components/terminal/cell-terminal-viewport.ts`.
 
 /// Trailing debounce of a resize burst.
 pub const VIEWPORT_DEBOUNCE_MS: u64 = 50;

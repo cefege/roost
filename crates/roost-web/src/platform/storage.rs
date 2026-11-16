@@ -6,9 +6,8 @@
 //! Every operation is best-effort and none of them reports failure, because the
 //! trait has no way to: a browser in private mode throws `QuotaExceededError` on
 //! `setItem` and a Safari tab with cookies blocked throws on `localStorage`
-//! access itself. v2 reached the same conclusion the same way — each preference
-//! wrapped its own `try`/`catch` and updated its in-memory signal first
-//! (`apps/web/src/store/sync-frame.ts`). The state machine stays correct when
+//! access itself. Each preference wraps its own failure and updates its
+//! in-memory signal first. The state machine stays correct when
 //! the watermark does not persist: the next dial is a full hydration instead of a
 //! backfill, which is slower and never wrong.
 

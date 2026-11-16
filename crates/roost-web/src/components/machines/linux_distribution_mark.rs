@@ -1,8 +1,7 @@
 //! Local Linux distribution marks for a machine's identity, as inline SVG that
-//! inherits `currentColor`. Ports
-//! `apps/web/src/components/machines/LinuxDistributionMark.tsx`; paths are
-//! vendored from Simple Icons (https://github.com/simple-icons/simple-icons),
-//! CC0 1.0. `MachineIdentityMark` renders it.
+//! inherits `currentColor`. Paths are vendored from Simple Icons
+//! (https://github.com/simple-icons/simple-icons), CC0 1.0.
+//! `MachineIdentityMark` renders it.
 
 use dioxus::prelude::*;
 

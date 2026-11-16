@@ -1,8 +1,7 @@
 //! The reuse window for a signed coordinator JWT: one Ed25519 signature per
 //! [`JWT_CACHE_TTL_MS`], not one per request. Owned by `platform::device_key`,
 //! whose `bearer` consults it before signing. Target-independent and natively
-//! tested; the window constant is the client core's. Ported from the
-//! `_cachedJwt` rule in `apps/web/src/client/auth/web-key.ts`.
+//! tested; the window constant is the client core's.
 
 use roost_client_core::client::auth::jwt::{CoordinatorJwt, JWT_CACHE_TTL_MS};
 
@@ -15,10 +14,10 @@ pub struct BearerCache {
 impl BearerCache {
     /// The cached token, if `now_ms` is still inside its reuse window.
     ///
-    /// v2's `age >= 0 && age < JWT_CACHE_TTL_MS`: a clock that stepped
-    /// backwards past the signing instant re-signs rather than serving a token
-    /// whose `iat` lies in the future, and a token exactly one window old is
-    /// re-signed because it has only a minute of `exp` left.
+    /// A token is reusable while `age >= 0 && age < JWT_CACHE_TTL_MS`: a clock
+    /// that stepped backwards past the signing instant re-signs rather than
+    /// serving a token whose `iat` lies in the future, and a token exactly one
+    /// window old is re-signed because it has only a minute of `exp` left.
     pub fn reusable(&self, now_ms: u64) -> Option<&str> {
         let (token, signed_at_ms) = self.signed.as_ref()?;
         let age_ms = now_ms.checked_sub(*signed_at_ms)?;

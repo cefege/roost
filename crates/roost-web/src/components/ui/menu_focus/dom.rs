@@ -39,7 +39,7 @@ type StepCell = Rc<RefCell<Option<Closure<dyn FnMut()>>>>;
 
 /// Focus the menu `menu_id`'s first or last enabled item once it has mounted.
 ///
-/// The first attempt is a microtask, as in v2: the opening key's render runs
+/// The first attempt is a microtask: the opening key's render runs
 /// in an earlier microtask of the same task, so the item is focused before
 /// the next key arrives and that key reaches the menu, not the trigger. A
 /// portal that misses it is retried by frame.

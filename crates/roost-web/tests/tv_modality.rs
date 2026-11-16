@@ -2,7 +2,7 @@
 //! signal (a pointerless viewport once switched real desktops into a D-pad UI
 //! that suppresses PTY focus), `?tv=` wins over storage and persists because an
 //! unpaired TV cannot reach Settings, and a stored value this build did not
-//! write reads as `auto`. Pins `apps/web/src/lib/tvMode.ts`.
+//! write reads as `auto`.
 
 use roost_client_core::{KeyValueStore as _, MemoryKeyValueStore};
 use roost_web::input_nav::modality::{

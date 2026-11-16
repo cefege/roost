@@ -1,8 +1,8 @@
 //! Browser OS detection and the one application-shortcut map. Terminal-facing
 //! code asks this module rather than treating Ctrl as Command: on Windows a plain
-//! Ctrl+letter belongs to the PTY and Ctrl+Alt may be AltGraph. Ports
-//! `apps/web/src/browser/browserPlatform.ts`; read by `keyboard_shortcuts`, the
-//! shell's sidebar toggle, the deck's pane chords and the terminal's link key.
+//! Ctrl+letter belongs to the PTY and Ctrl+Alt may be AltGraph. Read by
+//! `keyboard_shortcuts`, the shell's sidebar toggle, the deck's pane chords and
+//! the terminal's link key.
 //!
 //! Pure: a key event is the plain [`ShortcutKey`] record, not a DOM event.
 

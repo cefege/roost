@@ -60,7 +60,7 @@ pub fn navigate(href: &str) {
     }
 }
 
-/// Replace the document with `href`, reloading it (v2 `location.replace`). The
+/// Replace the document with `href`, reloading it. The
 /// one navigation that is meant to tear the client down: a redeemed pairing
 /// re-boots the page as a paired key.
 #[cfg(target_arch = "wasm32")]
@@ -75,8 +75,8 @@ pub fn replace_location(href: &str) {
 ///
 /// The one reload that is not a navigation: the address does not change, so the
 /// re-mounted document re-reads the same tab-scoped records and resumes whatever
-/// it was following. v2 reaches for it in exactly one place — an approver whose
-/// code the client can no longer track (`PairApprovalProvider.tsx:360`) — and
+/// it was following. Used in exactly one place — an approver whose
+/// code the client can no longer track — and
 /// the address-preserving part is the whole point: replacing to `/` would throw
 /// the reader out of the page they were on to fix.
 #[cfg(target_arch = "wasm32")]
@@ -89,7 +89,7 @@ pub fn reload_document() {
 /// Hand a non-web URL (`vnc://`, `smb://`) to the operator's OS by assigning
 /// `location.href`; the document stays because the browser routes the scheme
 /// to its registered client. `window.open(_, "_self")` is NOT equivalent: it
-/// silently does nothing for a protocol handler, which made every v2 machine
+/// silently does nothing for a protocol handler, which would make every machine
 /// action look dead.
 #[cfg(target_arch = "wasm32")]
 pub fn hand_off_to_os(href: &str) -> bool {

@@ -1,7 +1,6 @@
 //! Every decision the workbench chrome makes from a pathname and the layout
-//! switches, as pure functions. Ported from `apps/web/src/lib/workbenchTitle.ts`
-//! and the two projection memos in `components/layout/WorkbenchStatusBar.tsx`;
-//! the phone-size boundary itself is `hooks::use_is_mobile`'s media query.
+//! switches, as pure functions. The phone-size boundary itself is
+//! `hooks::use_is_mobile`'s media query.
 //!
 //! Nothing here reads a clock, a DOM node or the store. The components call
 //! these with values they already hold, which is what lets the TV rule, a title
@@ -25,8 +24,8 @@ pub fn is_compact_shell(phone_sized: bool, tv_layout: bool) -> bool {
 
 /// Which activity-rail destination a pathname selects.
 ///
-/// A destination is a PREFIX match, exactly as v2's memos were: `/settings/machines`
-/// and `/settings` are the same destination, and a path that matches none of them
+/// A destination is a PREFIX match: `/settings/machines` and `/settings` are the
+/// same destination, and a path that matches none of them
 /// highlights nothing rather than defaulting to the first item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Destination {
@@ -152,10 +151,9 @@ pub fn workbench_title(
     // ONLY A TERMINAL ROUTE HAS A SESSION TO NAME. The root is the workbench, and
     // `/settings` is the settings shell: neither resolves to a session, so a
     // store that still holds one from a previous route must not put that
-    // session's name in the title bar. v2 gets this by construction —
-    // `activeSessionForPath` returns null for both — and the port has to make the
-    // same exclusion explicit, because here the session arrives as an argument
-    // rather than as something the path looked up.
+    // session's name in the title bar. The exclusion is explicit because the
+    // session arrives as an argument rather than as something the path looked
+    // up.
     let is_terminal = is_terminal_path(pathname);
     if is_terminal && (session_title.is_some() || session_folder.is_some()) {
         let title = session_title
@@ -263,12 +261,11 @@ pub struct CoordinatorHealth {
 
 /// The status bar's health, read off the live Sync link.
 ///
-/// v2 polls `misc.health` every five seconds and publishes the answer on
-/// `window`; this build runs no poller and needs none, because the link carries
-/// the same evidence and carries it continuously. A link that is open says the
-/// coordinator is answering, and how long ago it last said so is exactly the
-/// staleness the window is about. A second timer re-asking a socket the store
-/// already watches would be a second source of truth about one link.
+/// There is no `misc.health` poller: the link carries the evidence
+/// continuously. A link that is open says the coordinator is answering, and how
+/// long ago it last said so is exactly the staleness the window is about. A
+/// second timer re-asking a socket the store already watches would be a second
+/// source of truth about one link.
 ///
 /// `link_idle_ms` is the Sync link's own answer — `Some` exactly while a socket
 /// is open — so there is no second notion of "is the coordinator up" to keep in

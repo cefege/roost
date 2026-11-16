@@ -1,8 +1,7 @@
 //! Every style the compact deck paints from a live swipe: the slot slide, the
 //! phone bar riding with its card, the new-terminal peel and FAB, and the peek
 //! surface behind them. Read by `terminal_deck`, `terminal_deck_chrome` and
-//! `terminal_deck_swipe_overlay`. Pure; ports the presentation half of
-//! `apps/web/src/lib/deckSwipe.ts`.
+//! `terminal_deck_swipe_overlay`. Pure.
 
 use roost_client_core::store::layout::PaneRect;
 

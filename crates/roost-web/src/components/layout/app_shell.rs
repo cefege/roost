@@ -1,4 +1,9 @@
-//! The canonical application shell: the desktop workbench grid (rail, sidebar region, editor, status bar) and the compact layout (top bar, drawer). Ported from `apps/web/src/components/layout/AppShell.tsx`; mounted by `app::AuthorizedShell` around every route inside the shell. The route content (MainPane, HomeLanding, …) arrives as `children` in the editor slot; the sidebar surface mounts ONCE — in the desktop region or in the compact drawer, never both.
+//! The canonical application shell: the desktop workbench grid (rail, sidebar
+//! region, editor, status bar) and the compact layout (top bar, drawer). Mounted
+//! by `app::AuthorizedShell` around every route inside the shell. The route
+//! content (MainPane, HomeLanding, …) arrives as `children` in the editor slot;
+//! the sidebar surface mounts ONCE — in the desktop region or in the compact
+//! drawer, never both.
 //!
 //! Geometry decisions are `shell_style` and `shell_metrics`; the listeners (sidebar-toggle chord, page-show reset, `--roost-main-left`) are `app_shell_dom`.
 
@@ -49,7 +54,7 @@ pub struct SessionChrome {
     pub folder: Option<String>,
 }
 
-/// v2 `workbenchTitle`'s session half: the OSC title, else the cwd basename.
+/// The session half of the workbench title: the OSC title, else the cwd basename.
 pub fn session_chrome(store: &Store, session: &Session) -> SessionChrome {
     SessionChrome {
         title: store.terminal_titles.get(session.id.as_str()).cloned(),

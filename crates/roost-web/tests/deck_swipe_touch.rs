@@ -2,8 +2,8 @@
 //! finger never start a tab swipe, a vertical lock leaves the gesture to the
 //! terminal for its whole life, the release speed reads only the newest
 //! samples, and every touch that ends an armed drag without a release
-//! cancels it. Pins the listener half of
-//! `apps/web/src/components/deck/terminal-deck-swipe.ts`.
+//! cancels it. Pins the listener half of the swipe (`DeckTouch` and
+//! `SwipeTouchTracker`).
 
 use roost_web::components::deck::deck_dom::DeckTouch;
 use roost_web::components::deck::deck_swipe_touch::{SwipeTouchTracker, TouchStep};

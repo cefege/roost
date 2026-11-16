@@ -1,7 +1,6 @@
-//! The sidebar's native decisions: v2 `apps/web/tests/sessionTitle.test.ts`
-//! and `machineIdentity.test.ts`, plus the row's exact route match, the swipe
-//! release rule, and the upward machine-menu placement from `SessionRow.tsx`
-//! and `SidebarNewTerminal.tsx`.
+//! The sidebar's native decisions: session titles and machine identity, plus
+//! the row's exact route match, the swipe release rule, and the upward
+//! machine-menu placement.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

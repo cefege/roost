@@ -1,7 +1,6 @@
 //! Pointer, drawer, spring and overlay motion shared by the shell, the deck and
-//! the overlays. Ports `apps/web/src/lib/{dragThreshold,drawerDrag,
-//! edgeSwipeDrawer,resizeDrag,dropZones,gridFlip,spring,overlayMotion}.ts` and
-//! `apps/web/src/browser/viewTransition.ts`.
+//! the overlays: drag threshold, drawer drag, edge swipe, resize drag, drop
+//! zones, grid flip, spring and overlay motion, and the view transition.
 //!
 //! Every decision (thresholds, offsets, zones, spring steps, owner tokens) is a
 //! native function with a test; the wasm32 adapters beside them only write

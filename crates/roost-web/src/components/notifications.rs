@@ -30,9 +30,8 @@ use dioxus::prelude::*;
 /// The one overlay column that owns where every transient notification sits, so
 /// no two can claim the same corner, beside the connection banner.
 ///
-/// The pairing request notifier v2 also mounts here belongs to the pairing
-/// surface, which owns its own card; the column is the placement, not the
-/// inventory.
+/// The pairing request notifier belongs to the pairing surface, which owns its
+/// own card; the column is the placement, not the inventory.
 #[component]
 pub fn NotificationDock() -> Element {
     // The hover ring is provided by `GatedApp`, above the gate: this dock and

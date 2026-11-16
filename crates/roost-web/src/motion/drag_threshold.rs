@@ -1,6 +1,6 @@
 //! The drag-arming gate for pointer drags: a drag arms once the pointer has
-//! travelled the threshold from its start in ANY direction. Ports
-//! `apps/web/src/lib/dragThreshold.ts`; read by the deck's pane-strip tab drag.
+//! travelled the threshold from its start in ANY direction. Read by the deck's
+//! pane-strip tab drag.
 //!
 //! Euclidean, never horizontal-only: a straight-down split-drag leaves a 40px
 //! tab before any x-delta accumulates, so an x-only gate never armed it.

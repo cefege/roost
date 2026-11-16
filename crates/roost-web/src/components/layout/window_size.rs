@@ -9,9 +9,9 @@ use dioxus::prelude::*;
 use super::shell_metrics::is_compact_shell;
 use crate::components::hooks::use_is_mobile::use_is_mobile;
 
-/// v2 `isCompact()`, TV-aware: whether this is the compact (phone) shell
-/// (`shell_metrics::is_compact_shell`). Reading it subscribes the caller to
-/// the window crossing the phone boundary.
+/// TV-aware: whether this is the compact (phone) shell
+/// (`shell_metrics::is_compact_shell`). Reading it subscribes the caller to the
+/// window crossing the phone boundary.
 pub fn use_is_compact() -> bool {
     let phone_sized = use_is_mobile();
     is_compact_shell(phone_sized(), use_tv_layout())

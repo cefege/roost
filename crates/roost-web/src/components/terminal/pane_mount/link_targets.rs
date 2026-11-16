@@ -3,9 +3,7 @@
 //! classifies a terminal path only when a resolver will mint a `/file/…` route
 //! for it, so a pane without one leaves every printed path as the plain text it
 //! arrived as. The folder is read per call because a `cd` moves it under the
-//! pane. Ports `resolveFile` and `onOpenFile` of
-//! `apps/web/src/components/terminal/cell-terminal-input.ts` and
-//! `cell-terminal-interactions.ts`.
+//! pane.
 
 use std::rc::Weak;
 

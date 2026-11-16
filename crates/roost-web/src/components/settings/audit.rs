@@ -1,9 +1,8 @@
 //! Settings → System → Audit: the coordinator's audit log, newest first.
 //!
-//! Ports `apps/web/src/components/Settings/AuditLogPane.tsx`. Depends on
-//! `roost-client-core`'s `AuditList` call; the store's own `audit_rows` is the
-//! live Sync feed, and this pane adds the paging and filtering a reader wants
-//! over a longer window than the feed retains.
+//! Depends on `roost-client-core`'s `AuditList` call; the store's own
+//! `audit_rows` is the live Sync feed, and this pane adds the paging and
+//! filtering a reader wants over a longer window than the feed retains.
 //!
 //! A refusal is a row-shaped error, not an empty table: "you may not read the
 //! audit log" and "nothing has happened" are different facts.

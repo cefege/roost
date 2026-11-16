@@ -1,19 +1,16 @@
 //! The desktop status bar: the active session's machine and context,
-//! plus the fleet counts. Ported from
-//! `apps/web/src/components/layout/WorkbenchStatusBar.tsx`.
+//! plus the fleet counts.
 //!
 //! It projects state the store ALREADY holds. Nothing here is invented: there is
 //! no synthetic source-control status, no "connected" claim the transport has
 //! not made, and no item whose absence would read as a fault.
 //!
-//! THE COORDINATOR ITEM IS ABSENT, DELIBERATELY. v2 reads a health snapshot the
-//! sync socket publishes; this port has no such publisher. The previous shape
-//! hard-coded `last_attempt_failed: false` with no `last_success_ms`, so
-//! `coordinator_state` could only ever answer `Syncing` — a status bar
-//! permanently grey and permanently mid-sync, which is a claim about the system
-//! that is not true. `shell_metrics::coordinator_state` is still there, still
-//! pure and still tested, and the item returns the moment a health source exists
-//! to feed it; nothing has to be re-derived when it does.
+//! THE COORDINATOR ITEM IS ALWAYS DRAWN. Its health comes off the live Sync
+//! link (`shell_metrics::coordinator_health_from_link`), which carries the
+//! evidence continuously. An item that vanished would be indistinguishable from
+//! a healthy one, and hard-coding `last_attempt_failed: false` would leave
+//! `coordinator_state` forever `Syncing` — a claim about the system that is not
+//! true.
 //!
 
 use std::cell::RefCell;
@@ -46,13 +43,10 @@ pub struct Reading {
 pub struct StatusReadings {
     /// What the bar says about the coordinator.
     ///
-    /// ALWAYS DRAWN. v2 reads a health snapshot a five-second `misc.health`
-    /// poller publishes on `window`; this port has no poller, and does not need
-    /// one — the live Sync link carries the same evidence continuously (see
-    /// `coordinator_health_from_link`). Gating the item on having a source is
-    /// what left the previous port with no `workbench-status-sync` element at
-    /// all: an item that vanishes is indistinguishable from a healthy one, and
-    /// `Syncing` forever is not a claim anyone can act on.
+    /// ALWAYS DRAWN. The live Sync link carries the health evidence
+    /// continuously (see `coordinator_health_from_link`), so no poller is
+    /// needed. An item that vanishes is indistinguishable from a healthy one,
+    /// and `Syncing` forever is not a claim anyone can act on.
     pub coordinator: CoordinatorState,
     /// The active session's machine, when the route names a session.
     pub machine: Option<Reading>,

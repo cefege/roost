@@ -28,9 +28,9 @@ use crate::pump::use_store;
 /// The pairing surface, mounted ONCE for the life of the document.
 ///
 /// BOTH CEREMONIES ARE OWNED HERE, not by the panels below, and that is the
-/// whole reason this component is route-aware. v2 puts its two providers above
-/// the access gate (`App.tsx:138-141`) so an access transition never disposes
-/// them; a surface that unmounted with its page would take the requester's
+/// whole reason this component is route-aware. It is mounted above the access
+/// gate so an access transition never disposes either ceremony; a surface that
+/// unmounted with its page would take the requester's
 /// token and the approver's six-digit code down with it, so an approver who
 /// opened Settings mid-approval would lose the code they were reading to a
 /// stranger. Owning both here means this component has to decide for itself
@@ -63,8 +63,8 @@ pub fn PairSurface() -> Element {
     let authorized = access == BrowserAccessState::Authorized;
     let draws_page = draws_pairing_page(access, &path());
     // The dialog is a sibling of the panel, and both draw from one approval:
-    // the panel gets a clone so the dialog still owns the handle v2's provider
-    // held above the access gate.
+    // the panel gets a clone so the dialog still owns the handle held above the
+    // access gate.
     let dialog_approver = approver.clone();
     rsx! {
         if draws_page {

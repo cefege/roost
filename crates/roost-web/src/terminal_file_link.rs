@@ -3,8 +3,7 @@
 //! the `/file/…` route the file viewer opens. Pure and target-independent, so
 //! the pane binds its live session to it at mount
 //! (`components::terminal::pane_mount::link_targets`) and the rules test
-//! natively. Ports `resolveFile` of
-//! `apps/web/src/components/terminal/cell-terminal-input.ts`.
+//! natively.
 //!
 //! WITHOUT THIS RESOLVER NO FILE LINK EXISTS. The detector classifies a path
 //! only when a resolver will mint a route for it, because a `file:` anchor with

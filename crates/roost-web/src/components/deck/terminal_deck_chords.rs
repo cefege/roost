@@ -2,8 +2,7 @@
 //! the deck's life, reading the newest render's operations, that turns a
 //! reserved press into the same operation the pointer UI runs. Called by
 //! `terminal_deck`; the chord table is `terminal_deck_shortcuts`, the listener
-//! is `deck_dom::Listeners`. Ports the binder in
-//! `apps/web/src/components/deck/terminal-deck-shortcuts.ts`.
+//! is `deck_dom::Listeners`.
 
 use std::cell::RefCell;
 use std::rc::Rc;

@@ -3,7 +3,6 @@
 //! claimant on an arrow key: anything with its own arrow handling (the shortcut
 //! router, a listbox, a scrolling `.wterm`) has already run and either consumed
 //! the key or left it alone. Gathers DOM facts; `spatial` decides.
-//! Ported from `apps/web/src/lib/spatialNavigation.ts` (`installSpatialNavigation`).
 
 use dioxus::prelude::{ReadableExt as _, Signal};
 use wasm_bindgen::JsCast as _;

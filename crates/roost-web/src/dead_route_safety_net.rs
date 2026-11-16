@@ -1,15 +1,14 @@
 //! Recover stable terminal routes that resolve to no open session, but never
 //! bounce a LIVE session whose resolution blipped to nothing for a tick. Exact
 //! session routes stay on their named identity; stable routes can recover to a
-//! sibling or home. Ports `apps/web/src/lib/deadRouteSafetyNet.ts`, driven by
-//! `MainPane`.
+//! sibling or home. Driven by `MainPane`.
 //!
 //! The machine owns no clock: `evaluate` says when to arm, the host runs the
 //! timer and hands the ticket back to `fire`.
 
 use roost_client_core::store::Session;
 
-/// v2's grace window.
+/// How long a resolution may stay empty before the route is judged dead.
 pub const DEFAULT_GRACE_MS: u32 = 2_500;
 
 /// What the route looks like right now.

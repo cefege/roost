@@ -2,9 +2,7 @@
 //! reader outside a pane (the smoke backdoor, a preview) resolves a session to
 //! the renderer that paints it. Provided once in `App` via context; every
 //! `CellTerminal` registers on mount and unregisters on drop, and the latest
-//! mount wins. Ports the renderer registry of
-//! `apps/web/src/renderer/terminalPreview.ts` (`registerRenderer`,
-//! `rendererRegistryEntry`).
+//! mount wins.
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
@@ -19,7 +17,7 @@ use roost_web_terminal::{
 
 pub use super::pane_surface::{PaintedLine, PaintedMarkerHit, PaneSurface, find_marker};
 
-/// Per-session counters that outlive any one mount, as v2's module maps did.
+/// Per-session counters that outlive any one mount.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PaneCounters {
     /// Epoch-addressed history reads the session's scrollback pagers issued.

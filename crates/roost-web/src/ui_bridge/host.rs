@@ -1,9 +1,7 @@
 //! What the UI bridge needs from the document around it, and the browser's
 //! answer to all of it.
 //!
-//! Ports the `io` object `apps/web/src/components/UiBridge.tsx` closed over
-//! `useNavigate`/`useLocation`, and the `targetDependencies` of
-//! `apps/web/src/lib/uiLayoutApply.ts`. The bridge is a machine with no opinion
+//! The bridge is a machine with no opinion
 //! about the address bar, the transport or the viewport, so every one of those
 //! arrives through [`UiBridgeHost`] — which is also what lets a native test
 //! drive the whole bridge without a document.

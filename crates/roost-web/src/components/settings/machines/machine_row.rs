@@ -1,7 +1,6 @@
 //! One machine's row: its mark, its liveness, its update state, and the
-//! controls that rename or remove it. Ports
-//! `apps/web/src/components/Settings/MachineCard.tsx`; `machines::MachinesPane`
-//! mounts one per registered worker.
+//! controls that rename or remove it. `machines::MachinesPane` mounts one per
+//! registered worker.
 //!
 //! Row state is component state on purpose: it is one reader's open disclosure
 //! and one in-flight write, and it has no meaning to any other row.

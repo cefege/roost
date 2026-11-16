@@ -2,8 +2,7 @@
 //! TabGridItemTouchHelperCallback): a horizontal drag slides the card and
 //! fades it, a full-travel drag or a directional flick dismisses it, anything
 //! else springs back, and a vertical drag belongs to the grid's scroll.
-//! Target-independent; `terminal_card` feeds it touches. Ports the gesture of
-//! `apps/web/src/components/terminal/TerminalCard.tsx`; the thresholds are
+//! Target-independent; `terminal_card` feeds it touches. The thresholds are
 //! DECK's `deck_swipe`.
 
 use crate::components::deck::deck_swipe::should_dismiss_card;

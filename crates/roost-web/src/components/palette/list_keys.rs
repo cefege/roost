@@ -1,7 +1,6 @@
 //! The palette's list keys: arrows move the cursor, Enter opens the row under
 //! it, and the listener lives exactly as long as the body that owns the list.
-//! Ports the `onKeydown` half of `apps/web/src/components/palette/CommandPaletteBody.tsx`;
-//! called by `palette::body`, which hands it the rows as the last render left them.
+//! Called by `palette::body`, which hands it the rows as the last render left them.
 //!
 //! The listener is on `window` because the field and the rows are two different
 //! elements and only one of them can hold focus. Escape is NOT here: the dialog

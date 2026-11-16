@@ -1,8 +1,7 @@
 //! The window capture-phase keydown listener behind `keyboard_shortcuts`: it
 //! gathers `KeydownContext` from the document and the store, asks
 //! `keydown_action`, and performs the answer. wasm32 only; installed once by
-//! `App`. Ports `installKeyboardShortcuts` and the DOM probes of
-//! `apps/web/src/lib/keyboardShortcuts.ts`.
+//! `App`.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
@@ -45,7 +44,7 @@ impl Drop for KeyboardShortcutsGuard {
     }
 }
 
-/// v2 `terminalOwnsKeyboard`: a deck (or pane) is on screen. Keyed on the
+/// Whether a terminal owns the keyboard: a deck (or pane) is on screen. Keyed on the
 /// STABLE deck element, never on per-slot focus, which drops out during every
 /// layout reconcile.
 pub fn terminal_owns_keyboard(document: &web_sys::Document) -> bool {

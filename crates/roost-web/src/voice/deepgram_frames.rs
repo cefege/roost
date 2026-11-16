@@ -5,7 +5,6 @@
 //! JSON but carries no alternatives, a rejection whose detail field moved, the
 //! summary that is a closed stream's last word. All of it is decided here, over
 //! the parsed message, where a test can pin it.
-//! Ports the `ws.onmessage` half of `apps/web/src/voice/deepgramDictation.ts`.
 
 use serde_json::Value;
 
@@ -153,9 +152,9 @@ mod tests {
             Frame::Rejected("quota exceeded".to_owned())
         );
         // An error code with neither the type nor the message field is not a
-        // rejection this recording acts on: v2 keys on `type === "Error"` or a
-        // present `err_msg`, and inventing a third trigger here would caption a
-        // frame the service never refused.
+        // rejection this recording acts on: only `type === "Error"` or a
+        // present `err_msg` is one, and inventing a third trigger here would
+        // caption a frame the service never refused.
         assert_eq!(read(r#"{"err_code":"X"}"#), Frame::Ignored);
     }
 

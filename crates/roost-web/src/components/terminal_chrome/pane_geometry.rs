@@ -8,9 +8,8 @@
 //! pushed into history — so a two-line draft must push the TERMINAL up, never
 //! shrink it. The dock keeps the field and footer's shared resting baseline in
 //! flex flow and floats the field growth above it, measured here.
-//! Ports `apps/web/src/components/terminal/TerminalComposePaneGeometry.ts`,
-//! including its `--term-chat-pane-rest` property and its `data-size-constrained`
-//! switch, which is what stops an over-long draft from floating out of the pane.
+//! Its `--term-chat-pane-rest` property and `data-size-constrained` switch are
+//! what stop an over-long draft from floating out of the pane.
 
 /// How far the dock has grown above its resting row, in pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

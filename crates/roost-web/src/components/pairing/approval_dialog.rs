@@ -98,12 +98,10 @@ pub fn PairVerificationCodeDialog(
 /// The dialog's host, mounted for the life of the document wherever the reader
 /// walks.
 ///
-/// v2 keys this on the approval record and renders it from the provider, beside
-/// its children rather than inside them (`PairApprovalProvider.tsx:348-367`),
-/// for one reason: an approver who reads a code aloud and then opens Settings
-/// must not have the code disappear because a route changed. The reload the
-/// `reload_required` state offers is the same code
-/// `PairApprovalProvider.tsx:360` offers, and it is issued through
+/// It renders beside the surface's panels rather than inside them, for one
+/// reason: an approver who reads a code aloud and then opens Settings must not
+/// have the code disappear because a route changed. The reload the
+/// `reload_required` state offers is issued through
 /// `platform::location::reload_document`, the crate's one document reload.
 #[component]
 pub fn ApprovalCodeDialog(approver: PairApprover) -> Element {

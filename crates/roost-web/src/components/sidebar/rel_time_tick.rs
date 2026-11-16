@@ -1,8 +1,6 @@
 //! The one 30-second ticker every sidebar row's relative age reads, so labels
-//! age while the store is silent, paused while the page is hidden. Ports
-//! `apps/web/src/components/sidebar/SessionRow.constants.ts` (`relTimeTickMs`;
-//! its `ROW_BASE` padding is inlined where the full-density row used it).
-//! `SidebarRoot` provides it; `FolderRow` and `SessionRow` read it.
+//! age while the store is silent, paused while the page is hidden. `SidebarRoot`
+//! provides it; `FolderRow` and `SessionRow` read it.
 
 use dioxus::prelude::*;
 

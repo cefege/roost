@@ -3,8 +3,7 @@
 //! a compact host the phone bar, twice while a swipe slides the neighbour's in,
 //! or the route's plain top bar when there is no session to put a bar over.
 //! Called inline by `terminal_deck` (plain render functions, no hooks); every
-//! gesture runs a `DeckOperations` command. Ports the chrome half of
-//! `apps/web/src/components/deck/TerminalDeck.tsx`.
+//! gesture runs a `DeckOperations` command.
 
 use dioxus::prelude::*;
 use roost_client_core::store::layout::PaneView;
@@ -181,7 +180,7 @@ fn mobile_bar(
     }
 }
 
-/// v2's `DropZone` string, which the overlay CSS keys on.
+/// The `DropZone` string the overlay CSS keys on.
 fn zone_name(zone: DropZone) -> &'static str {
     match zone {
         DropZone::Center => "center",

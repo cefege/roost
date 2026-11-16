@@ -4,11 +4,9 @@
 //! and the path that is a folder. Called by `file_viewer`, which owns the
 //! decision about which of them the answer was.
 //!
-//! Ports the named-state branches of
-//! `apps/web/src/components/browse/FileViewerSheet.tsx`. Each one is a state a
-//! reader can act on or read and leave, never a spinner that never resolves:
-//! the sheet is the only surface in this product that can be certain the
-//! coordinator will never answer.
+//! Each one is a state a reader can act on or read and leave, never a spinner
+//! that never resolves: the sheet is the only surface in this product that can
+//! be certain the coordinator will never answer.
 
 use dioxus::prelude::*;
 
@@ -19,9 +17,9 @@ use super::state::MAX_VIEWED_FILE_BYTES;
 /// The unavailable region's element id, so the sheet can put focus on it.
 pub const UNAVAILABLE_REGION_ID: &str = "file-viewer-unavailable";
 
-/// The name the unavailable region announces. v2 spells the sentence out in
-/// one string, and so does this: it is what a screen reader says when the route
-/// names a machine this coordinator has never heard of.
+/// The name the unavailable region announces, spelled out in one string: it is
+/// what a screen reader says when the route names a machine this coordinator
+/// has never heard of.
 pub const UNAVAILABLE_LABEL: &str =
     "File unavailable. This file isn't available on this coordinator.";
 
@@ -101,8 +99,8 @@ pub fn BinaryNotice(byte_size: u64) -> Element {
     }
 }
 
-/// The file is there and holds nothing a reader could read. v2 painted an
-/// empty body for it, which is indistinguishable from a failed read.
+/// The file is there and holds nothing a reader could read. An empty body for
+/// it would be indistinguishable from a failed read.
 #[component]
 pub fn EmptyNotice() -> Element {
     rsx! {

@@ -1,5 +1,5 @@
 //! Whether a pane divider or the sidebar resizer is being dragged, and the one
-//! pointer drag that sets it. Ports `apps/web/src/lib/resizeDrag.ts`; read by the
+//! pointer drag that sets it. Read by the
 //! terminal pane's resize claims (suppressed mid-drag), the deck's
 //! `data-resizing` and the arrange-settle pulse; begun by `SidebarResizer` and
 //! the deck's dividers.

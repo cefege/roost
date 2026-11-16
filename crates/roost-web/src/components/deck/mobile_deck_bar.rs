@@ -1,8 +1,7 @@
 //! The phone workspace bar: drawer, selected tab title,
 //! a new-terminal button, and the count square that opens the terminal grid.
 //! Rendered by `TerminalDeck`, twice while a swipe slides the neighbour's bar
-//! in. Ports the chrome half of
-//! `apps/web/src/components/deck/MobileDeckBar.tsx`.
+//! in.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;

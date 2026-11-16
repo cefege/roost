@@ -1,8 +1,7 @@
 //! The deck's per-render model: the order its open sessions are mounted in,
 //! which is the slots' DOM order and so the keyboard Tab order and the order a
 //! reader walking the panes meets them. Pins
-//! `components::deck::terminal_deck_model::deck_frame` (v2
-//! `apps/web/src/components/deck/terminal-deck-model.ts` `mountedSessionIds`).
+//! `components::deck::terminal_deck_model::deck_frame`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeMap;

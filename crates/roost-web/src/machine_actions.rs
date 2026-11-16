@@ -2,8 +2,8 @@
 //! Sharing (`vnc://`) and Finder (`smb://`), Windows Remote Desktop (a
 //! generated `.rdp` file) and its UNC share path. Roost serves none of these;
 //! it hands the machine's reachable address to the operator's own OS client.
-//! Ports `apps/web/src/lib/machineActions.ts`; the sidebar menus list these and
-//! `platform::machine_handoff` performs the chosen [`MachineLaunch`].
+//! The sidebar menus list these and `platform::machine_handoff` performs the
+//! chosen [`MachineLaunch`].
 
 use roost_protocol::wire::{Worker, WorkerOs};
 
@@ -35,7 +35,7 @@ impl MachineAction {
         }
     }
 
-    /// The `data-testid` stem, v2's action id.
+    /// The `data-testid` stem, the action's id.
     pub const fn test_id(self) -> &'static str {
         match self {
             Self::OpenInFinder => "finder",
@@ -77,7 +77,7 @@ pub fn machine_actions(os: WorkerOs, menu: MachineMenuKind) -> &'static [Machine
 
 /// The address a hand-off may target: ONLY the worker's reported live address.
 /// Never synthesized from the label — a label is a Tailscale HostName, which
-/// does not resolve, and v2 shipped dead `vnc://worker-*` links that way.
+/// does not resolve, so such a link would be dead.
 pub fn reachable_host(worker: &Worker) -> Option<&str> {
     worker
         .reachable_addr

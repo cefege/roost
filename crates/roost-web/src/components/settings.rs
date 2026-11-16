@@ -38,9 +38,9 @@ use crate::routes::Route;
 /// The pane the desktop editor shows when the URL names none — and the pane it
 /// shows when the URL names one this build does not have.
 ///
-/// v2's fallback, and the reason it is not a redirect: the rail's navigation
-/// order starts here, and a retired pane's old bookmark should land on a
-/// working editor rather than bounce the reader somewhere they did not ask for.
+/// It is a fallback rather than a redirect: the rail's navigation order starts
+/// here, and a retired pane's old bookmark should land on a working editor
+/// rather than bounce the reader somewhere they did not ask for.
 pub const DEFAULT_SETTINGS_PANE: &str = "machines";
 
 /// The pane the URL names, or the default. `None` only when the URL carries no

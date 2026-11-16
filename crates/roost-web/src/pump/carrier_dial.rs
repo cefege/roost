@@ -25,9 +25,6 @@
 //! the pump's carriers live in a `RefCell`; a borrow taken before the probe and
 //! released after it is a panic the first time a socket callback fires in between,
 //! and a panic in a socket callback is a carrier this document never reports.
-//!
-//! Ported from `apps/web/src/store/transport/local-terminal.ts:126-270`
-//! (`start`, `sendFrame`, `finish`).
 
 use std::rc::Rc;
 
@@ -102,8 +99,8 @@ async fn open(pump: &Pump, grant: &LocalTerminalGrant, worker_fp: &str, sessions
             (origin, url, hello, door_worker_fp)
         }
         // No door for THIS worker is not a refusal of the grant: the same
-        // credential is what a WebRTC peer authenticates on, and v2 never builds
-        // a loopback controller without a matching door, so its grant survives
+        // credential is what a WebRTC peer authenticates on, and no loopback
+        // controller is built without a matching door, so its grant survives
         // to the peer. Refusing it here drops the grant the peer is about to
         // spend its Hello on.
         Err(fault @ (DialFault::NoDoor { .. } | DialFault::ForeignDoor { .. })) => {

@@ -5,8 +5,7 @@
 //! private ceremony cell and its `restored` flag, and a field loosened to `pub`
 //! for a sibling would be a field every sibling could reach. Split out because
 //! creation and polling change for different reasons, and a driver holding
-//! both would be one file over the cap. Ports the `create()` path of
-//! `apps/web/src/components/pairing/onboarding-pairing-ceremony.ts:120-240`.
+//! both would be one file over the cap.
 
 use roost_client_core::client::auth::PairPollStatus;
 use roost_client_core::client::rpc::calls::pairing::CreatePair;
@@ -115,7 +114,7 @@ impl RequesterRig {
     /// A restored ceremony whose create already committed reads as a
     /// `FailedPrecondition`, because the coordinator is refusing to create a row
     /// that exists — which is the answer the requester needed, not a failure to
-    /// report (`onboarding-pairing-ceremony.ts:221-226`).
+    /// report.
     fn classify_create_failure(&self, error: &CallError) -> CreateOutcome {
         if is_transient(error) {
             return CreateOutcome::Transient;

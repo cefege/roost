@@ -2,8 +2,7 @@
 //! declares completion only after an 80 ms grace (then shows 100% for 220 ms),
 //! samples the monotone meter every 200 ms, and opens the technical details
 //! after 4 s on one step. Target-independent; `terminal_startup_overlay` drives
-//! it with a timer. Ports the effects of
-//! `apps/web/src/components/terminal/TerminalStartupOverlay.tsx`.
+//! it with a timer.
 
 use roost_web_terminal::startup_progress::{
     StartupChunks, TerminalStartupSample, TerminalStartupStage, terminal_startup_percent,

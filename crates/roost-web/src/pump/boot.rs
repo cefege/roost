@@ -1,11 +1,9 @@
 //! Bringing the pump up: the tab id claim, the device key, identity discovery,
 //! the captured `#pair=` redeem, then the first dial and the timers.
 //!
-//! Called once by `App`. Ported from `apps/web/src/store/sync-bootstrap.ts`
-//! (`_bootstrap`, `:162-199`) and `apps/web/src/store/sync-bootstrap.pair.ts`
-//! (`dispatchCapturedFragmentCredential`); the redeem request is
-//! `apps/web/src/store/auth/redeemPairToken.ts:30-55`; the claim is
-//! `apps/web/src/client/auth/tab-id.ts` (`claimTabIdentity`).
+//! Called once by `App`. The redeem request is built from the captured
+//! fragment credential, and the tab id claim comes from
+//! `platform::tab_id::claim_document_tab_id`.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -72,9 +70,9 @@ async fn boot(pump: Pump, diag_upload: Option<DiagUploadQueue>) {
 }
 
 /// Claim this document's tab id and present it on the store (the Sync dial)
-/// and on every Connect call. v2 awaits the claim before any transport
-/// (`sync-bootstrap.ts:163`, `main.tsx:154`); the claim is kept with the
-/// pump's listeners because its channel answers later duplicated documents.
+/// and on every Connect call. The claim comes before any transport; it is kept
+/// with the pump's listeners because its channel answers later duplicated
+/// documents.
 #[cfg(target_arch = "wasm32")]
 async fn claim_tab_id(pump: &Pump) {
     let claim = crate::platform::tab_id::claim_document_tab_id().await;
@@ -130,7 +128,7 @@ async fn redeem_captured_pair_token(pump: &Pump) -> bool {
 }
 
 /// A refusal the coordinator will repeat for the same token, so keeping the
-/// token would only fail again (`redeemPairToken.ts:45-50`).
+/// token would only fail again.
 fn redeem_failure_is_authoritative(error: &CallError) -> bool {
     matches!(
         error.code(),
@@ -143,7 +141,7 @@ fn redeem_failure_is_authoritative(error: &CallError) -> bool {
     )
 }
 
-/// The coordinator this document dials, as `connect.ts:69-93` resolves it.
+/// The coordinator this document dials.
 ///
 /// The serving-origin answer was primed before the graph loaded, so a page a
 /// WORKER served dials the coordinator that worker advertised instead of itself.

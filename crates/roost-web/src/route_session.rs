@@ -1,9 +1,7 @@
 //! Which session a terminal route addresses: `/s/:id` by id, `/t/:fp/*folder` by
 //! (machine, spawn folder, newest wins).
-//! Ports `activeSessionForPath` (`apps/web/src/store/selectors.ts:81-92`) and
-//! `MainPane.tsx`'s `activeSession` memo; read by `MainPane`, the status and
-//! title bars, the sidebar and the deck, so every surface scopes to exactly the
-//! session the pane renders.
+//! Read by `MainPane`, the status and title bars, the sidebar and the deck, so
+//! every surface scopes to exactly the session the pane renders.
 
 use roost_client_core::Store;
 use roost_client_core::store::selectors::{
@@ -45,7 +43,7 @@ pub fn active_session_for_route<'store>(
     }
 }
 
-/// The session a pathname addresses (v2 `activeSessionForPath`).
+/// The session a pathname addresses.
 pub fn active_session_for_path<'store>(
     store: &'store Store,
     paths: &dyn WorkerPaths,
@@ -77,8 +75,8 @@ pub fn active_deck_tab_for_route(
 
 /// Where the view lands when `session` goes away: the newest still-open sibling
 /// in its folder (never itself, never one waiting out a close), else home. The
-/// ONE policy behind v2's `closeSession.siblingOrHomeHref` and MainPane's
-/// safety-net `bounceTarget`, which v2 kept "in lockstep" by hand.
+/// ONE policy behind a session's close landing and `MainPane`'s
+/// safety-net `bounceTarget`, so the two cannot drift apart.
 pub fn sibling_or_home_href(store: &Store, paths: &dyn WorkerPaths, session: &Session) -> String {
     let folder_key = session_folder_key(store, paths, session);
     newest_open_session_in_folder(store, paths, &folder_key, Some(session.id.as_str())).map_or_else(

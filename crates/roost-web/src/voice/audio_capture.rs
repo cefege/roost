@@ -7,7 +7,6 @@
 //! flight rather than starting a second. This file owns that singleton and the
 //! lifecycle; `super::capture_open` owns the ordered walk that builds it, and
 //! `super::audio_graph` the two ways frames are read out of it.
-//! Ports `apps/web/src/voice/audioPcmCapture.ts`.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -30,7 +29,7 @@ use super::pcm::Resampler;
 ///
 /// A separate module file would have to be fetched before the mic could open,
 /// and a failed fetch would be a failed tap; a blob URL built from this constant
-/// is available the instant the tap is. Ports `WORKLET_SRC` verbatim.
+/// is available the instant the tap is.
 pub const WORKLET_SOURCE: &str = r#"
 class PcmForwarder extends AudioWorkletProcessor {
   process(inputs) {

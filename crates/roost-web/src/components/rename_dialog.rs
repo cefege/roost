@@ -2,9 +2,8 @@
 //! the shared `Dialog` owns focus and dismissal; the store supplies the one
 //! active request (`store.shell_dialogs.rename`); the commit renames the session
 //! (`SessionsRename`, empty clears it) or names the folder's workspace (update
-//! when one exists, else create). Ports `apps/web/src/components/RenameDialog.tsx`;
-//! mounted once by `app::AuthorizedOverlays`; opened by the sidebar row menus
-//! through `ShellIntent::OpenRenameDialog`.
+//! when one exists, else create). Mounted once by `app::AuthorizedOverlays`;
+//! opened by the sidebar row menus through `ShellIntent::OpenRenameDialog`.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
@@ -20,7 +19,7 @@ use crate::pump::{Pump, use_store};
 /// The dialog's default title.
 pub const RENAME_TERMINAL_HEADLINE: &str = "Rename terminal";
 
-/// The name a commit sends: trimmed, as v2 sent it.
+/// The name a commit sends: trimmed.
 pub fn committed_name(input: &str) -> String {
     input.trim().to_owned()
 }

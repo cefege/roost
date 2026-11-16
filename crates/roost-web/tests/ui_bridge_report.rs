@@ -1,8 +1,8 @@
 //! The report half of the shell's UI bridge: when one is owed, when one goes
 //! out, and what it carries.
 //!
-//! The gate these pin is `smoke/terminal/ui-layout-apply.spec.ts:103`, whose
-//! poll is `if (!state?.layoutDocument) return null` — a tab that never reports
+//! The gate these pin is the end-to-end layout-apply smoke, which polls for the
+//! tab's `layoutDocument` — a tab that never reports
 //! leaves the coordinator holding no arrangement for it, and every layout read
 //! against that tab reads `null`.
 

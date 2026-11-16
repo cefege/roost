@@ -1,9 +1,8 @@
 //! Settings → System → Metrics: the coordinator's live telemetry counters.
 //!
-//! Ports `apps/web/src/components/Settings/MetricsPane.tsx`. Depends on
-//! `roost-client-core`'s `MiscMetrics` call; the five-second poll is a timer
-//! that skips a hidden tab, because a background settings page has no reader
-//! and a poll nobody sees is a coordinator answering for nobody.
+//! Depends on `roost-client-core`'s `MiscMetrics` call; the five-second poll is
+//! a timer that skips a hidden tab, because a background settings page has no
+//! reader and a poll nobody sees is a coordinator answering for nobody.
 
 use dioxus::prelude::*;
 #[cfg(target_arch = "wasm32")]
@@ -178,7 +177,7 @@ fn poll(pump: Pump, view: Signal<MetricsView>) {
     let _ = (pump, view);
 }
 
-/// v2's `fmtUptime`.
+/// Uptime as hours, minutes and seconds, dropping leading zero units.
 fn format_uptime(ms: u64) -> String {
     let seconds = ms / 1_000;
     let hours = seconds / 3_600;

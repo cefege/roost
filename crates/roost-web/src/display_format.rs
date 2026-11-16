@@ -1,6 +1,5 @@
 //! Human-readable sizes, transfer speeds and times remaining, plus the one
-//! allowlist of controls that may take keyboard focus from a terminal. Ports
-//! `apps/web/src/lib/format.ts` and `apps/web/src/lib/focusOwners.ts`; read by
+//! allowlist of controls that may take keyboard focus from a terminal. Read by
 //! the transfer cards, the attachments pane, the machine cards (format) and the
 //! terminal pane's document focus guards (`FOCUS_OWNERS`).
 

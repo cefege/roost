@@ -1,8 +1,7 @@
 //! A tab drag inside one pane strip: which slot the dragged tab's centre
 //! has crossed into, the resting offset its release springs to, the shift
 //! every other tab takes, and the order a release commits. Read by
-//! `pane_strip` and its pointer adapter. Pure; ports the drag math of
-//! `apps/web/src/components/deck/PaneStrip.tsx`.
+//! `pane_strip` and its pointer adapter. Pure.
 
 use super::inline_style::{InlineStyle, px};
 

@@ -2,8 +2,6 @@
 //! text, watermarks, and the painted history ranges the smoke probes check.
 //! `CellGridRenderer` behind its `RefCell` is the production surface; a borrow
 //! that is busy (a paint in progress) answers `None` rather than panicking.
-//! Ports the reads `apps/web/src/renderer/terminalPreview.ts`'s registry entry
-//! served to `apps/web/src/smoke/smokeTerminalRenderProbes.ts`.
 
 use std::cell::RefCell;
 

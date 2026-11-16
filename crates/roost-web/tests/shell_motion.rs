@@ -1,7 +1,6 @@
 //! The shell's pointer and motion rules: the drag-arming gate, the drawer's
-//! swipe geometry, drag-to-tile zones and the spring solver. Ports
-//! `apps/web/tests/{dragThreshold,edgeSwipeDrawer,dropZones,spring}.test.ts`
-//! against `roost_web::motion`.
+//! swipe geometry, drag-to-tile zones and the spring solver, against
+//! `roost_web::motion`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_web::motion::drag_threshold::{DRAG_THRESHOLD_PX, drag_armed};

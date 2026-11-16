@@ -2,9 +2,7 @@
 //! expression.
 //!
 //! Lives apart from the dock so the three bottom-chrome cases are decidable —
-//! and testable — without a DOM. Ports
-//! `apps/web/src/lib/notificationDockLift.ts`, whose separation from
-//! `NotificationDock.tsx` exists for exactly this reason.
+//! and testable — without a DOM.
 //!
 //! The composer is the only bottom chrome whose height MOVES, so it is the only
 //! case that reads a measurement; the other two are constants, and a constant is

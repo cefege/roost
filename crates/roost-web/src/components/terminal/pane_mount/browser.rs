@@ -2,9 +2,7 @@
 //! any of its state machines holds), its one animation frame, the display's
 //! scroll/pointer listeners, the ResizeObserver, the page-lifecycle and font
 //! listeners, and the pager's history reads. Every callback holds a `Weak`,
-//! so a pane that dropped is a no-op, never a trap. Ports the listener halves
-//! of `apps/web/src/components/terminal/cell-terminal-lifecycle.ts`,
-//! `cell-terminal-renderer.ts` and `cell-terminal-document-lifecycle.ts`.
+//! so a pane that dropped is a no-op, never a trap.
 
 use std::rc::{Rc, Weak};
 

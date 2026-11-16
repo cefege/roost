@@ -1,11 +1,8 @@
 //! The approver's side of one request: the code it generated, the dialog that
 //! shows it, and the status loop that retires it.
 //!
-//! Ported from `apps/web/src/components/pairing/PairApprovalProvider.tsx` and
-//! the evidence classification it delegates to
-//! (`store/auth/pair-approval-lifecycle.ts`). The split v2 already draws is
-//! kept: this file owns the signals and the fences, `flow` owns the timers,
-//! and `pairing::failure` owns what a refusal means.
+//! This file owns the signals and the fences, `flow` owns the timers, and
+//! `pairing::failure` owns what a refusal means.
 //!
 //! CLOSING THE DIALOG IS A SERVER-SIDE CANCELLATION. Every dismissal — the
 //! close button, Escape, the backdrop, "Cancel request" — routes to

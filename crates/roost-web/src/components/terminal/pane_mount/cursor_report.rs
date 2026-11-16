@@ -1,9 +1,7 @@
 //! The pane's cursor report: on each 500ms poll deadline, a pane that may do
 //! foreground work and whose painted cursor moved tells the coordinator where
-//! it is (`SessionsCursorPos`) as viewer presence. The
-//! decision is `CursorPollTicker`'s; the deadline rides the pane's one timer.
-//! Ports the `registerCursorPoll` arm of
-//! `apps/web/src/components/terminal/cell-terminal-renderer.ts`.
+//! it is (`SessionsCursorPos`) as viewer presence. The decision is
+//! `CursorPollTicker`'s; the deadline rides the pane's one timer.
 
 use roost_client_core::client::rpc::calls::terminal_pane::CursorPos;
 use roost_web_terminal::scheduler::{CursorPollPane, CursorPollReading};

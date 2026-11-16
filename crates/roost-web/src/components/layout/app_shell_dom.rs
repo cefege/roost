@@ -1,8 +1,6 @@
 //! The browser half of `AppShell`: the `--roost-main-left` document property,
 //! the sidebar-toggle chord and page-show resize reset on `window`, and moving
-//! focus to the rail before the sidebar collapses. wasm32 only. Ports the
-//! effects and `onMount` listeners of
-//! `apps/web/src/components/layout/AppShell.tsx`.
+//! focus to the rail before the sidebar collapses. wasm32 only.
 
 use dioxus::prelude::*;
 use wasm_bindgen::JsCast as _;

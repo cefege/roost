@@ -1,6 +1,5 @@
 //! The Shift+? shortcut overlay: every row of `help::shortcuts` grouped by
-//! category, a text filter over it, and the "Copy diagnostic" button. Ports
-//! `apps/web/src/components/palette/HelpOverlay.tsx`; mounted by
+//! category, a text filter over it, and the "Copy diagnostic" button. Mounted by
 //! `HelpSurface`, so the open flag in `keyboard_shortcuts` is the only state.
 //!
 //! Nothing here reads the store: the overlay is a document about the keyboard,

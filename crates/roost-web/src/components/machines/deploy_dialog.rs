@@ -1,6 +1,5 @@
 //! The Add Machine dialog: find the coordinator's enrollment door, and mint one
-//! one-use join command once that door is diallable. Ports
-//! `apps/web/src/components/machines/MachineDeployDialog.tsx`.
+//! one-use join command once that door is diallable.
 //!
 //! THE GRANT IS MINTED LAST AND EXACTLY ONCE. Identity discovery runs on mount,
 //! again on every "Check again", and once more inside Generate before any token
@@ -10,11 +9,10 @@
 //! `deploy_state` owns those rules and `deploy_calls` owns the calls; this file
 //! owns the wiring and the drawing.
 //!
-//! THERE IS NO PLATFORM CHOOSER. v2 offered one because its Windows branch ran
-//! a different bootstrap; v3 ships Linux and macOS host installs only, and the
-//! `install.sh` this command pipes detects the target's own system. A control that
-//! changes nothing is a control nobody tested, so the dialog offers the label
-//! the command actually carries and nothing else.
+//! THERE IS NO PLATFORM CHOOSER. Host installs are Linux and macOS only, and the
+//! `install.sh` this command pipes detects the target's own system. A control
+//! that changes nothing is a control nobody tested, so the dialog offers the
+//! label the command actually carries and nothing else.
 
 use dioxus::prelude::*;
 

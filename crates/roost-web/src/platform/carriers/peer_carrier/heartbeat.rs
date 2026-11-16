@@ -4,9 +4,8 @@
 //!
 //! Owned by `platform::carriers`, held beside [`super::PeerCarrier`]'s lanes and
 //! driven by `pump::peer_lane`'s tick. Target-independent: every decision is a
-//! comparison against the clock the tick passes. Ports v2 `TerminalPeerOwner`'s
-//! `heartbeat` (`store/transport/terminal-peer.ts`): one probe at a time, the
-//! next one interval after the last settled. Unlike v2, the peer closes on its
+//! comparison against the clock the tick passes: one probe at a time, the next
+//! one interval after the last settled. The peer closes on its
 //! THIRD consecutive miss, and an answer that arrives after its probe lapsed
 //! still forgives the misses: a Wi-Fi link that holds packets for seconds and
 //! then delivers them is slow, not dead, and tearing the peer down there costs

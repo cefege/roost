@@ -1,8 +1,8 @@
 //! The shell's UI bridge: this tab's report to the coordinator, and the
 //! coordinator's commands to this tab.
 //!
-//! Ports `apps/web/src/components/UiBridge.tsx`, which v2 mounted once inside
-//! the router so a coordinator command shared the reader's own navigation. The
+//! The bridge is mounted once inside
+//! the router so a coordinator command shares the reader's own navigation. The
 //! two halves are [`report::UiStateReporter`] — what this tab is showing, on the
 //! cadence in `client::ui_command` — and [`commands`] — what a drained
 //! `UiCommandAction` means as a browser operation.

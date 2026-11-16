@@ -3,7 +3,6 @@
 //! `navigator.onLine` and the client's live Sync link, judged by the core's
 //! `sync_link_answering` — the predicate the status bar reads too — so the
 //! banner keeps no clock of its own and clears as soon as the link answers.
-//! Ports `apps/web/src/components/notifications/ConnectionBanner.tsx`.
 
 use dioxus::prelude::*;
 use roost_client_core::store::terminal_transport::has_liveness_qualified_direct_terminal;
@@ -34,7 +33,7 @@ pub enum BannerReason {
 }
 
 impl BannerReason {
-    /// The `data-banner-reason` spelling v2's tests and the smoke specs select.
+    /// The `data-banner-reason` spelling tests and smoke checks select.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Offline => "offline",

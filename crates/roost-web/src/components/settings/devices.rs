@@ -1,7 +1,6 @@
 //! Settings → Network → Devices: the browsers authorized on this coordinator.
 //!
-//! Ports `apps/web/src/components/Settings/DevicesPane.tsx`'s authorized-device
-//! card. Depends on `roost-client-core`'s `DevicesList`/`DevicesRevoke` calls.
+//! Depends on `roost-client-core`'s `DevicesList`/`DevicesRevoke` calls.
 //!
 //! A REFUSAL IS A STATE, NOT AN ABSENCE. The coordinator's denied, expired and
 //! revoked answers are shown as themselves: a read that comes back refused says

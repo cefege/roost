@@ -6,8 +6,6 @@
 //! change for different reasons, and a flow that also rendered the dialog would
 //! be one file over the cap. The requester-confirmation half is a child module
 //! because it reads this file's private ceremony handle.
-//!
-//! Ports `apps/web/src/components/pairing/PairApprovalProvider.tsx:64-345`.
 
 mod confirm;
 

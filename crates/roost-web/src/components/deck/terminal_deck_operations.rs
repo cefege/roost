@@ -2,8 +2,7 @@
 //! arrange and spotlight. Each one dispatches a `DeckIntent` against the folder
 //! the deck painted this frame; the core commits the layout and asks for the
 //! route. Built per render by `terminal_deck`, whose strips, bars and dividers
-//! call it. Ports `apps/web/src/components/deck/terminal-deck-operations.ts`
-//! (its spawn flows are `terminal_deck_spawn`).
+//! call it. Its spawn flows are `terminal_deck_spawn`.
 
 use std::collections::BTreeMap;
 use std::rc::Rc;

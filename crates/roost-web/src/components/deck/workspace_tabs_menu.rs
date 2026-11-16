@@ -1,7 +1,7 @@
 //! The phone terminal grid's overflow menu: close all / select tabs, or in
 //! selection mode select all / close selected. `MobileDeckBar`'s sheet
 //! supplies the actions; `ui::DropdownMenu` owns open state, focus, keys and
-//! dismissal. Ports `apps/web/src/components/deck/WorkspaceTabsMenu.tsx`.
+//! dismissal.
 
 use dioxus::prelude::*;
 

@@ -4,7 +4,6 @@
 //! Pure: a [`PadSnapshot`] is plain data, never a `Gamepad` object, so the
 //! rules a controller depends on are native-tested. Called by the wasm poll
 //! loop in `gamepad_source`. Depends on `pad_bindings`.
-//! Ported from the pure half of `apps/web/src/browser/gamepadSource.ts`.
 
 use std::collections::BTreeMap;
 

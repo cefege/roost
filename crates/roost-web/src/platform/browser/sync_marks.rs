@@ -1,9 +1,7 @@
 //! The phase marks a Sync frame stands for, recorded as the pump delivers it:
 //! the subscription, the session snapshot, a session's first cell frame and an
 //! accepted view. Called from `pump::socket::deliver`; writes the document's
-//! phase ring. Ports the `markPhase` calls of v2 `store/sync-inbound.ts`,
-//! `store/sync-bootstrap.ts`, `store/sync-domain-state.ts`,
-//! `store/terminal-stream-replica.ts` and `store/terminal-stream-view-commands.ts`.
+//! phase ring.
 
 use roost_client_core::{ClientEvent, SyncFrame};
 use serde_json::json;

@@ -1,9 +1,7 @@
 //! The page-lifecycle edges one terminal pane reacts to, and what each one
 //! does to its view: a hidden page parks it, `pagehide` withdraws it, and a
 //! page that shows again republishes an active pane. Target-independent; the
-//! wasm pane mount listens and applies the action. Ports
-//! `apps/web/src/components/terminal/cell-terminal-document-lifecycle.ts` and
-//! the lifecycle callback of `cell-terminal-lifecycle.ts`.
+//! wasm pane mount listens and applies the action.
 
 /// One page-lifecycle edge, already resolved against page visibility.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

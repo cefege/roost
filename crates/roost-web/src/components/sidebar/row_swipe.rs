@@ -1,6 +1,5 @@
 //! Swipe-to-close for a touch session row: the axis lock, the left-only drag
-//! offset, the tap-suppression mark, and the release decision. The gesture
-//! half of `apps/web/src/components/sidebar/SessionRow.tsx`; `SessionRow`
+//! offset, the tap-suppression mark, and the release decision. `SessionRow`
 //! feeds it touch points and renders its offset.
 
 /// How far left a release must be to close the row.

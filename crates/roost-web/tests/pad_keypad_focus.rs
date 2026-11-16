@@ -1,7 +1,6 @@
 //! The key pad's first-key focus retry: a pad with no pointer must land focus
 //! on the first key once the sheet has mounted, stop the moment focus took,
 //! give up after a bounded number of frames, and stand down when cancelled.
-//! Ports the focus half of `apps/web/tests/terminalNavButtons.padSeam.dom.test.ts`.
 
 use roost_web::input_nav::keypad_focus::{
     FIRST_KEY_FOCUS_ATTEMPTS, FirstKeyFocusRetry, KEYPAD_FIRST_KEY_SELECTOR, RetryStep,

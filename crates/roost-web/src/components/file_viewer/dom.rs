@@ -10,8 +10,8 @@
 
 /// The line the address bar's `#L<n>` fragment names, or 1 when it names none.
 ///
-/// v2 `parseLineFromHash`. A fragment that is not `#L<digits>` is not a line
-/// reference, and a fragment that names line 0 has no row to mark.
+/// A fragment that is not `#L<digits>` is not a line reference, and a fragment
+/// that names line 0 has no row to mark.
 #[must_use]
 pub fn target_line_from_hash() -> usize {
     parse_line_from_hash(&location_hash())
@@ -33,7 +33,7 @@ pub fn parse_line_from_hash(hash: &str) -> usize {
 
 /// The shareable URL of the sheet as it stands, with `line` as its fragment.
 ///
-/// v2 `lineUrl`: the address the reader is already on, pointed at one line.
+/// The address the reader is already on, pointed at one line.
 #[must_use]
 pub fn line_link_url(path_and_query: &str, line: usize) -> String {
     format!("{path_and_query}#L{line}")

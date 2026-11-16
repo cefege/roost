@@ -1,6 +1,5 @@
 //! The compact top bar: the drawer control and the current route's title, shown
-//! above the editor on a phone. Ported from
-//! `apps/web/src/components/layout/MobileTopBar.tsx`; mounted by `AppShell` when
+//! above the editor on a phone. Mounted by `AppShell` when
 //! `shell_style::shows_mobile_top_bar` says so, and by the deck's compact chrome
 //! (`MobileRouteTopBar`) on a terminal route with no session to put a bar over.
 //!

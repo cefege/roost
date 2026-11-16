@@ -259,7 +259,7 @@ fn a_frame_from_a_retired_attempt_reaches_nothing_and_retires_only_that_attempt(
 /// hold one: `RouteRegistry::register` deliberately lets a newcomer take a
 /// candidate slot that serves nothing (`registry/mod.rs:74-80`), because that
 /// is the rule which lets a loopback carrier win over a peer that has proved
-/// nothing yet — `smoke/terminal/terminal-peer.spec.ts:62`. The fence is
+/// nothing yet. The fence is
 /// therefore in `promote`, where the candidate's own connection id is compared
 /// against the connection currently holding the worker's slot.
 ///

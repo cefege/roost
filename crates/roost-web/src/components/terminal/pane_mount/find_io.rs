@@ -8,10 +8,9 @@
 //! reveal that waits on it, and a debounce that was replaced is cancelled before
 //! its replacement is armed.
 //!
-//! Ports the host half of `apps/web/src/renderer/terminalFindController.ts` — the
-//! `coordClient.sessionsSearchScrollback` call, the cancel of a superseded search,
-//! and the `setTimeout` the debounce is — over the controller
-//! `roost-web-terminal::find` already owns.
+//! The controller is `roost-web-terminal::find`; this file hosts it: the
+//! scrollback search call, the cancel of a superseded search, and the debounce
+//! timer.
 
 mod search_rpc;
 
@@ -284,8 +283,8 @@ pub(super) fn on_row_settled(shared: &PaneShared, row: u32, painted: bool) {
 }
 
 /// Write the controller's publication into the bar's signal: `None` once the
-/// controller closed, which is what unmounts the bar, as v2 shows it only while
-/// `find.open()`.
+/// controller closed, since the bar shows only while the find controller is
+/// open.
 fn publish(shared: &PaneShared) {
     let alt_screen = (shared.ui.alt_screen)();
     let state = shared.state.borrow().find.bar_state(alt_screen);

@@ -1,7 +1,5 @@
-//! The browser path codec and the browse palette over it: v2
-//! `apps/web/tests/folderPalette.test.ts`, plus the identity and display rules
-//! of `apps/web/src/lib/nativePath.ts` that the sidebar's folder keys and
-//! labels depend on.
+//! The browser path codec and the browse palette over it, plus the identity and
+//! display rules that the sidebar's folder keys and labels depend on.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_client_core::store::WorkerPaths;

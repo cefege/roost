@@ -7,8 +7,7 @@
 //! the history was read, and a bar that eats a keystroke the reader was typing
 //! into its own field.
 //!
-//! Exercises `roost_web::components::terminal::terminal_find_bar`, the port of
-//! `apps/web/src/components/terminal/TerminalFindBar.tsx`.
+//! Exercises `roost_web::components::terminal::terminal_find_bar`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_web::components::terminal::terminal_find_bar::{

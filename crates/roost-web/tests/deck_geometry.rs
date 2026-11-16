@@ -1,7 +1,7 @@
 //! Where a terminal slot paints. The parked case is the FAILURE-INDEX entry "A
 //! parked pane paints at a lying box size": a hidden pane must stay laid out
 //! at the terminal area it will be revealed at, never a fixed box. Pins
-//! `terminalSessionStyle` from `apps/web/src/components/deck/terminal-deck-geometry.ts`.
+//! `terminal_session_style`.
 
 use roost_client_core::deck::{DeckSize, TerminalSessionSlot};
 use roost_client_core::store::layout::PaneRect;

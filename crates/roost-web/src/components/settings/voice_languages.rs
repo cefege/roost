@@ -1,7 +1,5 @@
 //! The Deepgram `nova-3` language list, verbatim from the official support
-//! matrix. Ports `LANGUAGES` in
-//! `apps/web/src/components/Settings/TranscriptionPane.tsx`; the Settings voice
-//! pane is the only reader.
+//! matrix. The Settings voice pane is the only reader.
 //!
 //! A CLOSED list, not free text: an unsupported code makes Deepgram reject the
 //! socket, so a typo here is a broken microphone rather than a rejected setting.

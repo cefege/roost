@@ -1,8 +1,7 @@
 //! The terminal deck's hook-held state: the measured deck box and desktop
 //! strip height, the warm set, the observation it reports to the core, and the
 //! route the core asks it to show. Called once per render by `terminal_deck`;
-//! measurement goes through `deck_dom`. Ports the effects of
-//! `apps/web/src/components/deck/terminal-deck-model.ts`.
+//! measurement goes through `deck_dom`.
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeSet;

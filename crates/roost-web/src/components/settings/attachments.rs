@@ -1,9 +1,8 @@
 //! Settings → System → Files: the attachments a session has collected.
 //!
-//! Ports `apps/web/src/components/Settings/AttachmentsPane.tsx`. Depends on
-//! `roost-client-core`'s `ListAttachments`/`DeleteAttachment` calls, the store's
-//! session map for the selector, and `ClientEvent::TerminalInput` for injecting
-//! a path into the live shell.
+//! Depends on `roost-client-core`'s `ListAttachments`/`DeleteAttachment` calls,
+//! the store's session map for the selector, and `ClientEvent::TerminalInput`
+//! for injecting a path into the live shell.
 //!
 //! The list is component state because a session's files change without the
 //! session changing: the coordinator answers per session id, and a store-wide

@@ -1,9 +1,8 @@
 //! What the pane shows while it opens and when it dies: the startup notice for
 //! each lease state, the gate that keeps a painted pane's frame through a lease
 //! refresh, the offline accusation that spends its silent re-claims first, and
-//! the startup card's clock. Ports `apps/web/tests/cellTerminalPresentation.test.ts`
-//! ("waits for a non-null view status"), `apps/web/tests/offlineWatch.test.ts` and
-//! the notice cases of `TerminalStartupOverlay.tsx`.
+//! the startup card's clock; also the "waits for a non-null view status" rule,
+//! the offline watch and the startup overlay's notice cases.
 
 use roost_web::components::terminal::offline_watch::{OFFLINE_GRACE_MS, OfflineFire, OfflineWatch};
 use roost_web::components::terminal::pane_status::{

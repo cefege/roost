@@ -3,8 +3,7 @@
 //! back the tab swipe (`deck_swipe`), hands a backward pull at the first tab
 //! to the workspace drawer, runs the landing operation once the settle has
 //! painted, and drops the swipe once the route has moved past it. Called by
-//! `terminal_deck`; touches are read by `deck_swipe_touch`. Ports the state
-//! half of `apps/web/src/components/deck/terminal-deck-swipe.ts`.
+//! `terminal_deck`; touches are read by `deck_swipe_touch`.
 
 use std::cell::RefCell;
 use std::rc::Rc;

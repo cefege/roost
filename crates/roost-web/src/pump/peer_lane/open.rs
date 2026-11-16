@@ -23,8 +23,8 @@ use crate::platform::carriers::PeerCarrier;
 /// Open the transport the core named, and record what it opened.
 ///
 /// The peer id is minted HERE: the core holds no entropy, and the id is the
-/// transport's own name for this negotiation (v2 mints it as it constructs the
-/// connection). The core adopts it from the offer report.
+/// transport's own name for this negotiation (it is minted as the transport
+/// constructs the connection). The core adopts it from the offer report.
 pub(super) fn open_transport(pump: &Pump, mut attempt: PeerAttempt) {
     let attempt_id = attempt.attempt_id;
     let worker_fp = attempt.worker_fp.clone();

@@ -60,7 +60,7 @@ impl<T> EventInbox<T> {
     /// The next observation, or `None` once `deadline` has elapsed.
     ///
     /// A queued event wins over an elapsed deadline, because the event arrived
-    /// first and v2's callbacks would have settled the waiter with it.
+    /// first, and a callback-driven waiter would have settled with it.
     pub async fn next(&self, deadline: &Deadline) -> Option<T> {
         poll_fn(|context| {
             if let Some(event) = self.queue.borrow_mut().pop_front() {

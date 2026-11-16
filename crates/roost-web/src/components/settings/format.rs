@@ -1,12 +1,10 @@
 //! The wording the settings panes share: how a timestamp reads, and how a long
 //! identifier fits a row.
 //!
-//! Ports the `relativeTime`/`formatAge`/`shortFp`/`fmtTs` helpers the v2 panes
-//! each carried a copy of. One copy here, because a fleet pane that says "3m
-//! ago" for a machine and "3 minutes ago" for an attachment is two spellings of
-//! one fact.
+//! One copy here, because a fleet pane that says "3m ago" for a machine and "3
+//! minutes ago" for an attachment is two spellings of one fact.
 
-/// A whole-second elapsed time, in v2's wording.
+/// A whole-second elapsed time.
 pub fn relative_time(now_ms: u64, then_ms: u64) -> String {
     let elapsed_ms = now_ms.saturating_sub(then_ms);
     let seconds = elapsed_ms / 1_000;
@@ -54,7 +52,7 @@ pub fn format_age(now_ms: u64, then_ms: u64) -> String {
 
 /// How long an attachment has left before the sweep takes it.
 pub fn expiry_label(now_ms: u64, mtime_ms: u64) -> &'static str {
-    /// The sweep window, from `AttachmentsPane.tsx`.
+    /// The sweep window.
     const TTL_MS: u64 = 24 * 60 * 60 * 1_000;
     /// Inside this the row warns rather than reporting a whole day.
     const WARN_MS: u64 = 60 * 60 * 1_000;
@@ -70,7 +68,7 @@ pub fn is_expiring(now_ms: u64, mtime_ms: u64) -> bool {
     expiry_label(now_ms, mtime_ms) != "Under 24h left"
 }
 
-/// A fingerprint or trace id clipped to its ends, the way v2's `shortFp` did.
+/// A fingerprint or trace id clipped to its ends.
 pub fn short_identifier(value: &str, keep: usize) -> String {
     if value.chars().count() <= keep {
         return value.to_owned();
@@ -132,7 +130,7 @@ mod tests {
         assert_eq!(relative_time(20_000, 10_000), "10s ago");
         assert_eq!(relative_time(200_000, 10_000), "3m ago");
         // Two hours exactly. 7_200_001ms is one second past the hour and still
-        // reads "2h ago", because v2 floors rather than rounds.
+        // reads "2h ago", because it floors rather than rounds.
         assert_eq!(relative_time(7_200_000, 0), "2h ago");
         assert_eq!(relative_time(7_200_001, 0), "2h ago");
     }
@@ -157,8 +155,7 @@ mod tests {
     fn expiry_marks_the_sweep_window() {
         let now = 1_000_000_000_u64;
         // 23h59m old leaves a minute, which is inside the warn band; 23h old
-        // leaves exactly an hour, which is not — the boundary is strict, as
-        // v2's `remaining < WARN_THRESHOLD_MS` is.
+        // leaves exactly an hour, which is not — the boundary is strict.
         assert_eq!(
             expiry_label(now, now - 23 * 3_600_000 - 60_000),
             "Under 1h left"

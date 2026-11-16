@@ -1,9 +1,8 @@
 //! The browser's device identity: a non-extractable WebCrypto Ed25519 pair kept
 //! in IndexedDB, and the coordinator JWT bearers it signs. Owned by `platform`;
 //! called by the pump and the pairing surfaces. Depends on the client core's
-//! JWT builder and `roost_protocol::fingerprint`. Ported from
-//! `apps/web/src/client/auth/web-key.ts` and `web-key-storage.ts`, whose
-//! database, store, slot and flag names this reads unchanged.
+//! JWT builder and `roost_protocol::fingerprint`. The database, store, slot and
+//! flag names are the ones an existing browser profile already holds.
 //!
 //! The sequencing — load, first boot and its add race, the bearer reuse
 //! window, reset — is `lifecycle`, target-independent and natively tested. The
@@ -11,7 +10,7 @@
 //! every other build drives it over a vault that has no key store, so every
 //! async entry point answers `Err` instead of pretending to hold a key.
 //!
-//! Not here: v2's rotation-stage recovery and a reset's precondition (the
+//! Not here: rotation-stage recovery and a reset's precondition (the
 //! coordinator must have rejected this key) both need a coordinator probe, and
 //! are the caller's to establish before [`WebDeviceKey::reset`].
 

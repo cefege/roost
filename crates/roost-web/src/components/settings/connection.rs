@@ -1,13 +1,12 @@
 //! Settings → Network → Connection: which coordinator this browser talks to.
 //!
-//! Ports `apps/web/src/components/Settings/ConnectionPane.tsx`. The pane is the
-//! UI over two `localStorage` keys — `roost.coordinatorUrl` for the active
-//! origin and `roost.coords` for the saved list — read at load by
+//! The pane is the UI over two `localStorage` keys — `roost.coordinatorUrl` for
+//! the active origin and `roost.coords` for the saved list — read at load by
 //! `platform::connect`'s base-URL resolution. Switching writes the active key
 //! and reloads, because the Connect transport is built once per document.
 //!
-//! The saved list is component state seeded from storage, exactly as v2 held it
-//! in a signal, so a second copy of the list has nowhere to drift from.
+//! The saved list is component state seeded from storage, so a second copy of
+//! the list has nowhere to drift from.
 
 use dioxus::prelude::*;
 use roost_client_core::KeyValueStore;
@@ -21,9 +20,8 @@ use crate::components::ui::{
 use crate::platform::location::reload_document;
 use crate::platform::storage::LocalStorageKeyValueStore;
 
-/// The key the transport reads its base URL from. The same key v2's
-/// `connect.ts::coordBase` reads; a second spelling would point the transport
-/// somewhere the pane did not write.
+/// The key the transport reads its base URL from; a second spelling would point
+/// the transport somewhere the pane did not write.
 pub const ACTIVE_COORDINATOR_KEY: &str = "roost.coordinatorUrl";
 
 /// The key the saved list is written under.

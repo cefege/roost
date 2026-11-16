@@ -4,9 +4,7 @@
 //! Owned by `App` (one per document, provided in context); called by the Sync
 //! socket's notify, by RPC completions, by the browser timers and listeners in
 //! `pump::browser`, and by surfaces that raise front-end intent. Depends on the
-//! client core, `platform::{connect, sync_socket, storage}`. v2's equivalent is
-//! the store actions spread over `apps/web/src/store/sync.ts` and
-//! `apps/web/src/store/sync-bootstrap.ts`.
+//! client core, `platform::{connect, sync_socket, storage}`.
 //!
 //! THE REVISION IS CAUSED, NOT POLLED: every `dispatch` compares the store's
 //! mutation counter before and after `handle` and writes the `Signal<u64>` only
@@ -324,7 +322,7 @@ impl Pump {
         self.inner.listeners.borrow_mut().push(listener);
     }
 
-    /// How many Sync sockets this document has dialled (v2 `syncWsGeneration`).
+    /// How many Sync sockets this document has dialled.
     pub fn sync_dial_count(&self) -> u64 {
         self.inner.core.borrow().store().sync.dial_count()
     }

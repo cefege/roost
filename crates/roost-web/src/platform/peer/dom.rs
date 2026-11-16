@@ -124,7 +124,7 @@ pub(super) fn open_lanes(
 
 /// Create the local offer and hand it to the connection, which starts ICE.
 ///
-/// Both calls are PROMISES (v2: `await setLocalDescription(await createOffer())`),
+/// Both calls are PROMISES (`await setLocalDescription(await createOffer())`),
 /// so they settle on a task and report through the sink. A browser that refuses
 /// either has no offer to give, and that is reported as the attempt's end rather
 /// than read later as an empty description.
@@ -153,8 +153,9 @@ pub(super) fn begin_gathering(
 
 /// Hand the coordinator's answer to the connection, and report a refusal.
 ///
-/// v2 awaits `setRemoteDescription` and closes the peer when it rejects; the
-/// rejection is reported here as the attempt's end for the same reason.
+/// The browser's `setRemoteDescription` is a promise too, and the peer closes
+/// when it rejects; the rejection is reported here as the attempt's end for the
+/// same reason.
 #[cfg(target_arch = "wasm32")]
 pub(super) fn apply_remote_answer(
     connection: &JsValue,

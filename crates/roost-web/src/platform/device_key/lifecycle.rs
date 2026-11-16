@@ -2,8 +2,7 @@
 //! add race, bearer minting, reset. Owned by `platform::device_key`, whose
 //! `WebDeviceKey` drives it over the browser vault (IndexedDB + WebCrypto) or,
 //! off-browser, over a vault that refuses everything. Target-independent so the
-//! sequencing is decided by native tests. Ported from `loadOrGenerateLocked`,
-//! `signCoordinatorJwt` and `resetWebKey` in `apps/web/src/client/auth/web-key.ts`.
+//! sequencing is decided by native tests.
 
 use std::cell::RefCell;
 

@@ -1,14 +1,11 @@
 //! Which origin a new machine is told to dial: the coordinator's declared
 //! identity first, then the origin this browser is already talking to.
 //!
-//! Ports `workerCoordinatorUrl` of
-//! `packages/protocol/src/coordinator-dial-url.ts`, which v2's deploy composer
-//! and its remote-enrollment path share so a declared front door has ONE
-//! precedence and ONE validation rule. An empty declaration counts as
-//! undeclared; a non-blank declaration that cannot be dialled is a
-//! configuration error and NEVER a reason to fall back — the operator declared
-//! something, and quietly enrolling against a different door than the one they
-//! named is how a fleet ends up enrolled in two places.
+//! A declared front door has ONE precedence and ONE validation rule. An empty
+//! declaration counts as undeclared; a non-blank declaration that cannot be
+//! dialled is a configuration error and NEVER a reason to fall back — the
+//! operator declared something, and quietly enrolling against a different door
+//! than the one they named is how a fleet ends up enrolled in two places.
 
 /// The scheme a worker may be sent over. Plain HTTP would carry a one-shot
 /// enrollment grant in clear to the machine that spends it.

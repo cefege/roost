@@ -114,7 +114,7 @@ pub fn focus_tab_select(session_id: &str) {
     }
 }
 
-/// v2 `isTouchDevice`: a coarse pointer, or any touch points at all.
+/// A coarse pointer, or any touch points at all.
 pub fn is_touch_device() -> bool {
     let Some(window) = web_sys::window() else {
         return false;

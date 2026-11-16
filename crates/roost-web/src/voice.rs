@@ -1,6 +1,5 @@
 //! Dictation: the browser half of voice input for the terminal composer.
 //!
-//! Ports `apps/web/src/voice/**` and `apps/web/src/components/MobileVoiceInput.tsx`.
 //! The browser opens Deepgram's own socket with a key the coordinator stores, or
 //! falls back to the browser's speech recognizer; there is no server-side
 //! transcription, so every piece here is either a pure decision or a host.

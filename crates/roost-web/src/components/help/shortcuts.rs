@@ -1,9 +1,8 @@
 //! The one keyboard-shortcut catalogue: the `/help` page, the Shift+? overlay
 //! and nothing else read it, so a binding cannot be advertised in one place and
-//! contradicted in the other. Ports the `SHORTCUTS` table of
-//! `apps/web/src/components/palette/HelpOverlay.tsx`; depends only on
-//! `platform::browser_platform`, which is what makes a Windows reader see
-//! `Ctrl+…` where a macOS one sees `⌘…`.
+//! contradicted in the other. Depends only on `platform::browser_platform`,
+//! which is what makes a Windows reader see `Ctrl+…` where a macOS one sees
+//! `⌘…`.
 //!
 //! A binding is stored as PIECES rather than as a finished string: a composite
 //! like "split right / split down" is one chord per platform plus a literal

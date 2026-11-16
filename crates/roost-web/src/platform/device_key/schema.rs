@@ -1,17 +1,17 @@
 //! The IndexedDB schema the browser device key lives in, and the upgrade plan
 //! that reaches it. Owned by `platform::device_key`; read by its `indexed_db`
 //! adapter, which only performs the steps planned here. Target-independent so
-//! the migration is decided by native tests. Ported from
-//! `apps/web/src/client/auth/web-key-storage.ts`: the SAME database, version,
-//! store and slot, because a v2 profile's key must be the key this build loads.
+//! the migration is decided by native tests. The database, version, store and
+//! slot are the ones an existing profile holds, because its key must be the key
+//! this build loads.
 
 pub use roost_client_core::client::auth::keystore::DEVICE_KEY_SLOT;
 
-/// The database v2 created: one per origin, shared with every v2 tab.
+/// The database name: one per origin, shared with every tab.
 pub const DATABASE_NAME: &str = "roost-auth";
 
 /// The schema version. Opening at a lower number than a profile already holds
-/// is a `VersionError`, so this is v2's number exactly.
+/// is a `VersionError`, so this is the number existing profiles hold.
 pub const DATABASE_VERSION: u32 = 2;
 
 /// The object store the key pair is written into, keyed out-of-line.
@@ -43,8 +43,8 @@ pub fn plan_schema_upgrade(has_key_store: bool, has_legacy_trust_store: bool) ->
 mod tests {
     use super::{SchemaUpgrade, plan_schema_upgrade};
 
-    /// v2 `webKeyJwtCache.test.ts` "v1 key material survives trust-store
-    /// removal": the version-1 `keys` store is kept, `trust` is dropped.
+    /// Version-1 key material survives trust-store
+    /// removal: the version-1 `keys` store is kept, `trust` is dropped.
     #[test]
     fn a_version_one_database_keeps_its_keys_and_drops_trust() {
         assert_eq!(

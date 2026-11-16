@@ -19,10 +19,9 @@
 //! mounts the portaled dock, and the drawer covers that dock and uncovers it
 //! without unmounting it, so two instances can briefly coexist across a
 //! responsive swap. The publisher therefore carries a token and only the token
-//! that currently owns the slot may publish — the same instance-token rule v2
-//! keeps in `TerminalComposeButton.tsx`'s `activeViewportToken`. Without it a
-//! disposing dock's zero height clears the replacement's measurement, and the
-//! shell's reserve goes stuck for as long as the page lives.
+//! that currently owns the slot may publish. Without it a disposing dock's zero
+//! height clears the replacement's measurement, and the shell's reserve goes
+//! stuck for as long as the page lives.
 //!
 //! A CLAIM IS A REFERENCE, NOT A VALUE. `use_hook` hands every render its own
 //! copy of the hook it stores, and that copy dies with the render, so a release
@@ -30,8 +29,6 @@
 //! still on screen — which the shell cannot tell from "no composer is
 //! mounted". It hangs on an `Rc` instead, and the release runs when the last
 //! handle goes.
-//! Ports `composerActive` / `composerHeightPx` and `activeViewportToken` from
-//! `apps/web/src/components/terminal/TerminalComposeButton.tsx`.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;

@@ -3,8 +3,7 @@
 //!
 //! A child of the driver rather than a sibling because it reads the driver's
 //! private ceremony handle, and a field loosened to `pub` for a sibling would be
-//! a field every sibling could reach. Ports `confirm()` in
-//! `apps/web/src/components/pairing/onboarding-pairing-ceremony.ts:321-374`.
+//! a field every sibling could reach.
 use std::cell::Cell;
 use std::rc::Rc;
 

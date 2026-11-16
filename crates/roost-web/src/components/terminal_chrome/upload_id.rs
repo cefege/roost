@@ -5,8 +5,6 @@
 //! refusal-returning rather than panicking: an upload that cannot be named
 //! cannot be sent, and an upload that cannot be hashed skips its probe and
 //! still lands.
-//! Ports `crypto.randomUUID()` and `crypto.subtle.digest("SHA-256", …)` from
-//! `apps/web/src/lib/attachments.ts`.
 
 /// The upload id every frame, card and chunk for one file names.
 ///

@@ -1,8 +1,7 @@
 //! The component's handle on its imperative pane: `pane_mount::PaneMount` in a
 //! browser, and nothing on the native target, where there is no document to
 //! mount a renderer in. `cell_terminal` holds one per mounted `CellTerminal`
-//! and forwards every prop change and pump revision through it. The seam
-//! `apps/web/src/components/terminal/CellTerminal.tsx` crossed with `runtime`.
+//! and forwards every prop change and pump revision through it.
 
 use std::cell::RefCell;
 use std::rc::Rc;

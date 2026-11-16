@@ -1,12 +1,11 @@
 //! This tab's UI state report, and the triggers that owe one.
 //!
-//! Ports `apps/web/src/lib/uiStateReport.ts` and the reporting half of
-//! `apps/web/src/components/UiBridge.tsx`. The cadence is
+//! The cadence is
 //! `client::ui_command::UiStateReportCadence` and the payload is
 //! `build_ui_state_report`; this file is only the decision around them: what the
 //! report would carry, whether that moved, and when a send is due.
 //!
-//! FOUR TRIGGERS, ONE QUESTION. v2 asked for a report on a route change, on a
+//! FOUR TRIGGERS, ONE QUESTION. A report is owed on a route change, on a
 //! layout commit, on the route's session becoming coordinator-admitted, and on
 //! the tab returning to the foreground. Every one of those changes what
 //! `build_ui_state_report` returns, so this asks one question instead — has the
@@ -105,7 +104,7 @@ impl UiStateReporter {
         }
         if store.tab_id.is_empty() {
             // The coordinator refuses a report whose body names no tab id
-            // (`tab_id` is a required field, as in v2's `handlers-ui.ts`), and
+            // (`tab_id` is a required field), and
             // `pump::boot` claims that id before this document opens a socket,
             // so a report here could not name its tab. Dropping the due send is
             // deliberate: the heartbeat is still armed, so the first sweep after

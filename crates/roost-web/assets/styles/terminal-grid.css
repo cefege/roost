@@ -125,7 +125,7 @@
   color: var(--terminal-selection-fg, inherit);
 }
 
-/* R11 CellGridRenderer (cellRenderer.ts). Paints pre-rendered cells;
+/* R11 CellGridRenderer (`roost-web-terminal`'s `cell_renderer`). Paints pre-rendered cells;
    NEVER reflows. Rows are pinned to the grid's cols (--cell-cols, ch units,
    monospace) so a wider pane letterboxes (margin) instead of stretching. */
 .cell-grid {
@@ -156,7 +156,7 @@
   overflow-anchor: none;
 }
 /* Both placeholders stand in for scrollback the pager can still page in
-   (scrollbackBackfill.ts), never for history that is absent — an unpainted
+   (scrollback backfill), never for history that is absent — an unpainted
    blank sheet reads as "nothing here". The head spacer drops the claim once a
    retention floor is proven ([data-history-floor]): those rows are gone, not
    loading, and a pending texture there would read as a load that never ends.
@@ -214,10 +214,10 @@
    NO `auto` keyword on either value: `auto` makes the browser reuse a block's
    LAST RENDERED size in place of the declared one, so a block that grows while
    skipped (appends to a parked pane, or to the tail while scrolled up) keeps a
-   stale height and understates scrollHeight until it materializes — see the
-   blockPlaceholder comment in cellRenderer.ts.
+   stale height and understates scrollHeight until it materializes — see
+   `block_placeholder` in `roost-web-terminal`.
    SB_BLOCK(250) × 1.2em = 300em; keep the line-height on .cell-grid above in
-   sync with DEFAULT_ROW_PX in cellRenderer.ts. */
+   sync with `DEFAULT_CELL_ROW_PX` in `block_placeholder`. */
 .cell-grid .cell-scrollback .cell-block {
   content-visibility: auto;
   contain-intrinsic-size: 300em;
@@ -248,7 +248,7 @@
 
 
 /* Find-in-scrollback matches. CellGridRenderer splits a matched run into its own
-   span (renderRow in cellRow.ts) rather than positioning an overlay, so `.wterm`'s
+   span (the row renderer) rather than positioning an overlay, so `.wterm`'s
    overflow / scrollbar-gutter rules stay untouched. The ACTIVE match uses the
    primary role, the one high-contrast pairing, so it stands apart from the others. */
 .cell-grid .cell-find-hit {
@@ -275,7 +275,7 @@
   background-repeat: no-repeat;
 }
 
-/* Predictive local echo (lib/predictiveEcho.ts) — a speculative char painted
+/* Predictive local echo (`client::predictive_echo`) — a speculative char painted
    ~1 RTT before the authoritative cell frame confirms it. Rendered in the
    terminal font at the grid position; the engine only shows confirmed-epoch
    guesses, and underlines them (inline style) on a high-RTT link. */

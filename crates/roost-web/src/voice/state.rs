@@ -1,7 +1,6 @@
 //! The mic state machine, as a decision with no DOM in it.
 //!
-//! Ports the transition table of `apps/web/src/components/MobileVoiceInput.tsx`.
-//! Every rule the Playwright oracles read off `data-state` — the starting gate,
+//! Every rule the end-to-end oracles read off `data-state` — the starting gate,
 //! the ownership claim, commit-on-switch, the finalize watchdog — is decided
 //! here and returned as a list of effects, so each one can be pinned by a test
 //! that has no microphone. The component in `crate::components::mobile_voice::input`
@@ -30,7 +29,7 @@ pub enum VoiceState {
 }
 
 impl VoiceState {
-    /// The `data-state` value, verbatim the string v2 emits.
+    /// The `data-state` value.
     #[must_use]
     pub fn data_state(&self) -> &'static str {
         match self {
@@ -128,7 +127,7 @@ pub enum VoiceEvent {
     SendPressed,
 }
 
-/// One instruction to the component, in the order v2 ran it.
+/// One instruction to the component, in the order it runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VoiceEffect {
     /// Clear the error caption.
@@ -162,7 +161,7 @@ pub enum VoiceEffect {
 
 impl VoiceEffect {
     /// Insert words, or restore the composer when the engine heard nothing:
-    /// v2's `deliver`, which sends an empty transcript down the discard path so
+    /// an empty transcript goes down the discard path so
     /// the field does not grow a trailing space for nothing.
     fn deliver(text: String) -> Self {
         if text.is_empty() {

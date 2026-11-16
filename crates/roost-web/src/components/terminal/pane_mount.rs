@@ -3,8 +3,6 @@
 //! frame after each replica revision, plus the pane's view lease, pager,
 //! presentation and input. Constructed by `cell_terminal` on mount, dropped on
 //! unmount; depends on `roost-web-terminal`, the pump and the pane registry.
-//! Ports `apps/web/src/components/terminal/cell-terminal-renderer.ts` and the
-//! runtime of `cell-terminal-runtime.ts`.
 
 mod actions;
 mod backfill_io;

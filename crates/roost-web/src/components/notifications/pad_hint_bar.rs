@@ -3,9 +3,8 @@
 //! geometry instead of claiming its own corner. `aria-hidden` plus
 //! `pointer-events: none` keep it out of focus ownership entirely — a screen
 //! reader gets the same catalogue from the help surface's controller rows.
-//! Ports `apps/web/src/components/notifications/PadHintBar.tsx` over
-//! `input_nav::pad_hints`, the one binding table the controller router also
-//! reads, so the legend and the actions cannot drift apart.
+//! Built over `input_nav::pad_hints`, the one binding table the controller
+//! router also reads, so the legend and the actions cannot drift apart.
 
 use dioxus::prelude::*;
 

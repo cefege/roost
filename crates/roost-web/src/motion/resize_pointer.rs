@@ -1,9 +1,8 @@
 //! The browser half of one pointer resize: capture, window listeners and the
-//! coalesced animation frame around a `PointerResizeSession`. Ports
-//! `beginPointerResizeDrag` from `apps/web/src/lib/resizeDrag.ts`; called by
+//! coalesced animation frame around a `PointerResizeSession`. Called by
 //! `SidebarResizer` and the deck's pane dividers.
 //!
-//! Order on finish is v2's: frame cancelled, listeners removed, capture
+//! Order on finish: frame cancelled, listeners removed, capture
 //! released, commit, release callback, THEN the owner token — so suppression
 //! holds through the committed layout.
 

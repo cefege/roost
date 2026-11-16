@@ -3,7 +3,6 @@
 //! while dictating and press-a-key/leave while the terminal key pad is open, a
 //! mic press with no grant must explain itself rather than do nothing, and the
 //! open controller map stands everything down but Start and B.
-//! Ports `apps/web/tests/padActions.dispatch.dom.test.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

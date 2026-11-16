@@ -1,8 +1,8 @@
 //! The desktop sidebar boundary: a focusable `separator` that resizes the
 //! sidebar by pointer drag (captured, frame-coalesced), by arrow/Home/End, and
-//! resets on a double press. Ports `apps/web/src/components/layout/SidebarResizer.tsx`;
-//! mounted by `SidebarRegion` while the sidebar is expanded. Widths are clamped
-//! by the store (`store::ui::clamp_sidebar_width`) through `ShellIntent::SetSidebarWidth`.
+//! resets on a double press. Mounted by `SidebarRegion` while the sidebar is
+//! expanded. Widths are clamped by the store (`store::ui::clamp_sidebar_width`)
+//! through `ShellIntent::SetSidebarWidth`.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;

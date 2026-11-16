@@ -3,7 +3,7 @@
 //!
 //! Called by `pump::carrier_dial::dial` before it opens anything. Reads the
 //! core's `RouteRegistry` (the one copy of a carrier's scope) and the pump's
-//! carrier table. Ports v2 `store/transport/local-terminal.ts` `presentGrant`.
+//! carrier table.
 
 use roost_client_core::TerminalTransport;
 use roost_client_core::client::local::LocalTerminalGrant;

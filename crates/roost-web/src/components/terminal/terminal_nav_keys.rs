@@ -1,9 +1,9 @@
 //! The terminal key grid: the keys a phone, a D-pad or a TV remote cannot
-//! reach, as one ordered list in v2's DOM order, because DOM order is the tab
+//! reach, as one ordered list in DOM order, because DOM order is the tab
 //! order for anyone walking it with a keyboard and where the controller's
 //! first-key focus starts. Drawn by the floating sheet (`terminal_nav_pad`)
 //! and by the TV input tray inside the composer bar. The classes place the
-//! cells per `data-placement`. Ports `TerminalNavButtons.tsx`'s grid.
+//! cells per `data-placement`.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
@@ -158,7 +158,7 @@ fn pressed_attribute(on: bool) -> Vec<Attribute> {
     )]
 }
 
-/// The sixteen cells: v2's fifteen in v2's DOM order, plus Space before Enter.
+/// The sixteen cells in DOM order, with Space before Enter.
 fn grid_cells(
     handle: &PaneHandle,
     pump: &Pump,

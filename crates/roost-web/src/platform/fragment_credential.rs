@@ -12,8 +12,7 @@
 //! into session storage and the address is rewritten before the application graph
 //! is even requested.
 //!
-//! Ported from `apps/web/src/client/auth/fragment-credential.ts`; the contract
-//! is `protocol/spec/auth-and-pairing.md`.
+//! The contract is `protocol/spec/auth-and-pairing.md`.
 
 use roost_client_core::KeyValueStore as _;
 use roost_platform::PAIR_FRAGMENT_KEY;

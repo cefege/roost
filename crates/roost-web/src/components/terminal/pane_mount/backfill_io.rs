@@ -1,9 +1,7 @@
 //! The pane's scrollback pager I/O: history reads through the elected direct
 //! carrier or the coordinator, the frame yield between splices, and the retry
 //! sleeps, each answered back into the pager. Every callback holds a `Weak`, so
-//! a dropped pane is a no-op. Ports the RPC and timer halves of
-//! `apps/web/src/renderer/scrollbackBackfill.ts` for one pane, and the carrier
-//! choice of `apps/web/src/lib/scrollbackDirectHistory.ts`.
+//! a dropped pane is a no-op.
 
 use roost_client_core::client::rpc::calls::terminal_pane::{ScrollbackCells, ScrollbackCellsPage};
 
@@ -90,8 +88,7 @@ fn next_frame(shared: &PaneShared, then: impl FnOnce(&PaneShared) + 'static) {
 /// One history page for the pager: off the elected direct carrier when one owns
 /// the session, else from the coordinator. A direct read the carrier could not
 /// serve falls back to the coordinator once; one the worker refused, or one
-/// whose route moved while it was in flight, fails the fetch (v2
-/// `lib/scrollbackDirectHistory.ts` `requestScrollbackPage`).
+/// whose route moved while it was in flight, fails the fetch.
 fn fetch_history(
     shared: &PaneShared,
     wave: u64,

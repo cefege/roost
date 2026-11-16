@@ -3,7 +3,6 @@
 //! revision never remounts a renderer, paints the followed folder's panes,
 //! strips, dividers, phone bars and spotlight, and follows the routes the core
 //! asks for. Mounted by `main_pane::MainPane`; state is `roost_client_core::deck`.
-//! Ports `apps/web/src/components/deck/TerminalDeck.tsx`.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
@@ -51,7 +50,7 @@ type DeckRenderSnapshot = (
     bool,
 );
 
-/// The deck. Props are v2's `TerminalDeckProps`, snake-cased.
+/// The deck.
 #[component]
 pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) -> Element {
     let pump = use_store();

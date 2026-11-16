@@ -1,7 +1,5 @@
 //! The Folders panel's contextual empty state: icon, title, body and the call
-//! to action that fixes it. Ports
-//! `apps/web/src/components/sidebar/SidebarEmptyState.tsx`; `AllView` renders
-//! it while no machine is registered.
+//! to action that fixes it. `AllView` renders it while no machine is registered.
 
 use dioxus::prelude::*;
 
@@ -9,8 +7,7 @@ use crate::components::ui::empty::EmptyState;
 use crate::components::ui::{Button, ButtonVariant, IconType};
 use crate::router_state::use_navigate;
 
-/// Which empty state. v2's other three kinds (`coord-error`, `search-empty`,
-/// `view-empty`) had no caller left in v2 and are not carried.
+/// Which empty state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmptyStateKind {
     /// No worker has registered with the coordinator.

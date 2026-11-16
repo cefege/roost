@@ -6,13 +6,12 @@
 //! owns each machine's directory, history, filter and listing, and every move
 //! arrives as a `BrowseIntent`. What lives in `browse::picker` is what the store
 //! has no opinion about — the keyboard cursor, the two floating menus, the
-//! new-folder dialog's own fields — exactly as v2 held them in
-//! `WorkerBrowsePage`'s signals.
+//! new-folder dialog's own fields.
 //!
-//! Ports `apps/web/src/components/browse/`: the page, the toolbar, the path
-//! band, the entry grid, the new-folder dialog, the listing request and the
-//! keyboard cursor. The row filter, the history, the path arithmetic and the
-//! folder-name rules are the store's and `platform::worker_paths::palette`'s.
+//! This module holds the page, the toolbar, the path band, the entry grid, the
+//! new-folder dialog, the listing request and the keyboard cursor. The row
+//! filter, the history, the path arithmetic and the folder-name rules are the
+//! store's and `platform::worker_paths::palette`'s.
 
 mod dom;
 mod entry_list;

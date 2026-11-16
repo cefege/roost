@@ -1,8 +1,7 @@
 //! A pane strip's tab drag, as a gesture: arm past the drag threshold, walk
 //! the dragged tab across its neighbours, then on release either tile it onto
 //! another pane, spring it into its new slot and commit the order, or drop
-//! it back. Called by `pane_strip` on a tab's pointer-down. Ports the pointer
-//! handlers of `apps/web/src/components/deck/PaneStrip.tsx`.
+//! it back. Called by `pane_strip` on a tab's pointer-down.
 
 use std::cell::RefCell;
 use std::rc::Rc;

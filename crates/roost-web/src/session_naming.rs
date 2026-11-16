@@ -1,7 +1,6 @@
 //! What a terminal session is called and how old its activity reads: the
 //! folder headline, the program subtitle, the tab/row title, and the compact
-//! relative age. Ports `apps/web/src/lib/sessionTitle.ts` and
-//! `apps/web/src/lib/relTime.ts`; the sidebar rows, the deck tabs and the close
+//! relative age; the sidebar rows, the deck tabs and the close
 //! labels read it. Paths go through `platform::worker_paths`.
 
 use roost_client_core::Store;
@@ -10,7 +9,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::platform::worker_paths::{short_worker_path, worker_path_basename};
 
-/// The longest title shown, in UTF-16 code units (v2's `MAX`).
+/// The longest title shown, in UTF-16 code units.
 pub const TITLE_MAX_UTF16: usize = 80;
 
 /// Cut `text` to at most `max` UTF-16 code units at a grapheme boundary, so a

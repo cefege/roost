@@ -6,7 +6,6 @@
 //! interim plus final transcripts. The engine name in `data-engine` is the
 //! string the oracles select on, so it comes from the same choice function as
 //! Deepgram's.
-//! Ports the Web Speech branch of `apps/web/src/components/MobileVoiceInput.tsx`.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -18,7 +17,7 @@ use wasm_bindgen::{JsCast, JsValue};
 use super::deepgram_engine::{EngineEvent, EngineSink};
 use super::handshake::captions;
 
-/// The language the recognizer is configured with. v2 fixed it at `en-US`: a
+/// The language the recognizer is configured with. It is fixed at `en-US`: a
 /// stored Deepgram key is the way to change the language, and a tag the browser
 /// has no voice for would leave the operator with silence and no explanation.
 pub const RECOGNITION_LANGUAGE: &str = "en-US";

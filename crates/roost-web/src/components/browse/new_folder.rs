@@ -4,9 +4,7 @@
 //! the `FilesMkdir` call and the post-create navigation, and hands the field
 //! its element id so its open path can focus it.
 //!
-//! Called by `browse::picker`. Ports
-//! `apps/web/src/components/browse/NewFolderDialog.tsx` and the dialog half of
-//! `browseNewFolder.ts`; the name rules are `store::folder_name_validation`'s.
+//! Called by `browse::picker`; the name rules are `store::folder_name_validation`'s.
 
 use dioxus::prelude::*;
 

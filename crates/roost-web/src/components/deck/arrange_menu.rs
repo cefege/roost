@@ -1,7 +1,7 @@
 //! The deck's arrange menu: equalize plus the four rebuild presets, with each
 //! one's glyph and platform chord, disabled for a one-session folder.
 //! `TerminalDeck` owns the resulting layout commit; this anchors, focuses and
-//! dismisses the menu. Ports `apps/web/src/components/deck/ArrangeMenu.tsx`.
+//! dismisses the menu.
 
 use dioxus::prelude::*;
 use roost_client_core::store::layout::{ArrangeKind, PresetKind};

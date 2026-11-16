@@ -3,8 +3,7 @@
 //! A terminal is dense with English and with the shell's own vocabulary, and a
 //! keyterm for `error` or `return` costs URL bytes and buys nothing: the
 //! recognizer already knows those words, and biasing them is how a bias list
-//! stops being a signal. Data only, ported from
-//! `apps/web/src/voice/keytermStopwords.ts`.
+//! stops being a signal. Data only.
 
 /// The stop set, lowercase.
 const STOPWORDS: &[&str] = &[

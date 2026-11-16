@@ -1,10 +1,8 @@
 //! The browser's worker path codec: the ONE host implementation of
 //! `roost_client_core::store::WorkerPaths`, plus the display and navigation
 //! helpers (`short_worker_path`, crumbs, join, dirname) the sidebar, the deck,
-//! the pane router and the browse picker share. Ports
-//! `apps/web/src/lib/nativePath.ts` and `apps/web/src/lib/pathBasename.ts`;
-//! every rule delegates to `roost-platform`'s codec, as v2 delegated to
-//! `@roost/platform/native-path`.
+//! the pane router and the browse picker share. Every rule delegates to
+//! `roost-platform`'s codec.
 
 pub mod palette;
 
@@ -46,7 +44,7 @@ pub struct WorkerPathCrumb {
 /// A declared platform wins. Before the worker record hydrates (`None` or an
 /// empty `os`), a Windows drive, UNC path or tagged route is unambiguous and
 /// everything else reads as POSIX. An `os` this product does not support is
-/// `None`: v2 refused it (`supportedWorkerPlatform` throws), and guessing
+/// `None`: it is refused, and guessing
 /// POSIX or Windows rules for it could merge two real folders.
 pub fn worker_path_platform(worker_os: Option<&str>, path: &str) -> Option<HostPlatform> {
     match worker_os {
@@ -55,7 +53,7 @@ pub fn worker_path_platform(worker_os: Option<&str>, path: &str) -> Option<HostP
     }
 }
 
-/// v2 `inferNativePathPlatform`: Windows only when the spelling is Windows-only.
+/// Windows only when the spelling is Windows-only.
 fn infer_native_path_platform(path_or_route: &str) -> HostPlatform {
     if is_windows_route(path_or_route)
         || is_windows_drive_absolute(path_or_route)
@@ -98,7 +96,7 @@ pub fn join_worker_path(worker_os: Option<&str>, base: &str, parts: &[&str]) -> 
 }
 
 /// Resolve a path a process printed against the folder its terminal is sitting
-/// in (v2 `resolveWorkerPath`). `None` when the path names no file on that
+/// in. `None` when the path names no file on that
 /// machine: an empty folder, a Windows drive-relative path (it depends on
 /// hidden per-drive shell state) or a spelling the codec refuses.
 ///
@@ -159,20 +157,20 @@ pub fn worker_path_crumbs(worker_os: Option<&str>, path: &str) -> Vec<WorkerPath
         .unwrap_or_default()
 }
 
-/// The route segment a worker path is linked as (v2 `encodeWorkerPathRoute`).
+/// The route segment a worker path is linked as.
 pub fn encode_worker_path_route(worker_os: Option<&str>, path: &str) -> Option<String> {
     let platform = worker_path_platform(worker_os, path)?;
     encode_native_path_route(platform, &path_for_codec(platform, path)).ok()
 }
 
-/// The worker path a route segment names (v2 `decodeWorkerPathRoute`). A tagged
+/// The worker path a route segment names. A tagged
 /// Windows route decodes before the worker record hydrates.
 pub fn decode_worker_path_route(worker_os: Option<&str>, route: &str) -> Option<String> {
     let platform = worker_path_platform(worker_os, route)?;
     decode_native_path_route(platform, route).ok()
 }
 
-/// The compact label tabs and the sidebar show (v2 `shortWorkerPath`): the
+/// The compact label tabs and the sidebar show: the
 /// historical `user/basename` form under a `Users` or `home` root, otherwise the
 /// native basename. A path the codec refuses reads as itself.
 pub fn short_worker_path(worker_os: Option<&str>, path: &str) -> String {

@@ -1,11 +1,10 @@
 //! The overlay host: the ⌘K overlay, and the Start-button controller map beside
-//! it. Ports `apps/web/src/components/palette/CommandPalette.tsx` and the
-//! mounting of `ControllerMap` from `App.tsx`; the body is `palette::body`.
+//! it; the body is `palette::body`.
 //!
-//! The host stays mounted and the body does not. That is the whole of v2's
-//! perf note: the catalog build and the filter only exist while the palette is
-//! open, so a WebSocket tick does nothing at all to a reader who is not looking
-//! at it, and reopening starts from an empty query with the field focused.
+//! The host stays mounted and the body does not: the catalog build and the
+//! filter only exist while the palette is open, so a WebSocket tick does
+//! nothing at all to a reader who is not looking at it, and reopening starts
+//! from an empty query with the field focused.
 //!
 //! A compact window gets the bottom sheet, a wider one a centred dialog. Mounted
 //! by `app::AuthorizedOverlays` beside the rename dialog and the notification

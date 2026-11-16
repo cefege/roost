@@ -1,8 +1,7 @@
 //! The spotlight's two chrome layers: the scrim that dims the tiled stack
 //! (a press or right-click on it puts the pane back) and the card frame
 //! around the floated pane. The floated terminal itself is an ordinary deck
-//! slot. Rendered once by `TerminalDeck`. Ports
-//! `apps/web/src/components/deck/TerminalDeckSpotlight.tsx`.
+//! slot. Rendered once by `TerminalDeck`.
 
 use dioxus::prelude::*;
 use roost_client_core::store::layout::PaneRect;

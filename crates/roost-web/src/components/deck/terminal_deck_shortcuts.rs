@@ -1,8 +1,7 @@
 //! The deck-wide keyboard chords: which press means which deck operation, the
 //! painted-geometry walk to the adjacent pane, and the tab a digit selects.
 //! Read by `terminal_deck` through `terminal_deck_dom`'s document listener.
-//! Pure; ports `apps/web/src/components/deck/terminal-deck-shortcuts.ts`.
-//! Every chord not listed here stays with the terminal.
+//! Pure. Every chord not listed here stays with the terminal.
 
 use roost_client_core::store::layout::{ArrangeKind, PaneView, PresetKind};
 use roost_protocol::layout::document::LayoutDirection;

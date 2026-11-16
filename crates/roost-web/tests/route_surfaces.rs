@@ -47,7 +47,7 @@ fn every_grammar_route_the_specs_navigate_to_is_served() {
 
 #[test]
 fn pairing_and_the_gallery_are_the_only_surfaces_outside_the_shell() {
-    // v2 nests everything but `/pair` and `/design` under the shell route: a
+    // Everything but `/pair` and `/design` lives under the shell route: a
     // reader who is not authorized has no workbench to put them inside.
     for path in ["/pair", "/design"] {
         let route = Route::parse(path);
@@ -123,7 +123,7 @@ fn a_terminal_folder_path_survives_a_round_trip_through_the_grammar() {
 fn a_worker_with_no_folder_is_not_a_terminal_route() {
     // The grammar's own rule, and the reason it exists: `/t/:workerFp` with no
     // folder names a MACHINE and nothing to run in it, so it is not the terminal
-    // route. v2's pattern is a splat, which can be empty; v3's grammar decided
+    // route. A splat pattern can be empty; this grammar decided
     // otherwise and `tests/routes.rs` pins that decision. Asserting it here too
     // means a change to either file has to be made twice, on purpose.
     assert_eq!(

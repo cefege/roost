@@ -13,9 +13,6 @@
 //! worker, another grant scope, or a peer id on a loopback socket, and a second
 //! copy of it here would be a second answer to "may this carrier carry these
 //! sessions" from a different copy of the tuple.
-//!
-//! Ported from `apps/web/src/store/transport/local-terminal.ts:71-270`
-//! (`LoopbackTerminalConnection`).
 
 use std::collections::BTreeSet;
 
@@ -160,8 +157,8 @@ impl LoopbackConnection {
                     detail: error.reason().to_owned(),
                 }
             })?;
-        // A rolling worker names no socket, and v2 `local-terminal.ts` lets the
-        // connection id stand in for it, as the token namespace already does.
+        // A rolling worker names no socket, so the connection id
+        // stands in for it, as the token namespace already does.
         let socket_id = if ready.socket_id.is_empty() {
             connection_id
         } else {

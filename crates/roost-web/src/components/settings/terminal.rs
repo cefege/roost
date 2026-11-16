@@ -1,9 +1,9 @@
 //! Settings → Interface → Terminal: how the terminal behaves on this device.
 //!
-//! Ports `apps/web/src/components/Settings/TerminalPane.tsx`. Every control is a
-//! per-device preference owned by `roost_client_core::store::prefs`; a change
-//! arrives as a `ShellIntent` so the store, its persisted copy and the pump's
-//! revision all move together, and applies immediately with no reload.
+//! Every control is a per-device preference owned by
+//! `roost_client_core::store::prefs`; a change arrives as a `ShellIntent` so the
+//! store, its persisted copy and the pump's revision all move together, and
+//! applies immediately with no reload.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;

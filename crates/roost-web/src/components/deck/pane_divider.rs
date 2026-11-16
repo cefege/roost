@@ -1,7 +1,6 @@
 //! One draggable seam between two split children: pointer capture, a
 //! frame-coalesced live ratio, and the commit on release. `TerminalDeck`
-//! supplies the geometry and receives the ratios. Ports
-//! `apps/web/src/components/deck/PaneDivider.tsx`.
+//! supplies the geometry and receives the ratios.
 
 use dioxus::prelude::*;
 use roost_client_core::store::layout::DividerRect;

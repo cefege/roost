@@ -1,6 +1,6 @@
 //! Worker-native path navigation for the `/browse` picker: child and parent
 //! paths, the breadcrumb trail, and the middle-collapse a narrow header folds
-//! it to. Ports `apps/web/src/lib/folderPalette.ts`; every separator and root
+//! it to. Every separator and root
 //! rule delegates to the parent module's codec. The browse surface calls it.
 
 use super::{WorkerPathCrumb, join_worker_path, worker_path_crumbs, worker_path_dirname};

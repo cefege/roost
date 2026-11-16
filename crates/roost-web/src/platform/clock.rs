@@ -13,8 +13,8 @@
 //! The epoch is the navigation, not the Unix epoch, because every deadline in
 //! the client core is a DELTA from the moment it was armed. The wall-clock
 //! readings are `WallClock` (a coordinator JWT's `iat`/`exp` are Unix times the
-//! coordinator compares with its own clock, v2 `signCoordinatorJwt`, `Date.now()`)
-//! and `BrowserEpochClock` (client-state stamps, compared across laptops).
+//! coordinator compares with its own clock) and `BrowserEpochClock`
+//! (client-state stamps, compared across laptops).
 
 use roost_client_core::{Clock, EpochClock};
 use web_sys::Performance;

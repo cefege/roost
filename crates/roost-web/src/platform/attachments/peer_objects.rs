@@ -20,7 +20,7 @@ pub enum PeerEvent {
     Packet(PeerLane, Vec<u8>),
     BufferedLow,
     GatheringComplete,
-    /// A lifecycle event that ends the carrier, with v2's reason for it.
+    /// A lifecycle event that ends the carrier, with the reason it reports.
     Ended(&'static str),
 }
 

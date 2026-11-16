@@ -9,9 +9,7 @@
 //! connection that ever existed, and a grant that admits exactly the sessions it
 //! names.
 //!
-//! Ported from `apps/web/src/store/terminal-stream-transport.ts` and
-//! `apps/web/src/store/transport/local-terminal.ts`; the grant scope rule is
-//! `protocol/spec/direct-terminal.md:23`.
+//! The grant scope rule is `protocol/spec/direct-terminal.md:23`.
 
 use std::collections::BTreeSet;
 

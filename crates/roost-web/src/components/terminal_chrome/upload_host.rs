@@ -5,8 +5,6 @@
 //! The route ORDER is `client::attachments::direct`'s; this file answers what
 //! the tab can reach (the discovered door, whether WebRTC exists) and performs
 //! the acts the chooser asks for, on the carriers in `platform::attachments`.
-//! Ports the host half of `apps/web/src/lib/attachments.ts` and the default
-//! dependencies of `apps/web/src/client/attachments/attachmentDirect.ts`.
 
 use roost_client_core::client::attachments::direct::relay::{RelayChunk, RelayUpload};
 use roost_client_core::client::attachments::direct::{
@@ -37,7 +35,7 @@ pub struct DirectIdentity {
 }
 
 /// What one upload's direct attempt runs against: the tab's reach, read at
-/// upload time as v2 reads it, and the file a carrier reads its chunks from.
+/// upload time, and the file a carrier reads its chunks from.
 pub struct BrowserDirectEnvironment<'upload> {
     pub pump: &'upload Pump,
     pub identity: &'upload DirectIdentity,
@@ -60,7 +58,7 @@ impl AttachmentDirectEnvironment for BrowserDirectEnvironment<'_> {
         self.pump.local_worker_door()
     }
 
-    /// v2: `isSecureContext && typeof RTCPeerConnection !== "undefined"`.
+    /// A secure context in which WebRTC peer connections exist.
     fn peer_available(&self) -> bool {
         let secure = web_sys::window().is_some_and(|window| window.is_secure_context());
         secure && crate::platform::peer::is_available()

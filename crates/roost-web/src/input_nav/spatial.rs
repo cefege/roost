@@ -5,7 +5,7 @@
 //! arrows would never move DOM focus at all.
 //!
 //! Pure over [`NavRect`]s and plain facts; the keydown listener that gathers
-//! them is `spatial_dom`. Ported from `apps/web/src/lib/spatialNavigation.ts`.
+//! them is `spatial_dom`.
 
 use roost_web_terminal::reader_intent::ScrollBoxGeometry;
 

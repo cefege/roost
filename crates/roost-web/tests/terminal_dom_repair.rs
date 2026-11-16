@@ -1,7 +1,6 @@
 //! A pane whose DOM stays behind canonical repairs locally at once and
 //! escalates only after the 3 s proof deadline; a reader hold or a pointer
-//! gesture defers both. Ports the DOM-recovery cases of
-//! `apps/web/tests/cellTerminalPresentation.test.ts`.
+//! gesture defers both.
 
 use roost_web::components::terminal::dom_repair::{
     DOM_RECONCILIATION_PROOF_MS, DomRepair, DomRepairHost,

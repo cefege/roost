@@ -1,7 +1,7 @@
 //! The session a hovered notification points at, shared with the surfaces that
 //! paint the ring: a pane tab when one represents the target, and the sidebar
-//! folder row when none does. Ports `apps/web/src/store/notifyTarget.ts` and the
-//! ring rule in `assets/components/notifications/NotificationDock.css`.
+//! folder row when none does. The ring rule is in
+//! `assets/components/notifications/NotificationDock.css`.
 //!
 //! It is a Dioxus signal rather than store state because it is a pointer
 //! affordance with no lifetime of its own: it is set by a card's hover and

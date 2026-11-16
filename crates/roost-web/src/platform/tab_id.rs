@@ -2,8 +2,8 @@
 //! held for the document lifetime, and the `BroadcastChannel` fallback kept
 //! open to answer later probes.
 //!
-//! Ported from `apps/web/src/client/auth/tab-id.ts`; the decision table is
-//! `roost_client_core::client::auth::tab_id::TabIdentity`, which this file only
+//! The decision table is `roost_client_core::client::auth::tab_id::TabIdentity`,
+//! which this file only
 //! performs steps for. Called once per document by `pump::boot` before the
 //! first transport. `navigator.locks` is reached through `Reflect` because
 //! web-sys gates `LockManager` behind `web_sys_unstable_apis`.
@@ -42,7 +42,7 @@ impl ClaimedTabId {
     }
 }
 
-/// Claim this document's tab id (v2 `claimTabIdentity`).
+/// Claim this document's tab id.
 pub async fn claim_document_tab_id() -> ClaimedTabId {
     let identity = Rc::new(RefCell::new(TabIdentity::new(
         Rc::new(SessionStorageKeyValueStore::new()),
@@ -273,7 +273,7 @@ fn post(channel: &BroadcastChannel, message: &ClaimMessage) -> Result<(), JsValu
     channel.post_message(&body)
 }
 
-/// `crypto.getRandomValues`, or v2's `Math.random` fill where it is missing.
+/// `crypto.getRandomValues`, or a `Math.random` fill where it is missing.
 #[derive(Debug)]
 struct CryptoRandomSource;
 

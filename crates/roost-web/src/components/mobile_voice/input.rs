@@ -1,7 +1,7 @@
 //! The mic: the DOM the oracles read, and the effects the state machine asks for.
 //!
-//! Ports `apps/web/src/components/MobileVoiceInput.tsx`. Every rule about what a
-//! tap does lives in `crate::voice::state`; this file renders the four states,
+//! Every rule about what a tap does lives in `crate::voice::state`; this file
+//! renders the four states,
 //! performs the effects that machine returns, and hands the transcript to the
 //! composer, which paints it. The engine name in `data-engine` comes from
 //! `crate::voice::engine` and the value in `data-state` from the machine; both

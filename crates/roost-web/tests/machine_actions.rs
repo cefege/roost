@@ -1,6 +1,6 @@
 //! The sidebar's machine hand-offs: which platform offers what in which menu,
 //! the host check, the `vnc://` / `smb://` hrefs, the UNC path and the `.rdp`
-//! file. Ports v2 `apps/web/tests/machineActions.test.ts`.
+//! file.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

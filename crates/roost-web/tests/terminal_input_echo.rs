@@ -1,8 +1,6 @@
 //! The pane's predictive echo on the admission outcome, driven through the
 //! real input router and its per-view outcome feed. Pins
-//! `components::terminal::pane_echo_feedback` (v2
-//! `apps/web/tests/cellTerminalInput.test.ts` "CellTerminal input prediction
-//! admission").
+//! `components::terminal::pane_echo_feedback` (input prediction admission).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_client_core::terminal::input::outcome_feed::ViewAdmission;

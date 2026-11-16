@@ -1,7 +1,5 @@
 //! The workbench chrome: the grid every in-shell path is drawn inside, and the
-//! pieces that fill it. Ports `apps/web/src/components/layout/*` (AppShell,
-//! WorkbenchActivityBar, SidebarResizer, WorkbenchStatusBar, MobileTopBar,
-//! MobileSidebarDrawer); the phone-size switch is rust-ui's `use_is_mobile`
+//! pieces that fill it. The phone-size switch is rust-ui's `use_is_mobile`
 //! (`window_size`).
 //!
 //! The chrome is STRUCTURAL: it owns the grid, the sidebar region's width, the

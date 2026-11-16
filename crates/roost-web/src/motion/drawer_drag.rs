@@ -1,6 +1,6 @@
 //! Drive the compact sidebar drawer under the finger, then hand its transform
-//! back to the drawer's Tailwind `transform` utilities on settle. Ports
-//! `apps/web/src/lib/drawerDrag.ts`; called by `MobileSidebarDrawer`'s edge
+//! back to the drawer's Tailwind `transform` utilities on settle. Called by
+//! `MobileSidebarDrawer`'s edge
 //! swipe and the deck's backward "workspace" swipe, which both move the SAME
 //! drawer element (`[data-testid="sidebar-drawer"]`).
 //!

@@ -1,9 +1,7 @@
 //! The pane's predictive echo: the `PredictiveEchoHost` painting guesses into
 //! the renderer's live grid, fed each keystroke's admission, each settled
 //! outcome from the core's per-view feed, and each painted frame; wiped when a
-//! batch's fate is refused or uncertain and by the DOM-stall repair. Ports
-//! the predictor wiring of `apps/web/src/components/terminal/cell-terminal-renderer.ts`
-//! and `cell-terminal-input.ts`.
+//! batch's fate is refused or uncertain and by the DOM-stall repair.
 
 use std::rc::Rc;
 
