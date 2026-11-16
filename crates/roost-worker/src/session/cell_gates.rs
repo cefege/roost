@@ -5,6 +5,7 @@
 //! and `session-emit.ts` `cellEmissionGates`); called by `session::emit`,
 //! `session::cell_scheduler`, `session::sync_output` and `runtime::channel_delivery`.
 
+use roost_observability::{LogFields, SignalKind, signal};
 use roost_protocol::wire::brand::ChannelId;
 
 use super::emit::CellEmitter;
@@ -115,5 +116,14 @@ impl CellEmitter {
         }
         held.over_budget = true;
         tracing::warn!(%channel_id, gate = gate.as_str(), age_ms, budget_ms = CELL_GATE_BUDGET_MS, "terminal.gate_over_budget");
+        signal::emit(
+            SignalKind::TerminalGateOverBudget,
+            LogFields::new()
+                .set("channel_id", channel_id.as_u32())
+                .set("gate", gate.as_str())
+                .set("age_ms", age_ms)
+                .set("budget_ms", CELL_GATE_BUDGET_MS)
+                .set("cooldownKey", channel_id.to_string()),
+        );
     }
 }

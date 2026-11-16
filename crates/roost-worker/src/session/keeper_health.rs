@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use super::lifecycle::SessionManager;
 use super::respawn::DeadBirths;
 use crate::strays::{DEGRADED_WINDOW, RECENTLY_CLOSED_TTL};
+use roost_observability::{LogFields, SignalKind, signal};
 
 /// Orphan chunks inside [`DEGRADED_WINDOW`] that mark a degraded keeper (v2
 /// `KEEPER_DEGRADED_THRESHOLD`).
@@ -90,6 +91,12 @@ impl KeeperHealth {
                 no_session_count = burst,
                 window_ms = DEGRADED_WINDOW.as_millis() as u64,
                 "keeper.degraded: the keeper is emitting on channels with no session"
+            );
+            signal::emit(
+                SignalKind::KeeperDegraded,
+                LogFields::new()
+                    .set("kind", "emit_no_session")
+                    .set("cooldownKey", "keeper"),
             );
             self.degraded();
         }

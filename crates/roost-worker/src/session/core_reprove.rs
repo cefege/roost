@@ -15,17 +15,17 @@
 use std::sync::{Arc, Mutex};
 
 use roost_keeper::history::HistoryRecord;
+use roost_observability::{LogFields, SignalKind, signal};
 use roost_protocol::terminal_capture::bundle::TerminalWorkerResizeOutcome::{LostAck, Recovered};
-use roost_protocol::viewport::{TerminalGeometry, is_terminal_geometry};
 use roost_protocol::wire::brand::ChannelId;
 use roost_term::{CellEmitState, RioCore, TerminalCore};
 
 use super::binding::ChannelDelivery;
+use super::core_reprove_replay::{geometry_ok, replay_history};
 use super::ids::mint_uuid;
 use super::keeper_channels::SurvivorHistory;
 use super::lifecycle::SessionManager;
 use super::query_reply::answer_queries;
-use super::replay_align::skip_orphan_sequence_prefix;
 use super::resize::{CaptureLoss, OpenBoundary, lock, report_capture_loss, trap_boundary};
 use super::ring::ScrollbackRing;
 use super::stream_scan::ALT_ENTER_SEQUENCES;
@@ -184,6 +184,16 @@ impl SessionManager {
             history_evicted = replay.history_evicted,
             "terminal.core_reproved: a fail-closed core was rebuilt from keeper history"
         );
+        signal::emit(
+            SignalKind::TerminalCoreReproved,
+            LogFields::new()
+                .set("channel_id", channel_id.as_u32())
+                .set("stream_id", generation.stream_id)
+                .set("cols", cols)
+                .set("rows", rows)
+                .set("replayed_bytes", replay.replayed_bytes)
+                .set("history_evicted", replay.history_evicted),
+        );
         Ok(())
     }
 
@@ -308,79 +318,6 @@ impl SessionManager {
         }
         Ok((loss, replies))
     }
-}
-
-/// The rebuilt window and what the replay did.
-struct HistoryReplay {
-    window: Vec<u8>,
-    head_seq: u64,
-    replayed_bytes: usize,
-    tail_bytes: usize,
-    history_evicted: bool,
-}
-
-/// Replay the keeper's records into a cold core, marker by marker, then splice
-/// on whatever this worker retained past the keeper's head (v2
-/// `replayKeeperHistory`). Synchronous by contract: the caller holds the ring.
-fn replay_history(
-    core: &mut RioCore,
-    history: &SurvivorHistory,
-    retained: &[u8],
-    live_head_seq: u64,
-) -> Result<HistoryReplay, String> {
-    let mut window = Vec::new();
-    let history_evicted = history.evicted();
-    // Only the cold core's FIRST write under eviction can open mid-sequence.
-    let mut drop_orphan_prefix = history_evicted;
-    for entry in &history.records {
-        match entry {
-            HistoryRecord::Output { bytes, .. } => {
-                window.extend_from_slice(bytes);
-                let from = if drop_orphan_prefix {
-                    skip_orphan_sequence_prefix(bytes)
-                } else {
-                    0
-                };
-                core.write(&bytes[from..]);
-                drop_orphan_prefix = false;
-            }
-            HistoryRecord::Resize { cols, rows, .. } => {
-                if !geometry_ok(*cols, *rows) {
-                    return Err("keeper history contains invalid resize geometry".to_owned());
-                }
-                core.resize(*cols, *rows);
-                if (core.cols(), core.rows()) != (*cols, *rows) {
-                    return Err("terminal core did not retain a keeper history resize".to_owned());
-                }
-            }
-        }
-    }
-    let replayed_bytes = window.len();
-    let tail_bytes = live_head_seq.saturating_sub(history.head_seq) as usize;
-    if tail_bytes > 0 {
-        if tail_bytes > retained.len() {
-            return Err("captured tail was evicted before the core could be re-proved".to_owned());
-        }
-        let tail = &retained[retained.len() - tail_bytes..];
-        window.extend_from_slice(tail);
-        core.write(tail);
-    }
-    Ok(HistoryReplay {
-        window,
-        // The keeper's ordered read may be ahead of this worker's head, and
-        // the rebuilt window ends at whichever head reaches further.
-        head_seq: history.head_seq.max(live_head_seq),
-        replayed_bytes,
-        tail_bytes,
-        history_evicted,
-    })
-}
-
-fn geometry_ok(cols: u16, rows: u16) -> bool {
-    is_terminal_geometry(&TerminalGeometry {
-        cols: u32::from(cols),
-        rows: u32::from(rows),
-    })
 }
 
 /// Every refusal is one warn line plus the verdict, so no path reports one

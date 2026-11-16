@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use futures_util::FutureExt as _;
+use roost_observability::{LogFields, SignalKind, signal};
 
 use crate::uplink::OwnerFuture;
 
@@ -56,7 +57,9 @@ pub(super) fn run_owner<T: Send + 'static>(
     let future = match std::panic::catch_unwind(AssertUnwindSafe(start)) {
         Ok(future) => future,
         Err(payload) => {
-            pending.complete(Err(panic_message(payload.as_ref())));
+            let message = panic_message(payload.as_ref());
+            report_owner_panic(&message);
+            pending.complete(Err(message));
             return;
         }
     };
@@ -64,7 +67,11 @@ pub(super) fn run_owner<T: Send + 'static>(
         let outcome = AssertUnwindSafe(future)
             .catch_unwind()
             .await
-            .map_err(|payload| panic_message(payload.as_ref()));
+            .map_err(|payload| {
+                let message = panic_message(payload.as_ref());
+                report_owner_panic(&message);
+                message
+            });
         pending.complete(outcome);
     });
 }
@@ -78,6 +85,18 @@ fn panic_message(payload: &(dyn Any + Send)) -> String {
         return message.clone();
     }
     "the worker owner panicked".to_owned()
+}
+
+/// A panicking owner is answered like a failed one, but it is also a worker
+/// fault an operator must see.
+fn report_owner_panic(message: &str) {
+    tracing::error!(message, "a downstream owner panicked");
+    signal::emit(
+        SignalKind::WorkerUncaught,
+        LogFields::new()
+            .set("kind", "panic")
+            .set("message", message),
+    );
 }
 
 /// One admitted request against a bounded in-flight count. Dropping it is v2's

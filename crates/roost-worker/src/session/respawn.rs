@@ -3,6 +3,7 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
+use roost_observability::{LogFields, SignalKind, signal};
 use roost_protocol::wire::brand::{ChannelId, SessionId, TraceId};
 use roost_protocol::wire::event::SessionEvent;
 
@@ -82,11 +83,27 @@ pub fn note_birth(manager: &SessionManager, record: &SessionRecord, now_ms: i64)
         lifetime_ms = now_ms.saturating_sub(record.identity.spawned_at_ms),
         "a keeper produced a pty that exited having printed nothing"
     );
+    signal::emit(
+        SignalKind::KeeperDeadBirth,
+        LogFields::new()
+            .set("sid", record.session_id().to_string())
+            .set("channel_id", record.channel_id().as_u32())
+            .set(
+                "lifetime_ms",
+                now_ms.saturating_sub(record.identity.spawned_at_ms),
+            ),
+    );
     if manager.keeper_health.dead_births.note(now_ms, true) {
         tracing::error!(
             dead_births = DEAD_BIRTH_THRESHOLD,
             window_ms = DEGRADED_WINDOW.as_millis() as i64,
             "keeper.degraded: the keeper is handing out pty children that print nothing"
+        );
+        signal::emit(
+            SignalKind::KeeperDegraded,
+            LogFields::new()
+                .set("kind", "dead_birth")
+                .set("cooldownKey", "keeper"),
         );
         manager.keeper_health.degraded();
     }

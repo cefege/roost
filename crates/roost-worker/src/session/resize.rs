@@ -16,6 +16,7 @@
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use roost_keeper::client_resize::{ResizeOutcome as KeeperResize, ResizeRejectReason};
+use roost_observability::{LogFields, SignalKind, signal};
 use roost_protocol::terminal_capture::bundle::TerminalWorkerResizeOutcome;
 use roost_protocol::wire::brand::ChannelId;
 
@@ -351,6 +352,14 @@ pub(super) fn trap_boundary(
         reason,
         "terminal.core_failed: a resize boundary could not be proven and the core is fail-closed"
     );
+    signal::emit(
+        SignalKind::TerminalCoreFailed,
+        LogFields::new()
+            .set("sid", record.session_id().to_string())
+            .set("channel_id", channel_id.as_u32())
+            .set("resize_seq", boundary.seq)
+            .set("reason", reason),
+    );
     ResizeOutcome::Trapped {
         reason: reason.to_owned(),
     }
@@ -374,6 +383,14 @@ pub(super) fn report_capture_loss(channel_id: u16, loss: Option<CaptureLoss>) {
             history_floor = loss.floor,
             replay_lost_rows = loss.rows,
             "this resize moved the history floor: rows a never-resized session would still hold are gone"
+        );
+        signal::emit(
+            SignalKind::ScrollbackReplayBound,
+            LogFields::new()
+                .set("channel_id", channel_id)
+                .set("history_floor", loss.floor)
+                .set("replay_lost_rows", loss.rows)
+                .set("cooldownKey", channel_id.to_string()),
         );
     }
 }

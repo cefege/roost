@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
 
+use roost_observability::{LogFields, SignalKind, signal};
 use roost_protocol::cell::CellGridFrame;
 use roost_protocol::terminal_capture::{
     TerminalCaptureFileRef, TerminalCaptureStatus, TerminalCaptureWorkerAck,
@@ -189,6 +190,13 @@ pub async fn finish_capture(
                 error = ?code,
                 "terminal.capture_failed"
             );
+            signal::emit(
+                SignalKind::TerminalCaptureFailed,
+                LogFields::new()
+                    .set("sid", request.session_id.to_string())
+                    .set("capture_id", capture_id)
+                    .set("error", format!("{code:?}")),
+            );
             return failure_ack(
                 code,
                 recent_worker_capture_for(ledger.recent_worker_local.as_ref(), capture_id),
@@ -235,6 +243,15 @@ pub async fn finish_capture(
         core_replay = ?coverage.core_replay,
         core_comparison = ?coverage.core_comparison,
         "terminal.capture_saved"
+    );
+    signal::emit(
+        SignalKind::TerminalCaptureSaved,
+        LogFields::new()
+            .set("sid", request.session_id.to_string())
+            .set("capture_id", capture_id)
+            .set("byte_len", written.stored.byte_length)
+            .set("reason", reason)
+            .set("cooldownKey", capture_id),
     );
     ack
 }

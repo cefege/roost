@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
+use roost_observability::{LogFields, SignalKind, signal};
 use roost_protocol::wire::brand::ChannelId;
 use roost_term::scrollback_origin;
 
@@ -351,6 +352,15 @@ impl CellEmitter {
             cap_ms = SYNC_OUTPUT_MAX_SILENT.as_millis() as u64,
             cap_rows = SYNC_OUTPUT_MAX_PENDING_ROWS,
             "terminal.sync_output_cap"
+        );
+        signal::emit(
+            SignalKind::TerminalSyncOutputCap,
+            LogFields::new()
+                .set("channel_id", channel_id.as_u32())
+                .set("cap", cap)
+                .set("generation", generation)
+                .set("age_ms", age_ms)
+                .set("suppressed_frames", suppressed),
         );
     }
 }

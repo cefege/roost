@@ -14,6 +14,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, PoisonError};
 
 use roost_keeper::client::KeeperClient;
+use roost_observability::{LogFields, SignalKind, signal};
 
 use super::pool::KeeperPool;
 
@@ -46,6 +47,13 @@ impl KeeperPool {
             %reason,
             channels = channels.len(),
             "keeper.died: the keeper connection is gone; every channel it drove ends"
+        );
+        signal::emit(
+            SignalKind::KeeperDied,
+            LogFields::new()
+                .set("reason", &reason)
+                .set("channels", channels.len())
+                .set("cooldownKey", "keeper"),
         );
         for channel in channels {
             // A channel that already ended was told so by its own exit frame;

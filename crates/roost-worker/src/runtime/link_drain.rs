@@ -19,6 +19,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use roost_observability::{LogFields, SignalKind, signal};
 use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 
 use crate::link_barrier::Action;
@@ -54,6 +55,12 @@ pub(super) fn admit_uplink(loop_state: &mut LinkLoop, frame: CoordWorkerUpstream
             }
             if let Err(error) = loop_state.send_terminal_metadata(metadata.channel_id, &metadata) {
                 tracing::warn!(%error, "terminal metadata was refused by the link");
+                signal::emit(
+                    SignalKind::TransportMetadataCoalesced,
+                    LogFields::new()
+                        .set("channel_id", metadata.channel_id.to_string())
+                        .set("error", error.to_string()),
+                );
                 return false;
             }
             true

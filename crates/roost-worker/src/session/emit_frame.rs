@@ -8,6 +8,7 @@
 use std::time::Instant;
 
 use roost_observability::clock::{EventClock, SystemClock};
+use roost_observability::{LogFields, SignalKind, signal};
 use roost_proto::PbCellGridFrame;
 use roost_protocol::cell::frame_chunks::encoded_cell_grid_frame_size;
 use roost_protocol::cell::{CELL_GRID_PART_MAX_BYTES, CellGridFrame, cell_frame_to_proto};
@@ -149,6 +150,13 @@ impl CellEmitter {
                 // A core that produced something the wire refuses cannot be
                 // trusted either (v2 `installStreamBaseline` → coreValid=false).
                 warn!(%channel_id, %reason, "a full cell frame could not be installed as a baseline");
+                signal::emit(
+                    SignalKind::TerminalInvalidFrame,
+                    LogFields::new()
+                        .set("channel_id", channel_id.as_u32())
+                        .set("reason", reason.to_string())
+                        .set("cooldownKey", channel_id.to_string()),
+                );
                 self.capture
                     .rejected_emission(record, TerminalCoverageReason::BaselineInvalidated);
                 self.retire_stream_delivery(channel_id);

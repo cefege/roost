@@ -11,6 +11,7 @@ use super::reconcile_gate::{
     Gate, KEEPER_DEGRADED_REMEDIATION_GRACE_MS, KEEPER_RESTART_BUDGET,
     KEEPER_RESTART_BUDGET_WINDOW_MS, ReconcileGate,
 };
+use roost_observability::{LogFields, SignalKind, signal};
 
 impl ReconcileGate {
     /// v2 `setOnKeeperDeath` body.
@@ -93,6 +94,12 @@ impl ReconcileGate {
                 window_ms = KEEPER_RESTART_BUDGET_WINDOW_MS,
                 "worker: keeper_degraded_unrecoverable"
             );
+            signal::emit(
+                SignalKind::KeeperDegradedUnrecoverable,
+                LogFields::new()
+                    .set("restarts", state.keeper_restarts.len())
+                    .set("window_ms", KEEPER_RESTART_BUDGET_WINDOW_MS),
+            );
             return;
         }
         state.keeper_restarts.push_back(now_ms);
@@ -102,6 +109,12 @@ impl ReconcileGate {
             since_reconcile_ms,
             restart_n,
             "worker: keeper_degraded_restart"
+        );
+        signal::emit(
+            SignalKind::KeeperRestartDegraded,
+            LogFields::new()
+                .set("since_reconcile_ms", since_reconcile_ms)
+                .set("restart_n", restart_n),
         );
         self.inner.remediation.restart_keeper();
     }

@@ -18,6 +18,7 @@
 
 use std::sync::Arc;
 
+use roost_observability::{LogFields, SignalKind, signal};
 use roost_protocol::wire::brand::{ChannelId, SessionId};
 use roost_protocol::wire::event::SessionEvent;
 
@@ -249,6 +250,16 @@ impl SessionManager {
             history_evicted = history.evicted(),
             "session.attach: a keeper survivor was adopted and its history replayed into a cold core"
         );
+        if history.evicted() {
+            signal::emit(
+                SignalKind::ScrollbackGap,
+                LogFields::new()
+                    .set("sid", request.session_id.to_string())
+                    .set("channel_id", channel)
+                    .set("head_seq", head_seq)
+                    .set("replay_offset", replay_offset),
+            );
+        }
         Ok(Adopted {
             replay_offset,
             head_seq,
@@ -281,6 +292,13 @@ impl SessionManager {
             channel_id = channel,
             staged_bytes = staged,
             "session.resume_downgraded_respawn: the survivor was killed and its session must be respawned"
+        );
+        signal::emit(
+            SignalKind::ScrollbackHistoryLost,
+            LogFields::new()
+                .set("sid", request.session_id.to_string())
+                .set("channel_id", channel)
+                .set("staged_bytes", staged),
         );
     }
 

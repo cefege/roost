@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use base64::Engine as _;
+use roost_observability::{LogFields, SignalKind, signal};
 use roost_protocol::cell::CellGridFrame;
 use roost_protocol::terminal_capture::bundle::{
     TerminalCoverageReason, TerminalWorkerRawRecord, TerminalWorkerResizeOutcome,
@@ -181,6 +182,17 @@ impl CaptureTap {
             ?row,
             ?column,
             "terminal.emission_conflict: the shipped fold and a fresh core scan disagree"
+        );
+        signal::emit(
+            SignalKind::TerminalEmissionConflict,
+            LogFields::new()
+                .set("sid", session_id)
+                .set("stream_id", conflict.stream_id.to_string())
+                .set("grid_epoch", conflict.grid_epoch.to_string())
+                .set("seq", conflict.seq.to_string())
+                .set("difference", format!("{:?}", conflict.difference))
+                .set("row", row)
+                .set("column", column),
         );
         schedule_worker_local_capture(
             shared,

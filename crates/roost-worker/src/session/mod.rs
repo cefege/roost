@@ -23,6 +23,7 @@ pub mod channel_creation_gate;
 pub mod closed_hooks;
 pub mod control_lanes;
 pub mod core_reprove;
+mod core_reprove_replay;
 pub mod cwd_events;
 pub mod diagnostics;
 pub mod durable_delivery;

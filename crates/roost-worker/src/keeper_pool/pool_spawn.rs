@@ -14,6 +14,7 @@
 use std::sync::Arc;
 
 use roost_keeper::client_error::ClientError;
+use roost_observability::{LogFields, SignalKind, signal};
 use roost_protocol::wire::brand::ChannelId;
 
 use super::error::PoolError;
@@ -101,6 +102,14 @@ impl KeeperPool {
                 // that was never opened.
                 self.channels.abort_spawn(channel_id);
                 tracing::warn!(channel_id, %err, "the keeper did not open the channel");
+                if matches!(err, ClientError::SpawnNotAcknowledged { .. }) {
+                    signal::emit(
+                        SignalKind::SpawnNoAck,
+                        LogFields::new()
+                            .set("channel_id", channel_id)
+                            .set("error", err.to_string()),
+                    );
+                }
                 Err(PoolError::Keeper(err))
             }
         }

@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use connectrpc::client::{CallOptions, HttpClient};
+use roost_observability::{LogFields, SignalKind, signal};
 use roost_proto::{CoordinatorServiceClient, WorkersHeartbeatRequest};
 use roost_protocol::keeper_update::KeeperRuntimeObservationV1;
 use roost_protocol::wire::HostMetrics;
@@ -155,6 +156,12 @@ fn authorized_options(credential: &dyn CredentialSource, timeout: Duration) -> C
         Ok(token) => token,
         Err(error) => {
             tracing::warn!(%error, "jwt mint failed");
+            signal::emit(
+                SignalKind::AuthJwtSignFail,
+                LogFields::new()
+                    .set("error", error.to_string())
+                    .set("src", "worker"),
+            );
             return CallOptions::default().with_timeout(timeout);
         }
     };

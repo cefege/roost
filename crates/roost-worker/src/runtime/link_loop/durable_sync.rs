@@ -9,6 +9,7 @@
 
 use std::sync::Arc;
 
+use roost_observability::{LogFields, SignalKind, signal};
 use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 
 use crate::event_store::database::{Journal, PendingRow};
@@ -169,6 +170,12 @@ impl LinkLoop {
             Ok(event) => event,
             Err(error) => {
                 tracing::warn!(%error, "the barrier cannot leave the snapshot stage yet");
+                signal::emit(
+                    SignalKind::TransportSnapshotUnready,
+                    LogFields::new()
+                        .set("error", error.to_string())
+                        .set("stage", "snapshot"),
+                );
                 return;
             }
         };
@@ -202,7 +209,15 @@ impl LinkLoop {
                 );
                 self.authorised = Some(Authorised::Snapshot(bytes));
             }
-            Err(error) => tracing::warn!(%error, "the worker snapshot did not encode"),
+            Err(error) => {
+                tracing::warn!(%error, "the worker snapshot did not encode");
+                signal::emit(
+                    SignalKind::TransportSnapshotUnready,
+                    LogFields::new()
+                        .set("error", error.to_string())
+                        .set("stage", "encode"),
+                );
+            }
         }
     }
 
