@@ -1,6 +1,7 @@
 //! Uploading attachment chips shared by composers.
 //! The caller owns staged files and the upload lifecycle; this component only
 //! renders progress and exposes retry or removal.
+//! Compact image chips keep status and actions inside the thumbnail bounds.
 
 use dioxus::prelude::*;
 
@@ -160,7 +161,7 @@ fn CompactImageUploadChip(
             state: file.state,
             size: AttachmentSize::Default,
             orientation: AttachmentOrientation::Vertical,
-            class: "w-40 max-lg:landscape:w-24 lg:w-48",
+            class: "w-24 max-lg:landscape:w-20",
             "tabindex": "0",
             "role": "listitem",
             "data-testid": "staged-attachment",
@@ -216,26 +217,26 @@ fn CompactImageUploadChip(
                         }
                     }
                 }
-            }
-            AttachmentActions {
-                class: "group-data-[orientation=Vertical]/attachment:top-1 group-data-[orientation=Vertical]/attachment:right-1",
-                if file.retryable {
-                    IconButton {
-                        icon: IconType::RefreshCw,
-                        label: "Retry upload of {file.name}",
-                        title: "Retry upload",
-                        variant: ButtonVariant::Ghost,
-                        size: ButtonSize::IconXs,
-                        onclick: move |_| on_retry.call(index),
+                AttachmentActions {
+                    class: "top-1! right-1!",
+                    if file.retryable {
+                        IconButton {
+                            icon: IconType::RefreshCw,
+                            label: "Retry upload of {file.name}",
+                            title: "Retry upload",
+                            variant: ButtonVariant::Ghost,
+                            size: ButtonSize::IconXs,
+                            onclick: move |_| on_retry.call(index),
+                        }
                     }
-                }
-                IconButton {
-                    icon: IconType::X,
-                    label: "Remove {file.name}",
-                    title: "Remove {file.name}",
-                    variant: ButtonVariant::Secondary,
-                    size: ButtonSize::IconXs,
-                    onclick: move |_| on_remove.call(index),
+                    IconButton {
+                        icon: IconType::X,
+                        label: "Remove {file.name}",
+                        title: "Remove {file.name}",
+                        variant: ButtonVariant::Secondary,
+                        size: ButtonSize::IconXs,
+                        onclick: move |_| on_remove.call(index),
+                    }
                 }
             }
         }
