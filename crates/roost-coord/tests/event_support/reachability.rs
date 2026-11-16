@@ -1,6 +1,6 @@
 //! Whether a capability is REACHABLE, as a test rather than as a review note.
 //!
-//! Read by `event_reachability.rs`. Split out so these and the coordinator
+//! Read by `event_publication.rs`. Split out so these and the coordinator
 //! fixture they read do not share a file: these answer "does anything call
 //! this", the fixture answers "is this coordinator booted", and mixing them made
 //! the file the largest in the test tree for no reader's benefit.
