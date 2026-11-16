@@ -6,24 +6,14 @@
 use dioxus::prelude::*;
 
 use super::dialog::{
-    Dialog, DialogAction, DialogClose, DialogContent, DialogDescription, DialogFooter,
-    DialogHeader, DialogTitle, DialogTrigger,
+    Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 };
-use super::dialog_parts::DialogBody;
 use super::focus_scope::AutoFocusRequest;
 
 /// A controlled confirmation. The caller owns `open`, as for `Dialog`.
 #[component]
 pub fn AlertDialog(open: bool, on_open_change: EventHandler<bool>, children: Element) -> Element {
     rsx! { Dialog { open, on_open_change, {children} } }
-}
-
-#[component]
-pub fn AlertDialogTrigger(
-    #[props(into, optional)] class: Option<String>,
-    children: Element,
-) -> Element {
-    rsx! { DialogTrigger { class, {children} } }
 }
 
 /// The confirmation panel. A backdrop click does nothing: the only ways out are
@@ -75,14 +65,6 @@ pub fn AlertDialogDescription(
 }
 
 #[component]
-pub fn AlertDialogBody(
-    #[props(into, optional)] class: Option<String>,
-    children: Element,
-) -> Element {
-    rsx! { DialogBody { class, {children} } }
-}
-
-#[component]
 pub fn AlertDialogFooter(
     #[props(into, optional)] class: Option<String>,
     children: Element,
@@ -97,14 +79,4 @@ pub fn AlertDialogCancel(
     children: Element,
 ) -> Element {
     rsx! { DialogClose { class, {children} } }
-}
-
-/// The committing choice that closes the confirmation. The caller performs the
-/// action in its own handler, before or after `open` goes false.
-#[component]
-pub fn AlertDialogAction(
-    #[props(into, optional)] class: Option<String>,
-    children: Element,
-) -> Element {
-    rsx! { DialogAction { class, {children} } }
 }

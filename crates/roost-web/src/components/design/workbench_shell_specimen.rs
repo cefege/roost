@@ -8,9 +8,8 @@ use crate::components::ui::tabs::TabsVariant;
 use crate::components::ui::{
     Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, Separator, SeparatorOrientation,
     SidenavContent, SidenavFooter, SidenavGroup, SidenavGroupLabel, SidenavInner, SidenavMenu,
-    SidenavMenuButton, SidenavMenuButtonSize, SidenavMenuItem, SidenavMenuSub,
-    SidenavMenuSubButton, SidenavMenuSubItem, StatusDot, Tabs, TabsContent, TabsList, TabsTrigger,
-    Toolbar, ToolbarButton,
+    SidenavMenuButton, SidenavMenuButtonSize, SidenavMenuItem, SidenavMenuSub, StatusDot, Tabs,
+    TabsList, TabsTrigger, Toolbar, ToolbarButton,
 };
 
 /// The specimen's grid: rail, sidebar and editor above the status bar. Track
@@ -77,8 +76,8 @@ pub fn WorkbenchShellSpecimen() -> Element {
                                     }
                                 }
                                 SidenavMenuSub {
-                                    SidenavMenuSubItem {
-                                        SidenavMenuSubButton { href: "/", "Code review" }
+                                    SidenavMenuItem {
+                                        SidenavMenuButton { href: Some("/".to_owned()), size: SidenavMenuButtonSize::Sm, "Code review" }
                                     }
                                 }
                             }
@@ -134,12 +133,7 @@ pub fn WorkbenchShellSpecimen() -> Element {
                             }
                         }
                     }
-                    TabsContent { value: "main".to_owned(), class: "min-h-0",
-                        div { class: "overflow-auto p-4 text-sm [font-family:var(--term-font-family)]", "$ roost status" }
-                    }
-                    TabsContent { value: "logs".to_owned(), class: "min-h-0",
-                        div { class: "overflow-auto p-4 text-sm [font-family:var(--term-font-family)]", "$ roost worker logs" }
-                    }
+                    div { class: "min-h-0 overflow-auto p-4 text-sm [font-family:var(--term-font-family)]", "$ roost status" }
                 }
             }
             footer {

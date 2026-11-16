@@ -8,7 +8,7 @@ use dioxus::prelude::*;
 use tw_merge::tw_merge;
 
 use super::menu_focus::MenuFocusEdge;
-use super::menu_items::{MenuItemHooks, render_menu_group, render_menu_item, render_menu_label};
+use super::menu_items::{MenuItemHooks, render_menu_item, render_menu_label};
 use super::menu_overlay::{
     MenuContext, MenuRoot, MenuSide, MenuSurface, anchored_placement, provide_menu_root,
     request_close, request_open,
@@ -182,14 +182,6 @@ pub fn DropdownMenuLabel(
     children: Element,
 ) -> Element {
     render_menu_label("DropdownMenuLabel", class, children)
-}
-
-#[component]
-pub fn DropdownMenuGroup(
-    #[props(into, optional)] class: Option<String>,
-    children: Element,
-) -> Element {
-    render_menu_group("DropdownMenuGroup", class, children)
 }
 
 #[component]

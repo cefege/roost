@@ -1,5 +1,5 @@
 //! `Card` and its parts (`CardHeader`, `CardTitle`, `CardDescription`,
-//! `CardAction`, `CardContent`, `CardFooter`, `CardList`, `CardItem`): the rust-ui
+//! `CardAction`, `CardContent`, `CardFooter`): the rust-ui
 //! card compound. Settings panes and machine cards compose it; the
 //! header renders only when a caller puts something in it.
 
@@ -147,21 +147,4 @@ pub fn CardAction(#[props(into, optional)] class: Option<String>, children: Elem
     );
 
     rsx! { div { "data-name": "CardAction", class: "{merged_class}", {children} } }
-}
-
-#[component]
-pub fn CardList(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged_class = tw_merge!("flex flex-col gap-4", class.as_deref().unwrap_or(""));
-
-    rsx! { ul { "data-name": "CardList", class: "{merged_class}", {children} } }
-}
-
-#[component]
-pub fn CardItem(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged_class = tw_merge!(
-        "flex items-center [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0",
-        class.as_deref().unwrap_or("")
-    );
-
-    rsx! { li { "data-name": "CardItem", class: "{merged_class}", {children} } }
 }

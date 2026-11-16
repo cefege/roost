@@ -144,7 +144,6 @@ pub fn PaneTab(
                 value: session_id.clone(),
                 class: "h-full min-w-0 flex-1 justify-start px-2 text-xs text-start",
                 aria_label: title.clone(),
-                has_panel: false,
                 title: native_tooltip,
                 "data-tab-select": session_id.clone(),
                 onpointerdown: move |event| on_pointer_down.call(event),

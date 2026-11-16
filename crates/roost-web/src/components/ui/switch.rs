@@ -11,12 +11,6 @@ use crate::components::ui::field::{
 };
 
 #[component]
-pub fn SwitchLabel(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!("text-sm font-medium", class.as_deref().unwrap_or(""));
-    rsx! { span { class: "{merged}", {children} } }
-}
-
-#[component]
 pub fn Switch(
     #[props(into, optional)] id: Option<String>,
     #[props(default = false)] checked: bool,

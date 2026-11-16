@@ -1,10 +1,8 @@
 //! `StatusDot`: the canonical status indicator, one status name mapped to one theme
-//! token, and `Status`: rust-ui's corner indicator over arbitrary children.
-//! Status bars, session and folder lists, and every surface that shows a state
-//! compose these; a hand-rolled coloured span is a second meaning for a colour.
+//! token. Status bars, session and folder lists, and every surface that shows a
+//! state compose it; a hand-rolled coloured span is a second meaning for a colour.
 
 use dioxus::prelude::*;
-use tw_merge::tw_merge;
 
 /// The diameter a caller gets when it names no size, in CSS pixels.
 pub const DEFAULT_STATUS_DOT_SIZE_PX: u32 = 8;
@@ -60,57 +58,6 @@ pub fn StatusDot(
             "aria-hidden": "true",
             title,
             style: status_dot_style(&status, size, hollow),
-        }
-    }
-}
-
-/// The rust-ui status palette: the corner indicator's colour per variant.
-#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
-pub enum StatusVariant {
-    #[default]
-    Default,
-    Active,
-    Inactive,
-    Normal,
-}
-
-impl StatusVariant {
-    const fn color(self) -> &'static str {
-        match self {
-            Self::Default => "bg-neutral-300",
-            Self::Active => "bg-green-300",
-            Self::Inactive => "bg-orange-300",
-            Self::Normal => "bg-sky-300",
-        }
-    }
-}
-
-#[component]
-fn StatusIndicator(
-    #[props(default = StatusVariant::default())] variant: StatusVariant,
-    #[props(into, optional)] class: Option<String>,
-) -> Element {
-    let merged = tw_merge!(
-        "absolute top-0 right-0 -mt-1 -mr-1 rounded-full size-4",
-        variant.color(),
-        class.as_deref().unwrap_or("")
-    );
-    rsx! { div { class: "{merged}" } }
-}
-
-/// Wraps children with a corner indicator; the ping ring animates on top of the dot.
-#[component]
-pub fn Status(
-    #[props(into, optional)] class: Option<String>,
-    #[props(default = StatusVariant::default())] variant: StatusVariant,
-    children: Element,
-) -> Element {
-    let merged = tw_merge!("relative", class.as_deref().unwrap_or(""));
-    rsx! {
-        div { class: "{merged}",
-            {children}
-            StatusIndicator { variant, class: "animate-ping" }
-            StatusIndicator { variant }
         }
     }
 }

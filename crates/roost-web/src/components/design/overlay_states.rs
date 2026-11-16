@@ -1,22 +1,21 @@
-//! Dialog, alert dialog, sheet, context-menu and nested-menu specimens for the
+//! Dialog, alert dialog, sheet, context-menu and dropdown-menu specimens for the
 //! design gallery. `gallery.rs` mounts the controls; local signals own their
 //! open state. Shared UI primitives own anchoring, portals, focus and dismissal.
 
 use dioxus::prelude::*;
 
+use crate::components::sidebar::context_menu_frame::ContextMenuFrame;
 use crate::components::ui::{
-    AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
-    AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, ButtonVariant, ContextMenu,
-    ContextMenuContent, ContextMenuGroup, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator,
-    ContextMenuTrigger, Dialog, DialogAction, DialogBody, DialogContent, DialogDescription,
-    DialogFooter, DialogHeader, DialogTitle, DropdownMenu, DropdownMenuContent, DropdownMenuSub,
-    DropdownMenuSubContent, DropdownMenuSubItem, DropdownMenuSubTrigger, DropdownMenuTrigger,
-    IconType, PhoneSheetContent, Sheet, SheetContent, SheetHeader, SheetSide, SheetTitle,
+    AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+    AlertDialogHeader, AlertDialogTitle, Button, ButtonVariant, ContextMenuItem,
+    ContextMenuSeparator, Dialog, DialogBody, DialogClose, DialogContent, DialogDescription,
+    DialogFooter, DialogHeader, DialogTitle, DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+    DropdownMenuLabel, DropdownMenuTrigger, IconType, PhoneSheetContent, Sheet, SheetContent,
+    SheetHeader, SheetSide, SheetTitle,
 };
 
 const BODY_TEXT_CLASS: &str = "m-0 text-sm text-muted-foreground";
 const SHEET_BODY_CLASS: &str = "grid min-w-[min(20rem,80vw)] gap-4 p-4";
-const CONTEXT_REGION_CLASS: &str = "flex h-9 items-center rounded-md border border-dashed border-border px-3 text-sm text-muted-foreground";
 
 #[component]
 pub fn DesignOverlayStates() -> Element {
@@ -26,9 +25,8 @@ pub fn DesignOverlayStates() -> Element {
     let mut bottom_sheet_open = use_signal(|| false);
     let mut phone_sheet_open = use_signal(|| false);
     let mut menu_open = use_signal(|| false);
-    let mut submenu_open = use_signal(|| false);
     let mut alert_open = use_signal(|| false);
-    let mut context_open = use_signal(|| false);
+    let mut context_at = use_signal(|| None::<(f64, f64)>);
 
     rsx! {
         div { class: "flex flex-wrap items-center gap-3",
@@ -70,28 +68,17 @@ pub fn DesignOverlayStates() -> Element {
             }
             DropdownMenu {
                 open: menu_open(),
-                on_open_change: move |open: bool| {
-                    menu_open.set(open);
-                    if !open {
-                        submenu_open.set(false);
-                    }
-                },
-                DropdownMenuTrigger { "Nested menu" }
+                on_open_change: move |open: bool| menu_open.set(open),
+                DropdownMenuTrigger { "Overlay menu" }
                 DropdownMenuContent {
-                    DropdownMenuSub {
-                        open: submenu_open(),
-                        on_open_change: move |open: bool| submenu_open.set(open),
-                        DropdownMenuSubTrigger { "Open overlay" }
-                        DropdownMenuSubContent {
-                            DropdownMenuSubItem {
-                                on_select: Some(EventHandler::new(move |_event: MouseEvent| dialog_open.set(true))),
-                                "Dialog"
-                            }
-                            DropdownMenuSubItem {
-                                on_select: Some(EventHandler::new(move |_event: MouseEvent| sheet_open.set(true))),
-                                "Sheet"
-                            }
-                        }
+                    DropdownMenuLabel { "Open overlay" }
+                    DropdownMenuItem {
+                        onclick: move |_| dialog_open.set(true),
+                        "Dialog"
+                    }
+                    DropdownMenuItem {
+                        onclick: move |_| sheet_open.set(true),
+                        "Sheet"
                     }
                 }
             }
@@ -112,7 +99,7 @@ pub fn DesignOverlayStates() -> Element {
                         }
                     }
                     DialogFooter {
-                        DialogAction { "Done" }
+                        DialogClose { "Done" }
                     }
                 }
             }
@@ -132,7 +119,7 @@ pub fn DesignOverlayStates() -> Element {
                         }
                     }
                     DialogFooter {
-                        DialogAction { "Done" }
+                        DialogClose { "Done" }
                     }
                 }
             }
@@ -188,29 +175,38 @@ pub fn DesignOverlayStates() -> Element {
                     AlertDialogHeader {
                         AlertDialogTitle { "Discard this draft?" }
                         AlertDialogDescription {
-                            "A backdrop click does nothing: the only ways out are the two actions."
+                            "A backdrop click does nothing: the only ways out are the two buttons."
                         }
                     }
                     AlertDialogFooter {
                         AlertDialogCancel { "Keep editing" }
-                        AlertDialogAction { "Discard" }
+                        Button {
+                            variant: ButtonVariant::Destructive,
+                            onclick: move |_| alert_open.set(false),
+                            "Discard"
+                        }
                     }
                 }
             }
 
-            ContextMenu {
-                open: context_open(),
-                on_open_change: move |open: bool| context_open.set(open),
-                aria_label: "Specimen actions",
-                ContextMenuTrigger {
-                    div { class: CONTEXT_REGION_CLASS, "Right-click this region" }
-                }
-                ContextMenuContent {
-                    ContextMenuLabel { "Terminal" }
-                    ContextMenuGroup {
-                        ContextMenuItem { "Copy" }
-                        ContextMenuItem { "Find" }
-                    }
+            Button {
+                variant: ButtonVariant::Secondary,
+                icon: IconType::SquareArrowOutUpRight,
+                onclick: move |event: MouseEvent| {
+                    let point = event.client_coordinates();
+                    context_at.set(Some((point.x, point.y)));
+                },
+                "Open context menu"
+            }
+            if let Some((x, y)) = context_at() {
+                ContextMenuFrame {
+                    x,
+                    y,
+                    test_id: "design-context-menu".to_owned(),
+                    label: "Specimen actions",
+                    on_close: move |()| context_at.set(None),
+                    ContextMenuItem { "Copy" }
+                    ContextMenuItem { "Find" }
                     ContextMenuSeparator {}
                     ContextMenuItem { disabled: true, "Unavailable" }
                 }

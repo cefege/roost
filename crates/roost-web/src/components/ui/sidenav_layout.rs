@@ -1,25 +1,10 @@
-//! Sidenav layout containers: the inset and inner panels, header and footer, the
+//! Sidenav layout containers: the inner panel, header and footer, the
 //! scrolling content region, groups and labels, the menu list structure, and the
 //! search input. Pure containers with `data-name` markers and no state of their own.
-//! Consumed by `sidenav.rs` (the inner panel) and by callers composing a sidenav.
+//! Callers compose them into a sidenav.
 
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
-
-#[component]
-pub fn SidenavInset(
-    #[props(into, optional)] class: Option<String>,
-    #[props(into, optional)] data_variant: Option<String>,
-    children: Element,
-) -> Element {
-    let merged_class = tw_merge!(
-        "bg-background relative flex w-full flex-1 flex-col data-[variant=Inset]:rounded-lg data-[variant=Inset]:border data-[variant=Inset]:border-sidenav-border data-[variant=Inset]:shadow-sm data-[variant=Inset]:m-2",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! {
-        div { "data-name": "SidenavInset", "data-variant": data_variant, class: "{merged_class}", {children} }
-    }
-}
 
 #[component]
 pub fn SidenavInner(
@@ -95,16 +80,6 @@ pub fn SidenavMenuItem(
             {children}
         }
     }
-}
-
-#[component]
-pub fn SidenavMenuSubItem(
-    #[props(into, optional)] class: Option<String>,
-    #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
-    children: Element,
-) -> Element {
-    let merged_class = tw_merge!("group/menu-sub-item", class.as_deref().unwrap_or(""));
-    rsx! { li { "data-name": "SidenavMenuSubItem", class: "{merged_class}", ..attributes, {children} } }
 }
 
 #[component]

@@ -15,8 +15,7 @@ use crate::components::ui::{
     CommandGroupLabel, CommandHeader, CommandInput, CommandItem, CommandList, Empty, EmptyContent,
     EmptyDescription, EmptyHeader, EmptyMedia, EmptyMediaVariant, EmptyTitle,
     HoverCardPresentation, Icon, IconType, Progress, ProgressTone, ScrollArea, SectionTitle, Table,
-    TableBody, TableCaption, TableCell, TableFooter, TableHead, TableHeader, TableRow,
-    TableWrapper,
+    TableBody, TableCell, TableHead, TableHeader, TableRow, TableWrapper,
 };
 
 const ROW_CLASS: &str = "flex flex-wrap items-center gap-3";
@@ -47,7 +46,6 @@ pub fn DataSpecimen() -> Element {
                 SectionTitle { "Table" }
                 TableWrapper {
                     Table {
-                        TableCaption { "Processes on this machine" }
                         TableHeader {
                             TableRow {
                                 TableHead { "PID" }
@@ -62,13 +60,6 @@ pub fn DataSpecimen() -> Element {
                                     TableCell { "{name}" }
                                     TableCell { class: "tabular-nums", "{cpu}" }
                                 }
-                            }
-                        }
-                        TableFooter {
-                            TableRow {
-                                TableCell { "3 processes" }
-                                TableCell {}
-                                TableCell {}
                             }
                         }
                     }

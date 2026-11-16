@@ -1,13 +1,9 @@
 //! `Attachment` family: a file chip with media thumbnail, title, description and
 //! hover actions, in horizontal or vertical orientation. Ported from rust-ui's
 //! `attachment.rs`; the composer and transcript render attached files with it.
-//! `AttachmentTrigger` drops rust-ui's dialog-id hook (JS-driven, blocked by
-//! CSP): callers open a preview through their own controlled `open` signal.
 
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
-
-use crate::components::ui::button::{Button, ButtonSize, ButtonVariant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum AttachmentSize {
@@ -213,69 +209,4 @@ pub fn AttachmentMedia(
     );
 
     rsx! { div { "data-name": "AttachmentMedia", "data-variant": variant.as_str(), class: "{merged}", {children} } }
-}
-
-#[component]
-pub fn AttachmentAction(
-    #[props(into, optional)] class: Option<String>,
-    #[props(optional)] variant: Option<ButtonVariant>,
-    #[props(optional)] size: Option<ButtonSize>,
-    #[props(into, optional)] aria_label: Option<String>,
-    #[props(into, optional)] title: Option<String>,
-    #[props(optional)] onclick: Option<EventHandler<MouseEvent>>,
-    children: Element,
-) -> Element {
-    rsx! {
-        Button {
-            variant: variant.unwrap_or(ButtonVariant::Ghost),
-            size: size.unwrap_or(ButtonSize::IconXs),
-            class,
-            aria_label,
-            title,
-            onclick,
-            {children}
-        }
-    }
-}
-
-/// Full-card hit target. With `href` it is a new-tab link; otherwise a button
-/// running `onclick`, which is how a caller opens its preview.
-#[component]
-pub fn AttachmentTrigger(
-    #[props(into, optional)] href: Option<String>,
-    #[props(optional)] onclick: Option<EventHandler<MouseEvent>>,
-    #[props(into, optional)] class: Option<String>,
-    #[props(into, optional)] aria_label: Option<String>,
-) -> Element {
-    let merged = tw_merge!(
-        "absolute inset-0 z-10 outline-none",
-        class.as_deref().unwrap_or("")
-    );
-
-    if let Some(url) = href {
-        rsx! {
-            a {
-                "data-name": "AttachmentTrigger",
-                class: "{merged}",
-                href: "{url}",
-                target: "_blank",
-                rel: "noreferrer",
-                "aria-label": aria_label.as_deref(),
-            }
-        }
-    } else {
-        rsx! {
-            button {
-                "data-name": "AttachmentTrigger",
-                r#type: "button",
-                class: "{merged}",
-                "aria-label": aria_label.as_deref(),
-                onclick: move |event: MouseEvent| {
-                    if let Some(handler) = &onclick {
-                        handler.call(event);
-                    }
-                },
-            }
-        }
-    }
 }

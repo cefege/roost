@@ -1,4 +1,4 @@
-//! `Dialog`: rust-ui's modal, a controlled compound (root, trigger, content, and
+//! `Dialog`: rust-ui's modal, a controlled compound (root, content, and
 //! the parts in `dialog_parts.rs`). The caller owns `open`; the content mounts
 //! only while open, so mounting it IS opening and dropping it IS closing. The
 //! rust-ui setup script's `data-state` changes are made here in Rust. Focus moves
@@ -21,11 +21,9 @@ use super::focus_scope::{AutoFocusRequest, sentinel_focus_edge};
 use super::icon::Icon;
 
 pub use super::dialog_parts::{
-    DialogAction, DialogBody, DialogClose, DialogDescription, DialogFooter, DialogHeader,
-    DialogTitle,
+    DialogBody, DialogClose, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 };
 
-const TRIGGER_CLASS: &str = "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 cursor-pointer";
 const DIALOG_PANEL_CLASS: &str = "relative bg-background border rounded-2xl shadow-lg p-6 w-full max-w-[calc(100%-2rem)] max-h-[85vh] fixed top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] z-100 transition-all duration-200 data-[state=closed]:opacity-0 data-[state=closed]:scale-95 data-[state=open]:opacity-100 data-[state=open]:scale-100";
 const DIALOG_FULLSCREEN_PANEL_CLASS: &str = "relative bg-background shadow-lg p-6 w-full h-dvh max-w-none max-h-none fixed top-0 left-0 z-100 transition-all duration-200 data-[state=closed]:opacity-0 data-[state=closed]:scale-95 data-[state=open]:opacity-100 data-[state=open]:scale-100";
 
@@ -113,24 +111,6 @@ pub(crate) fn ModalRoot(
     let merged = tw_merge!("w-fit", class.as_deref().unwrap_or(""));
     rsx! {
         div { class: "{merged}", "data-name": data_name, {children} }
-    }
-}
-
-/// The control that asks for the dialog to open.
-#[component]
-pub fn DialogTrigger(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let context = use_context::<DialogContext>();
-    let trigger_id = format!("trigger_{}", context.content_id);
-    let merged = tw_merge!(TRIGGER_CLASS, class.as_deref().unwrap_or(""));
-    rsx! {
-        button {
-            class: "{merged}",
-            id: "{trigger_id}",
-            tabindex: "0",
-            "data-dialog-trigger": "{context.content_id}",
-            onclick: move |_| context.request_open(true),
-            {children}
-        }
     }
 }
 

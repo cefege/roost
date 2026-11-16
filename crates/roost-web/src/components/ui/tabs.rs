@@ -1,4 +1,4 @@
-//! Tabs, triggers and panels sharing caller-supplied selection through context.
+//! Tabs and triggers sharing caller-supplied selection through context.
 //! Callers may own the key ladder or use the built-in roving focus.
 //! Keyboard selection follows WAI-ARIA: orientation arrows, Home and End;
 //! `tab_step_for_key` and `next_tab_index` own the tested step arithmetic.
@@ -91,10 +91,6 @@ fn tab_element_id(prefix: &str, value: &str) -> String {
     format!("{prefix}-tab-{value}")
 }
 
-fn panel_element_id(prefix: &str, value: &str) -> String {
-    format!("{prefix}-panel-{value}")
-}
-
 #[component]
 pub fn Tabs(
     #[props(into, optional)] class: Option<String>,
@@ -181,9 +177,6 @@ pub fn TabsTrigger(
     #[props(into, optional)] title: Option<String>,
     #[props(into, optional)] aria_label: Option<String>,
     #[props(default = false)] disabled: bool,
-    /// False when the tab selects content rendered outside a `TabsContent` panel.
-    #[props(default = true)]
-    has_panel: bool,
     /// Pointer-down for draggable tab lists.
     #[props(optional)]
     onpointerdown: Option<EventHandler<PointerEvent>>,
@@ -202,7 +195,6 @@ pub fn TabsTrigger(
     let is_line = list_ctx.variant == TabsVariant::Line;
     let is_active = active() == value;
     let tab_id = tab_element_id(&id_prefix(), &value);
-    let panel_id = panel_element_id(&id_prefix(), &value);
     let tabindex = if disabled {
         "-1"
     } else if is_active || !handles_keys {
@@ -251,7 +243,6 @@ pub fn TabsTrigger(
             "data-testid": test_id.as_deref(),
             "data-state": if is_active { "Active" } else { "Inactive" },
             "aria-label": aria_label.as_deref(),
-            "aria-controls": has_panel.then_some(panel_id.as_str()),
             "aria-selected": "{is_active}",
             title: title.as_deref(),
             tabindex,
@@ -301,38 +292,6 @@ pub fn TabsTrigger(
         }
     } else {
         trigger
-    }
-}
-
-#[component]
-pub fn TabsContent(
-    #[props(into)] value: String,
-    #[props(into, optional)] class: Option<String>,
-    children: Element,
-) -> Element {
-    let TabsCtx {
-        active, id_prefix, ..
-    } = use_context::<TabsCtx>();
-    let is_active = active() == value;
-    let panel_id = panel_element_id(&id_prefix(), &value);
-    let tab_id = tab_element_id(&id_prefix(), &value);
-
-    let merged = tw_merge!(
-        "flex-1 text-sm outline-none",
-        "group-data-[orientation=Horizontal]/tabs:mt-2 group-data-[orientation=Vertical]/tabs:ml-4",
-        class.as_deref().unwrap_or(""),
-        if is_active { "" } else { "hidden" }
-    );
-
-    rsx! {
-        div {
-            class: "{merged}",
-            role: "tabpanel",
-            id: "{panel_id}",
-            "aria-labelledby": "{tab_id}",
-            "data-name": "TabsContent",
-            {children}
-        }
     }
 }
 

@@ -1,5 +1,5 @@
-//! The command's presentational pieces: header, title, description, list,
-//! groups, group label, footer and the empty state. None of them hold state;
+//! The command's presentational pieces: header, list, groups, group label,
+//! footer and the empty state. None of them hold state;
 //! `CommandEmpty` reads its visibility from the list's rendered items via CSS.
 
 use dioxus::prelude::*;
@@ -15,27 +15,6 @@ pub fn CommandHeader(#[props(into, optional)] class: Option<String>, children: E
         class.as_deref().unwrap_or("")
     );
     rsx! { div { "data-name": "CommandHeader", class: "{merged_class}", {children} } }
-}
-
-#[component]
-pub fn CommandTitle(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged_class = tw_merge!(
-        "text-lg font-semibold leading-none",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! { h2 { "data-name": "CommandTitle", class: "{merged_class}", {children} } }
-}
-
-#[component]
-pub fn CommandDescription(
-    #[props(into, optional)] class: Option<String>,
-    children: Element,
-) -> Element {
-    let merged_class = tw_merge!(
-        "text-sm text-muted-foreground",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! { p { "data-name": "CommandDescription", class: "{merged_class}", {children} } }
 }
 
 /// The scrollable item list.

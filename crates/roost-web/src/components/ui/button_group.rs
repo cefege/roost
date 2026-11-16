@@ -1,11 +1,9 @@
-//! `ButtonGroup`, `ButtonGroupText` and `ButtonGroupSeparator`: a row of joined
-//! buttons that share one border and one radius at the outer edges. Toolbars and
-//! segmented controls compose it; the separator is the vertical `ui::separator`.
+//! `ButtonGroup`: a row of joined buttons that share one border and one radius
+//! at the outer edges. Toolbars and segmented controls compose it, with the
+//! orientation picking which edges square off.
 
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
-
-use crate::components::ui::separator::{Separator, SeparatorOrientation};
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ButtonGroupOrientation {
@@ -41,33 +39,5 @@ pub fn ButtonGroup(
 
     rsx! {
         div { "data-name": "ButtonGroup", role: "group", class: "{merged_class}", {children} }
-    }
-}
-
-#[component]
-pub fn ButtonGroupText(
-    #[props(into, optional)] class: Option<String>,
-    children: Element,
-) -> Element {
-    let merged = tw_merge!(
-        "bg-muted flex items-center gap-2 rounded-md border px-4 text-sm font-medium shadow-xs [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! {
-        span { "data-name": "ButtonGroupText", class: "{merged}", {children} }
-    }
-}
-
-#[component]
-pub fn ButtonGroupSeparator(#[props(into, optional)] class: Option<String>) -> Element {
-    let merged = tw_merge!(
-        "relative !m-0 self-stretch data-[orientation=vertical]:h-auto",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! {
-        Separator {
-            class: "{merged}",
-            orientation: SeparatorOrientation::Vertical,
-        }
     }
 }

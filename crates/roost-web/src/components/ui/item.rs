@@ -109,15 +109,6 @@ pub fn ItemMedia(
 }
 
 #[component]
-pub fn ItemGroup(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!(
-        "group/item-group flex flex-col",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! { div { "data-name": "ItemGroup", class: "{merged}", {children} } }
-}
-
-#[component]
 pub fn ItemContent(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
     let merged = tw_merge!(
         "flex flex-1 flex-col gap-1 [&+[data-slot=item-content]]:flex-none",
@@ -145,39 +136,4 @@ pub fn ItemDescription(
         class.as_deref().unwrap_or("")
     );
     rsx! { p { "data-name": "ItemDescription", "data-slot": "item-description", class: "{merged}", {children} } }
-}
-
-#[component]
-pub fn ItemActions(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!("flex items-center gap-2", class.as_deref().unwrap_or(""));
-    rsx! { div { "data-name": "ItemActions", class: "{merged}", {children} } }
-}
-
-#[component]
-pub fn ItemHeader(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!(
-        "flex basis-full items-center justify-between gap-2",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! { div { "data-name": "ItemHeader", class: "{merged}", {children} } }
-}
-
-#[component]
-pub fn ItemFooter(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!(
-        "flex basis-full items-center justify-between gap-2",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! { div { "data-name": "ItemFooter", class: "{merged}", {children} } }
-}
-
-/// A horizontal rule between items. The rule is inlined rather than borrowed from
-/// `Separator`, so `data-name` and `role` stay on the element the test reads.
-#[component]
-pub fn ItemSeparator(#[props(into, optional)] class: Option<String>) -> Element {
-    let merged = tw_merge!(
-        "shrink-0 bg-border w-full h-[1px] my-0",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! { div { "data-name": "ItemSeparator", class: "{merged}", role: "separator" } }
 }

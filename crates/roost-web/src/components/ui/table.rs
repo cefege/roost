@@ -1,5 +1,5 @@
 //! The table family: a scrolling wrapper, the table itself, and its header, body,
-//! footer, rows, cells and caption. Cells with a checkbox drop their padding on
+//! rows and cells. Cells with a checkbox drop their padding on
 //! that side so the box lines up with the text column.
 
 use dioxus::prelude::*;
@@ -90,22 +90,4 @@ pub fn TableCell(#[props(into, optional)] class: Option<String>, children: Eleme
         class.as_deref().unwrap_or("")
     );
     rsx! { td { class: "{merged}", {children} } }
-}
-
-#[component]
-pub fn TableFooter(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!(
-        "font-medium border border-t bg-muted/50 [&>tr]:last:border-b-0",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! { tfoot { class: "{merged}", {children} } }
-}
-
-#[component]
-pub fn TableCaption(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!(
-        "mt-4 text-sm text-muted-foreground",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! { caption { class: "{merged}", {children} } }
 }

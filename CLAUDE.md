@@ -399,7 +399,7 @@ for Dioxus 0.7 + Tailwind v4. Roost adapts those components under the web crate'
    `cargo xtask lint --update-design-baseline`.
 2. **Components first.** Compose from `ui` (`Button`, `IconButton`, `Card`,
    `StatusDot`, `Badge`, `Dialog`, `Sheet`, `DropdownMenu`, `ContextMenu`,
-   `Command`, `Select`, `Tabs`, `Item`, `Sidenav`, `InputPrompt`, `Icon`, …)
+   `Command`, `Select`, `Tabs`, `Item`, `SidenavInner`, `InputPrompt`, `Icon`, …)
    — don't hand-roll a
    `<div style>`, a `<button>`, a menu, or a new stylesheet rule a utility can
    express. A missing component is ported from the rust-ui registry into `ui`,

@@ -11,10 +11,6 @@ use super::item::{ITEM_BASE, ItemSize, ItemVariant};
 use crate::components::ui::IconType;
 use crate::components::ui::icon::Icon;
 
-/// The attribute value `ListLayout::Grid` sets, which a caller that must find a
-/// live grid in the document (the browse picker's column count) selects by.
-pub const GRID_LAYOUT_SELECTOR: &str = "[data-layout=\"grid\"]";
-
 /// How the rows flow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ListLayout {

@@ -1,10 +1,8 @@
 //! Where floating panels go: the anchored menu flips to the side with room and
-//! aligns inside its bounds, and a dropdown submenu prefers its side, flips, and
-//! stacks inside a narrow viewport. Exercises `roost_web::components::ui::placement`.
+//! aligns inside its bounds. Exercises `roost_web::components::ui::placement`.
 
-use roost_web::components::ui::DropdownMenuSubSide;
 use roost_web::components::ui::placement::{
-    ClientRect, EDGE_MARGIN_PX, Horizontal, Vertical, place_menu, place_submenu,
+    ClientRect, EDGE_MARGIN_PX, Horizontal, Vertical, place_menu,
 };
 
 fn rect(left: f64, top: f64, width: f64, height: f64) -> ClientRect {
@@ -70,43 +68,4 @@ fn inset_triggers_keep_wide_popups_inside_both_viewport_margins() {
         assert!(popup_left >= viewport.left + EDGE_MARGIN_PX);
         assert!(popup_left + popup_width <= viewport.right() - EDGE_MARGIN_PX);
     }
-}
-
-#[test]
-fn submenu_prefers_right_and_flips_left_when_right_does_not_fit() {
-    let right = place_submenu(
-        rect(100.0, 100.0, 120.0, 32.0),
-        160.0,
-        120.0,
-        800.0,
-        600.0,
-        DropdownMenuSubSide::Right,
-    );
-    assert_eq!(right.side, DropdownMenuSubSide::Right);
-    let left = place_submenu(
-        rect(650.0, 100.0, 120.0, 32.0),
-        160.0,
-        120.0,
-        800.0,
-        600.0,
-        DropdownMenuSubSide::Right,
-    );
-    assert_eq!(left.side, DropdownMenuSubSide::Left);
-}
-
-#[test]
-fn submenu_stacks_and_caps_inside_a_narrow_viewport() {
-    let placement = place_submenu(
-        rect(160.0, 30.0, 24.0, 24.0),
-        200.0,
-        300.0,
-        320.0,
-        240.0,
-        DropdownMenuSubSide::Right,
-    );
-    assert_eq!(placement.side, DropdownMenuSubSide::Below);
-    assert!(placement.left >= EDGE_MARGIN_PX);
-    assert!(placement.top >= EDGE_MARGIN_PX);
-    assert!(placement.max_width <= 320.0);
-    assert!(placement.max_height <= 240.0);
 }

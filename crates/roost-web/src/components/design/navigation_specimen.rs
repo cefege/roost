@@ -7,13 +7,12 @@ use dioxus::prelude::*;
 
 use crate::components::ui::{
     Breadcrumb, BreadcrumbEllipsis, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage,
-    BreadcrumbSeparator, Button, ButtonGroup, ButtonGroupSeparator, ButtonGroupText, ButtonSize,
-    ButtonVariant, Collapsible, CollapsibleContent, CollapsibleTrigger, Icon, IconButton, IconType,
-    Item, ItemContent, ItemDescription, ItemMedia, ItemMediaVariant, ItemSize, ItemTitle,
-    ItemVariant, Kbd, KbdGroup, SectionTitle, SidenavGroupContent, SidenavHeader, SidenavInner,
-    SidenavInput, SidenavMenu, SidenavMenuAction, SidenavMenuButton, SidenavMenuItem, ToggleGroup,
-    ToggleGroupItem, ToggleGroupSpacing, ToggleGroupVariant, Tooltip, TooltipContent,
-    TooltipPosition,
+    BreadcrumbSeparator, Button, ButtonGroup, ButtonSize, ButtonVariant, Collapsible,
+    CollapsibleContent, CollapsibleTrigger, Icon, IconButton, IconType, Item, ItemContent,
+    ItemDescription, ItemMedia, ItemMediaVariant, ItemSize, ItemTitle, ItemVariant, Kbd,
+    SectionTitle, SidenavGroupContent, SidenavHeader, SidenavInner, SidenavInput, SidenavMenu,
+    SidenavMenuAction, SidenavMenuButton, SidenavMenuItem, ToggleGroup, ToggleGroupItem,
+    ToggleGroupSpacing, ToggleGroupVariant, Tooltip, TooltipContent, TooltipPosition,
 };
 
 const ROW_CLASS: &str = "flex flex-wrap items-center gap-3";
@@ -75,11 +74,6 @@ pub fn NavigationSpecimen() -> Element {
                             size: ButtonSize::IconSm,
                         }
                     }
-                    ButtonGroup {
-                        ButtonGroupText { "2 of 14" }
-                        ButtonGroupSeparator {}
-                        Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm, "Reset" }
-                    }
                     ToggleGroup {
                         variant: ToggleGroupVariant::Outline,
                         spacing: ToggleGroupSpacing::Flush,
@@ -103,10 +97,8 @@ pub fn NavigationSpecimen() -> Element {
             section {
                 SectionTitle { "Keyboard hints and tooltip" }
                 div { class: ROW_CLASS,
-                    KbdGroup {
-                        Kbd { "Ctrl" }
-                        Kbd { "K" }
-                    }
+                    Kbd { "Ctrl" }
+                    Kbd { "K" }
                     Kbd { "Esc" }
                     Tooltip {
                         open: tooltip_open(),

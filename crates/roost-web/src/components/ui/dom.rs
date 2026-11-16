@@ -38,29 +38,6 @@ pub struct FocusOpener(web_sys::HtmlElement);
 #[derive(Debug)]
 pub enum FocusOpener {}
 
-/// Put a checkbox back to the state its caller rendered.
-///
-/// The browser toggles the element before the handler runs; if the caller then
-/// declines the change, nothing re-renders and the element would keep showing
-/// the value that was refused.
-#[cfg(target_arch = "wasm32")]
-pub fn restore_checked(event: &FormEvent, checked: bool) {
-    use dioxus::web::WebEventExt as _;
-    use wasm_bindgen::JsCast as _;
-
-    let input = event
-        .try_as_web_event()
-        .and_then(|web_event| web_event.target())
-        .and_then(|target| target.dyn_into::<web_sys::HtmlInputElement>().ok());
-    if let Some(input) = input {
-        input.set_checked(checked);
-    }
-}
-
-/// Put a checkbox back to the state its caller rendered.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn restore_checked(_event: &FormEvent, _checked: bool) {}
-
 /// The element focus is on now, if it is an element that can be re-focused.
 #[cfg(target_arch = "wasm32")]
 pub fn focused_element() -> Option<FocusOpener> {

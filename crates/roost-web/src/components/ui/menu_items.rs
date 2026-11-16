@@ -1,4 +1,4 @@
-//! Item, label and group markup shared by `ui/dropdown_menu.rs` and
+//! Item and label markup shared by `ui/dropdown_menu.rs` and
 //! `ui/context_menu.rs`, with the Tailwind recipes kept in one place. Activating
 //! an item closes the enclosing menu through `ui/menu_overlay.rs`.
 
@@ -70,12 +70,5 @@ pub fn render_menu_label(name: &'static str, class: Option<String>, children: El
     );
     rsx! {
         span { "data-name": name, class: merged, {children} }
-    }
-}
-
-pub fn render_menu_group(name: &'static str, class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!("group", class.as_deref().unwrap_or(""));
-    rsx! {
-        ul { role: "group", "data-name": name, class: merged, {children} }
     }
 }

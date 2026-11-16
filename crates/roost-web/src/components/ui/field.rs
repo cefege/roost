@@ -7,7 +7,6 @@
 //! come first, then the visible description, then the error, so a screen reader
 //! reads the caller's context, then the help, then what is wrong.
 
-use crate::components::ui::separator::Separator;
 use dioxus::core::current_scope_id;
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
@@ -47,35 +46,6 @@ pub fn scoped_element_id(prefix: &str) -> String {
 }
 
 #[component]
-pub fn FieldSet(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!(
-        "flex flex-col gap-6 has-[>[data-name=CheckboxGroup]]:gap-3 has-[>[data-name=RadioGroup]]:gap-3",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! { fieldset { class: "{merged}", {children} } }
-}
-
-#[component]
-pub fn FieldGroup(
-    #[props(into, optional)] class: Option<String>,
-    #[props(into, optional)] data_slot: Option<String>,
-    children: Element,
-) -> Element {
-    let merged = tw_merge!(
-        "group/field-group @container/field-group flex flex-col gap-7 w-full has-[>[data-name=CheckboxGroup]]:gap-3 [&>[data-name=FieldGroup]]:gap-4",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! {
-        div {
-            "data-name": "FieldGroup",
-            class: "{merged}",
-            "data-slot": data_slot.as_deref(),
-            {children}
-        }
-    }
-}
-
-#[component]
 pub fn FieldContent(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
     let merged = tw_merge!(
         "group/field-content flex flex-1 flex-col gap-1.5 leading-snug",
@@ -84,15 +54,6 @@ pub fn FieldContent(#[props(into, optional)] class: Option<String>, children: El
     rsx! {
         div { "data-name": "FieldContent", class: "{merged}", {children} }
     }
-}
-
-#[component]
-pub fn FieldTitle(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!(
-        "flex items-center gap-2 text-sm leading-snug font-medium w-fit group-data-[disabled=true]/field:opacity-50",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! { div { class: "{merged}", {children} } }
 }
 
 #[component]
@@ -106,37 +67,6 @@ pub fn FieldDescription(
         class.as_deref().unwrap_or("")
     );
     rsx! { p { id: id.as_deref(), class: "{merged}", {children} } }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum FieldLegendVariant {
-    #[default]
-    Legend,
-    Label,
-}
-
-#[component]
-pub fn FieldLegend(
-    #[props(into, optional)] class: Option<String>,
-    #[props(default = FieldLegendVariant::default())] variant: FieldLegendVariant,
-    children: Element,
-) -> Element {
-    let variant_attr = match variant {
-        FieldLegendVariant::Legend => "legend",
-        FieldLegendVariant::Label => "label",
-    };
-    let merged = tw_merge!(
-        "mb-3 font-medium data-[variant=legend]:text-base data-[variant=label]:text-sm",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! {
-        legend {
-            "data-slot": "field-legend",
-            "data-variant": "{variant_attr}",
-            class: "{merged}",
-            {children}
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -199,34 +129,6 @@ pub fn FieldLabel(
             r#for: "{field_target}",
             class: "{merged}",
             {children}
-        }
-    }
-}
-
-/// A rule across the field with an optional caption in its middle.
-#[component]
-pub fn FieldSeparator(
-    #[props(into, optional)] class: Option<String>,
-    #[props(optional)] children: Option<Element>,
-) -> Element {
-    let has_content = children.is_some();
-    let merged = tw_merge!(
-        "relative -my-2 h-5 text-sm group-data-[variant=outline]/field-group:-mb-2",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! {
-        div {
-            "data-slot": "field-separator",
-            "data-content": if has_content { "true" } else { "false" },
-            class: "{merged}",
-            Separator { class: "absolute inset-0 top-1/2" }
-            if let Some(c) = children {
-                span {
-                    class: "block relative px-2 mx-auto bg-background text-muted-foreground w-fit",
-                    "data-slot": "field-separator-content",
-                    {c}
-                }
-            }
         }
     }
 }
