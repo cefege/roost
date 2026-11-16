@@ -18,6 +18,7 @@ use rio_vt::crosswords::pos::{Column, Line};
 use rio_vt::event::EventListener;
 use sha2::{Digest, Sha256};
 
+use super::image_crop::atlas_source_crop;
 use super::listener::RioListener;
 use crate::core::CoreImagePlacement;
 
@@ -154,6 +155,11 @@ impl ImageStore {
             );
         }
         for placement in &term.graphics.atlas_placements {
+            let Some(image) = self.images.get(&placement.image_key) else {
+                continue;
+            };
+            let (source_x, source_y, source_width, source_height) =
+                atlas_source_crop(placement, image.width, image.height);
             self.push_direct(
                 &mut result,
                 placement.image_key,
@@ -161,10 +167,10 @@ impl ImageStore {
                 placement.col,
                 placement.columns,
                 placement.rows,
-                placement.src_x,
-                placement.src_y,
-                placement.src_width,
-                placement.src_height,
+                source_x,
+                source_y,
+                source_width,
+                source_height,
                 0,
                 0,
                 0,

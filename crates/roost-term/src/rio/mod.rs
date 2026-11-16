@@ -16,6 +16,7 @@
 //! block must be answered in stream order.
 
 pub(crate) mod cell;
+mod image_crop;
 pub(crate) mod images;
 pub(crate) mod listener;
 mod prompt_marks;

@@ -68,3 +68,30 @@ fn placement_only_delta_is_reported_once() {
     let (frame, _) = next_cell_frame(&core, &state, false, None).unwrap();
     assert!(frame.image_placements.is_none());
 }
+
+#[test]
+fn scaled_iterm_images_keep_source_pixels_after_partial_erasure() {
+    const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAEklEQVR4nGP4z8DwHxkzkC4AADxAH+HggXe0AAAAAElFTkSuQmCC";
+    let mut core = RioCore::new(80, 24);
+    let sequence =
+        format!("\x1b]1337;File=inline=1;width=8;height=4;preserveAspectRatio=0:{PNG}\x07");
+    core.write_raw(sequence.as_bytes());
+    let placements = core.image_placements();
+    let image = placements.first().expect("scaled image is placed");
+    assert_eq!((image.columns, image.rows), (8, 4));
+    assert_eq!((image.source_width, image.source_height), (4, 4));
+
+    core.write_raw(b"\x1b[1;1H\x1b[2K");
+    let placements = core.image_placements();
+    let image = placements.first().expect("unerased rows remain visible");
+    assert_eq!((image.viewport_row, image.rows), (1, 3));
+    assert_eq!(
+        (
+            image.source_x,
+            image.source_y,
+            image.source_width,
+            image.source_height
+        ),
+        (0, 1, 4, 3)
+    );
+}

@@ -4261,3 +4261,21 @@ Live edge scans keep their existing semantics.
 **Guard** — `crates/roost-web/src/components/file_viewer/loading_tests.rs` — `loaded_preview_paints_file_lines_when_download_controls_appear`,
 driven by `protocol/conformance/dom-placement/file-preview-loading.json`.
 
+### Scaled terminal images lose pixels after a partial erase
+
+**Symptom** — an inline sixel/iTerm image shows the wrong crop or disappears
+after terminal output clears only part of its reserved rectangle.
+
+**Wrong** — pass atlas display-pixel crops directly into frame source-pixel
+coordinates, or compensate in the browser with a different background size.
+Display dimensions and the decoded PNG dimensions need not match.
+
+**Right** — normalize atlas crops by their full display dimensions in
+`roost-term::rio::image_crop`, then convert to original image pixels before
+publishing placements. Floor the starting boundary and ceil the ending
+boundary so surviving fragments retain their touched source pixels. Kitty
+placements already use source pixels and do not need this conversion.
+
+**Guard** — `roost-term`
+`image_placements::scaled_iterm_images_keep_source_pixels_after_partial_erasure`.
+
