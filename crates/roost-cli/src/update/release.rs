@@ -6,12 +6,11 @@
 //! its own sidecar's digest perfectly while handing this binary a different
 //! program. Which tag that is belongs to [`release_listing`](crate::update::release_listing).
 //!
-//! The origin is resolved once, here, from one variable. v2's self-updater
-//! hardcoded the GitHub origin while the deploy paths honoured
-//! `ROOST_RELEASE_BASE_URL`, so `roost update` could not be pointed at a mirror
-//! at all. One resolver for both is the fix, and it is the fix rather than a
-//! nicety: a release binary fetched from an origin the operator did not pin is a
-//! binary the operator did not choose.
+//! The origin is resolved once, here, from one variable that `roost update`
+//! and the deploy paths both honour, so `roost update` can be pointed at a
+//! mirror. One resolver for both is the point, not a nicety: a release binary
+//! fetched from an origin the operator did not pin is a binary the operator
+//! did not choose.
 //!
 //! The digest is checked BEFORE the body is fetched, not after. A 404 or a
 //! tampered sidecar then costs a 65-byte request instead of a download, and a
@@ -59,8 +58,8 @@ pub fn release_base_url(env: &dyn EnvSource, tag: &str) -> String {
 /// The tag is an argument, not something re-derived from the origin, because
 /// the digest proves the BYTES and nothing about which release published them:
 /// a `…/latest/download` URL fetches whatever series published last and passes
-/// that sidecar's own check, which is how a v3 binary ends up replaced by a v2
-/// one with every verification green.
+/// that sidecar's own check, which is how a binary ends up replaced by one
+/// from an older release series with every verification green.
 ///
 /// The staging path is removed on every failure path, including a digest
 /// mismatch, so a rejected candidate never survives the attempt. A candidate

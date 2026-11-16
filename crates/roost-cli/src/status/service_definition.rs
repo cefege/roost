@@ -100,7 +100,7 @@ fn parse_systemd_environment(definition: &str) -> InstalledEnvironment {
 
 /// `%%` is systemd's own escape for a literal `%`. A backslash introduces one of
 /// `\ " n r t`; anything else is the character itself with the backslash
-/// dropped, which is what the v2 parser did and what keeps a Windows-style path
+/// dropped, which keeps a Windows-style path
 /// in a unit file from reading as a run of escape sequences.
 fn unescape_systemd(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
@@ -159,8 +159,8 @@ fn parse_launch_agent_keys(definition: &str) -> InstalledEnvironment {
             }
         };
         let after_value = &tail[value_start + "<string>".len()..];
-        // The value runs to the next `<`, which is what the TypeScript regex
-        // `([^<]*)` did: an XML entity is fine, a nested tag is not, and a
+        // The value runs to the next `<`, as the regex `([^<]*)` would: an XML
+        // entity is fine, a nested tag is not, and a
         // LaunchAgent value is neither.
         let value_end = after_value.find('<').unwrap_or(after_value.len());
         if is_install_key(name) {

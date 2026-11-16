@@ -12,9 +12,10 @@
 //! nothing is installed is it this build's own default program path. That is
 //! the answer to "is this link still pointing at the old install", and it is an
 //! equality check against a resolved path rather than a search for a version
-//! string in a path: a v3 release directory and a v2 one are different
-//! directories, and a command that decided which by pattern-matching `~/.roost`
-//! would be guessing about a layout it does not own.
+//! string in a path: a release directory of this generation and an older
+//! install's are different directories, and a command that decided which by
+//! pattern-matching `~/.roost` would be guessing about a layout it does not
+//! own.
 //!
 //! **A link is repaired; a file is refused.** The entry under
 //! `~/.local/bin/roost` is either a symlink this command owns, or it is

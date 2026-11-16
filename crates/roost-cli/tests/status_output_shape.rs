@@ -4,10 +4,8 @@
 //! the readout is a pure function of a report and that is the only way a
 //! documented shape can be pinned.
 //!
-//! The worker-row cases are ported from `apps/roost-cli/tests/status-output.test.ts`,
-//! which was the executable spec of that row. The whole-screen golden is new:
-//! the per-assertion cases say the row is right, and the golden says the screen
-//! an operator reads has not moved.
+//! Beside the per-assertion cases, which say the row is right, a whole-screen
+//! golden says the screen an operator reads has not moved.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

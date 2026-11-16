@@ -18,7 +18,7 @@ use serde_json::Value;
 use crate::status::report::COORD_IDENTITY_PATH;
 
 /// A front door, a tunnel, or a wedged socket must not hold the readout open.
-/// This is the deadline the TypeScript probe used (`AbortSignal.timeout(5000)`).
+/// The deadline is five seconds.
 pub const PROBE_DEADLINE: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -146,8 +146,8 @@ pub struct InstallLocations {
 /// Resolve every place a join writes from the environment its definition is
 /// resolved from, never from this shell. A join pasted into a terminal that an
 /// older install opened inherits that install's `ROOST_WORKER_DATA_DIR`, and
-/// reading it put a v3 release into v2's data directory while the definition
-/// named v3's.
+/// reading it put a release into the older install's data directory while the
+/// definition named this one's.
 pub fn install_locations(
     env: &dyn EnvSource,
     credentials: &JoinCredentials,

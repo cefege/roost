@@ -6,10 +6,11 @@
 //! grant to it, so a machine joining for the first time — which is the only kind
 //! of machine that runs this script — found whatever older `roost` was on PATH
 //! and exec'd *that* against a v3 coordinator. On every fleet target that is a
-//! v2 binary, and a v2 binary half-enrolls a v2 worker and reports success.
+//! pre-v3 binary, and a pre-v3 binary half-enrolls an older worker and reports
+//! success.
 //!
 //! So the properties pinned here are behavioural, run against the real script:
-//! a v2 binary on PATH is not exec'd, the script names the four published asset
+//! a pre-v3 binary on PATH is not exec'd, the script names the four published asset
 //! names correctly, and a digest that does not match aborts before anything is
 //! installed.
 
@@ -30,7 +31,7 @@ fn a_v2_binary_on_path_is_never_the_one_that_joins() {
     write_fake_roost(&path_dir.join("roost"), false);
 
     // The origin is deliberately unreachable, so the only thing that could hand
-    // the grant over is the v2 binary. If the script were to exec it, this test
+    // the grant over is the pre-v3 binary. If the script were to exec it, this test
     // would see the marker it writes.
     let (ok, _stdout, stderr) = run_script(&sandbox, &path_dir);
 
@@ -54,7 +55,7 @@ fn a_v2_binary_on_path_is_never_the_one_that_joins() {
 #[test]
 fn a_v3_binary_at_the_self_link_location_is_the_one_that_joins() {
     let sandbox = Sandbox::new("v3-self-link");
-    // A v2 binary earlier on PATH than the self-link, which is the case a
+    // A pre-v3 binary earlier on PATH than the self-link, which is the case a
     // PATH-first lookup gets wrong.
     let path_dir = sandbox.root.join("usr-local-bin");
     write_fake_roost(&path_dir.join("roost"), false);
@@ -77,8 +78,9 @@ fn a_v3_binary_at_the_self_link_location_is_the_one_that_joins() {
 
 /// A machine still running the previous generation keeps its `roost`. The
 /// fetched release is staged in a directory the join owns and removes, and is
-/// never written over the v2 binary at the self-link location, which on a v2
-/// Mac is v2's own CLI: the script used to install there and replaced it.
+/// never written over the pre-v3 binary at the self-link location, which on a
+/// Mac of that generation is its own CLI: the script used to install there and
+/// replaced it.
 #[test]
 fn a_join_that_fetches_leaves_a_v2_binary_at_the_self_link_location_alone() {
     let sandbox = Sandbox::new("v2-kept");

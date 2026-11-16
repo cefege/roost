@@ -119,9 +119,9 @@ fn a_configuration_the_loader_refuses_stops_the_command_before_anything_starts()
 
 #[test]
 fn the_web_server_is_the_dioxus_cli_on_the_workspace_member() {
-    // v3's web app is a Rust crate, so the dev server is the Dioxus CLI serving
-    // the same package the release build names. A vite child here would be a
-    // v2 port of a line that no longer exists.
+    // The web app is a Rust crate, so the dev server is the Dioxus CLI serving
+    // the same package the release build names. A JavaScript dev server child
+    // here would belong to a front end that no longer exists.
     let servers = plan_for(&dev_boot(&home()));
     let web = named(&servers, plan::WEB);
 

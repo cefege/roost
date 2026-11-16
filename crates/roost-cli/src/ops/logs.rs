@@ -17,8 +17,7 @@ use roost_host::{EnvSource, HostPlatform, ProcessEnv, coord_log_dir, worker_log_
 use crate::command_error::CommandFailure;
 
 /// A log file this large is a service that has stopped rotating, and following
-/// it costs the operator more than the answer is worth. The v2 threshold, kept
-/// so the same file warns on the same day.
+/// it costs the operator more than the answer is worth.
 pub const LOG_ROTATE_WARN_BYTES: u64 = 100 * 1024 * 1024;
 
 /// How many existing lines print before the follow begins. Roughly one screen

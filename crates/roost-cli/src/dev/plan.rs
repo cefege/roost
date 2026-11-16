@@ -16,8 +16,8 @@ pub const WORKER: &str = "worker";
 /// The web dev server child.
 pub const WEB: &str = "web";
 
-/// The Dioxus CLI. v3's web app is a Rust workspace member, so the dev server is
-/// the Dioxus CLI and not the vite the v2 CLI started.
+/// The Dioxus CLI. The web app is a Rust workspace member, so the dev server is
+/// the Dioxus CLI and not a JavaScript bundler.
 pub const WEB_PROGRAM: &str = "dx";
 
 /// The workspace member the Dioxus CLI is pointed at, and the same package the

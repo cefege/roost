@@ -2,8 +2,8 @@
 //! on the target. Called by the deploy command only; depends on cargo, tar and
 //! the ssh transport, and on nothing else in the deploy group.
 //!
-//! A v2 deploy shipped a source checkout and let the target run it from source.
-//! A v3 deploy ships binaries, because the target's own `roost` is what applies
+//! A deploy ships binaries rather than a source checkout, because the
+//! target's own `roost` is what applies
 //! the release and a machine cannot be asked to compile itself the release it is
 //! about to be running. That is why the build is a deploy step with its own exit
 //! code (4) rather than something the operator is expected to have done first:

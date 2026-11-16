@@ -17,9 +17,9 @@
 //! growing. `copytruncate` handles that; the user timer handles the fact that
 //! nobody schedules it.
 //!
-//! **macOS gets nothing, and that is the v2 answer rather than a gap.** Both v2
-//! shell installers branch on the platform before this step, so a macOS account
-//! relies on `newsyslog`, which `roost logs` already tells the operator about.
+//! **macOS gets nothing, and that is deliberate rather than a gap.** A macOS
+//! account relies on `newsyslog`, which `roost logs` already tells the
+//! operator about.
 //! Writing a Linux-only unit pair on a platform that has neither `logrotate`
 //! nor a `systemd --user` manager would install files nothing ever reads.
 //!
@@ -194,7 +194,7 @@ pub fn status_path(env: &dyn EnvSource) -> ProtocolResult<PathBuf> {
 /// Skipping is an answer rather than a failure, and it is decided once, here,
 /// so that a dry run and a real install cannot disagree about whether a machine
 /// is getting a rotation. A macOS account has neither `logrotate` nor a
-/// `systemd --user` manager, and v2's own installers install nothing there;
+/// `systemd --user` manager, so nothing is installed there;
 /// writing a Linux unit pair on that platform would put files on disk that
 /// nothing ever reads, which is the same as a rotation that silently does not
 /// happen while looking installed.

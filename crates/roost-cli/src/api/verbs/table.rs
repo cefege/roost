@@ -2,11 +2,10 @@
 //! re-exports them; depends on `command_error` for the two refusals the table
 //! itself produces.
 //!
-//! The table is v2's `api-command-registry.ts` ported whole. Every verb v2
-//! registered is a row here, including the two it registered only to refuse:
+//! Every verb is a row here, including the two registered only to refuse:
 //! `cat` and `watch` each name the replacement that superseded them. Dropping
-//! those rows would turn a script that still calls them into a refusal about an
-//! unknown verb, which is a worse answer than the one v2 gave.
+//! those rows would turn a script that still calls them into a refusal about
+//! an unknown verb, which is a worse answer than the one they give.
 //!
 //! A ROW IS METADATA, NOT BEHAVIOUR. Nothing here decides what a verb does; a
 //! row says what the verb is called, what it takes, and what a refusal about

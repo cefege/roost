@@ -6,11 +6,10 @@
 //! output is a pure function of a report plus the two service labels, so it
 //! can be asserted with no services running.
 //!
-//! The three `→` remedy blocks that named a v2 build command were re-pointed
-//! at v3 commands (`roost quickstart`, `roost deploy localhost`, `dx build`),
-//! because the v2 text names files a v3 install does not have. The line
-//! shapes, the marks, the field order and the spacing are unchanged — see
-//! docs/phase6-cli-contract.md, "status".
+//! The `→` remedy blocks name v3 commands (`roost quickstart`,
+//! `roost deploy localhost`, `dx build`). The line shapes, the marks, the field
+//! order and the spacing are pinned — see docs/phase6-cli-contract.md,
+//! "status".
 
 use roost_protocol::fleet_update::{WorkerUpdateInputs, worker_update_label, worker_update_state};
 
@@ -34,8 +33,8 @@ fn mark(ok: bool) -> &'static str {
     if ok { "✓" } else { "✗" }
 }
 
-/// `Math.round(ms / 1000)` in the TypeScript this replaces, kept as float
-/// rounding rather than integer division so a 1_500 ms age prints `2s` and not
+/// Seconds are rounded as floats, not by integer division, so a 1_500 ms age
+/// prints `2s` and not
 /// `1s`. An age that rounds down reads as a fresher machine than it is.
 fn seconds(millis: i64) -> i64 {
     (millis as f64 / 1000.0).round() as i64

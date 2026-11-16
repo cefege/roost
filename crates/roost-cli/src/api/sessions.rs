@@ -75,9 +75,8 @@ struct SessionProjection {
     #[serde(rename = "spawnCwd")]
     spawn_cwd: String,
     title: String,
-    /// The spawn kind (`shell`), which is NOT the session's status. v2's table
-    /// published `session.kind` in this column, and a reader who greps the
-    /// wire for `kind` must not find a status wearing its name.
+    /// The spawn kind (`shell`), which is NOT the session's status: a reader
+    /// who greps the wire for `kind` must not find a status wearing its name.
     kind: String,
     status: String,
 }

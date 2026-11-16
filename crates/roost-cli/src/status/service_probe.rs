@@ -20,7 +20,7 @@ use roost_host::HostPlatform;
 use crate::services::scheduled_task::{powershell_argv, running_probe_script, state_report_script};
 
 /// A wedged service manager must not hold the readout open. Five seconds is
-/// the deadline the TypeScript probe used; below it a loaded-but-busy manager
+/// the deadline: below it a loaded-but-busy manager
 /// reads as down, above it an operator is left watching a cursor.
 pub const PROBE_DEADLINE: Duration = Duration::from_secs(5);
 
@@ -97,7 +97,7 @@ pub fn launchd_domain_query() -> Vec<String> {
 /// A pid is required as well as a state, and not as a formality: a service
 /// manager that reports `active` for a job whose process exited leaves a
 /// definition that reads correct and a machine with no worker behind it, and
-/// `roost push` in v2 rolled a whole fleet back over exactly that.
+/// `roost push` once rolled a whole fleet back over exactly that.
 pub fn service_is_running(report: &str, platform: HostPlatform) -> bool {
     let line = |name: &str| -> Option<String> {
         report.lines().find_map(|line| {

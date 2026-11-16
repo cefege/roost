@@ -46,7 +46,7 @@ fn installed_tag_from(
 }
 
 /// Listed in publish order, not version order: a candidate published after the
-/// final, a v2 tag, and an rc whose number sorts wrongly as text.
+/// final, a pre-v3 tag, and an rc whose number sorts wrongly as text.
 const MIXED: [&str; 6] = [
     "v3.0.1-rc.1",
     "v3.0.0-rc.12",

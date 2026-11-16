@@ -32,7 +32,7 @@ use crate::status::report::WorkerStatus;
 /// invocation, and a target the operator typed that this process will not dial is
 /// a rejected invocation either way. The contract is the authority here; the
 /// constant's comment is the module's gloss on it, and where the two read
-/// differently the contract wins — which is also what v2 shipped.
+/// differently the contract wins.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PushRefusal {
     pub code: u8,
@@ -93,9 +93,8 @@ pub fn is_full_worker_fingerprint(value: &str) -> bool {
 /// A host name reduced to the form two registries agree on: trimmed, without a
 /// trailing root dot, lowercased.
 ///
-/// Re-implemented here rather than imported from v2's Windows deploy channel,
-/// which v3 does not ship; the rule is three lines and it is the rule every
-/// comparison in this file depends on.
+/// The rule is three lines and it is the rule every comparison in this file
+/// depends on.
 pub fn normalized_host(value: &str) -> String {
     let trimmed = value.trim();
     trimmed

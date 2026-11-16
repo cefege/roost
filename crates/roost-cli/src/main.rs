@@ -40,7 +40,7 @@ fn main() -> ExitCode {
     }
 }
 
-/// `roost --version` and `roost -v` mean `roost version`, as they did in v2.
+/// `roost --version` and `roost -v` mean `roost version`.
 /// clap carries no version flag here on purpose: the binary's version is
 /// `roost-host`'s artifact version, which is `dev` for a source checkout, and
 /// clap would print the crate version instead — two answers to one question.
@@ -106,8 +106,8 @@ fn coordinator_error_copy() -> Result<Option<ErrorLogCopy>, (String, std::io::Er
 }
 
 /// The one machine-readable line a failure produces, on stderr. It is a single
-/// JSON object with the command and the message, which is the shape v2 emitted
-/// and the shape a wrapper script parses; stdout stays clean so a partially
+/// JSON object with the command and the message, which is the shape
+/// a wrapper script parses; stdout stays clean so a partially
 /// completed command's output is never mistaken for a successful one.
 fn fail(failure: &CommandFailure, command: &str) -> ExitCode {
     let line = serde_json::json!({ "cmd": command, "error": failure.message });

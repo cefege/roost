@@ -4,10 +4,8 @@
 //! lines it is fed, and a documented output can only be pinned if the function
 //! that produces it can be called without a machine.
 //!
-//! Ported from `apps/roost-cli/tests/doctor.test.ts`, which was the executable
-//! spec of the classification contract, plus a whole-document golden: the
-//! per-assertion tests say the rules are right, and the golden says the page an
-//! operator reads has not moved.
+//! Beside the per-assertion tests, which say the rules are right, a
+//! whole-document golden says the page an operator reads has not moved.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

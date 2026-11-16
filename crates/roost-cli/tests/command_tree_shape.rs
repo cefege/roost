@@ -3,10 +3,10 @@
 //! parse, and that the failures which carry a reserved exit code carry it.
 //!
 //! This is the test that stops a rename from being silent. `roost push` shells
-//! out to `roost status`, `smoke/terminal/stack.ts` launches `roost worker`, and
-//! a deploy's journal addresses `__keeper-contract` by string; a subcommand that
-//! disappears or changes its arguments breaks all three without any Rust test
-//! failing, so the surface is asserted here by name.
+//! out to `roost status` and a deploy's journal addresses `__keeper-contract`
+//! by string; a subcommand that disappears or changes its arguments breaks
+//! both without any Rust test failing, so the surface is asserted here by
+//! name.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
@@ -168,7 +168,7 @@ fn logs_takes_one_of_two_apps_and_a_tail_count() {
 #[test]
 fn version_build_is_a_flag_and_not_a_positional() {
     assert!(Cli::try_parse_from(["roost", "version", "--build"]).is_ok());
-    // v2 accepted `roost version --build` and refused a stray argument; keeping
+    // `roost version --build` is accepted and a stray argument refused; keeping
     // the flag explicit keeps `roost version extra` a usage error.
     assert!(Cli::try_parse_from(["roost", "version", "extra"]).is_err());
 }

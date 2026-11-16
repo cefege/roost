@@ -15,18 +15,13 @@
 //! quickstart "never prints or logs the one-shot grant", and that is why this
 //! type exists rather than a bare `String`.
 //!
-//! **This mints a coordinator value from the CLI, and that is a fork — waiting
-//! on one merge.** `roost_coord::auth::bootstrap_tokens::mint_host_bootstrap_token`
-//! already exists, on `v3-coord` at `edac76e2`, mirroring v2's
-//! `apps/coord/src/auth/bootstrap-tokens.ts`. **This worktree has not merged
-//! `v3-coord`, so the module is not here and the call cannot be written yet.**
-//! Until it is, the bearer format, the `bootstrap_tokens` column list, the
-//! 24-hour lifetime and the digest are four hand-restated copies of
-//! coordinator values living in a second crate, and they are restated here only
-//! so the CLI half is complete and compiling the day the merge lands. When it
-//! does, the whole of [`mint_host_grant`] collapses to that one call and this
-//! note with it. The tenancy invariant is already the coordinator's:
-//! `ensure_self_hosted_tenant` is called, not reimplemented.
+//! **This mints a coordinator value from the CLI, and that is a fork.**
+//! `roost_coord::auth::bootstrap_tokens::mint_host_bootstrap_token` is the
+//! coordinator's own mint; the bearer format, the `bootstrap_tokens` column
+//! list, the 24-hour lifetime and the digest here are four hand-restated
+//! copies of coordinator values living in a second crate. The tenancy
+//! invariant is already the coordinator's: `ensure_self_hosted_tenant` is
+//! called, not reimplemented.
 
 use std::fmt;
 

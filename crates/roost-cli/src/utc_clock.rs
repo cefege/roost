@@ -13,8 +13,8 @@
 /// division by this, and a wrong constant shifts every stamp by hours.
 const MS_PER_DAY: i64 = 86_400_000;
 
-/// `1970-01-01 00:00` through `9999-12-31 23:59`, the width `toISOString()`
-/// sliced to 16 characters in the TypeScript this replaces. Timestamps outside
+/// `1970-01-01 00:00` through `9999-12-31 23:59`, the range a four-digit year
+/// renders in sixteen characters. Timestamps outside
 /// it cannot come from a log line, but the formatter stays total rather than
 /// panicking on one.
 pub fn format_utc_minute(epoch_ms: i64) -> String {

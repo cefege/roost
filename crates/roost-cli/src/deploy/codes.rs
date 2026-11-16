@@ -9,8 +9,8 @@
 //! a fleet for the wrong reason.
 //!
 //! **The one collision is deliberate.** 2 is clap's usage code for a bad flag
-//! AND the code a deploy returns when the target could not be reached, exactly
-//! as it was in v2. It was once two constants in two modules —
+//! AND the code a deploy returns when the target could not be reached. It was
+//! once two constants in two modules —
 //! `command_error::USAGE_FAILURE` and `codes::SSH_UNREACHABLE` — which is two
 //! names for one value and therefore a second answer to "what does exit 2
 //! mean". There is now one definition, in `command_error`, re-exported here so

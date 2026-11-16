@@ -9,8 +9,8 @@
 //! or from a subcommand, and could not have its shutdown and exit code decided
 //! by the process that started it.
 //!
-//! None of these three prints a progress line. In v2 they printed nothing
-//! either, and anything they did print would interleave with the service's own
+//! None of these three prints a progress line: anything they did print would
+//! interleave with the service's own
 //! JSON log channel — which `roost doctor` reads.
 
 pub mod coord_boot;

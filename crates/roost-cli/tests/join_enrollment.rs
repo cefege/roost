@@ -272,11 +272,12 @@ fn a_named_source_root_is_the_tree_the_identity_is_proved_against() {
     );
 }
 
-/// A join pasted into a terminal that v2 opened inherits v2's
-/// `ROOST_WORKER_DATA_DIR`. Every place the join writes comes from the
-/// definition's own environment instead, so the release lands under the data
-/// directory the definition names and nowhere near v2's: reading the inherited
-/// variable installed a v3 release into `RoostWorkerV2` on desktop-pc.
+/// A join pasted into a terminal that an older install opened inherits that
+/// install's `ROOST_WORKER_DATA_DIR`. Every place the join writes comes from
+/// the definition's own environment instead, so the release lands under the
+/// data directory the definition names and nowhere near the older install's:
+/// reading the inherited variable installed a v3 release into `RoostWorkerV2`
+/// on desktop-pc.
 #[test]
 fn a_join_from_a_v2_terminal_installs_where_its_definition_points_and_not_into_v2() {
     let v2_data = "/home/operator/.local/share/RoostWorkerV2";

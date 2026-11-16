@@ -219,10 +219,10 @@ fn a_configured_mirror_replaces_the_github_origin() {
     );
 }
 
-/// The self-updater must never install another series. This repository's
-/// newest release today is a TypeScript `roost`, and a digest-verified download
-/// of it would pass every check this module makes and replace a Rust binary
-/// with a Bun one that answers none of this contract's commands.
+/// The self-updater must never install another series. The release listing
+/// includes older-series tags such as `v0.5.0`, and a digest-verified download
+/// of one would pass every check this module makes and replace a Rust binary
+/// with one that answers none of this contract's commands.
 #[test]
 fn only_a_v3_tag_is_installable() {
     let listing = json!([

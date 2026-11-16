@@ -23,11 +23,10 @@
 //! - [`command`]: the step order, and the only place that decides what may be
 //!   shipped.
 //!
-//! `roost push` takes no arguments, and the two flags v2 read out of raw argv
-//! (`--allow-dirty`, `--no-coord`) are gone rather than honoured: both are
-//! refusals in v2, and a flag that exists only to be refused is a flag an
-//! operator can mistype into a failed push. `ROOST_PUSH_TARGETS` is cut with
-//! them — a push is a whole-fleet transaction, and a subset of the fleet is
+//! `roost push` takes no arguments. `--allow-dirty` and `--no-coord` do not
+//! exist, because a flag that exists only to be refused is a flag an operator
+//! can mistype into a failed push, and there is no `ROOST_PUSH_TARGETS` — a
+//! push is a whole-fleet transaction, and a subset of the fleet is
 //! `roost deploy <host>`.
 //!
 //! The exit codes are `deploy::codes` and are shared with `roost deploy` on

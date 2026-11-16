@@ -86,7 +86,7 @@ async fn dispatch(
     };
     let parsed = verbs::parse(spec, args)?;
     match spec.verb {
-        // Two verbs v2 registered only to refuse. They answer, because an
+        // Two verbs registered only to refuse. They answer, because an
         // answer naming the replacement is more use to a stale script than a
         // usage error about a name that used to work.
         "cat" | "watch" => {

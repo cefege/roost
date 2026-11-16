@@ -88,8 +88,9 @@ fn a_missing_link_is_created_and_a_second_run_changes_nothing() {
 fn a_link_that_still_points_at_an_older_install_is_repointed_and_the_old_target_is_said() {
     let tree = TempTree::new("v2");
     let current = tree.release("v3");
-    // A v2 release: a different root, a different generation, and the case
-    // that silently keeps serving v2 while the operator believes they cut over.
+    // An older-generation release: a different root, a different generation,
+    // and the case that silently keeps serving the old install while the
+    // operator believes they cut over.
     let older = tree.release("v2");
     let link = tree.link();
     std::os::unix::fs::symlink(&older, &link).expect("the stale link is written");

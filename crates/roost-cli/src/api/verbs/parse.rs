@@ -5,7 +5,7 @@
 //! consistently rather than silently choosing the last value.
 //!
 //! WHY `--name value` AND `--name=value` BOTH PARSE. They are the same
-//! operator's intent written two ways, and v2 accepted both. A CLI that
+//! operator's intent written two ways. A CLI that
 //! accepts one and refuses the other is not being strict, it is being
 //! surprising to a shell script whose author had no way to know which dialect
 //! this build wanted.

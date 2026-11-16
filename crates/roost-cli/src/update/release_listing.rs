@@ -9,7 +9,7 @@ use crate::update::version::{ReleaseChannel, ReleaseVersion};
 
 /// The GitHub REST listing every published release, newest first. The `latest`
 /// endpoint is deliberately not used: it answers with the newest release of
-/// ANY series, and this repository's newest release today is a v2 binary.
+/// ANY series, and an older series' release can be the newest.
 pub const RELEASE_API_URL: &str = "https://api.github.com/repos/cefege/roost/releases?per_page=100";
 
 /// The endpoint that answers whether one ref contains another. Asked as
@@ -24,9 +24,10 @@ pub const GITHUB_USER_AGENT: &str = concat!("roost/", env!("CARGO_PKG_VERSION"))
 
 /// The tag prefix a release must carry to be installable by this binary.
 ///
-/// THE WHOLE POINT OF THIS FILTER. `releases/latest` answers `v0.5.0`, a
-/// TypeScript build, and a digest-verified download of it would replace a Rust
-/// `roost` with a Bun one that answers none of the commands this contract
+/// THE WHOLE POINT OF THIS FILTER. `releases/latest` can answer `v0.5.0`, a
+/// build from an older series, and a digest-verified download of it would
+/// replace a Rust `roost` with a binary that answers none of the commands this
+/// contract
 /// documents. Drafts are excluded because a draft has no assets anybody can
 /// fetch; pre-releases are candidates only on the pre-release channel
 /// (`update::version::release_channel`).

@@ -64,9 +64,9 @@ pub struct SignalGroup {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Digest {
     /// Keyed by kind and therefore ordered by kind, so a tie in the count
-    /// sorts the same way in every run of the same window. The TypeScript used
-    /// insertion order, which made two runs of one window print two different
-    /// digests and taught operators to distrust the ordering.
+    /// sorts the same way in every run of the same window; insertion order
+    /// would print two different digests for one window and teach operators to
+    /// distrust the ordering.
     pub signals: BTreeMap<String, SignalGroup>,
     /// Always-on SPA carrier decisions folded per browser device.
     pub browser_carriers: BTreeMap<String, super::browser_carriers::BrowserCarrier>,
@@ -139,8 +139,8 @@ pub fn classify(digest: &mut Digest, line: &Value, cutoff_ms: i64, source_app: &
     }
 
     if string_field(line, "target") == Some("signal") {
-        // Group by `evt` (the kind), falling back to `msg` for a Bun-side
-        // signal or a line written before `evt` existed. A structured `msg`
+        // Group by `evt` (the kind), falling back to `msg` for a line written
+        // before `evt` existed. A structured `msg`
         // field holding error text never wins here: grouping every failure
         // under its own message would produce one group per distinct error
         // string and hide the kind entirely.
@@ -168,7 +168,7 @@ pub fn classify(digest: &mut Digest, line: &Value, cutoff_ms: i64, source_app: &
     }
 }
 
-/// The same truncation the TypeScript used: a message long enough to wrap the
+/// The truncation: a message long enough to wrap the
 /// digest into a wall of text stops being a sample.
 pub fn short(value: &str, limit: usize) -> String {
     if value.chars().count() <= limit {

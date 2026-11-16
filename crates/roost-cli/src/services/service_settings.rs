@@ -102,8 +102,7 @@ fn coordinator_settings(
     // front door", which is what makes writing it the way a cleared value is
     // cleared; the CF Access validator instead refuses a blank team domain
     // outright, so a definition that carries `ROOST_CF_ACCESS_TEAM_DOMAIN=`
-    // is a coordinator that will not boot. v2 never wrote either key, so
-    // omitting one nothing configured is also the parity answer.
+    // is a coordinator that will not boot.
     for (name, value) in [
         (
             ENV_CF_ACCESS_TEAM_DOMAIN,

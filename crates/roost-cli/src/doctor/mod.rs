@@ -164,8 +164,8 @@ fn audit_source(env: &impl EnvSource, platform: roost_host::HostPlatform) -> Opt
         .map(AuditSource::Sqlite)
 }
 
-/// `HOST` when the environment declares one, else `local` — the same fallback
-/// the v2 digest used, kept so a pasted digest reads the same in v3.
+/// `HOST` when the environment declares one, else `local`, so a pasted digest
+/// names its machine.
 fn host_name(env: &impl EnvSource) -> String {
     env.get("HOST")
         .filter(|name| !name.is_empty())
