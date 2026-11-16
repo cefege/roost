@@ -131,7 +131,7 @@ fn only_the_worker_lifecycle_and_its_own_recovery_list_take_a_worker_credential(
 }
 
 #[test]
-fn the_on_host_requirement_matches_v2_and_the_gate_does_not_yet_enforce_it() {
+fn exactly_one_method_requires_on_host_and_the_gate_does_not_yet_enforce_it() {
     // The table records what each method REQUIRES. The gate is a separate
     // question, and for one row the two answers differ — so this test asserts
     // both, and the gap is the finding rather than a thing to paper over.
@@ -161,7 +161,7 @@ fn the_on_host_requirement_matches_v2_and_the_gate_does_not_yet_enforce_it() {
     assert_eq!(
         on_host,
         vec!["MiscDbExportUrl"],
-        "one method asserts on-host in v2, and it is this one (`handlers-system.ts:115`, unguarded)"
+        "exactly one method requires on-host, and it is this one (unguarded)"
     );
 
     // The keeper update is the CONTRAST and the reason the set has one member:
@@ -172,7 +172,7 @@ fn the_on_host_requirement_matches_v2_and_the_gate_does_not_yet_enforce_it() {
     assert_eq!(
         auth_requirement("WorkersPrepareKeeperUpdate"),
         Some(AuthRequirement::Device),
-        "a browser key from anywhere prepares a keeper update, in v2 and here alike"
+        "a browser key from anywhere prepares a keeper update"
     );
 
     // THE KNOWN GAP, ASSERTED AGAINST THE REAL GATE. This is the half that

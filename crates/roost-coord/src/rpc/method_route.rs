@@ -58,7 +58,7 @@ pub enum AuthRequirement {
     ///   request that carried one.
     ///
     /// Whoever implements the gate's half has to pick which shape each row
-    /// means. `the_on_host_requirement_matches_v2_and_the_gate_does_not_yet_
+    /// means. `exactly_one_method_requires_on_host_and_the_gate_does_not_yet_
     /// enforce_it` in `tests/method_route_coverage.rs` holds both halves: the
     /// requirement set, and an assertion against the real gate that FAILS THE
     /// DAY the locality check is written.
