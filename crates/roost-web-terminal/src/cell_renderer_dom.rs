@@ -57,21 +57,6 @@ pub struct CellRendererElements<E> {
     pub images: E,
     /// The local cursor block.
     pub cursor: E,
-    /// Remote cursor overlays, sharing the viewport as their host.
-    pub ghosts: E,
-}
-
-/// One remote operator's cursor, in grid cells from the pane's top-left.
-#[derive(Debug, Clone, PartialEq)]
-pub struct GhostCursor {
-    /// Stable identity of the operator whose cursor this is.
-    pub operator_id: String,
-    /// Column offset, in cells.
-    pub x: f64,
-    /// Row offset, in cells.
-    pub y: f64,
-    /// Hover label, defaulting to the operator id.
-    pub label: Option<String>,
 }
 
 /// Whether `child` is currently a direct child of `parent`, by node identity.
@@ -98,7 +83,6 @@ pub fn create_cell_renderer_elements<E: RenderElement>(
     let image_below = classed_div(&viewport, "cell-images-below")?;
     let images = classed_div(&viewport, "cell-images")?;
     let cursor = classed_div(container, "cell-cursor")?;
-    let ghosts = classed_div(container, "cell-ghosts")?;
     viewport.append_child(&image_below);
     viewport.append_child(&images);
     container.append_child(&spacer);
@@ -111,7 +95,6 @@ pub fn create_cell_renderer_elements<E: RenderElement>(
         image_below,
         images,
         cursor,
-        ghosts,
     })
 }
 
@@ -132,30 +115,6 @@ pub fn size_scrollback_block<E: RenderElement>(block: &E, rows: u32, row_height:
         "contain-intrinsic-size",
         &block_placeholder(rows, row_height),
     );
-}
-
-/// The ghost overlay boxes for a set of remote cursors.
-///
-/// A ghost that cannot be created is dropped: an overlay is decoration, and
-/// refusing to paint the whole grid because one remote box failed would trade a
-/// missing cursor for a frozen pane.
-pub fn create_ghost_elements<E: RenderElement>(factory: &E, ghosts: &[GhostCursor]) -> Vec<E> {
-    ghosts
-        .iter()
-        .filter_map(|ghost| {
-            let box_element = classed_div(factory, "cell-ghost").ok()?;
-            box_element.set_attribute("data-operator-id", &ghost.operator_id);
-            box_element.set_attribute(
-                "title",
-                ghost.label.as_deref().unwrap_or(&ghost.operator_id),
-            );
-            box_element.set_style(
-                "transform",
-                &format!("translate({}ch, {}lh)", ghost.x, ghost.y),
-            );
-            Some(box_element)
-        })
-        .collect()
 }
 
 /// The painted grid as text, one line per row, for a diagnostics dump.

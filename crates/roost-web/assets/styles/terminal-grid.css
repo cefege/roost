@@ -69,7 +69,7 @@
   /* Paint/layout isolation: make each pane its own layout+paint root so a
      divider-drag resize dirties/repaints only THIS terminal, not the whole
      deck tree (all slots + strips + sidebar). position: relative pins the
-     cell cursor/ghost containing block to .wterm (contain already makes it a
+     cell cursor containing block to .wterm (contain already makes it a
      containing block; explicit = intent). The focus glow lives on the SLOT
      ::after (outside .wterm) so it is NOT clipped; the link hint is
      document.body-attached so it is unaffected. */
@@ -273,21 +273,6 @@
 .cell-grid .cell-image {
   position: absolute;
   background-repeat: no-repeat;
-}
-/* Ghost cursors — remote viewers' cursor cells (CellGridRenderer.setGhosts).
-   Positioned in ch/lh viewport coords like the real cursor. */
-.cell-grid .cell-ghosts { position: absolute; inset: 0; pointer-events: none; }
-.cell-grid .cell-ghost {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 1ch;
-  height: 1lh;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--info) 35%, transparent);
-  border: 1px solid var(--info);
-  pointer-events: none;
-  transition: transform 60ms linear;
 }
 
 /* Predictive local echo (lib/predictiveEcho.ts) — a speculative char painted

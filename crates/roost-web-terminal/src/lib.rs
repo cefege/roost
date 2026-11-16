@@ -45,7 +45,7 @@ pub mod terminal_presentation;
 pub use block_placeholder::{DEFAULT_CELL_ROW_PX, SCROLLBACK_BLOCK_ROWS, block_placeholder};
 pub use cell_geometry::{TerminalCellGeometry, cell_from_point, grid_geometry_from_box};
 pub use cell_renderer::CellGridRenderer;
-pub use cell_renderer_dom::{DomSetupError, GhostCursor};
+pub use cell_renderer_dom::DomSetupError;
 pub use cell_row::{
     FindHit, LINK_KEY_ATTR, ROW_COLUMNS_ATTR, ROW_HAS_LINKS_ATTR, TERMINAL_LINK_CLASS,
     TERMINAL_LINK_TARGET_ATTR,
@@ -55,8 +55,7 @@ pub use link_target::{TerminalLinkTarget, classify_terminal_link_target};
 pub use painted_history::{MAX_HELD_SCROLLBACK_ROWS, PaintedHistory};
 pub use presentation::{
     BackfillAnchor, LiveInteractionResult, NO_LIVE_INTERACTION_RESULT, PaintedRowText,
-    RendererEpochSeq, RendererFrameMode, RendererIncidentObserver, RendererIncidentPhase,
-    RendererPaintPresentation, RendererPresentationSnapshot, RendererProjection,
+    RendererEpochSeq, RendererPaintPresentation, RendererPresentationSnapshot, RendererProjection,
     RendererTerminalModeSnapshot,
 };
 pub use reader_intent::{

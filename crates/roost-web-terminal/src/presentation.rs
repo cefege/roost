@@ -281,37 +281,3 @@ pub fn create_renderer_presentation_snapshot(
 pub fn same_scrollback_row(left: &CellRow, right: &CellRow) -> bool {
     left.index == right.index && left.mark == right.mark && left.spans == right.spans
 }
-
-/// When a renderer boundary was crossed, for the incident recorder that reads
-/// the DOM before a repair replaces the nodes carrying the evidence.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RendererIncidentPhase {
-    /// Before an incoming frame is applied.
-    PreApply,
-    /// Before a repair that replaces painted nodes.
-    PreDestructive,
-    /// Before a history page is spliced in.
-    PreHistoryInsert,
-    /// After a reconcile watermark advanced.
-    PostReconcile,
-}
-
-/// How a frame reached the renderer at the moment the phase was crossed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RendererFrameMode {
-    /// An authoritative full.
-    Full,
-    /// One or more sparse deltas.
-    Delta,
-}
-
-/// Installed only by an armed terminal incident recorder. `armed` is read at
-/// every renderer call site BEFORE an argument is constructed, so an unarmed
-/// terminal reads no DOM and allocates nothing.
-pub trait RendererIncidentObserver {
-    /// Whether this observer wants the observation.
-    fn armed(&self) -> bool;
-
-    /// Called at a crossed boundary, before or after the repair it describes.
-    fn observe(&mut self, phase: RendererIncidentPhase, mode: Option<RendererFrameMode>);
-}

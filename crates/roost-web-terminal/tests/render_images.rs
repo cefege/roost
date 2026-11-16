@@ -58,10 +58,6 @@ fn assert_image_layers_follow_rows(viewport: &FakeEl) {
         .iter()
         .position(|class| class == "cell-cursor")
         .expect("cursor exists");
-    let ghosts = classes
-        .iter()
-        .position(|class| class == "cell-ghosts")
-        .expect("ghost layer exists");
     let last_row = classes
         .iter()
         .rposition(|class| class.split_whitespace().any(|name| name == "cell-row"))
@@ -69,7 +65,6 @@ fn assert_image_layers_follow_rows(viewport: &FakeEl) {
 
     assert!(last_row < image_layer);
     assert!(image_layer < cursor);
-    assert!(cursor < ghosts);
 }
 
 fn image_frame(rows: u32, image: ImagePlacement) -> CellGridFrame {
@@ -144,7 +139,7 @@ fn full_repaint_keeps_layers_ordered_around_rows_and_overlays() {
         child_with_class(&viewport, "cell-images").children().len(),
         1
     );
-    assert_eq!(layer_order(&viewport).len(), 8);
+    assert_eq!(layer_order(&viewport).len(), 7);
 }
 
 #[test]

@@ -1,5 +1,5 @@
 //! The coordinator methods one terminal pane calls directly: a history page for
-//! its scrollback pager, and the cursor position its peers' ghosts follow. The
+//! its scrollback pager, and the cursor position it reports as viewer presence. The
 //! same history page read off a direct carrier decodes here too, by one row rule.
 //!
 //! Called by roost-web's `components::terminal` pane mount through
@@ -134,8 +134,8 @@ fn history_floor(floor: Option<PbHistoryFloor>) -> ScrollbackHistoryFloor {
     }
 }
 
-/// `SessionsCursorPos`: where this viewer's cursor is, for other viewers'
-/// ghost cursors.
+/// `SessionsCursorPos`: where this viewer's cursor is, reported to the
+/// coordinator as viewer presence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CursorPos {
     /// The session.

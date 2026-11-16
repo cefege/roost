@@ -20,7 +20,6 @@ impl<E: RenderElement> CellGridRenderer<E> {
     /// painted, or for rows past the frame's own total, is refused so the next
     /// demand can be re-derived from live state rather than from a stale one.
     pub fn insert_history_page(&mut self, rows: &[CellRow], follow_tail: bool) -> bool {
-        self.observe_history_insert();
         let Some(frame_total) = self.frame.as_ref().map(|frame| frame.scrollback_total) else {
             return false;
         };
@@ -65,7 +64,6 @@ impl<E: RenderElement> CellGridRenderer<E> {
         rows: &[CellRow],
         follow_tail: bool,
     ) -> bool {
-        self.observe_history_insert();
         if rows.is_empty() {
             return true;
         }

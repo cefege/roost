@@ -9,12 +9,10 @@ use roost_protocol::cell::CellGridFrame;
 
 use super::frame_gate::own_queued_delta;
 
-/// How one paint reaches the renderer.
-///
-/// `RendererFrameMode` names the incident phase a repair is about and has two
-/// members. A DELIVERY has three, because standing in for a batch that could
-/// not be delivered as a delta is a third delivery — and it is what makes
-/// `had_wire_full` on a delivery a fact rather than a duplicate of the mode.
+/// How one paint reaches the renderer: a `full` that arrived on the wire, a
+/// canonical stand-in for a batch that could not be delivered as a delta, or a
+/// delta — so `had_wire_full` on a delivery is a fact rather than a duplicate
+/// of the mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApplyMode {
     /// A `full` that arrived on the wire, applied as the canonical frame it

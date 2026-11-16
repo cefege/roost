@@ -157,11 +157,10 @@ impl<E: RenderElement> CellGridRenderer<E> {
         self.viewport.insert_before(element, anchor);
     }
 
-    /// Keep the image layers, cursor and ghost host above the viewport rows.
+    /// Keep the image layers and cursor above the viewport rows.
     fn attach_viewport_overlays(&mut self) {
         self.attach_image_layers();
         self.viewport.append_child(&self.cursor);
-        self.viewport.append_child(&self.ghosts);
         self.update_cursor();
     }
 

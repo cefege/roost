@@ -9,7 +9,7 @@ use roost_protocol::cell::{CellGridFrame, CellRow};
 
 use crate::cell_renderer::CellGridRenderer;
 use crate::cell_renderer_dom::{DomResult, is_placed_in};
-use crate::presentation::{RendererEpochSeq, RendererIncidentPhase, RendererTerminalModeSnapshot};
+use crate::presentation::{RendererEpochSeq, RendererTerminalModeSnapshot};
 use crate::render_element::RenderElement;
 
 impl<E: RenderElement> CellGridRenderer<E> {
@@ -66,9 +66,6 @@ impl<E: RenderElement> CellGridRenderer<E> {
         let Some(frame) = self.frame.clone() else {
             return Ok(());
         };
-        // Evidence of a painted-history defect must be read BEFORE this repair
-        // replaces the nodes that carry it.
-        self.observe(RendererIncidentPhase::PreDestructive, None);
         self.painted_sb_base =
             crate::cell_renderer::history_page::to_row_index(frame.scrollback_total);
         self.scrollback_layout_end = frame.scrollback_total;
@@ -135,7 +132,6 @@ impl<E: RenderElement> CellGridRenderer<E> {
             cursor_keys_app: frame.cursor_keys_app,
             bracketed_paste: frame.bracketed_paste,
         });
-        self.observe(RendererIncidentPhase::PostReconcile, None);
         if first_reconcile && let Some(callback) = self.on_first_reconcile.take() {
             callback();
         }
@@ -173,11 +169,6 @@ impl<E: RenderElement> CellGridRenderer<E> {
             grid_epoch: self.reconciled_grid_epoch.clone(),
             seq: self.reconciled_seq,
         }
-    }
-
-    /// Report the pre-history-insert boundary to an armed incident recorder.
-    pub(crate) fn observe_history_insert(&mut self) {
-        self.observe(RendererIncidentPhase::PreHistoryInsert, None);
     }
 
     /// The applied frame's retained scrollback total.

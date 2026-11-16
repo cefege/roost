@@ -11,7 +11,6 @@ use roost_protocol::cell::{
 };
 
 use crate::cell_renderer::CellGridRenderer;
-use crate::presentation::{RendererFrameMode, RendererIncidentPhase};
 use crate::reader_intent::{ReaderIntent, ReaderIntentReason};
 use crate::render_element::RenderElement;
 
@@ -32,10 +31,6 @@ impl<E: RenderElement> CellGridRenderer<E> {
     /// partial checkpoint overwrite a whole grid, and nothing afterwards could
     /// prove the rows it dropped.
     pub fn apply_full_frame(&mut self, incoming: &CellGridFrame) -> bool {
-        self.observe(
-            RendererIncidentPhase::PreApply,
-            Some(RendererFrameMode::Full),
-        );
         if !incoming.full || incoming.viewport_rows.len() != incoming.rows as usize {
             return false;
         }
@@ -80,10 +75,6 @@ impl<E: RenderElement> CellGridRenderer<E> {
     /// resurrecting a superseded one. An invalid chain is refused whole: a
     /// batch that half-applied would paint a grid no frame ever described.
     pub fn apply_delta_frames(&mut self, deltas: &[CellGridFrame]) -> bool {
-        self.observe(
-            RendererIncidentPhase::PreApply,
-            Some(RendererFrameMode::Delta),
-        );
         let Some(base) = self
             .reader_pending_frame
             .as_deref()
@@ -177,20 +168,6 @@ impl<E: RenderElement> CellGridRenderer<E> {
             return false;
         }
         frame.scrollback_total >= self.scrollback_layout_end
-    }
-
-    /// Report a crossed boundary to an armed incident recorder, before the
-    /// repair it describes replaces the nodes that carry the evidence.
-    pub(crate) fn observe(
-        &mut self,
-        phase: RendererIncidentPhase,
-        mode: Option<RendererFrameMode>,
-    ) {
-        if let Some(observer) = self.incident_observer.as_mut()
-            && observer.armed()
-        {
-            observer.observe(phase, mode);
-        }
     }
 }
 

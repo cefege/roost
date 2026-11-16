@@ -25,13 +25,12 @@ use roost_protocol::cell::CellGridFrame;
 
 use crate::cell_geometry::TerminalCellGeometry;
 use crate::cell_renderer_dom::{
-    DomSetupError, GhostCursor, create_cell_renderer_elements, create_ghost_elements, is_placed_in,
-    measure_cell_row_height,
+    DomSetupError, create_cell_renderer_elements, measure_cell_row_height,
 };
 use crate::cell_row::FindHit;
 use crate::cell_row::style_cache::StyleCache;
 use crate::painted_history::PaintedHistory;
-use crate::presentation::{RendererIncidentObserver, RendererTerminalModeSnapshot};
+use crate::presentation::RendererTerminalModeSnapshot;
 use crate::reader_intent::{ReaderAnchor, ReaderState};
 use crate::render_element::RenderElement;
 
@@ -53,7 +52,6 @@ pub struct CellGridRenderer<E = web_sys::Element> {
     image_below: E,
     images: E,
     cursor: E,
-    ghosts: E,
     image_urls: HashMap<u64, String>,
     image_failed: HashSet<u64>,
     /// Shared by refcount, so a render pass that holds it across `&mut self`
@@ -136,9 +134,6 @@ pub struct CellGridRenderer<E = web_sys::Element> {
     /// may resume. The renderer only ASKS: writing `scrollTop` mid-gesture
     /// cancels the scroll the reader is still performing.
     request_follow_band_settle: Option<Box<dyn Fn()>>,
-    /// Installed only by an armed terminal incident recorder. `None` in
-    /// production, and an unarmed recorder allocates nothing.
-    incident_observer: Option<Box<dyn RendererIncidentObserver>>,
 }
 
 impl<E> fmt::Debug for CellGridRenderer<E> {
@@ -181,7 +176,6 @@ impl<E: RenderElement> CellGridRenderer<E> {
             image_below: elements.image_below,
             images: elements.images,
             cursor: elements.cursor,
-            ghosts: elements.ghosts,
             image_urls: HashMap::new(),
             image_failed: HashSet::new(),
             frame: None,
@@ -224,7 +218,6 @@ impl<E: RenderElement> CellGridRenderer<E> {
             on_first_reconcile,
             on_reconcile,
             request_follow_band_settle,
-            incident_observer: None,
         })
     }
 
@@ -258,12 +251,6 @@ impl<E: RenderElement> CellGridRenderer<E> {
         self.frame.as_deref()
     }
 
-    /// Install the incident recorder. `None` is the production state: the
-    /// renderer's boundaries are then free.
-    pub fn set_incident_observer(&mut self, observer: Option<Box<dyn RendererIncidentObserver>>) {
-        self.incident_observer = observer;
-    }
-
     /// Enable or disable the focused-pane cursor blink presentation policy.
     pub fn set_cursor_blink_enabled(&mut self, enabled: bool) {
         let value = if enabled { "true" } else { "false" };
@@ -271,18 +258,6 @@ impl<E: RenderElement> CellGridRenderer<E> {
             return;
         }
         self.cursor.set_attribute("data-blink", value);
-    }
-
-    /// Attach remote cursor overlays to the viewport.
-    pub fn set_ghosts(&mut self, ghosts: &[GhostCursor]) {
-        let boxes = create_ghost_elements(&self.container, ghosts);
-        self.ghosts.clear_children();
-        for element in &boxes {
-            self.ghosts.append_child(element);
-        }
-        if !is_placed_in(&self.ghosts, &self.viewport) {
-            self.viewport.append_child(&self.ghosts);
-        }
     }
 
     /// Set the pane's accessible name on the scroll container.
@@ -345,7 +320,6 @@ impl<E: RenderElement> CellGridRenderer<E> {
 
     /// Release every DOM node the renderer owns and reset its state.
     pub fn dispose(&mut self) {
-        self.incident_observer = None;
         self.spacer.remove();
         self.scrollback.remove();
         self.viewport.remove();
