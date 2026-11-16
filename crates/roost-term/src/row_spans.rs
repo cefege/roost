@@ -1,6 +1,6 @@
 //! One row of cells into right-trimmed, run-length-encoded spans.
 //!
-//! This is the file the v2 terminal was written around: it is the inverse of
+//! This is the file the terminal is written around: it is the inverse of
 //! the browser's paint, and its two rules are load-bearing.
 //!
 //! **A wide glyph's continuation column is folded into its lead.** Emitting it

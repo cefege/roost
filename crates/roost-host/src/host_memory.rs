@@ -1,8 +1,6 @@
 //! The memory ceiling a long-lived service sizes itself against: the tightest
 //! finite cgroup2 `memory.high`/`memory.max` this process runs under, else
-//! total host memory, plus this process's own resident set. Ports the
-//! TypeScript `packages/host/src/host-memory.ts` and the Node `totalmem()` /
-//! `memoryUsage().rss` reads of `apps/worker/src/terminal/terminal-core-capacity.ts`.
+//! total host memory, plus this process's own resident set.
 //! Called by the worker's `terminal_core_capacity`; depends on std and
 //! roost-platform, and on `sysinfo` for the Windows reads.
 
@@ -10,12 +8,11 @@ use std::process::Command;
 
 use roost_platform::HostPlatform;
 
-/// Reads one Linux memory-control file; `None` stands for the TypeScript
-/// reader's throw.
+/// Reads one Linux memory-control file; `None` stands for an unreadable one.
 pub type MemoryFileReader<'a> = &'a dyn Fn(&str) -> Option<String>;
 
-/// `Number.MAX_SAFE_INTEGER`: the TypeScript original refuses a cgroup limit it
-/// cannot hold exactly.
+/// `Number.MAX_SAFE_INTEGER`: a cgroup limit that cannot be held exactly is
+/// refused.
 const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
 
 /// This process's cgroup2 directory, from `/proc/self/cgroup`'s `0::` line;
@@ -29,7 +26,7 @@ pub fn cgroup2_base(own_cgroup: &str) -> Option<String> {
 }
 
 /// The tightest finite cgroup2 limit, else `host_memory_bytes`. Any unreadable
-/// control file answers host memory, exactly as the TypeScript `catch` does.
+/// control file answers host memory.
 pub fn effective_linux_memory_ceiling_bytes(
     host_memory_bytes: u64,
     read_text: MemoryFileReader<'_>,

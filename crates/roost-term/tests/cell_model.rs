@@ -242,7 +242,7 @@ fn the_alt_screen_is_reported_and_its_grid_is_read() {
 
 #[test]
 fn any_motion_mouse_mode_is_folded_away() {
-    // `1003` is folded to "no tracking" by the core, as v2 folded it: a
+    // `1003` is folded to "no tracking" by the core: a
     // client that received it would have to report motion for a terminal the
     // product does not forward it for.
     let mut core = RioCore::new(20, 5);

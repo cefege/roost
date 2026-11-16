@@ -4,8 +4,7 @@
 //! deploy path refuses a release whose recorded SHA does not match the binary
 //! on disk, so a build that cannot say what it is is a build that cannot be
 //! audited. The values come from git when the source is a checkout and fall
-//! back to a stamped `dev`, which is the same shape the TypeScript original
-//! had.
+//! back to a stamped `dev`.
 
 use std::process::Command;
 

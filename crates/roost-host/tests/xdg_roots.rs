@@ -12,12 +12,12 @@
 //!
 //! The second question is the one that matters for review: **`config_root` does
 //! not read `XDG_CONFIG_HOME`, on purpose.** The XDG base-directory
-//! specification says it should. The TypeScript host hardcodes `$HOME/.config` for the systemd
-//! user unit and names a literal `~/.config/logrotate.d`, so honouring the
-//! variable would move a unit off the path the oracle, the documentation and
-//! `systemctl --user` all expect. The parity rule outranks the specification,
-//! and the test that pins the divergence is what stops a well-meaning reader
-//! from "fixing" it.
+//! specification says it should. Service units live under
+//! `$HOME/.config/systemd/user` and the logrotate unit names a literal
+//! `~/.config/logrotate.d`, so honouring the variable would move a unit off
+//! the path the documentation and `systemctl --user` expect. Those paths
+//! outrank the specification, and the test that pins the divergence is what
+//! stops a well-meaning reader from "fixing" it.
 
 use roost_host::{
     HOME_ENV, HostPlatform, MapEnv, XDG_STATE_HOME_ENV, config_root, coord_service_label,
@@ -59,11 +59,11 @@ fn the_config_root_is_not_under_local() {
 
 #[test]
 fn the_config_root_ignores_xdg_config_home_because_the_typescript_host_does() {
-    // THE PARITY PIN. The TypeScript host hardcodes `join(homedir(), ".config", ...)` and never
-    // reads the variable, so an install that honoured it would place the unit
-    // and the logrotate.d fragments somewhere `systemctl --user` and the TypeScript host's own
-    // tooling do not look. If this test ever fails, the change is real and the
-    // parity argument has to be re-made deliberately rather than silently.
+    // THE PIN. `systemctl --user` looks under `$HOME/.config` and the variable
+    // is never read, so an install that honoured it would place the unit and
+    // the logrotate.d fragments somewhere `systemctl --user` does not look. If
+    // this test ever fails, the change is real and the argument has to be
+    // re-made deliberately rather than silently.
     let env = env_with_home().with(XDG_CONFIG_HOME, "/etc/roost-config");
     assert_eq!(
         config_root(&env).expect("the config root resolves"),

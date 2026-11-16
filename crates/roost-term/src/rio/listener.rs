@@ -5,8 +5,8 @@
 //!
 //! Rio answers a probe by sending `RioEvent::PtyWrite` to its listener,
 //! synchronously, from inside the parse; the listener appends each, in order,
-//! to a queue the core pops one reply at a time — v2's `getResponse`
-//! contract. A text-area size request (`CSI 14 t`) arrives as a closure that
+//! to a queue the core pops one reply at a time (`get_response`). A text-area
+//! size request (`CSI 14 t`) arrives as a closure that
 //! needs the window size, answered here from the nominal cell size the core
 //! runs with. An OSC 52 store arrives decoded as `ClipboardStore`. Decoded
 //! images arrive as `UpdateGraphics`; progress reports and desktop

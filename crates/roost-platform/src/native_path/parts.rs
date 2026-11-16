@@ -120,7 +120,7 @@ pub fn native_path_crumbs(
     }
     if platform == HostPlatform::Windows {
         if let Some((drive_letter, tail)) = split_windows_drive_root(&normalized) {
-            // v2 names the drive root crumb `C:` and walks it as `C:/`.
+            // The drive root crumb is named `C:` and walked as `C:/`.
             let root = format!("{drive_letter}:/");
             let mut crumbs = vec![crumb(&format!("{drive_letter}:"), &root)];
             let mut current = root;

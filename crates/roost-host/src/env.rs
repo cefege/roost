@@ -29,8 +29,8 @@ pub const XDG_STATE_HOME_ENV: &str = "XDG_STATE_HOME";
 /// The variables a path or config function reads, injectable as one pair.
 ///
 /// `get` separates "set to an empty string" from "absent" because the
-/// TypeScript originals used both `??` and a truthiness test on the same
-/// variables, and they disagreed: an empty `ROOST_COORD_PLIST` names a real
+/// variables disagree on what an empty value means: an empty
+/// `ROOST_COORD_PLIST` names a real
 /// file, while an empty `ROOST_WORKER_DATA_DIR` falls back to the default.
 pub trait EnvSource: Sync {
     /// The value of `key`, or `None` when it is not set at all.

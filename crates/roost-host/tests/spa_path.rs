@@ -1,7 +1,7 @@
 //! The four decisions a static front door gets wrong, each as a named rule.
 //!
-//! Ported from the resolver tests `packages/host/src/spa.test.ts` pins, and
-//! written against a real directory because every one of these is a filesystem
+//! Written against a real directory because every one of these is a
+//! filesystem
 //! question: an in-memory map would let a traversal pass.
 
 // `expect_used` and `unwrap_used` are denied outside `#[cfg(test)]`, and an
@@ -220,7 +220,7 @@ fn the_wasm_prefers_its_brotli_sibling_then_gzip_then_itself() {
 
 #[test]
 fn a_name_the_bundle_reuses_never_becomes_immutable() {
-    // The four cache cases from `spa.ts:117-148`, each with the deployment it
+    // The four cache cases, each with the deployment it
     // protects.
     assert_eq!(cache_control_for("index.html"), "no-cache");
     assert_eq!(

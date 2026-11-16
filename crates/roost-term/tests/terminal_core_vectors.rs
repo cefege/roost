@@ -8,10 +8,10 @@
 //!   implementation with nothing in common with this one. Passing says the Rust
 //!   core agrees with an independent terminal.
 //! - `oracle: "patch"` — the expected state is written by hand from
-//!   `protocol/conformance/wterm-0.5.0-roost.patch`, and the vector names the hunk. These
-//!   are behaviours the v2 Zig core was patched to have and xterm does not
-//!   share; an xterm-derived vector would record the wrong answer, and the
-//!   generator prints the difference so it stays visible.
+//!   `protocol/conformance/wterm-0.5.0-roost.patch`, and the vector names the
+//!   hunk. These are behaviours the patch specifies and xterm does not share;
+//!   an xterm-derived vector would record the wrong answer, and the generator
+//!   prints the difference so it stays visible.
 //!
 //! A test unwraps the values it is asserting about: a failure there is the
 //! assertion failing, which is what a test wants. The workspace denies
@@ -38,7 +38,7 @@ use serde::Deserialize;
 struct Vector {
     name: String,
     oracle: String,
-    /// Present on a `known-divergence` vector: what the v2 core did instead.
+    /// Present on a `known-divergence` vector: what the reference core did instead.
     /// The runner prints it rather than failing on it, because the difference
     /// is recorded, named and greppable — which is the point of recording it.
     #[serde(default)]

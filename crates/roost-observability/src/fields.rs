@@ -37,8 +37,7 @@ impl LogFields {
     }
 
     /// Splice another bag in last, so the second writer wins a collision —
-    /// the same precedence the TypeScript object spread gave the caller's
-    /// `kv` over the emitter's own fixed keys.
+    /// the caller's `kv` wins over the emitter's own fixed keys.
     pub fn absorb(&mut self, other: LogFields) {
         self.entries.extend(other.entries);
     }

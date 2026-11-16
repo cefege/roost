@@ -116,13 +116,12 @@ const XDG_DATA_DEFAULT_LEAF: &str = "share";
 const XDG_STATE_DEFAULT_LEAF: &str = "state";
 /// The user's configuration root: `$HOME/.config`, and nothing else.
 ///
-/// **It does NOT read `XDG_CONFIG_HOME`, and that is deliberate.** The TypeScript host hardcodes
-/// `join(homedir(), ".config", "systemd", "user", ...)`
-/// (`packages/host/src/paths.ts`) and its logrotate unit names a literal
-/// `~/.config/logrotate.d`, so honouring the variable here would move a unit off
-/// the path the oracle, the docs, and `systemctl --user` all expect. Parity wins
-/// over the XDG specification, and a test pins the divergence so a future reader
-/// does not "fix" it.
+/// **It does NOT read `XDG_CONFIG_HOME`, and that is deliberate.** Service
+/// units live under `$HOME/.config/systemd/user` and the logrotate unit names
+/// a literal `~/.config/logrotate.d`, so honouring the variable here would
+/// move a unit off the path the docs and `systemctl --user` expect. Those
+/// paths win over the XDG specification, and a test pins the divergence so a
+/// future reader does not "fix" it.
 ///
 /// Public because the rule is not only this crate's: systemd user units land in
 /// `<config>/systemd/user` and `logrotate.d` fragments in `<config>/logrotate.d`.

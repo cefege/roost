@@ -1,6 +1,6 @@
 //! The response security headers a roost HTTP listener sends, from one CSP
 //! builder so two doors serving one SPA bundle cannot drift into different
-//! `connect-src` rules (ported from `packages/host/src/http-security.ts`). Called by the
+//! `connect-src` rules. Called by the
 //! worker's loopback door (`roost-worker` `runtime::door_serve`). Depends on
 //! `std` alone.
 
@@ -39,9 +39,9 @@ pub fn build_csp(relaxed: bool, connect_origins: &[String]) -> String {
     )
 }
 
-/// Every security header a response carries, as lowercase names and values
-/// (TypeScript `applySecurityHeaders`). HSTS only when `hsts`: a listener that does
-/// not know TLS terminates in front of it must not tell a browser it does.
+/// Every security header a response carries, as lowercase names and values.
+/// HSTS only when `hsts`: a listener that does not know TLS terminates in
+/// front of it must not tell a browser it does.
 #[must_use]
 pub fn security_headers(
     relaxed: bool,

@@ -2,8 +2,7 @@
 //! reply per call, oldest first, and `None` once drained. The worker's
 //! query-reply lane (`crates/roost-worker/src/session/query_reply.rs`) writes
 //! each drained reply straight onto the application's stdin, so an order the
-//! core did not produce is a cursor report answering a status query. Ports
-//! the response-queue half of v2 `packages/wterm/tests/wterm-core-load.test.ts`.
+//! core did not produce is a cursor report answering a status query.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

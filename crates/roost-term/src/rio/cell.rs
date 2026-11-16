@@ -150,7 +150,7 @@ fn packed(rgba: ColorArray) -> u32 {
 /// Rio's style flags as the wire's `CELL_*` bitfield.
 ///
 /// `CELL_BLINK` is never set: blink is a cursor concern for Roost, and the
-/// terminal-core conformance family records the difference from v2.
+/// terminal-core conformance family records the difference.
 fn roost_flags(flags: StyleFlags) -> u16 {
     use roost_protocol::cell::{
         CELL_BOLD, CELL_DIM, CELL_INVISIBLE, CELL_ITALIC, CELL_REVERSE, CELL_STRIKE, CELL_UNDERLINE,
@@ -177,8 +177,8 @@ fn roost_flags(flags: StyleFlags) -> u16 {
 
 /// Mouse tracking as the wire's closed set: `1000`, `1002`, or none.
 ///
-/// `MOUSE_MOTION` is the `1003` any-motion mode, which the v2 core folded away
-/// and so does this one: a client that received it would have to report motion
+/// `MOUSE_MOTION` is the `1003` any-motion mode, which this core folds away:
+/// a client that received it would have to report motion
 /// for a terminal the product does not forward it for.
 pub(crate) fn mouse_tracking(mode: Mode) -> roost_protocol::cell::MouseTracking {
     use roost_protocol::cell::MouseTracking;

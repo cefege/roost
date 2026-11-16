@@ -1,16 +1,14 @@
 //! The fixed ring of escape sequences a core's dispatcher did not recognise.
 //! A [`crate::TerminalCore`] fills it while it parses; the worker's
 //! `session::unhandled_seq` samples it against its own high-water mark and the
-//! diagnostics snapshot reads the result. Ports the ring v2's `@wterm/core`
-//! kept in `terminal.zig` (`DebugLogEntry`, `DEBUG_LOG_MAX`) and
-//! `packages/wterm/src/wterm-core-factory.ts` decoded (`unhandledSequenceRing`).
+//! diagnostics snapshot reads the result.
 //!
-//! THE RING IS NEVER CLEARED, exactly like the one it replaces: `total` only
+//! THE RING IS NEVER CLEARED: `total` only
 //! grows, so a reader holds its own mark against it and never re-reports an
 //! entry. The window is the newest [`UNHANDLED_RING_CAPACITY`] entries; anything
 //! older was overwritten, and `total` is what makes that loss countable.
 
-/// Entries the ring retains. v2's core held 32, and the worker's accumulator is
+/// Entries the ring retains. The worker's accumulator is
 /// sized to the same number so neither can remember what the other forgot.
 pub const UNHANDLED_RING_CAPACITY: usize = 32;
 

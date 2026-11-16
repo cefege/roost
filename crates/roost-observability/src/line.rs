@@ -1,8 +1,8 @@
 //! The one place a log line becomes text: one JSON object per line, shaped
 //! `{ts, level, target, msg, ...fields}`. The caller's fields are spliced in
 //! last, so a caller that names a field `msg`, `ts`, `level` or `target` wins
-//! over the fixed key — the same precedence the TypeScript object spread gave
-//! `kv` over the emitter's own keys, and the reason `roost doctor` can trust
+//! over the fixed key — `kv` takes precedence over the emitter's own keys,
+//! which is the reason `roost doctor` can trust
 //! the four fixed keys it reads.
 
 use std::sync::Arc;
@@ -202,11 +202,9 @@ mod tests {
 
     /// THE ORDER IS PART OF THE LINE, not a detail of how it was serialised.
     ///
-    /// v2 wrote `JSON.stringify({ ts, level, target, msg, ...fields })` — a JS
-    /// object literal, so the keys came out in the order they were written and
-    /// `msg` sat immediately before the caller's first field. The Playwright
-    /// oracle asserts on that adjacency (`"upload_completed","carrier":"loopback"`),
-    /// and it is asserting what v2 actually printed.
+    /// The keys come out in the order they were written, so `msg` sits
+    /// immediately before the caller's first field, and log readers match on
+    /// that adjacency (`"upload_completed","carrier":"loopback"`).
     ///
     /// Every other test here parses the line back into a `Value` and compares,
     /// which is order-blind by construction, so without this one the order could

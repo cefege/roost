@@ -10,8 +10,7 @@
 //! that can compress itself composes gzip from [`is_compressible`] and
 //! [`accepts_gzip`].
 //!
-//! Ported from `packages/host/src/spa.ts` over contract §6.2. The rules it
-//! keeps, and why each exists:
+//! The rules, from `docs/phase3-coord-contract.md` §6.2, and why each exists:
 //!
 //! - A real file is served. A path under `assets/` that is not one 404s,
 //!   because a content-hashed bundle must never fall back to HTML: a stale
@@ -87,7 +86,7 @@ pub enum SpaTarget {
 
 /// The `Cache-Control` value for a served path, relative to the build root.
 ///
-/// The four cases from `spa.ts:117-148` and the reason each exists: the shell
+/// The four cases and the reason each exists: the shell
 /// is revalidated on every load (a deploy that changes it would otherwise be
 /// invisible to a returning browser; the pairing token rides in the URL
 /// fragment, which no cache stores), a
@@ -116,7 +115,7 @@ pub fn cache_control_for(rel: &str) -> &'static str {
 
 /// The `Content-Type` for a path, or `application/octet-stream`.
 ///
-/// `spa.ts:17-30` verbatim. An unknown extension is deliberately the generic
+/// An unknown extension is deliberately the generic
 /// type rather than a guess: a wrong `text/*` on an image is a
 /// content-confusion bug, and a missing one is only a download.
 #[must_use]
@@ -170,7 +169,7 @@ pub fn is_compressible(path: &Path) -> bool {
 
 /// Whether an `Accept-Encoding` value admits gzip.
 ///
-/// Ported from `spa.ts:68-82` with its shape intact, because two of its cases
+/// Its shape is deliberate, because two of its cases
 /// are load-bearing and easy to lose to a tidier rewrite: the FIRST `gzip`
 /// item decides (a later one cannot re-enable it), and `gzip;q=0` disables it,
 /// which is what a client sending a *list* means by refusing.
@@ -251,8 +250,7 @@ pub fn resolve(dist_root: &Path, request_path: &str, accept_encoding: &str) -> S
 
 /// Whether a request path was reaching for something outside the build.
 ///
-/// Refused OUTRIGHT rather than left to the deep-link rule, and that is the one
-/// place this resolver is stricter than the source it is ported from: `..` is
+/// Refused OUTRIGHT rather than left to the deep-link rule: `..` is
 /// never a client route, so
 /// answering the shell for it would turn a probe that was reaching outward into
 /// a 200. The request path is never percent-decoded, so `%2e%2e` is a filename

@@ -13,7 +13,7 @@ pub trait EventClock: Send + Sync + std::fmt::Debug {
     fn now_epoch_ms(&self) -> i64;
     /// A monotonically non-decreasing nanosecond counter for this process.
     /// Goes on diag and signal records as `mono_ns`; a process with no
-    /// monotonic source reports `0`, which is also the TypeScript fallback.
+    /// monotonic source reports `0`.
     fn mono_ns(&self) -> u64;
 }
 

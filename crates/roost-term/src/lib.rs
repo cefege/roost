@@ -1,26 +1,27 @@
 //! The terminal core: an emulator behind a trait, and the emitter that turns
 //! what it holds into the wire's `CellGridFrame`.
 //!
-//! v2 ran a patched WebAssembly build of the Zig `@wterm/core` library. v3
-//! runs `rio-vt` in process (vendored with Roost's patches,
-//! `third_party/rio_vt/ROOST-PATCHES.md`), so the emitter, the wire format and
-//! the conformance vectors all still describe the same thing and a behaviour
-//! difference is a diff against the code it replaces rather than a mystery.
+//! `rio-vt` runs in process (vendored with Roost's patches,
+//! `third_party/rio_vt/ROOST-PATCHES.md`), and the emitter, the wire format and
+//! the conformance vectors describe the same thing whichever emulator sits
+//! behind the trait, so a behaviour difference is a diff against the vectors
+//! rather than a mystery.
 //!
-//! **`TerminalCore` is NOT the whole of v2's capability surface**, and a
-//! caller who assumes it is finds out at the call site. The ABI is the
-//! emitter's contract; v2's callers did not all live inside it. Two members
-//! v2's worker callers use are absent: `getResourceState`
-//! and `synchronizedOutput` (per-cell-sync state, which `stream_fence.rs` and
-//! the diagnostics `SyncOutput` gate are written against). The emulator cannot
-//! offer them, so a caller that needs one builds it beside the core, and a
-//! reader who assumes the trait is merely incomplete should not add them.
+//! **`TerminalCore` is NOT the whole of the worker's capability surface**, and
+//! a caller who assumes it is finds out at the call site. The trait is the
+//! emitter's contract; the worker's callers do not all live inside it. Two
+//! members the worker needs are absent: resource state and synchronized-output
+//! state (per-cell-sync state, which `stream_fence.rs` and the diagnostics
+//! `SyncOutput` gate are written against). The emulator cannot offer them, so
+//! a caller that needs one builds it beside the core, and a reader who assumes
+//! the trait is merely incomplete should not add them.
 //!
-//! Three v2 members ARE here: `write_raw` and `get_response` (the query-reply
-//! lane feeds the core and drains its queued answers — rio's `PtyWrite`
-//! events, queued by the adapter), and `unhandled_sequences` (v2's debug ring
-//! of dropped CSI — fed by the vendored R6 listener hook). A plain `write`
-//! discards replies, so a replay never answers history.
+//! Three members beyond the cell readers ARE here: `write_raw` and
+//! `get_response` (the query-reply lane feeds the core and drains its queued
+//! answers — rio's `PtyWrite` events, queued by the adapter), and
+//! `unhandled_sequences` (the debug ring of dropped CSI — fed by the vendored
+//! R6 listener hook). A plain `write` discards replies, so a replay never
+//! answers history.
 //!
 //! The core has no `CELL_BLINK` output, so a blinking span does not blink. It
 //! has no byte-input method, so this crate owns a `Processor` beside the

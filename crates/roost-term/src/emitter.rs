@@ -1,6 +1,6 @@
 //! Full frame or delta: the decision, and the state it advances.
 //!
-//! This is the v2 `nextCellFrame`, and its job is to answer one question — can
+//! Its job is to answer one question — can
 //! the client reach the current state from what it already holds? Four things
 //! answer no, and only one of them is a choice:
 //!

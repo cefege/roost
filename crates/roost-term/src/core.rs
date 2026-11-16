@@ -3,13 +3,12 @@
 //!
 //! This trait is the whole contract between a terminal emulator and its two
 //! readers: the frame emitter, and the worker's query-reply lane and
-//! unhandled-sequence diagnostics. It exists so the emulator can be replaced — it was a patched
-//! WebAssembly build of a Zig library, then `alacritty_terminal`, and is now `rio-vt` — without
-//! the emitter, the wire format, or a single test noticing. The method names
-//! are the v2 WebAssembly ABI's, deliberately: that ABI is what the emitter's
-//! behaviour, its conformance vectors and its incident history are written
-//! against, so keeping the vocabulary means a port can be checked line by line
-//! against the thing it replaces.
+//! unhandled-sequence diagnostics. It exists so the emulator can be replaced
+//! without the emitter, the wire format, or a single test noticing. The method
+//! names are the emitter's ABI vocabulary, deliberately: that ABI is what the
+//! emitter's behaviour, its conformance vectors and its incident history are
+//! written against, so keeping the vocabulary means an emulator can be checked
+//! line by line against the vectors.
 //!
 //! Nothing here is async and nothing here owns a clock. A core is fed bytes
 //! and asked what it now holds.
@@ -105,7 +104,7 @@ pub enum CommandEvent {
 ///
 /// The scrollback addressing is **newest-first**: offset 0 is the line just
 /// above the viewport and offset `scrollback_count() - 1` the oldest retained.
-/// That is the v2 ABI's convention and it is deliberately kept, because the
+/// That is the ABI's convention and it is deliberately kept, because the
 /// emitter converts it to Roost's oldest-first monotonic index in exactly one
 /// place. An implementation reads a line by its offset, never by an absolute
 /// index: the absolute index is a property of the ring's eviction history, and
@@ -121,19 +120,18 @@ pub trait TerminalCore {
     /// on — landing on the application's stdin ahead of the next live answer,
     /// which is how a cursor report ends up answering a device-attributes
     /// query. A clipboard write replayed from history would overwrite the
-    /// operator's clipboard with text they copied long ago. v2 drained and
-    /// dropped the queue after every such write; here a plain write cannot
-    /// leave one behind.
+    /// operator's clipboard with text they copied long ago. A plain write
+    /// cannot leave one behind.
     fn write(&mut self, bytes: &[u8]);
 
     /// Feed PTY output and KEEP the replies and clipboard writes it provokes
     /// for [`TerminalCore::get_response`] and
-    /// [`TerminalCore::take_clipboard_writes`]. v2's `writeRaw`: the live
+    /// [`TerminalCore::take_clipboard_writes`]. The live
     /// ingest is its only caller, and it drains both after every call.
     fn write_raw(&mut self, bytes: &[u8]);
 
     /// Pop the oldest reply the core owes the application, `None` when none is
-    /// queued. v2's `getResponse`: ONE per call, in the order the core
+    /// queued. ONE per call, in the order the core
     /// produced them, so a caller drains until `None`.
     fn get_response(&mut self) -> Option<String>;
 
@@ -239,7 +237,7 @@ pub trait TerminalCore {
     /// `DECSET 2004`.
     fn bracketed_paste(&self) -> bool;
     /// `DECSET 1000` / `1002`, with `1003` and the legacy mode 9 folded away by
-    /// the core, exactly as the v2 core folded them.
+    /// the core.
     fn mouse_tracking(&self) -> roost_protocol::cell::MouseTracking;
     /// `DECSET 1006`.
     fn mouse_sgr(&self) -> bool;
@@ -254,9 +252,9 @@ pub trait TerminalCore {
     /// The eviction origin every absolute history index is measured from.
     ///
     /// This is a read of the core's own counter, not an inference from
-    /// retained history: the v2 implementation re-identified previously-newest
-    /// lines by content hash, which cost about 1200 reads per emit near the
-    /// cap, went blind past a 256-line scan window, and could alias two
+    /// retained history: re-identifying previously-newest
+    /// lines by content hash costs about 1200 reads per emit near the
+    /// cap, goes blind past a 256-line scan window, and can alias two
     /// identical tails.
     fn scrollback_origin(&self, base: u64) -> TerminalCoreResult<u64> {
         match self.discarded_line_count() {
