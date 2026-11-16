@@ -3,6 +3,7 @@
 //! `cargo nextest`. Blocking in CI; see CLAUDE.md `### Commands`.
 
 mod crate_dag;
+mod css_contracts;
 mod design_raw;
 mod file_size;
 mod fleet;
@@ -99,6 +100,7 @@ fn lint(arguments: &LintArgs) -> ExitCode {
         lint_table::run(),
         unreached_module::run(),
         test_suite::run(arguments.update_test_suites),
+        css_contracts::run(),
     ] {
         checked += outcome.checked;
         violations.extend(outcome.violations);
