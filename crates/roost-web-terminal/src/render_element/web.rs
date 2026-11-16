@@ -1,8 +1,7 @@
 //! `web_sys::Element` as the renderer's element: the one place the renderer's DOM
 //! reads and writes reach a browser. Every judgement stays in `CellGridRenderer`;
 //! this forwards, and inline `style` and the double-valued `scrollTop` go through
-//! `element_style`. The browser side of the DOM calls in
-//! `apps/web/src/renderer/cellRenderer.ts` and `cellRendererDom.ts`.
+//! `element_style`.
 
 use wasm_bindgen::JsCast;
 use web_sys::{Element, HtmlElement, Node};

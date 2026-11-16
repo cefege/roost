@@ -2,7 +2,6 @@
 //! inline style, the find-hit sub-span arithmetic in GRID columns, and the
 //! allocation-free row hash the viewport diff compares. `cell_row/dom.rs` paints
 //! what this decides; nothing here reads the DOM, so every rule tests natively.
-//! Ports `apps/web/src/renderer/cellRow.ts`.
 
 pub mod dom;
 pub mod ligatures;
@@ -78,7 +77,7 @@ pub fn ansi256_to_css(index: u16) -> String {
         return format!("var(--term-color-{index})");
     }
     // Widened: a malformed wire index above the palette paints a nonsense
-    // colour, as v2 does, instead of overflowing.
+    // colour instead of overflowing.
     let index = u32::from(index);
     if index >= 232 {
         let value = 8 + (index - 232) * 10;

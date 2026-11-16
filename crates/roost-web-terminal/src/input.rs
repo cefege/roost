@@ -13,11 +13,6 @@
 //! The admission decision — whether a batch is written, held or refused — is
 //! NOT here. It belongs to `roost_client_core::terminal::input`, and this
 //! crate's output is exactly the bytes that router is asked to admit.
-//!
-//! Ports v2's `apps/web/src/client/input/terminalInput.ts`,
-//! `apps/web/src/renderer/terminalInputController.ts`,
-//! `apps/web/src/renderer/terminalSelectionGuard.ts` and
-//! `apps/web/src/renderer/terminalComposeSelection.ts`.
 
 pub mod chord;
 pub mod compose_selection;

@@ -2,8 +2,8 @@
 //! `CellGridRenderer` stays the only DOM/history owner behind `BackfillHost`,
 //! `roost_client_core::terminal::history_backfill` owns the page geometry, and
 //! this pager fences one wave by generation, epoch, columns, total and painted
-//! coverage. Ports `apps/web/src/renderer/scrollbackBackfill.ts`; its RPC, frame
-//! yield and timers are `BackfillAction`s the pane performs and answers.
+//! coverage. Its RPC, frame yield and timers are `BackfillAction`s the pane
+//! performs and answers.
 
 mod demand;
 pub mod direct_history;
@@ -31,8 +31,8 @@ use crate::presentation::BackfillAnchor;
 /// budget over a live gap. One wave per interval cannot hot-loop.
 pub const BACKFILL_RETRY_MS: u64 = 2000;
 
-/// The renderer surface one pager reads and splices into, v2's
-/// `Pick<CellGridRenderer, …>`: the production host is `CellGridRenderer`.
+/// The renderer surface one pager reads and splices into: the production host
+/// is `CellGridRenderer`.
 pub trait BackfillHost {
     /// The grid identity and painted head base, or `None` before a frame lands.
     fn backfill_anchor(&self) -> Option<BackfillAnchor>;
@@ -50,7 +50,7 @@ pub trait BackfillHost {
     fn insert_history_page(&mut self, rows: &[CellRow], follow_tail: bool) -> bool;
 }
 
-/// Work the pager hands its pane: v2's awaited RPC, frame and timers.
+/// Work the pager hands its pane: an awaited RPC, frame and timers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BackfillAction {
     /// Issue one history read, then answer `on_page` or `on_fetch_failed`.
@@ -145,7 +145,7 @@ impl ScrollbackBackfill {
         self.requests
     }
 
-    /// Whether the pane is viewed and the page visible (v2's `active()`): an
+    /// Whether the pane is viewed and the page visible: an
     /// inactive pager raises nothing and every wave in flight stops current.
     pub fn set_active(&mut self, active: bool) {
         if self.active != active {

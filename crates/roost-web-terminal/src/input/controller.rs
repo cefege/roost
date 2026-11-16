@@ -3,7 +3,6 @@
 //! `controller_dom` owns the textarea and its listeners and applies these
 //! decisions; the key bytes come from `keys`. There is no browser-side VT core
 //! and no shared focus singleton — every pane owns one controller.
-//! Ports v2's `apps/web/src/renderer/terminalInputController.ts`.
 
 use std::cell::RefCell;
 

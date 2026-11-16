@@ -1,8 +1,7 @@
 //! The DOM properties the wasm32 adapters need that `web_sys::Element` does not
 //! expose: inline `style`, which lives on `HTMLElement`, and the double-valued
 //! `scrollTop`. Read by the renderer, link, reader-scroll, echo and mouse
-//! adapters; every call is total. Ports the `style` and `scrollTop` access
-//! of `apps/web/src/renderer/cellRenderer.ts` and `terminal-links.scan.ts`.
+//! adapters; every call is total.
 
 use js_sys::Reflect;
 use wasm_bindgen::{JsCast, JsValue};

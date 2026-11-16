@@ -2,8 +2,7 @@
 //! chain over it, and the submodules — `controller` (query, cursor, reveal),
 //! `hits` (what the grid is told), `host` (the grid seam), `intent` (global
 //! handoff). Match types and page guards are `roost_client_core::search`; bounds
-//! are `roost_protocol::terminal_search`. Ports
-//! `apps/web/src/client/search/terminalFindPageChain.ts`.
+//! are `roost_protocol::terminal_search`.
 
 pub mod controller;
 pub mod hits;

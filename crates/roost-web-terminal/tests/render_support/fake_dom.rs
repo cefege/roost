@@ -1,5 +1,5 @@
-//! An in-memory `RenderElement` with the layout model v2's renderer tripwire
-//! suite used (`apps/web/tests/helpers/cellRendererFakeDom.ts`): scroll space
+//! An in-memory `RenderElement` with the layout model the renderer tripwire
+//! suite uses: scroll space
 //! is derived from the painted rows and the reserved placeholders, so a test
 //! can tell browser geometry from the renderer's one conditional scroll writer.
 //!

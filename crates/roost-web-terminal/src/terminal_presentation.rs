@@ -3,7 +3,7 @@
 //! receiving indicator, the reconciliation hold state and its foreground DOM
 //! stall, the detached-view grace behind the "no live stream" indicator, and
 //! the cursor-blink policy. Reads the renderer through
-//! `PresentationRendererView`. Ports `apps/web/src/renderer/terminalPresentation.ts`.
+//! `PresentationRendererView`.
 
 mod controller;
 mod renderer_view;

@@ -1,7 +1,6 @@
 //! The admission gate: whether one arriving frame may ride the pending batch
 //! as a sparse delta, or must replace it with a full — the three bounds, the
-//! seq-continuity rule and the stale-full fence of
-//! `apps/web/src/renderer/terminal-render-scheduler.ts`. Pure functions called
+//! seq-continuity rule and the stale-full fence. Pure functions called
 //! by `RenderScheduler`; the batch they judge is `scheduler::frames`.
 
 use std::sync::Arc;
@@ -192,7 +191,7 @@ pub(super) struct DeltaExtend {
 }
 
 /// The new batch counters when `frame` may extend `pending`, or `None` when it
-/// must be replaced by a full. The rules run in v2's order — foreground, a
+/// must be replaced by a full. The rules run in order — foreground, a
 /// sparse frame, exact seq continuity, no queued full, the same grid, then the
 /// three bounds — and every one is about the BATCH: a delta rides because the
 /// run it joins is still contiguous and inside every bound.

@@ -1,7 +1,6 @@
 //! A view's whole life against the scheduler: parked deliveries folding
 //! canonically, a renderer-only dropped delta repaired by the next
-//! checkpoint, and a stream reset cancelling a queued frame. Ported from
-//! `apps/web/tests/terminalStreamRenderScheduler.test.ts`.
+//! checkpoint, and a stream reset cancelling a queued frame.
 //!
 //! The replica and the socket those cases drive are the caller's, so each one
 //! here is the scheduler's own question: what is retained while nothing paints,

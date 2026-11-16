@@ -1,8 +1,7 @@
 //! The two reads the selection guard is decided from, as plain data: the
 //! DOCUMENT's selection right now (`LiveSelection`) and the CAPTURED range as
 //! it stands now (`RetainedRange`). `input::dom` fills both from a real
-//! document; `selection` judges them. Ports the capture record and the
-//! ownership predicates of v2's `apps/web/src/renderer/terminalSelectionGuard.ts`.
+//! document; `selection` judges them.
 
 /// The adapter's identity for one DOM node. The guard compares these instead
 /// of holding a DOM reference, so a capture survives only while the node it

@@ -1,8 +1,6 @@
 //! Viewport reconciliation restraint: a delta touches only the rows the worker
 //! marked dirty, a scroll reuses shifted row nodes, a held batch leaves the DOM
 //! alone until release, and a partial-region scroll keeps its fixed panel.
-//! Ported from the viewport-diff cases of
-//! `apps/web/tests/renderer/cellRenderer.reconcile.dom.test.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

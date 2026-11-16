@@ -1,5 +1,4 @@
-//! Shared fixture for the scrollback demand-paging suites, ported from
-//! `apps/web/tests/scrollbackBackfill-test-harness.ts`: a renderer stand-in
+//! Shared fixture for the scrollback demand-paging suites: a renderer stand-in
 //! (`BackfillHost`) modelling ABSOLUTE painted rows and exact missing intervals,
 //! the page builder, and a driver that performs the pager's actions — reads,
 //! frames, timers on a fake clock — while capturing its `tracing` diag lines.
@@ -150,7 +149,7 @@ impl BackfillHost for FakeRenderer {
     }
 }
 
-/// The shape of one harness, v2's `BackfillHarnessOptions`.
+/// The shape of one harness.
 #[derive(Debug, Clone, Default)]
 pub struct Options {
     pub total: Option<u64>,
@@ -187,7 +186,7 @@ pub struct Harness {
 }
 
 impl Harness {
-    /// v2's default read: whatever was asked for, under a 760-row total.
+    /// The default read: whatever was asked for, under a 760-row total.
     pub fn new(options: Options) -> Self {
         let total = options.total.unwrap_or(760);
         let default_base = options.painted.first().copied().unwrap_or(total as u32);

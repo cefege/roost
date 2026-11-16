@@ -1,9 +1,7 @@
 //! Painting the live grid: the viewport row diff, the cursor, the grid width and
 //! the find highlights. The diff is O(dirty rows): each row element carries the
 //! hash of everything the painter sets, so a frame repainting the same cells
-//! touches no DOM. Ports `renderDelta`, `renderViewportRepair`, `updateCursor`,
-//! `setGridWidth`, `setFindHighlights` and `_repaintScrollbackRow` of
-//! `apps/web/src/renderer/cellRenderer.ts`.
+//! touches no DOM.
 
 use std::collections::BTreeMap;
 

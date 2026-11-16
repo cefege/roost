@@ -1,9 +1,8 @@
 //! The clamp that decides whether a controller direction scrolls the pane or
-//! leaves it, ported from `apps/web/tests/terminalReaderScroll.dom.test.ts`
-//! against the native decision in `reader_scroll.rs`. `None` IS the "this box
-//! cannot travel" answer the pad router reads before handing the direction to
-//! focus navigation; a decision that answered a move at an edge would dead-end
-//! the pad inside the terminal.
+//! leaves it, against the native decision in `reader_scroll.rs`. `None` IS the
+//! "this box cannot travel" answer the pad router reads before handing the
+//! direction to focus navigation; a decision that answered a move at an edge
+//! would dead-end the pad inside the terminal.
 
 use roost_web_terminal::ScrollBoxGeometry;
 use roost_web_terminal::reader_scroll::{PAD_SCROLL_STEP_PX, reader_scroll_target};

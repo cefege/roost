@@ -1,6 +1,4 @@
-//! A fake browser for the link attachment, ported from the harnesses of
-//! `apps/web/tests/terminal-links.dom.test.ts` and
-//! `apps/web/tests/renderer/terminal-links.activation.dom.test.ts`: a small
+//! A fake browser for the link attachment: a small
 //! node tree with text nodes, a queued animation-frame list with REAL cancel,
 //! no idle callbacks, and counters for every listener and observer.
 

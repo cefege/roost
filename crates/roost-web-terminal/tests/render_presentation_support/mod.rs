@@ -1,8 +1,7 @@
 //! Shared fixtures for the terminal presentation tests: a renderer stub that
-//! only reports watermarks, the view statuses v2's tests use, and a pane
+//! only reports watermarks, the view statuses the tests use, and a pane
 //! harness whose `advance` fires due deadlines at their due instant the way
-//! fake timers do. Mirrors the fixtures in
-//! `apps/web/tests/renderer/terminalPresentation.test.ts`.
+//! fake timers do.
 
 #![allow(dead_code)]
 

@@ -2,7 +2,6 @@
 //! (stamped BOTH `wterm`, which makes history scrollable, and `cell-grid`), the
 //! exact-height placeholders on scrollback blocks, and the probe and box reads
 //! the layout needs. `CellGridRenderer` composes these through `RenderElement`.
-//! Ports `apps/web/src/renderer/cellRendererDom.ts`.
 
 use crate::block_placeholder::{DEFAULT_CELL_ROW_PX, block_placeholder};
 use crate::cell_geometry::{TerminalCellGeometry, grid_geometry_from_box};

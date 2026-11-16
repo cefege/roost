@@ -1,7 +1,6 @@
 //! Paint holds on the append-only grid: a selection or armed-link hold freezes
 //! the painted DOM while the canonical frame keeps advancing, and the release
-//! is the resume a park that lost every other trigger still gets. Ported from
-//! the hold cases of `apps/web/tests/renderer/cellRenderer.append.dom.test.ts`.
+//! is the resume a park that lost every other trigger still gets.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

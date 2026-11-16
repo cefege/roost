@@ -1,8 +1,7 @@
 //! The held scrollback window: eviction caps the painted rows, every block's
 //! placeholder is EXACT, only the open tail opts out of skipping, and the
-//! retention-floor marker is paint-only. Ported from
-//! `apps/web/tests/renderer/cellRenderer.heldWindow.dom.test.ts` (the bare-length
-//! placeholder case lives in `block_placeholder.rs`).
+//! retention-floor marker is paint-only. (The bare-length placeholder case
+//! lives in `block_placeholder.rs`.)
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

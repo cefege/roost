@@ -3,7 +3,6 @@
 //! inferred anchors, composed with the mutation scanner. It runs over
 //! `LinkHost`; `links::dom` wires the browser events of `LinkListener::ALL`
 //! into `dispatch`. The pane component attaches one per terminal.
-//! Ports `attachTerminalLinks` in `apps/web/src/renderer/terminal-links.ts`.
 
 mod listener;
 

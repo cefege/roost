@@ -1,8 +1,7 @@
 //! Shared fixture for the terminal-find controller suites: a fake renderer host
 //! (anchor, highlight log, jumps, find-read ends), a scripted coordinator search
 //! RPC with request/cancellation spies, a captured debounce clock, and a
-//! backfill that pulls every row. Ports `apps/web/tests/terminalFindController-test-harness.ts`
-//! and `apps/web/tests/terminalFindController-search-spy.ts`.
+//! backfill that pulls every row.
 #![allow(dead_code)]
 
 use std::collections::VecDeque;
@@ -34,7 +33,7 @@ pub enum HostCall {
     EndFindRead,
 }
 
-/// The fake renderer: v2's `{ sbBase: 500, cols: 80, total: 2000 }` anchor.
+/// The fake renderer: anchored at scrollback base 500, 80 columns, 2000 rows.
 #[derive(Debug, Clone)]
 pub struct FakeHost {
     pub anchor: BackfillAnchor,
@@ -100,7 +99,7 @@ pub enum RpcAnswer {
 
 type SearchRpc = Box<dyn FnMut(&FindRequest, &mut FakeHost) -> RpcAnswer>;
 
-/// The window and stop reason of one reply; v2's `ReplyOptions`.
+/// The window and stop reason of one reply.
 #[derive(Debug, Clone, Copy)]
 pub struct Shape {
     pub stop: SearchStop,
@@ -120,7 +119,7 @@ impl Default for Shape {
     }
 }
 
-/// v2's `reply(rows, gridEpoch, options)`: every match at col 3, len 4.
+/// Every match at col 3, len 4, for the given rows, epoch and window.
 pub fn reply(rows: &[u32], epoch: &str, shape: Shape) -> SearchReply {
     SearchReply {
         matches: rows

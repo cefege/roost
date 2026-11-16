@@ -1,9 +1,7 @@
 //! Keeping the painted DOM bounded and the scroll space truthful: leading-block
 //! eviction, head-gap collapse, and the head spacer that reserves the whole
 //! session's history, so a dropped row keeps its exact height and native
-//! `scrollTop` holds the reader's row with no application scroll write. Ports
-//! `_evictScrollback`, `_collapseLeadingGaps`, `_syncSpacer` and `setHistoryFloor`
-//! of `apps/web/src/renderer/cellRenderer.ts`.
+//! `scrollTop` holds the reader's row with no application scroll write.
 
 use crate::block_placeholder::fixed_px;
 use crate::cell_renderer::CellGridRenderer;

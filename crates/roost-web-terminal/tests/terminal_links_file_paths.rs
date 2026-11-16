@@ -1,7 +1,6 @@
 //! File-path links: slash and line paths, absolute, Windows drive and UNC
 //! paths, bare `name.ext:line` and archive names reach the worker resolver
 //! intact, and a scheme or a rejected home path never becomes a worker file.
-//! Test names follow v2's `apps/web/tests/renderer/terminal-links.test.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

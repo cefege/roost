@@ -1,8 +1,7 @@
 //! One wave at a time: read-ahead pre-payment, coalescing a gesture into the
 //! wave in flight, the bounded identical-retry budget and the `BACKFILL_RETRY_MS`
-//! cadence after it, and the one-placeholder page. Ports the demand cases of
-//! `apps/web/tests/renderer/scrollbackBackfill.test.ts` named as the Guard of
-//! FAILURE-INDEX "A demand page is only issued once the rows are already blank".
+//! cadence after it, and the one-placeholder page. Guards FAILURE-INDEX "A
+//! demand page is only issued once the rows are already blank".
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

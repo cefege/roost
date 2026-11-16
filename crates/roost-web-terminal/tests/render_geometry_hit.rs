@@ -1,7 +1,5 @@
 //! Pointer hit-test geometry: the VIEWPORT box is the origin, not the scroll
-//! container, whose top sits the whole painted history above row 1. Ported
-//! from the `viewportCellGeometry` cases of
-//! `apps/web/tests/renderer/cellRenderer.geometry.dom.test.ts`.
+//! container, whose top sits the whole painted history above row 1.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

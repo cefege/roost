@@ -1,6 +1,5 @@
 //! The three bounds on a queued sparse batch — 64 frames, 250 appended
-//! scrollback rows, 65536 spans — ported from
-//! `apps/web/tests/terminalRenderScheduler.test.ts`.
+//! scrollback rows, 65536 spans.
 //!
 //! Each bound is driven on its own: a batch that would cross it is replaced by
 //! the canonical full, so the pane converges and the DOM work is one re-render

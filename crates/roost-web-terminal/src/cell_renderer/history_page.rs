@@ -1,9 +1,7 @@
 //! Admitting one page of history rows into the painted set: a backfilled page
 //! the reader asked for, and a frame's own authoritative rows. A page is painted
 //! only when it names exactly the interval it fills, in order, inside the current
-//! layout; anything else is REFUSED, never approximated. Ports `insertHistoryPage`,
-//! `_insertAuthoritativeHistory` and `_extendScrollbackGap` of
-//! `apps/web/src/renderer/cellRenderer.ts`.
+//! layout; anything else is REFUSED, never approximated.
 
 use crate::cell_renderer::CellGridRenderer;
 use crate::cell_renderer_dom::DomResult;

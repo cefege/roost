@@ -3,7 +3,6 @@
 //! and the attachment that owns modifier hover, the armed hold and activation.
 //! The rules run natively over the `LinkDom`/`LinkScanHost`/`LinkHost` seams,
 //! which `dom` (wasm32) implements for the browser.
-//! Ports `apps/web/src/renderer/terminal-links.ts`.
 
 pub mod activation;
 pub mod anchor;
@@ -36,7 +35,7 @@ pub type OwnerRepoGetter = Box<dyn Fn() -> Option<String>>;
 /// Opens a resolved worker file route in the app.
 pub type FileOpener = Box<dyn Fn(&str)>;
 
-/// v2 `TerminalLinkOpts`, plus the platform's link modifier.
+/// How a terminal link attachment behaves, plus the platform's link modifier.
 pub struct TerminalLinkOptions {
     /// Resolves output paths into authenticated `/file/…` routes.
     pub resolve_file: Option<FileResolver>,
@@ -50,12 +49,12 @@ pub struct TerminalLinkOptions {
     pub initial_active: bool,
     /// Holds renderer paint only while the modifier and pointer are both active.
     pub on_armed_hover_change: Option<Box<dyn Fn(bool)>>,
-    /// The platform's link modifier (v2 `terminalLinkModifierKey()`).
+    /// The platform's link modifier.
     pub modifier_key: LinkModifierKey,
 }
 
 impl TerminalLinkOptions {
-    /// v2's defaults: no resolver, no callbacks, active at construction.
+    /// Defaults: no resolver, no callbacks, active at construction.
     pub fn new(modifier_key: LinkModifierKey) -> Self {
         Self {
             resolve_file: None,

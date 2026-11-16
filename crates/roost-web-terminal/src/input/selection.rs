@@ -14,8 +14,7 @@
 //! would lapse on the very clear that made the composer editable.
 //!
 //! The state is native and the DOM is not: `pane_selection` fills the two
-//! reads and applies what the guard decides. Ports the capture/suspend/restore
-//! rules of v2's `apps/web/src/renderer/terminalSelectionGuard.ts`.
+//! reads and applies what the guard decides.
 
 mod snapshot;
 

@@ -1,5 +1,4 @@
-//! The append-only scrollback tripwire, ported from
-//! `apps/web/tests/renderer/cellRenderer.append.dom.test.ts`: scrollback rows
+//! The append-only scrollback tripwire: scrollback rows
 //! are immutable and append-only, the painted width is the worker's `cols`,
 //! and existing history nodes survive every delta — locked by NODE IDENTITY,
 //! because a delta path that silently became a full re-render would otherwise

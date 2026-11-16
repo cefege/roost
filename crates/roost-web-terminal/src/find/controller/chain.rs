@@ -1,8 +1,6 @@
 //! The search that is running: starting one chain, fencing its answers to the
 //! search id and token that own the pane, and publishing what it concluded. A
-//! file split of `TerminalFind`, whose state `controller` owns. Ports
-//! `searchNow`, `installResult`, `retryAfterEpochChange` and `invalidate` of
-//! `apps/web/src/renderer/terminalFindController.ts`.
+//! file split of `TerminalFind`, whose state `controller` owns.
 
 use crate::find::controller::{ActiveSearch, TerminalFind};
 use crate::find::{

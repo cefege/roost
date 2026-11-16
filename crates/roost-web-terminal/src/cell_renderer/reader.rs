@@ -1,8 +1,6 @@
 //! Reader intent as the renderer applies it: parking, holding, resuming, the
 //! anchor a park owns, and the bottom-park settle the pane runs. The pure rules
-//! live in `reader_intent`; this is the DOM half. Ports `enterReading` through
-//! `_resumeLive`, `_settleBottomPark` and `settleFollowBand` of
-//! `apps/web/src/renderer/cellRenderer.ts`.
+//! live in `reader_intent`; this is the DOM half.
 
 use crate::cell_renderer::CellGridRenderer;
 use crate::presentation::{LiveInteractionResult, NO_LIVE_INTERACTION_RESULT};
@@ -51,8 +49,8 @@ impl<E: RenderElement> CellGridRenderer<E> {
         match self.reader.set_selection_hold(active) {
             HoldChange::Unchanged => NO_LIVE_INTERACTION_RESULT,
             HoldChange::Armed => {
-                // v2 arms through `enterReading("selection")`, which also ends
-                // a pending selection-release bracket.
+                // Arming a selection hold also ends a pending selection-release
+                // bracket.
                 self.live_selection_release_pending = false;
                 self.capture_reader_anchor();
                 NO_LIVE_INTERACTION_RESULT
@@ -83,7 +81,7 @@ impl<E: RenderElement> CellGridRenderer<E> {
             return NO_LIVE_INTERACTION_RESULT;
         }
         let no_range = self.scroll_height() <= self.client_height();
-        // Short-circuit like v2: the band is measured only for a position-only
+        // Short-circuit: the band is measured only for a position-only
         // park, because measuring it can probe the row pitch.
         let band_follower = self
             .reader
@@ -191,14 +189,14 @@ impl<E: RenderElement> CellGridRenderer<E> {
         self.bottom_park_settle_epoch
     }
 
-    /// The bottom-park settle armed last and not yet run — v2's
-    /// `scheduleReaderSettle` callback, which the renderer cannot schedule.
+    /// The bottom-park settle armed last and not yet run: the renderer cannot
+    /// schedule it itself.
     ///
     /// Pane contract (TERM mount slice, `crates/roost-web/src/components/terminal/`,
     /// lead `WebLeadU`): after every `apply*` and `handle_scroll`, read this and,
     /// when it is `Some(epoch)`, call `resume_bottom_park(epoch)` from the next
-    /// `requestAnimationFrame` (a settle must run after layout). v2 discards
-    /// that call's result.
+    /// `requestAnimationFrame` (a settle must run after layout). The result of
+    /// that call is discarded.
     pub fn pending_bottom_park_settle(&self) -> Option<u64> {
         self.reader.pending_bottom_park_settle()
     }

@@ -1,8 +1,6 @@
 //! Reader intent, the paint-hold mask, the follow band and the bottom-park
 //! settle: every rule deciding whether a pane's DOM may be rewritten now, with
 //! no DOM in sight. `CellGridRenderer` applies them (`cell_renderer/reader.rs`).
-//! Ports the reader fields and transitions of `apps/web/src/renderer/cellRenderer.ts`
-//! and the reader parts of `apps/web/src/renderer/cellRendererPresentation.ts`.
 
 use crate::block_placeholder::DEFAULT_CELL_ROW_PX;
 
@@ -215,10 +213,9 @@ impl ReaderState {
             .reason
             .is_some_and(ReaderIntentReason::is_position_only)
             && follows_bottom;
-        // The conjunction below is v2's KEEP-the-park guard, which early-returns
-        // NO_LIVE_INTERACTION_RESULT; anything it does not cover resumes. Answer
-        // the question the name asks — should this release flush — so the guard
-        // is negated rather than returned.
+        // The conjunction below is the KEEP-the-park guard; anything it does not
+        // cover resumes. Answer the question the name asks — should this release
+        // flush — so the guard is negated rather than returned.
         !(self.intent == ReaderIntent::Reading
             && self.reason != Some(ReaderIntentReason::Selection)
             && !no_scroll_range

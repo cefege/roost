@@ -1,9 +1,8 @@
 //! The pure decision behind a pane's status dot: which of idle / receiving /
 //! catching_up / detached the operator is shown for one pair of canonical and
 //! reconciled watermarks, plus the view-status facts that decision reads.
-//! `TerminalPresentationController` feeds it; nothing here owns a clock.
-//! Ports the presentation half of `apps/web/src/store/terminal-stream-types.ts`
-//! (the watermark shape reuses `RendererEpochSeq`).
+//! `TerminalPresentationController` feeds it; nothing here owns a clock. The
+//! watermark shape reuses `RendererEpochSeq`.
 
 use crate::presentation::RendererEpochSeq;
 
@@ -46,8 +45,7 @@ impl TerminalPresentationState {
 }
 
 /// The coordinator's answer to a pane's view declaration, reduced to the facts
-/// presentation reads. Mirrors `TerminalViewHandleStatus` in
-/// `apps/web/src/store/terminal-stream-types.ts`.
+/// presentation reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminalViewHandleStatus {
     /// Declared, not yet answered.

@@ -3,17 +3,17 @@
 //! `links::detect`, `links::anchor` and `links::attachment` call the same
 //! authority for inferred and producer-painted links. Worker-aware callers pass
 //! the only path-to-route resolver. Parses URLs with the WHATWG `url` crate so
-//! the answer is v2's `new URL()`. Ports `apps/web/src/renderer/terminal-links.target.ts`.
+//! the answer is a browser's `new URL()`.
 
 use roost_protocol::cell::link_uri_within_cap;
 use url::Url;
 
-/// v2 `ResolveFile`: a raw path from terminal output, its optional 1-based
+/// The path resolver: a raw path from terminal output, its optional 1-based
 /// line and the `file://host` authority (present only for such a target) →
 /// an internal `/file/<workerFp>/…#L<line>` route, or `None` to skip it.
 pub type ResolveFile<'a> = &'a dyn Fn(&str, Option<u64>, Option<&str>) -> Option<String>;
 
-/// v2 `Number.MAX_SAFE_INTEGER`: the largest line `Number.isSafeInteger` admits.
+/// `Number.MAX_SAFE_INTEGER`: the largest line a JavaScript number holds exactly.
 const MAX_SAFE_LINE: u64 = (1 << 53) - 1;
 
 /// A classified terminal link target.
@@ -140,7 +140,7 @@ pub fn is_worker_file_href(href: &str) -> bool {
     shaped && link_uri_within_cap(href)
 }
 
-/// v2 `FILE_NAME_RE`: `^[^/\\:]+\.[A-Za-z][\w-]{0,15}(?::\d+(?::\d+)?)?$`.
+/// A bare file name: `^[^/\\:]+\.[A-Za-z][\w-]{0,15}(?::\d+(?::\d+)?)?$`.
 pub(crate) fn is_explicit_file_name(raw: &str) -> bool {
     let stem_end = raw.find(['/', '\\', ':']).unwrap_or(raw.len());
     if raw[stem_end..].contains(['/', '\\']) {
@@ -160,7 +160,7 @@ pub(crate) fn is_explicit_file_name(raw: &str) -> bool {
     extension_ok && (suffix.is_empty() || is_line_and_column_suffix(suffix))
 }
 
-/// v2 `WINDOWS_DRIVE_ABS_RE`: `^[A-Za-z]:[\\/]`.
+/// A Windows drive-absolute path: `^[A-Za-z]:[\\/]`.
 pub(crate) fn is_windows_drive_absolute(raw: &str) -> bool {
     let bytes = raw.as_bytes();
     bytes.len() >= 3
@@ -262,7 +262,7 @@ fn resolved_file_target(
     })
 }
 
-/// v2 `splitPathLine`: `^(.*?):(\d+)(?::\d+)?$`, then a safe line above zero.
+/// Splits a trailing line: `^(.*?):(\d+)(?::\d+)?$`, then a safe line above zero.
 /// The FIRST colon whose tail has that shape decides; a zero or unsafe line
 /// there keeps the whole target as the path rather than trying a later colon.
 fn split_path_line(raw: &str) -> (String, Option<u64>) {
@@ -305,7 +305,7 @@ fn safe_line(digits: &str) -> Option<u64> {
         .filter(|line| *line <= MAX_SAFE_LINE)
 }
 
-/// v2 `URI_SCHEME_RE`: `^[A-Za-z][A-Za-z0-9+.-]*:`.
+/// A URI scheme prefix: `^[A-Za-z][A-Za-z0-9+.-]*:`.
 fn has_uri_scheme(raw: &str) -> bool {
     let Some(colon) = raw.find(':') else {
         return false;
@@ -319,7 +319,7 @@ fn has_uri_scheme(raw: &str) -> bool {
         })
 }
 
-/// v2 `WINDOWS_UNC_RE`: `^\\\\[^\\]+\\[^\\]+`.
+/// A Windows UNC path: `^\\\\[^\\]+\\[^\\]+`.
 fn is_windows_unc(raw: &str) -> bool {
     let Some(share) = raw.strip_prefix("\\\\") else {
         return false;

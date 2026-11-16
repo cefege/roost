@@ -5,8 +5,7 @@
 //!
 //! Nothing here reads the DOM and nothing touches a pane, so the whole matrix —
 //! tracking mode, gesture kind, held-button state, modifier bypass, and both
-//! encodings — is testable natively. Ported from v2's
-//! `apps/web/src/renderer/terminalMouse.ts`.
+//! encodings — is testable natively.
 //!
 //! Both modes the foreground application can ask for come off the worker's cell
 //! frame, never from alt-screen occupancy: vim, less and man occupy the alt

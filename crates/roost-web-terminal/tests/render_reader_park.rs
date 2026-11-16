@@ -1,7 +1,6 @@
 //! Reader parks: an explicit native, selection or wheel park keeps accepted
 //! frames — even an incompatible full — off-DOM until its own resume, and a
-//! history page never writes the reader's position. Ported from the second
-//! half of `apps/web/tests/renderer/cellRenderer.readerIntent.dom.test.ts`.
+//! history page never writes the reader's position.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

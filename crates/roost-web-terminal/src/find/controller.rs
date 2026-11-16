@@ -2,7 +2,6 @@
 //! the reveal. `chain` owns the search that is running; `find::hits` owns what
 //! the grid is told; the host performs every returned `FindCommand` and answers
 //! pages and pulls back here. The terminal pane component holds one per pane.
-//! Ports `apps/web/src/renderer/terminalFindController.ts`.
 
 mod chain;
 

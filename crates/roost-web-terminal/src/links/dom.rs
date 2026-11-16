@@ -2,7 +2,6 @@
 //! `web_sys` callbacks (listeners, frames, idle scans, the mutation observer,
 //! `visibilitychange`) and routes each into `TerminalLinks`; `dom/host.rs` is
 //! the live DOM behind the link seams. The pane attaches one per terminal.
-//! Ports the browser wiring of `apps/web/src/renderer/terminal-links.ts`.
 
 mod host;
 
@@ -132,7 +131,7 @@ impl BrowserRegistrations {
     }
 }
 
-/// One pane's terminal-link attachment in the browser: v2 `attachTerminalLinks`.
+/// One pane's terminal-link attachment in the browser.
 /// Dropping it disposes it, which releases every listener it installed.
 pub struct TerminalLinkAttachment {
     links: Rc<SharedLinks>,
@@ -291,7 +290,7 @@ fn link_event(event: &Event, anchor_selector: &str) -> LinkEvent<Element> {
     }
 }
 
-/// Install the link stylesheet once per document, byte-for-byte v2's.
+/// Install the link stylesheet once per document.
 fn inject_link_stylesheet_once(document: &Document) {
     let installed = document
         .query_selector("style[data-roost=\"wterm-link\"]")

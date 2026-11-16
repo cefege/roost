@@ -1,8 +1,7 @@
 //! Applying frames: one authoritative full, or one batch of sparse deltas.
 //! A parked reader's frame is retained as the CANONICAL one and deltas fold
 //! into it while the DOM stays what the reader is looking at — why canonical
-//! and painted are two watermarks. Ports `apply`, `applyFullFrame`,
-//! `applyDeltaFrames` and `_canRetainPaintedHistory` of `apps/web/src/renderer/cellRenderer.ts`.
+//! and painted are two watermarks.
 
 use std::rc::Rc;
 

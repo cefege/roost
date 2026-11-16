@@ -1,8 +1,7 @@
 //! Pixels to cells in both directions: the measured box to the cols/rows a pane
-//! claims (`terminalCellGeometry.ts`, pinned in v2 through
-//! `apps/web/tests/wtermSizeEstimate.dom.test.ts`), and a pointer to the 1-based
-//! cell it lands on (`apps/web/tests/renderer/terminalMouse.test.ts`
-//! "cellFromPoint"). No measurable box means no geometry, never a fabricated 1x1.
+//! claims (`cell_geometry`), and a pointer to the 1-based cell it lands on
+//! (`cell_from_point`). No measurable box means no geometry, never a
+//! fabricated 1x1.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_protocol::viewport::TerminalGeometry;
@@ -12,7 +11,7 @@ use roost_web_terminal::cell_geometry::{
 };
 use roost_web_terminal::{TerminalCellGeometry, cell_from_point, grid_geometry_from_box};
 
-/// `.wterm` padding on the fake display box v2's scene builder mounts.
+/// `.wterm` padding on the fake display box the scene builder mounts.
 const WTERM_PADDING: BoxPadding = BoxPadding {
     left: 16.0,
     right: 16.0,

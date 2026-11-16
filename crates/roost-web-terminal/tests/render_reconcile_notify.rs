@@ -1,7 +1,6 @@
 //! Reconciliation notification and the cursor blink attribute: the pane's
 //! first-reconcile and per-reconcile hooks fire only after a COMPLETED DOM
-//! reconcile, and the cursor defaults to solid. Ported from the notification
-//! cases of `apps/web/tests/renderer/cellRenderer.reconcile.dom.test.ts`.
+//! reconcile, and the cursor defaults to solid.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

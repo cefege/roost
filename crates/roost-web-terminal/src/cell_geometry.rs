@@ -1,8 +1,7 @@
 //! Pixels to terminal cells, one implementation of each direction. The cell
-//! probe, padding subtraction and "no measurement, never 1x1" rule port
-//! `apps/web/src/client/terminal-stream/terminalCellGeometry.ts` (the live
-//! geometry claim and the pre-spawn size hint both measure through it);
-//! `TerminalCellGeometry`/`cell_from_point` port `apps/web/src/renderer/terminalMouse.ts`.
+//! probe, padding subtraction and "no measurement, never 1x1" rule serve both
+//! the live geometry claim and the pre-spawn size hint;
+//! `TerminalCellGeometry`/`cell_from_point` map a pointer to its cell.
 //! All arithmetic is native; only the two DOM reads are wasm32 adapters.
 
 use roost_protocol::viewport::TerminalGeometry;

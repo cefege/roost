@@ -1,7 +1,6 @@
 //! `derive_terminal_presentation_state` is the pure decision behind a pane's
 //! status dot. These cases pin the activity-window boundaries, the
 //! catching-up case and the unready cases, with no controller or clock.
-//! Ports `apps/web/tests/terminalStreamPresentationState.test.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

@@ -1,7 +1,6 @@
 //! Terminal-find page-chain tests: exclusive cursor progression across pages,
 //! capped partial states, paging back past the match cap, malformed-range and
-//! nonprogressing-cursor failures, and query cutover with cancellation. Test
-//! names are v2's, from `apps/web/tests/terminalFindController-paging.test.ts`.
+//! nonprogressing-cursor failures, and query cutover with cancellation.
 
 mod find_support;
 

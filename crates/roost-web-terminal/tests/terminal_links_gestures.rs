@@ -1,7 +1,5 @@
 //! The link gesture rules: platform-specific physical modifiers, compact
 //! arming, the total modifier level, and which presses bypass the PTY.
-//! Test names follow v2's `apps/web/tests/renderer/terminal-links.test.ts`
-//! and `terminal-links.dom.test.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

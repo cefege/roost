@@ -1,8 +1,7 @@
 //! Which gesture opens a terminal link, and the words that name it: shared by the
 //! link attachment and the mouse-forwarding adapter, which withholds a link press
-//! from DECSET reporting. Pure; the caller passes the platform's key. Ports the
-//! gesture and hint/title text of `apps/web/src/renderer/terminal-links.ts` and
-//! `terminal-links.dom.ts`, and the press rule of `terminalMouseForwarding.ts`.
+//! from DECSET reporting. Pure; the caller passes the platform's key. Covers
+//! the gesture, the hint/title text and the press rule.
 
 /// The physical modifier key a platform opens a terminal link with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

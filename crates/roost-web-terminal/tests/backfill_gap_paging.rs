@@ -1,8 +1,7 @@
 //! The pager against arbitrary gaps: which rows a wave asks for, what it
 //! splices, the retained floor a short page proves, and every fence that stops
-//! a stale page from painting. Ports "ScrollbackBackfill arbitrary gap paging"
-//! from `apps/web/tests/renderer/scrollbackBackfill.test.ts`; the renderer is
-//! the `backfill_support` stand-in with absolute painted rows.
+//! a stale page from painting. The renderer is the `backfill_support` stand-in
+//! with absolute painted rows.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

@@ -1,8 +1,6 @@
 //! `WebLinkHost`: the live DOM behind the `LinkDom`, `LinkScanHost` and
 //! `LinkHost` seams, and the mutation-record reading that names touched rows.
 //! Every judgement stays in `links::{anchor,scan,attachment}`; this forwards.
-//! Ports the DOM reads and writes of `apps/web/src/renderer/terminal-links.ts`,
-//! `terminal-links.dom.ts` and `terminal-links.scan.ts`.
 
 mod rows;
 

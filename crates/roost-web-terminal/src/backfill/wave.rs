@@ -1,9 +1,7 @@
 //! Running one wave: its read and one retry, admitting the page, noting the
 //! retained floor, splicing newest chunk first with a frame yield between
-//! chunks, and the settle that hands back to `backfill::demand`. Ports
-//! `isCurrent`/`fetchPage`/`runDemand`/`splicePage` of
-//! `apps/web/src/renderer/scrollbackBackfill.ts`; a file split, not a type
-//! split — the state lives on `ScrollbackBackfill`.
+//! chunks, and the settle that hands back to `backfill::demand`. A file split,
+//! not a type split — the state lives on `ScrollbackBackfill`.
 
 use crate::backfill::request::{
     Demand, DemandKind, ScrollbackPage, ScrollbackPageRequest, ValidatedPage, proven_floor,
@@ -22,7 +20,7 @@ pub(crate) struct ActiveWave {
     phase: WavePhase,
 }
 
-/// v2's await points: the read, the retry sleep, the frame between chunks.
+/// The await points: the read, the retry sleep, the frame between chunks.
 #[derive(Debug)]
 enum WavePhase {
     Fetching,
@@ -152,7 +150,7 @@ impl ScrollbackBackfill {
         self.splice_next_chunk(&demand, host)
     }
 
-    /// Whether the wave still answers for the pane as it stands (v2 `isCurrent`).
+    /// Whether the wave still answers for the pane as it stands.
     pub(crate) fn wave_is_current(&self, demand: &Demand, host: &dyn BackfillHost) -> bool {
         let owns_pager = self
             .active_wave
@@ -272,7 +270,7 @@ impl ScrollbackBackfill {
         }
     }
 
-    /// One iteration of v2's splice loop over the rows before `cursor`.
+    /// One iteration of the splice loop over the rows before `cursor`.
     fn splice_chunk_ending_at(
         &self,
         cursor: usize,

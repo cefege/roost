@@ -2,8 +2,6 @@
 //! precedence, then explicit schemes, GitHub refs and resolvable file paths
 //! fill the gaps, blocked schemes reserving their text. `links::detect` splits
 //! the surviving matches back into per-row segments.
-//! Ports the match loop of `computeRowLinks` in
-//! `apps/web/src/renderer/terminal-links.detect.ts`.
 
 use super::{Match, MatchKind, PaintedLink, file_path, patterns};
 use crate::link_target::{

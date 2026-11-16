@@ -1,8 +1,7 @@
 //! The element seam the renderer paints through: every DOM read and write
 //! `CellGridRenderer` performs, as one trait over an element handle. Production is
-//! `web_sys::Element` (`render_element/web.rs`); the native test tier supplies the
-//! layout model of v2's `apps/web/tests/helpers/cellRendererFakeDom.ts`. Replaces
-//! the direct DOM calls of `apps/web/src/renderer/cellRenderer.ts`.
+//! `web_sys::Element` (`render_element/web.rs`); the native test tier supplies an
+//! in-memory layout model.
 
 #[cfg(target_arch = "wasm32")]
 mod web;

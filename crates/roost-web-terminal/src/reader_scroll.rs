@@ -1,9 +1,9 @@
 //! The one reader-gesture scroll write for a terminal box, for input devices
-//! that produce no trusted scroll event (a controller stick or D-pad). Ports
-//! `apps/web/src/renderer/terminalReaderScroll.ts`; called by the pad-action
-//! router. It writes and nothing else: the pane's own scroll listener classifies
-//! and parks the reader exactly as it does for a wheel notch. The clamp is the
-//! native `reader_scroll_target`; the DOM write is the wasm32 adapter.
+//! that produce no trusted scroll event (a controller stick or D-pad). Called by
+//! the pad-action router. It writes and nothing else: the pane's own scroll
+//! listener classifies and parks the reader exactly as it does for a wheel
+//! notch. The clamp is the native `reader_scroll_target`; the DOM write is the
+//! wasm32 adapter.
 
 use crate::reader_intent::ScrollBoxGeometry;
 

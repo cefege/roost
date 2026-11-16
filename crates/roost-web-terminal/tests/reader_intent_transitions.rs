@@ -133,9 +133,8 @@ fn a_hold_release_is_offered_only_where_a_resume_could_actually_end_the_park() {
 fn a_surviving_hold_outranks_a_resume_and_leaves_the_reader_state_truthful() {
     let mut state = live();
     state.set_armed_hold(true);
-    // A local keystroke is v2's `prepareLiveInteraction`: it clears the holds
-    // AND is explicit, so it pins. `clear_holds` alone never pins — v2 has no
-    // callsite that clears holds without also being explicit.
+    // A local keystroke clears the holds AND is explicit, so it pins.
+    // `clear_holds` alone never pins.
     let admission = state.begin_resume(true, true);
     assert!(
         admission.admitted,

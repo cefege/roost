@@ -1,8 +1,6 @@
 //! The ONE writer of `scrollTop`, and the events that decide whether a reader
 //! may be unparked: only a capture taken BEFORE a scroll-space mutation may
-//! authorise a write, and that capture is the follow band, never a widened
-//! exact clamp. Ports `_writeScrollTop` through `noteBoxResize`,
-//! `scrollToScrollbackRow` and `missingScrollbackRange*` of `apps/web/src/renderer/cellRenderer.ts`.
+//! exact clamp.
 
 use crate::cell_renderer::CellGridRenderer;
 use crate::cell_renderer_dom::effective_row_height;

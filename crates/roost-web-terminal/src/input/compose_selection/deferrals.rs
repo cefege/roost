@@ -5,9 +5,7 @@
 //! A file split, not a type split: the state lives on `ComposeSelection`, which
 //! `compose_selection` owns. That half decides when the terminal range is
 //! retained and who owns the caret; this decides which of its own notifications
-//! are consumed as its own doing rather than read as the user giving up. Ports
-//! the keyup/layout/selectionchange half of v2's
-//! `apps/web/src/renderer/terminalComposeSelection.ts`.
+//! are consumed as its own doing rather than read as the user giving up.
 
 use crate::input::compose_selection::{
     ComposeEffects, ComposeSelection, DeferredKeyupRestore, PaneInputs,

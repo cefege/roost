@@ -1,8 +1,7 @@
 //! A live repair or renewal never replaces painted history: a viewport-only
 //! full keeps fetched rows and inserts only the missing tail gap, an
 //! incompatible full keeps the reader window until explicit resume, and
-//! releasing selection reconciles pending canonical state. Ported from
-//! `apps/web/tests/renderer/cellRenderer.history.dom.test.ts`.
+//! releasing selection reconciles pending canonical state.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

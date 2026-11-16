@@ -1,7 +1,7 @@
 //! Frame admission on the append-only grid: the painted width is the worker's
 //! `cols`, a delta before any full is refused, the alternate screen latches
 //! `.alt-active`, and a viewport-only full reserves depth that explicit pages
-//! fill in place. Ported from `apps/web/tests/renderer/cellRenderer.append.dom.test.ts`.
+//! fill in place.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

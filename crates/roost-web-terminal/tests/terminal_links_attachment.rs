@@ -1,8 +1,6 @@
 //! The link attachment's lifecycle: dormant construction, post-paint tail
 //! scans, hidden-tab recovery, activity toggles and compact arming (the armed
-//! paint hold lives in `terminal_links_armed_hold.rs`). Ported from
-//! `apps/web/tests/terminal-links.dom.test.ts` and
-//! `apps/web/tests/renderer/terminal-links.activation.dom.test.ts`.
+//! paint hold lives in `terminal_links_armed_hold.rs`).
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

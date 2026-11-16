@@ -3,9 +3,6 @@
 //! intent. Every case is a gate the browser used to get wrong, and the one that
 //! matters most is the last pair — a clamped gesture belongs to the shell, and
 //! an unclamped one belongs to the reader.
-//!
-//! Test names are v2's, from
-//! `apps/web/tests/terminalMouseForwarding.dom.test.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

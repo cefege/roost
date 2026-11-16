@@ -1,7 +1,6 @@
 //! Reader intent on the live tail: live output follows the tail and its owned
 //! scroll event stays live, a coalesced or clamped pin leaves no stale scroll
-//! ownership, and only a genuine gesture reads. Ported from the first half of
-//! `apps/web/tests/renderer/cellRenderer.readerIntent.dom.test.ts`.
+//! ownership, and only a genuine gesture reads.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

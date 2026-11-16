@@ -1,9 +1,7 @@
 //! The rows the renderer has actually painted, sorted by absolute index, and the
 //! eviction arithmetic that bounds them. Interval questions are answered by
 //! `roost-client-core`'s `terminal::history`, fed from here, never re-derived, and
-//! disjoint painted intervals are first-class. Ports `_paintedRows` of
-//! `apps/web/src/renderer/cellRenderer.ts`, `paintedRowAt` of `cellRendererDom.ts`
-//! and `MAX_HELD_SCROLLBACK_ROWS` of `cellRendererPresentation.ts`.
+//! disjoint painted intervals are first-class.
 
 use roost_client_core::terminal::history as intervals;
 use roost_protocol::cell::CellRow;

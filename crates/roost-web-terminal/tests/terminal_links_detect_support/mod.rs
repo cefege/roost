@@ -1,7 +1,6 @@
 //! Detection fixtures shared by the inferred-link test binaries: narrow rows,
 //! a stub worker-file resolver, detection shorthands and UTF-16 slicing.
 //! A test binary pulls it in with `mod terminal_links_detect_support;`.
-//! Ported from the helpers of `apps/web/tests/renderer/terminal-links.test.ts`.
 
 #![allow(dead_code)]
 

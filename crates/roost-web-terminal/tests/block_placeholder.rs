@@ -19,7 +19,7 @@ fn a_measured_block_height_is_two_decimals_of_rows_times_row_height() {
 
 #[test]
 fn an_exact_two_decimal_tie_rounds_away_from_zero_like_to_fixed() {
-    // 1/64-px layout units make these pitches ordinary; v2's `toFixed(2)`
+    // 1/64-px layout units make these pitches ordinary; `toFixed(2)`
     // stamps the tie's larger neighbour, where `{:.2}` would pick the even one.
     assert_eq!(block_placeholder(24, 16.796875), "403.13px");
     assert_eq!(block_placeholder(1, 16.125), "16.13px");

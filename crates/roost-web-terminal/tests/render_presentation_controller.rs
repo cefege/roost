@@ -1,8 +1,7 @@
 //! The pane presentation controller on a fake clock: the foreground DOM stall
 //! behind `catching_up`, the reader holds that defer it, the detached-view
-//! grace, and the bounded receiving window. Ports
-//! `apps/web/tests/renderer/terminalPresentation.test.ts`; `advance` fires due
-//! deadlines at their own instant, as the v2 fake timers did.
+//! grace, and the bounded receiving window. `advance` fires due
+//! deadlines at their own instant, as fake timers do.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

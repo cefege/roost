@@ -1,11 +1,7 @@
 //! The pane's listener-level mouse state machine: which presses the terminal
 //! keeps for itself, how a drag the application holds is settled when the
 //! pane stops listening, and how a forwarded touch carries its sub-cell travel.
-//!
-//! Test names are v2's, from `apps/web/tests/terminalMouseForwarding.dom.test.ts`
-//! and `apps/web/tests/cellTerminalVisibility.test.ts` ("terminal mouse drag
-//! across a foreground withdraw"); the rest pin `terminalMouseForwarding.ts`
-//! listener rules that suite drives through its fake display.
+//! A mouse drag across a foreground withdraw is pinned here too.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

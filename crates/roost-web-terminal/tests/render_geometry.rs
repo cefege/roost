@@ -1,8 +1,7 @@
 //! Box geometry: a resize reconciles synchronously (a ResizeObserver can run
 //! after layout and after another frame), explicit off-bottom reading stays
 //! untouched, and a grow that leaves no scroll range is a parked pane's only
-//! resume. Ported from the box-resize cases of
-//! `apps/web/tests/renderer/cellRenderer.geometry.dom.test.ts`.
+//! resume.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

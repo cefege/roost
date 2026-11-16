@@ -136,8 +136,8 @@ fn prose_is_not_a_path_and_is_not_linkified() {
     for raw in ["hello", "version 1.2.3 released", "...", "e.g. something"] {
         assert_eq!(classify_terminal_link_target(raw, None), None, "{raw}");
     }
-    // A bare separator IS a file target: v2's path-like rule is
-    // `startsWith("/")` and only an EMPTY path is refused. It never reaches
+    // A bare separator IS a file target: a path-like target is one that
+    // `startsWith("/")`, and only an EMPTY path is refused. It never reaches
     // here from inference, which needs a separator plus a named file part — it
     // arrives painted, because the core authored an OSC 8 target for it.
     assert_eq!(
@@ -179,7 +179,7 @@ fn a_target_that_cannot_be_linkified_anywhere_is_refused() {
     );
 }
 
-/// v2's stub worker resolver: `/file/W/<path>[#L<line>]`.
+/// A stub worker resolver: `/file/W/<path>[#L<line>]`.
 fn stub_resolve(path: &str, line: Option<u64>, _authority: Option<&str>) -> Option<String> {
     let path = path.strip_prefix('/').unwrap_or(path);
     Some(match line {
@@ -190,7 +190,7 @@ fn stub_resolve(path: &str, line: Option<u64>, _authority: Option<&str>) -> Opti
 
 #[test]
 fn an_http_target_is_whatever_the_whatwg_parser_says_it_is() {
-    // `new URL()` is the v2 authority: extra slashes, credentials and a
+    // `new URL()` is the authority: extra slashes, credentials and a
     // backslash separator all parse; an out-of-range port or IPv4 part does not.
     for raw in [
         "http:///path",
@@ -274,7 +274,7 @@ fn unsafe_minted_file_routes_never_become_worker_file_anchors() {
 
 #[test]
 fn the_first_line_shaped_colon_decides_and_a_zero_line_keeps_the_whole_path() {
-    // v2 `^(.*?):(\d+)(?::\d+)?$`: the lazy prefix stops at the first colon whose
+    // `^(.*?):(\d+)(?::\d+)?$`: the lazy prefix stops at the first colon whose
     // tail has the shape, and a zero line there does not fall through.
     assert_eq!(
         classify_terminal_link_target("a.ts:0:5", None),

@@ -6,8 +6,7 @@
 //!
 //! Every step is ordered against a browser default this module does not
 //! control, so the state is here, the DOM is not, and `compose_dom` fills a
-//! `PaneInputs` and applies the returned `ComposeEffects`. Ports the state
-//! machine of v2's `apps/web/src/renderer/terminalComposeSelection.ts`.
+//! `PaneInputs` and applies the returned `ComposeEffects`.
 
 mod deferrals;
 

@@ -2,7 +2,6 @@
 //! the bytes they write, the exactly-once IME commit, and DECSET 1004 focus
 //! reporting across the blur-first focus dance.
 //!
-//! Test names are v2's, from `apps/web/tests/renderer/terminalInputController.test.ts`.
 //! The textarea is a fake with DOM focus semantics that fires its listeners
 //! into the same `InputControllerState` the wasm adapter drives; the dance
 //! itself is the production `force_focus`. Guards FAILURE-INDEX "Typing goes

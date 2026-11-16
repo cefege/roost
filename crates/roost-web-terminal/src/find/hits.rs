@@ -1,9 +1,7 @@
 //! What one match list means for the PAINTED GRID: highlight intervals per row,
 //! the active match, preference selection, the published display state and the
 //! reveals waiting on a pull. `find::controller` drives it; `cell_row` owns
-//! `FindHit`. Ports the publish/install/step state of
-//! `apps/web/src/renderer/terminalFindController.ts` and the selection types of
-//! `apps/web/src/client/search/terminalFindHandoff.ts`.
+//! `FindHit`.
 
 use std::collections::BTreeMap;
 

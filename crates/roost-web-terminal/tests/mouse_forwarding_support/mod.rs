@@ -5,8 +5,7 @@
 //! The encoder and the forwarding decision are separate suites because they are
 //! separate questions — "which bytes does this report become" and "should this
 //! gesture reach the shell at all" — and a shared file that held both would
-//! grow past the cap for the sake of a handful of constants. Ported from
-//! `apps/web/tests/terminalMouse.test.ts`.
+//! grow past the cap for the sake of a handful of constants.
 #![allow(dead_code)]
 
 use roost_protocol::cell::MouseTracking;

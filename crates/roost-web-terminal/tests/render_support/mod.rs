@@ -1,6 +1,5 @@
 //! The fake DOM, frame builders and painted-history fault injector shared by
-//! the renderer's tripwire suite, ported from
-//! `apps/web/tests/helpers/cellRendererFakeDom.ts`. A test binary pulls it in
+//! the renderer's tripwire suite. A test binary pulls it in
 //! with `mod render_support;` (or `#[path = "render_support/mod.rs"]`).
 
 #![allow(dead_code, unused_imports)]

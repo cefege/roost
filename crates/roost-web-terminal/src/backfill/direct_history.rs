@@ -1,9 +1,9 @@
 //! Which carrier answers one history page: the elected direct route, or the
 //! coordinator. The pager validates and splices whatever comes back; this only
 //! SELECTS the carrier, composing the route and token rules `roost-client-core`
-//! owns. Ports `apps/web/src/lib/scrollbackDirectHistory.ts`: direct history is
-//! legal only for the exact route/token pair, and the coordinator is asked
-//! ONCE after a direct transport failure or an overlimit page.
+//! owns. Direct history is legal only for the exact route/token pair, and the
+//! coordinator is asked ONCE after a direct transport failure or an overlimit
+//! page.
 
 use roost_client_core::terminal::routes::SessionRoute;
 use roost_client_core::terminal::token::{TerminalToken, token_matches};
@@ -44,7 +44,7 @@ pub enum DirectHistoryFailure {
 }
 
 impl DirectHistoryFailure {
-    /// The failure v2 throws, for the pane's log line.
+    /// The failure message for the pane's log line.
     pub const fn message(self) -> &'static str {
         match self {
             Self::RouteChanged => "direct terminal scrollback route changed",

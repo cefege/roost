@@ -3,8 +3,6 @@
 //! whenever a pane happened to occupy the alt screen: whether the app asked at
 //! all, whether THIS mode reports THIS gesture, and which of the two wire
 //! formats it asked for.
-//!
-//! Test names are v2's, from `apps/web/tests/renderer/terminalMouse.test.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -193,10 +191,9 @@ fn buttons_with_no_mouse_report_encoding_are_left_alone() {
 
 #[test]
 fn the_mouse_forward_default_is_on_and_is_the_default_the_store_loads() {
-    // v2 read `localStorage.getItem("roostMouseForward") !== "0"`, so an absent
-    // key meant ON. The product reason is named in `MOUSE_FORWARD_DEFAULT`: the
-    // gate is the application's mode, so an opt-in would cost every mouse-aware
-    // TUI its mouse and buy nothing.
+    // An absent stored key means ON. The product reason is named in
+    // `MOUSE_FORWARD_DEFAULT`: the gate is the application's mode, so an opt-in
+    // would cost every mouse-aware TUI its mouse and buy nothing.
     let stored_default = roost_client_core::store::prefs::Prefs::default().mouse_forward;
     assert_eq!(stored_default, MOUSE_FORWARD_DEFAULT);
     assert!(mouse_gestures_forwarded(

@@ -1,7 +1,6 @@
 //! Direct history carrier selection, isolated from renderer paging: history
 //! uses only the exact elected route, and the coordinator is asked once only
-//! after a direct read explicitly fails or exceeds its limit. Ports
-//! `apps/web/tests/scrollbackDirectHistory.test.ts`.
+//! after a direct read explicitly fails or exceeds its limit.
 
 use roost_client_core::terminal::routes::SessionRoute;
 use roost_client_core::terminal::token::{TerminalToken, TerminalTransport};

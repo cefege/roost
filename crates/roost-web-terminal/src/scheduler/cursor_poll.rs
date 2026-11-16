@@ -1,9 +1,8 @@
 //! The shared cursor-poll ticker: one 500ms interval for EVERY mounted pane,
-//! armed by the first registration and stopped by the last. Ports
-//! `apps/web/src/renderer/cursorPollTicker.ts` plus the per-pane gate of its
-//! caller `apps/web/src/components/terminal/cell-terminal-renderer.ts`. Owns
-//! only the decision; the interval and the `sessionsCursorPos` send are the
-//! caller's, and every clock value arrives as `now_ms`.
+//! armed by the first registration and stopped by the last, with a per-pane gate
+//! on each tick. Owns only the decision; the interval and the
+//! `sessionsCursorPos` send are the caller's, and every clock value arrives as
+//! `now_ms`.
 
 use std::collections::BTreeMap;
 

@@ -1,8 +1,7 @@
 //! The find park's scroll contract: it owns the anchor it scrolled to, so it
 //! survives scrolling around history and the renderer's own writes and clamps;
 //! a USER scroll onto the exact bottom releases it, and closing the bar
-//! downgrades it without moving the view. Ported from
-//! `apps/web/tests/renderer/cellRenderer.findPark.dom.test.ts`.
+//! downgrades it without moving the view.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

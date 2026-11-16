@@ -1,8 +1,7 @@
 //! The composer textarea side of the selection handoff: which input is
 //! mounted and focused, reading and writing its own selection, detaching its
 //! listeners, and the two deferral primitives the restores are ordered with.
-//! A file split of `compose_dom`, whose `ComposeShared` this extends. Ports the
-//! textarea and timer half of v2's `apps/web/src/renderer/terminalComposeSelection.ts`.
+//! A file split of `compose_dom`, whose `ComposeShared` this extends.
 
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
@@ -93,8 +92,8 @@ impl ComposeShared {
     }
 }
 
-/// Run `callback` after the current task, the `setTimeout(…, 0)` v2 orders
-/// its restores with.
+/// Run `callback` after the current task, the `setTimeout(…, 0)` the restores
+/// are ordered with.
 pub(super) fn schedule(callback: impl FnOnce() + 'static) {
     let Some(window) = web_sys::window() else {
         return;

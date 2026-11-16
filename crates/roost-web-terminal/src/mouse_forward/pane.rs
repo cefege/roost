@@ -3,8 +3,7 @@
 //! press/touch state between events. `forwarding` owns the per-gesture rule and
 //! the drag; this adds the listener-level gates (an already-prevented event, the
 //! pane's forwarding switch, the touch threshold and its carried remainder).
-//! `dom` reads events into it. Ports the listener state machine of v2's
-//! `apps/web/src/renderer/terminalMouseForwarding.ts`.
+//! `dom` reads events into it.
 
 use super::forwarding::{
     ForwardedGesture, MouseForwarding, TOUCH_FALLBACK_CELL_PX, forwarded_mouse_report,

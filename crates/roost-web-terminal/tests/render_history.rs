@@ -1,8 +1,7 @@
 //! Truthful scroll space: the `[0, sb_base)` head spacer and in-place gap pages
 //! keep every absolute row at a stable pixel offset while history materializes.
-//! Ported from `apps/web/tests/renderer/cellRenderer.history.dom.test.ts` (the
-//! live repair and renewal half lives in `render_history_repair.rs`, the
-//! checkpoint half in `render_history_checkpoint.rs`).
+//! The live repair and renewal half lives in `render_history_repair.rs`, the
+//! checkpoint half in `render_history_checkpoint.rs`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

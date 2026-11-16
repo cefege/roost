@@ -1,7 +1,6 @@
 //! The production `BackfillHost`: the pager reads and splices through the
-//! renderer that owns the pane's DOM, exactly v2's `Pick<CellGridRenderer, …>`
-//! in `apps/web/src/renderer/scrollbackBackfill.ts`. Pure delegation; every
-//! rule lives in `CellGridRenderer` or the pager.
+//! renderer that owns the pane's DOM. Pure delegation; every rule lives in
+//! `CellGridRenderer` or the pager.
 
 use roost_client_core::terminal::history::{HistoryRange, HistoryScrollTarget};
 use roost_protocol::cell::CellRow;

@@ -1,9 +1,7 @@
 //! The listener bodies of pane mouse forwarding: each reads one DOM event into
 //! `PaneMouse`, applies the outcome, and — for a native gesture — asks
 //! `native_scroll_intent` whether the reader parks. A file split of `dom`,
-//! whose `ForwardingShared` these read. Ports the `onMouseDownFwd`,
-//! `onWheelForward`, `onTouch*`, `enterReadingForNativeScroll` and `cellOf`
-//! bodies of v2's `apps/web/src/renderer/terminalMouseForwarding.ts`.
+//! whose `ForwardingShared` these read.
 
 use wasm_bindgen::JsCast;
 use web_sys::{Element, Event, MouseEvent, TouchEvent, WheelEvent};

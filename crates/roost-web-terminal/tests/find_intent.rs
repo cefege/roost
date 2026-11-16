@@ -1,7 +1,6 @@
 //! One-shot terminal-find handoff tests for warm and cold pane mounts: latest
 //! pending semantics, identity-safe unregistration, preferred current-epoch
-//! metadata forwarding, and credential-bound registry reset. Test names are
-//! v2's, from `apps/web/tests/renderer/terminalFindIntent.test.ts`.
+//! metadata forwarding, and credential-bound registry reset.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -17,7 +16,7 @@ struct Record {
     queries: Vec<(String, FindQueryOptions)>,
 }
 
-/// v2's `fakeFind()`: a mounted pane that records what it was asked.
+/// A mounted pane that records what it was asked.
 #[derive(Clone, Default)]
 struct FakeFind(Rc<RefCell<Record>>);
 

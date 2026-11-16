@@ -4,7 +4,6 @@
 //! after the browser's own default edit. `ComposeSelection` decides and
 //! `PaneSelection` reads and writes the terminal's range; this sequences them.
 //! The composer (`TerminalComposeButton` in the web app) owns one per dock.
-//! Ports the DOM wiring of v2's `apps/web/src/renderer/terminalComposeSelection.ts`.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;

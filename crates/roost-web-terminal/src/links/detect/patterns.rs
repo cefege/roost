@@ -1,9 +1,8 @@
 //! The URL-family patterns of the inferred-link detector: explicit URI schemes,
 //! scheme tokens without `//`, scheme-less `localhost:PORT` dev URLs and GitHub
-//! refs. Each scanner reproduces its v2 JavaScript regex exactly — leftmost
+//! refs. Each scanner reproduces a JavaScript regex exactly — leftmost
 //! match, greedy with backtracking, `\w`/`\s`/`\b` by UTF-16 code unit — over
-//! the joined logical line `links::detect` builds. Ports the pattern sources in
-//! `apps/web/src/renderer/terminal-links.detect.ts`.
+//! the joined logical line `links::detect` builds.
 
 use crate::javascript_whitespace::is_javascript_whitespace_code_unit;
 

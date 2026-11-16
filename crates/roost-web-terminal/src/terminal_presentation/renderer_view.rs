@@ -1,7 +1,7 @@
 //! The production `PresentationRendererView`: the pane's own `CellGridRenderer`,
 //! over whichever element seam it paints through. Carries the two reconcile
 //! watermark reads, the reader park reason and the cursor-blink write that
-//! `apps/web/src/renderer/terminalPresentation.ts` makes on the renderer.
+//! presentation makes on the renderer.
 
 use super::PresentationRendererView;
 use crate::cell_renderer::CellGridRenderer;

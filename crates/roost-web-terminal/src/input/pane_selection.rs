@@ -4,8 +4,7 @@
 //! `sync_native_selection_hold` on every `selectionchange` and re-attach,
 //! `prepare_live_interaction` before live input and `release_paint_holds` when
 //! it leaves the visible surface; the composer drives captures through
-//! `compose_dom`. Ports v2's `apps/web/src/renderer/terminalSelectionGuard.ts`
-//! (`createTerminalSelectionGuard`).
+//! `compose_dom`.
 //!
 //! Selection-API call ordering is load-bearing: Chromium resets the native
 //! editing target only through the Selection-wide clear, and can dispatch a
@@ -126,7 +125,7 @@ impl PaneSelection {
         true
     }
 
-    /// Apply what a compose transition decided, in v2's order: retain, yield,
+    /// Apply what a compose transition decided, in order: retain, yield,
     /// forget, then re-derive the hold from what the document now says.
     pub fn apply(&mut self, effects: &ComposeEffects) {
         if effects.capture && !self.reader.retain_current_range() {

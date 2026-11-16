@@ -1,7 +1,6 @@
 //! Painted producer links win their span over inferred ones and are never
 //! returned as work, including across a soft wrap; the link-hint prefilter
-//! keeps every family detectable and skips a hint-free line. Test names
-//! follow v2's `apps/web/tests/renderer/terminal-links.test.ts`.
+//! keeps every family detectable and skips a hint-free line.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

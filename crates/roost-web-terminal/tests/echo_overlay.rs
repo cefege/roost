@@ -2,12 +2,10 @@
 //! checked without a browser: the plan the overlay stamps and the caret the
 //! renderer's watermark is measured against.
 //!
-//! Ported from `apps/web/tests/renderer/cellRenderer.reconcile.dom.test.ts`
-//! ("a leading predicted caret does not freeze reconciliation") and the
-//! overlay-cell assertions of `apps/web/tests/predictiveEchoAck.test.ts`, which
-//! read a fake DOM. The DOM adapter itself is `wasm32`-only and is proven by the
-//! Playwright oracle, so what is left here is the arithmetic it stamps and the
-//! claim that a predicted caret is not a reconcile block.
+//! "A leading predicted caret does not freeze reconciliation" is pinned here,
+//! along with the overlay-cell plan. The DOM adapter itself is `wasm32`-only,
+//! so what is left here is the arithmetic it stamps and the claim that a
+//! predicted caret is not a reconcile block.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

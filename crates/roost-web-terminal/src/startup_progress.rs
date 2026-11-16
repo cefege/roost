@@ -1,9 +1,9 @@
 //! The single monotone percent model behind the terminal startup card: one
 //! contiguous band per pane startup step, ending at 99 (only completion paints
-//! 100). Ports `apps/web/src/renderer/terminalStartupProgress.ts`; read by the
-//! pane's startup overlay. Pure, no DOM and no clock: the caller samples it
-//! with the time since the stage began. Depends on `roost-protocol` only for
-//! the chunked-baseline progress the frame step subdivides by.
+//! 100). Read by the pane's startup overlay. Pure, no DOM and no clock: the
+//! caller samples it with the time since the stage began. Depends on
+//! `roost-protocol` only for the chunked-baseline progress the frame step
+//! subdivides by.
 
 use roost_protocol::cell::CellGridSnapshotProgress;
 

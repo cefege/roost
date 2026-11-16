@@ -1,10 +1,8 @@
-//! The browser-frame boundary for terminal DOM delivery, ported from
-//! `apps/web/tests/terminalRenderScheduler.test.ts` and
-//! `apps/web/tests/terminalStreamRenderScheduler.test.ts`.
+//! The browser-frame boundary for terminal DOM delivery.
 //!
-//! A caller-supplied clock replaces the harness's controllable
-//! `requestAnimationFrame`, so bounded batching, parking, stale-full refusal and
-//! fallback repair are all decided without a browser, a socket or a replica.
+//! A caller-supplied clock replaces a controllable `requestAnimationFrame`, so
+//! bounded batching, parking, stale-full refusal and fallback repair are all
+//! decided without a browser, a socket or a replica.
 
 mod render_scheduler_support;
 

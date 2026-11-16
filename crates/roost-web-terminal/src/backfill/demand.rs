@@ -1,8 +1,6 @@
-//! Raising, coalescing and re-arming scrollback demands: the `raiseDemand`,
-//! `liveScrollDemand`, `rearmAfterWave` and `deferRearm` half of
-//! `apps/web/src/renderer/scrollbackBackfill.ts`. A file split, not a type
-//! split: the state lives on `ScrollbackBackfill`; `backfill::wave` runs the
-//! wave a demand raises and calls back here when it settles.
+//! Raising, coalescing and re-arming scrollback demands. A file split, not a
+//! type split: the state lives on `ScrollbackBackfill`; `backfill::wave` runs
+//! the wave a demand raises and calls back here when it settles.
 
 use roost_client_core::terminal::history_backfill::{
     BACKFILL_AHEAD_ROWS, BACKFILL_IDENTICAL_RETRIES, DemandBounds, scroll_demand_bounds,

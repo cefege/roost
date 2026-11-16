@@ -5,7 +5,6 @@
 //! drag continuation on window (the pane routes `on_window_mouse_move/up` there
 //! only while visible), and the non-passive wheel/touchmove classifiers from
 //! `bind_wheel_and_touch_move` until `unbind`/`dispose`.
-//! Ports the listener wiring of v2's `apps/web/src/renderer/terminalMouseForwarding.ts`.
 
 use std::cell::RefCell;
 use std::rc::Rc;

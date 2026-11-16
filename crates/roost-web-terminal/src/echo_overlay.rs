@@ -5,7 +5,7 @@
 //! stamped with, `painter` batches paints to one per animation frame, and
 //! `host` wires the predictor, the overlay and the clock for the pane. Creating
 //! elements is browser-only and gated to `wasm32`; the rest is native and
-//! testable. Ports v2's `apps/web/src/renderer/predictiveEchoOverlay.ts`.
+//! testable.
 
 pub mod geometry;
 pub mod painter;

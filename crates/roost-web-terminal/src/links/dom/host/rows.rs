@@ -2,14 +2,12 @@
 //! touched, row membership, the rows inside a scope, and the text-node walk
 //! (document order) the linkifier reads. `links::dom` feeds mutation
 //! records here; `dom::host` calls the rest.
-//! Ports the DOM reads of `apps/web/src/renderer/terminal-links.scan.ts` and
-//! `terminal-links.dom.ts`.
 
 use js_sys::Array;
 use wasm_bindgen::JsCast;
 use web_sys::{Element, HtmlElement, MutationRecord, Node, Text};
 
-/// v2 `ROW_SELECTOR`: the class the row painter stamps on every row.
+/// The class the row painter stamps on every row.
 const ROW_SELECTOR: &str = ".cell-row";
 
 /// The rows a mutation batch touched: each record's own row, plus every row an

@@ -1,6 +1,5 @@
-//! The scheduler's own decisions beyond the v2 cases, against
-//! `crates/roost-web-terminal/src/scheduler.rs` (the port of
-//! `apps/web/src/renderer/terminal-render-scheduler.ts`): coalescing inside one
+//! The scheduler's own decisions, against
+//! `crates/roost-web-terminal/src/scheduler.rs`: coalescing inside one
 //! browser frame, the refused-paint repair, the wait a batch reports, exact
 //! seq continuity, and a caller's answer with no paint outstanding.
 

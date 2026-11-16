@@ -3,9 +3,7 @@
 //! batching of those paints and the timer that abandons a never-echoed guess.
 //! The terminal pane calls `predict` per keystroke, `note_input_written` per
 //! admission acknowledgement and `on_frame` per frame; `on_cursor` hands the
-//! predicted caret to `CellGridRenderer::set_predicted_cursor`. Ports the host
-//! half of v2's `apps/web/src/renderer/predictiveEcho.ts` (overlay, painter,
-//! `setTimeout` expiry scheduler, `refreshPreference`, `clear`, `dispose`).
+//! predicted caret to `CellGridRenderer::set_predicted_cursor`.
 
 use std::cell::RefCell;
 use std::rc::Rc;

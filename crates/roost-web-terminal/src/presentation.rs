@@ -2,7 +2,7 @@
 //! watermarks, the paint presentation a stress harness reads, and the snapshot
 //! diagnostics diff against. Plain data with no DOM, so what the browser shows and
 //! what a native test asserts are the same values; the smoke API and the incident
-//! scanner read them. Ports `apps/web/src/renderer/cellRendererPresentation.ts`.
+//! scanner read them.
 
 use std::rc::Rc;
 
@@ -218,11 +218,10 @@ pub fn create_renderer_paint_presentation(
 
 /// The pixel count a CSS length string names, unit stripped.
 ///
-/// The spacer is stamped as `"{:.2}px"`, and v2 reads it with `parseFloat`,
-/// which stops at the first non-numeric character. A strict whole-string parse
-/// reads every reserved height as zero — a diagnostics surface that reports a
-/// full head spacer as empty. A value that is not a finite pixel count is zero
-/// rather than NaN, which is what v2's `|| 0` gives it.
+/// The spacer is stamped as `"{:.2}px"`; the unit is stripped before parsing,
+/// because a strict whole-string parse of the stamp reads every reserved height
+/// as zero — a diagnostics surface that reports a full head spacer as empty. A
+/// value that is not a finite pixel count is zero rather than NaN.
 fn parse_css_px(value: &str) -> f64 {
     value
         .trim()

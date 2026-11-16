@@ -1,9 +1,7 @@
 //! The immutable history sheet: sealed 250-row blocks and exact-height gaps for
 //! rows nothing has painted yet. An unpainted interval keeps its reserved pixels,
 //! so an epoch-addressed page fills it without moving the reader, and a
-//! viewport-only checkpoint never infers which rows left the grid. Ports the block
-//! and gap methods (`_sealCurrentBlock` through `_insertPageIntoPlaceholder`) of
-//! `apps/web/src/renderer/cellRenderer.ts`.
+//! viewport-only checkpoint never infers which rows left the grid.
 
 use crate::block_placeholder::{SCROLLBACK_BLOCK_ROWS, block_placeholder};
 use crate::cell_renderer::CellGridRenderer;
@@ -94,7 +92,7 @@ impl<E: RenderElement> CellGridRenderer<E> {
         gap.set_attribute("data-start-row", &start.to_string());
         gap.set_attribute("data-end-row", &end.to_string());
         let row_height = self.row_height();
-        // An inverted range is an invalid CSS length in v2, i.e. no height.
+        // An inverted range reserves no height.
         gap.set_style(
             "height",
             &block_placeholder(end.saturating_sub(start), row_height),

@@ -2,8 +2,7 @@
 //! row-height constants every scroll offset derives from; read by the scrollback
 //! layout, the font-settled repair, the smoke harness and the incident scanner.
 //! A BARE length: `auto <len>` would reuse a stale rendered size and understate
-//! `scrollHeight`. Ports `SCROLLBACK_BLOCK_ROWS`, `DEFAULT_CELL_ROW_PX` and
-//! `blockPlaceholder` of `apps/web/src/renderer/cellRendererDom.ts`.
+//! `scrollHeight`.
 
 /// Rows one sealed scrollback block holds. A block is the eviction unit and the
 /// backfill page size, so both numbers are this one constant.
@@ -28,13 +27,13 @@ pub fn block_placeholder(rows: u32, row_height: f64) -> String {
     fixed_px(f64::from(rows) * height)
 }
 
-/// A pixel length exactly as v2 stamps it: `` `${value.toFixed(2)}px` ``.
+/// A pixel length exactly as JavaScript stamps it: `` `${value.toFixed(2)}px` ``.
 ///
 /// `toFixed` rounds an exact two-decimal tie away from zero where `{:.2}`
 /// rounds it to even. A double is such a tie only when eight times it is an
 /// odd integer (`x.125`, `x.375`, `x.625`, `x.875`), and a browser's 1/64-px
 /// layout unit makes that an ordinary row pitch — 24 rows of a 16.796875px
-/// line are `403.125`, which v2 stamps as `403.13px`.
+/// line are `403.125`, which `toFixed` stamps as `403.13px`.
 pub(crate) fn fixed_px(value: f64) -> String {
     let magnitude = value.abs();
     let eighths = magnitude * 8.0;

@@ -1,7 +1,6 @@
 //! The armed paint hold: the pane's armed hover drives the renderer's link
 //! hold, a lost modifier keyup is healed by the next pointer event, and
-//! re-entering without the modifier cannot revive the hold. Ported from
-//! `apps/web/tests/renderer/terminal-links.activation.dom.test.ts`.
+//! re-entering without the modifier cannot revive the hold.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

@@ -5,9 +5,7 @@
 //! Nothing here decides anything. Every judgement — whether a key is text, a
 //! selection is the pane's, a capture is still restorable — is made natively;
 //! this file only reads and writes, and every read it reports is the
-//! document's own state rather than a remembered one. Ports the DOM reads of
-//! v2's `apps/web/src/renderer/terminalSelectionGuard.ts` (`captureTerminalSelection`,
-//! `validCapture`, `paneOwnsSelectionEndpoint`, `focusedYieldOwner`).
+//! document's own state rather than a remembered one.
 
 use std::cell::Cell;
 
@@ -43,7 +41,7 @@ pub fn key_chord_from_event(event: &KeyboardEvent) -> KeyChord {
     }
 }
 
-/// What a capture retained: v2 clones the range AND keeps the selection's own
+/// What a capture retained: the range AND the selection's own
 /// anchor and focus, because a backward selection's anchor is the range's END.
 struct RetainedCapture {
     range: Range,

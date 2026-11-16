@@ -2,8 +2,7 @@
 //! find. A mounted pane consumes an intent immediately; a cold pane consumes the
 //! latest one on registration. A credential boundary clears both the mounted
 //! callbacks and the pending session identities. The registry is a value its
-//! owner resets, not a module singleton. Ports
-//! `apps/web/src/renderer/terminalFindIntent.ts`.
+//! owner resets, not a module singleton.
 
 use std::collections::BTreeMap;
 

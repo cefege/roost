@@ -1,6 +1,4 @@
-//! The shared cursor-poll ticker, ported from
-//! `apps/web/src/renderer/cursorPollTicker.ts` and its one caller in
-//! `cell-terminal-renderer.ts`.
+//! The shared cursor-poll ticker.
 //!
 //! The deck keeps every open session mounted, so the interval is per DOCUMENT
 //! and not per pane. These cases pin the three facts that shape it: one

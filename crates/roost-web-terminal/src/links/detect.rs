@@ -3,7 +3,6 @@
 //! target validation stays in `link_target` for painted and inferred links
 //! alike. Offsets are UTF-16 code units — what a DOM `Range` addresses — and the
 //! patterns live in `detect/patterns.rs` and `detect/file_path.rs`.
-//! Ports `apps/web/src/renderer/terminal-links.detect.ts`.
 
 mod file_path;
 mod match_list;
@@ -86,7 +85,7 @@ struct Match {
     painted: bool,
 }
 
-/// v2 `ROW_LINK_HINT`: `/[:/.#\\]|[0-9a-f]{7}/`. A logical line without one
+/// A cheap pre-check: `/[:/.#\\]|[0-9a-f]{7}/`. A logical line without one
 /// cannot match any pattern, so the regex battery is skipped for it.
 fn has_link_hint(text: &[u16]) -> bool {
     let mut hex_run = 0;

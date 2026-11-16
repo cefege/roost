@@ -1,7 +1,6 @@
-//! Wide-glyph COLUMN OCCUPANCY in the painted row, ported from
-//! `apps/web/tests/cellRowWide.dom.test.ts`: the paint derives geometry from
-//! `CellSpan::columns`, never from text length, so no phantom space appears,
-//! find hits land on the cells the worker matched, and no glyph is cut.
+//! Wide-glyph COLUMN OCCUPANCY in the painted row: the paint derives geometry
+//! from `CellSpan::columns`, never from text length, so no phantom space
+//! appears, find hits land on the cells the worker matched, and no glyph is cut.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

@@ -13,8 +13,7 @@
 //! no native fallback.
 //!
 //! Depends on `roost-protocol`'s cell frame and on `reader_intent`'s reasons;
-//! it re-implements neither. Ports v2's `apps/web/src/renderer/terminalMouse.ts`
-//! and `apps/web/src/renderer/terminalMouseForwarding.ts`.
+//! it re-implements neither.
 
 #[cfg(target_arch = "wasm32")]
 pub mod dom;

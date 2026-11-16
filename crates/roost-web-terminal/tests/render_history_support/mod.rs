@@ -1,8 +1,7 @@
 //! History fixtures shared by the truthful-scroll-space test binaries: a
 //! seeded 250-row painted history, the reader row by geometry, epoch/seq and
 //! range builders. A test binary pulls it in with `mod render_support;` then
-//! `mod render_history_support;`. Ported from the helpers of
-//! `apps/web/tests/renderer/cellRenderer.history.dom.test.ts`.
+//! `mod render_history_support;`.
 
 #![allow(dead_code)]
 

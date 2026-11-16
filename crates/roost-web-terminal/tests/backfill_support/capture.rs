@@ -1,5 +1,5 @@
 //! Records every `tracing` event the pager emits on this test's thread, so a
-//! suite can assert v2's `diag()` lines (event name plus flat fields) exactly.
+//! suite can assert the pager's `diag` lines (event name plus flat fields) exactly.
 //! Thread-local on purpose: each test owns its pager and its capture.
 
 use std::collections::BTreeMap;

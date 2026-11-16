@@ -2,7 +2,6 @@
 //! for a paint on every keystroke and every frame, and this collapses a burst
 //! of those into ONE overlay paint plus one caret write per animation frame.
 //! Owns no prediction state; `host` schedules the frame and applies the flush.
-//! Ports v2's `apps/web/src/renderer/predictiveEchoPaint.ts`.
 //!
 //! Writing the overlay synchronously inside keydown cost a forced reflow per
 //! keystroke: the write dirtied layout, and the NEXT keydown's bottom-pin

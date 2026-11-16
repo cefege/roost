@@ -6,8 +6,7 @@
 //! contract and the controller is the browser's: they change for different
 //! reasons, and the pane constructs the options long before any textarea
 //! exists. wasm32 only — the paste path hands the controller a
-//! `ClipboardEvent`. Ports the `TerminalInputOptions` props of v2
-//! `apps/web/src/renderer/terminalInputController.ts`.
+//! `ClipboardEvent`.
 
 use web_sys::ClipboardEvent;
 

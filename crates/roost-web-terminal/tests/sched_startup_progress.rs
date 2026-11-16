@@ -1,5 +1,4 @@
-//! The startup meter's observable contract, ported from
-//! `apps/web/tests/renderer/terminalStartupProgress.test.ts` against
+//! The startup meter's observable contract, against
 //! `startup_progress.rs`: contiguous ordered bands, a creep that stays inside
 //! its own band, chunk subdivision that can overtake but never escape, a floor
 //! that absorbs status regressions, and the 99 ceiling that keeps 100 for

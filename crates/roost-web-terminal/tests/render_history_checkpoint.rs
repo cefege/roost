@@ -1,8 +1,7 @@
 //! A viewport-only checkpoint cannot prove which rows left the grid, so the
 //! rows it transitioned stay an UNPAINTED gap that owns its pixels until the
 //! worker's own page fills it — never a stale repaint generation inferred from
-//! the old viewport. Ported from the checkpoint cases of
-//! `apps/web/tests/renderer/cellRenderer.history.dom.test.ts`.
+//! the old viewport.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

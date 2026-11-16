@@ -2,7 +2,6 @@
 //! authoring an anchor's target, resolving a painted anchor back to its target,
 //! and linkifying changed rows from `links::detect` segments. Runs over `LinkDom`,
 //! which `links::dom` implements for the browser and tests implement natively.
-//! Ports `apps/web/src/renderer/terminal-links.dom.ts`.
 
 use super::activation::{LinkModifierKey, link_title};
 use super::detect::{PaintedLink, RowLinkInput, RowLinkSegment, compute_row_links};
@@ -110,7 +109,7 @@ pub fn resolve_terminal_anchor_target<D: LinkDom>(
     }
 }
 
-/// v2 `terminalRowColumns`: the stamped grid occupancy, or `-1` for a row
+/// The stamped grid occupancy, or `-1` for a row
 /// with no readable stamp — a sentinel that never equals a real width, so an
 /// unstamped row never joins the next.
 pub fn terminal_row_columns(stamped: Option<&str>) -> i64 {

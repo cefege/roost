@@ -2,8 +2,7 @@
 //! options, a resolving worker-file route, event builders, browser-faithful
 //! listener and frame delivery, and anchor/viewport installers over
 //! `FakeLinkHost`. A test binary pulls it in with `mod terminal_links_support;`
-//! then `mod terminal_links_attachment_support;`. Ported from the helpers of
-//! `apps/web/tests/terminal-links.dom.test.ts`.
+//! then `mod terminal_links_attachment_support;`.
 
 #![allow(dead_code)]
 

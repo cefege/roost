@@ -1,9 +1,8 @@
 //! One scrollback history read, the page it may be answered with, and the
 //! guards that decide whether that page may paint. `backfill::wave` owns what
-//! the pager does with an admitted page. Ports the request/`validatePage`/
-//! `noteFloor` half of `apps/web/src/renderer/scrollbackBackfill.ts`: a page is
-//! admissible only as the interval asked for, under the grid the pane is
-//! numbered as right now — otherwise a painted row disagrees with its frame.
+//! the pager does with an admitted page. A page is admissible only as the
+//! interval asked for, under the grid the pane is numbered as right now —
+//! otherwise a painted row disagrees with its frame.
 
 use roost_client_core::terminal::history_backfill::DemandBounds;
 use roost_protocol::cell::CellRow;
@@ -86,7 +85,7 @@ pub(crate) struct Demand {
     pub(crate) minimum_total: u64,
 }
 
-/// The guard that refused a page, in v2's check order.
+/// The guard that refused a page, in the order the checks run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ChunkGuard {
     Epoch,
@@ -162,7 +161,7 @@ pub(crate) fn validate_page(
     })
 }
 
-/// The first guard a page fails, in v2's order, or `None` when it is admissible.
+/// The first guard a page fails, in check order, or `None` when it is admissible.
 fn page_guard(page: &ScrollbackPage, demand: &Demand) -> Option<ChunkGuard> {
     let end = u64::from(demand.bounds.end);
     if page.grid_epoch != demand.grid_epoch {

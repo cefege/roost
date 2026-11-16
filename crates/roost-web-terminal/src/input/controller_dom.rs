@@ -3,7 +3,6 @@
 //! `controller::InputControllerState`'s; this file reads events into it and
 //! applies what it returns. The terminal pane constructs one per mount and
 //! calls `force_focus` from its container's `mousedown`.
-//! Ports v2's `apps/web/src/renderer/terminalInputController.ts`.
 
 use std::cell::RefCell;
 use std::rc::Rc;

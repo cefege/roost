@@ -1,7 +1,6 @@
 //! The native-scroll settle: layout can clamp a reader onto the literal bottom
 //! with no second scroll event, so the renderer arms a bottom-park settle the
 //! pane runs next frame, and a band rest ASKS the pane for one settle window.
-//! Ported from `apps/web/tests/renderer/cellRenderer.nativeScrollSettle.dom.test.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

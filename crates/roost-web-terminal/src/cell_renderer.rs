@@ -3,7 +3,6 @@
 //! scrollback layout, reader park, reconcile watermark) is shared, and a second
 //! owner is how painted history disagrees with its frame; the `impl` blocks split
 //! across `cell_renderer/` by concern, all painting through `RenderElement`.
-//! Ports `apps/web/src/renderer/cellRenderer.ts`.
 
 mod eviction;
 mod history_page;

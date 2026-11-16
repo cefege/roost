@@ -1,9 +1,8 @@
 //! `TerminalPresentationController`: the per-pane presentation state machine.
 //! It owns the bounded receiving window, the foreground DOM stall behind a
 //! `catching_up` pane and the detached-view grace; the pane feeds it explicit
-//! inputs with `now_ms` and re-polls it at `next_deadline_ms`. Ports the
-//! controller in `apps/web/src/renderer/terminalPresentation.ts`, whose timers
-//! become the one pending deadline held here.
+//! inputs with `now_ms` and re-polls it at `next_deadline_ms`; its timers are
+//! the one pending deadline held here.
 
 use roost_protocol::cell::CellGridFrame;
 

@@ -1,8 +1,7 @@
 //! Inferred-link detection (`compute_row_links`): soft-wrap joining is decided
 //! in grid COLUMNS, never code units; scheme URLs, `localhost:PORT` and GitHub
-//! refs; and the edge matches of v2's regex battery. File paths, painted-link
+//! refs; and the edge matches of the regex battery. File paths, painted-link
 //! precedence and gestures live in `terminal_links_{file_paths,precedence,gestures}.rs`.
-//! Test names follow v2's `apps/web/tests/renderer/terminal-links.test.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -206,7 +205,7 @@ fn github_refs_resolve_self_contained_or_against_the_session_repo() {
 
 #[test]
 fn edge_matches_agree_with_the_v2_regex_battery() {
-    // Expected values are v2 `computeRowLinks` output for the same input: the
+    // Expected values are `computeRowLinks` output for the same input: the
     // `(?<![,.])` backtrack, bracketed suffixes, IPv6 ports, directory
     // backtracking, archive `\b`, and Windows drive/UNC paths with columns.
     let spans = |text: &str, files: bool| -> Vec<(usize, usize, String)> {

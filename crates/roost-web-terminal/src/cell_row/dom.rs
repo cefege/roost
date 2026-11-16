@@ -2,7 +2,6 @@
 //! and one anchor per maximal run of spans sharing a link run key. Every piece of
 //! a link run, including a find-split half, goes INSIDE that run's anchor, so a
 //! highlighted link stays one clickable element. Called by the renderer's paint.
-//! Ports `renderRow` and `_paintSpan` of `apps/web/src/renderer/cellRow.ts`.
 
 use crate::cell_renderer_dom::DomResult;
 use crate::cell_row::style_cache::StyleCache;

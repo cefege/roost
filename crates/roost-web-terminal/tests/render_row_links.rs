@@ -1,5 +1,4 @@
-//! OSC 8 hyperlinks in the painted row, ported from
-//! `apps/web/tests/cellRowLinks.dom.test.ts`: links are core-authored per span,
+//! OSC 8 hyperlinks in the painted row: links are core-authored per span,
 //! so the paint must keep differently-keyed runs apart, keep a find-split run
 //! inside its one anchor, refuse unsafe targets, and stamp grid COLUMNS.
 

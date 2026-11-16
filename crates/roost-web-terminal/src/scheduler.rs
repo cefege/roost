@@ -1,7 +1,6 @@
 //! The terminal render scheduler: which batch one renderer's next browser frame
-//! paints, and what a landed or refused paint leaves behind. Ports
-//! `apps/web/src/renderer/terminal-render-scheduler.ts`; `cursor_poll` ports
-//! `apps/web/src/renderer/cursorPollTicker.ts`. Driven by the terminal stream
+//! paints, and what a landed or refused paint leaves behind. `cursor_poll`
+//! decides the shared cursor-poll tick. Driven by the terminal stream
 //! view's renderer subscriber; every clock value arrives as `now_ms` and the
 //! browser frame is the caller's. Depends on `roost-protocol`'s cell frame.
 
@@ -68,8 +67,7 @@ pub enum FrameDecision<'a> {
 /// frame is armed.
 ///
 /// Every mutation — `enqueue`, `set_foreground(true)`, `complete_paint` — is
-/// followed by the caller asking `schedule_browser_frame`, which is the v2
-/// `schedule()` those paths end in.
+/// followed by the caller asking `schedule_browser_frame`.
 #[derive(Debug, Clone, Default)]
 pub struct RenderScheduler {
     pending: Option<PendingRender>,

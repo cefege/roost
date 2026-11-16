@@ -1,8 +1,7 @@
 //! The host conversation pane-local find has with the painted grid: the surface
 //! it reads, the work it demands, and the one decision a reveal turns on. No DOM
 //! and no RPC, so reveal ORDER and the epoch fence test natively; `find::controller`
-//! drives it and `find::renderer_host` is the production host. Ports the
-//! renderer/backfill seam of `apps/web/src/renderer/terminalFindController.ts`.
+//! drives it and `find::renderer_host` is the production host.
 
 use crate::find::FindRequest;
 use crate::find::hits::{ActiveHit, HitRows};

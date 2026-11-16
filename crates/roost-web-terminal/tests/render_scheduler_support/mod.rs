@@ -1,10 +1,9 @@
-//! Shared fixtures for the render-scheduler tests: the v2 harness's frames, a
+//! Shared fixtures for the render-scheduler tests: the harness's frames, a
 //! recording renderer, and one simulated browser frame.
 //!
 //! The frames are assembled directly rather than folded, so a failure names the
-//! rule that broke instead of a fold that produced a different grid. Mirrors
-//! `apps/web/tests/helpers/terminalRenderSchedulerHarness.ts`, with the
-//! browser's own clock replaced by a caller-supplied `now_ms`.
+//! rule that broke instead of a fold that produced a different grid. The
+//! browser's own clock is replaced by a caller-supplied `now_ms`.
 #![allow(dead_code)]
 
 use std::sync::Arc;
@@ -14,7 +13,7 @@ use roost_web_terminal::scheduler::{
     ApplyMode, Delivery, EnqueueDecision, FrameDecision, PaintOutcome, RenderScheduler,
 };
 
-/// One cell carrying `text`, in the v2 harness's default colour pair.
+/// One cell carrying `text`, in the harness's default colour pair.
 pub fn span(text: &str) -> CellSpan {
     CellSpan {
         text: text.to_string(),
@@ -52,7 +51,7 @@ pub fn row_shell_of(index: u32, count: usize, text: &str) -> CellRow {
     }
 }
 
-/// A one-row authoritative full at `seq`, exactly as the v2 harness builds one.
+/// A one-row authoritative full at `seq`.
 pub fn full_frame(seq: u64, text: &str) -> CellGridFrame {
     CellGridFrame {
         stream_id: "stream-a".to_string(),
@@ -90,13 +89,13 @@ pub fn delta_frame(seq: u64, text: &str) -> CellGridFrame {
     }
 }
 
-/// The renderer the v2 harness records with: full frames and delta batches kept
+/// The renderer the harness records with: full frames and delta batches kept
 /// apart, in paint order.
 #[derive(Debug, Default)]
 pub struct RecordingRenderer {
     pub full_frames: Vec<CellGridFrame>,
     pub delta_batches: Vec<Vec<CellGridFrame>>,
-    /// The verdict the next apply answers. The v2 harness always answered true;
+    /// The verdict the next apply answers. It defaults to accepting;
     /// a refused paint is opt-in so the repair path can be driven.
     pub refuse_next: bool,
 }
@@ -149,7 +148,7 @@ pub struct RecordedDelivery {
 }
 
 impl RecordedDelivery {
-    /// The seven fields the v2 harness compared a delivery by.
+    /// The seven fields a delivery is compared by.
     pub fn summary(&self) -> (u64, bool, bool, bool, u64, bool, bool) {
         (
             self.frame.seq,
@@ -200,8 +199,7 @@ impl FlushOutcome {
 /// Run one browser frame: ask the scheduler what is due, hand the batch to the
 /// recorder, and answer with the recorder's verdict.
 ///
-/// It is the v2 harness's `flushNextAnimationFrame` plus its
-/// `RecordingRenderer`.
+/// It is one animation-frame flush plus the `RecordingRenderer`.
 pub fn flush_frame(
     scheduler: &mut RenderScheduler,
     renderer: &mut RecordingRenderer,
@@ -245,11 +243,11 @@ pub struct Offer {
     pub armed: bool,
 }
 
-/// Offer a frame and arm whatever the scheduler then owes: the v2 `enqueue`
-/// plus its `schedule()`, in one call.
+/// Offer a frame and arm whatever the scheduler then owes: `enqueue` plus
+/// `schedule`, in one call.
 ///
-/// A refused arrival arms nothing, because the v2 `enqueue` returns before it
-/// reaches `schedule()`.
+/// A refused arrival arms nothing, because `enqueue` returns before it
+/// reaches `schedule`.
 pub fn offer(
     scheduler: &mut RenderScheduler,
     frame: &CellGridFrame,

@@ -1,8 +1,7 @@
 //! Terminal-find epoch-fence tests: a hit is only revealed against the grid it
 //! was found in, a retired epoch is discarded and re-searched once, and a
 //! refused or mid-chain epoch move spends exactly one retry; plus the dismissal
-//! contract of the find park. Test names are v2's, from
-//! `apps/web/tests/renderer/terminalFindController.test.ts`.
+//! contract of the find park.
 
 mod find_support;
 

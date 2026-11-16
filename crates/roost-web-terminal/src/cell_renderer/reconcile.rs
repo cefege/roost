@@ -2,8 +2,6 @@
 //! advancing the watermark only when it provably has. A viewport-only checkpoint
 //! reserves the interval it pushed as an UNPAINTED gap for epoch-addressed
 //! backfill, because guessing its rows freezes a stale repaint into history.
-//! Ports `_reconcileCanonical`, `renderFull`, `_markReconciledIfCurrent` and
-//! `_canonicalFrame` of `apps/web/src/renderer/cellRenderer.ts`.
 
 use roost_protocol::cell::{CellGridFrame, CellRow};
 

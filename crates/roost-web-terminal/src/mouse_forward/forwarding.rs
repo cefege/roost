@@ -1,7 +1,7 @@
 //! Whether one browser pointer gesture reaches the terminal application, and
 //! what the terminal does with the ones that do not.
 //!
-//! This is the decision half of v2's `apps/web/src/renderer/terminalMouseForwarding.ts`, and every
+//! This is the decision half of pane mouse forwarding, and every
 //! part of it is a function of data the caller already has: the frame's tracking
 //! mode, the pointer's cell, the modifiers the event carried, and the pane's
 //! own state. Time, event targets and DOM handles stay with the adapter, so the
@@ -24,8 +24,8 @@ use crate::reader_intent::ReaderIntentReason;
 
 /// Mouse forwarding is ON unless the user has turned it off.
 ///
-/// A PRODUCT DEFAULT, ported from v2's `mouseForwardPref.ts` and unchanged
-/// here. It is on because the gate is precise: forwarding is decided by what the
+/// A PRODUCT DEFAULT. It is on because the gate is precise: forwarding is
+/// decided by what the
 /// foreground application asked for, so an app that never requested tracking
 /// never receives events either way and an opt-in would cost every mouse-aware
 /// TUI its mouse while buying nothing. The persisted value is read through
@@ -56,7 +56,7 @@ pub fn mouse_gestures_forwarded(mouse_forward_enabled: bool, tracking: MouseTrac
 ///
 /// A button with no mouse-report encoding is not representable: the
 /// `MouseButton` the caller builds with has already refused the back/forward
-/// DOM buttons, which is where v2's `button > 2` check now lives.
+/// DOM buttons.
 pub fn should_forward(
     modes: MouseReportModes,
     gesture: &MouseReport,
@@ -231,7 +231,7 @@ impl MouseForwarding {
     ///
     /// The gesture is consumed only when a release is actually sent. A pane
     /// whose application has since dropped tracking lets this one reach the
-    /// browser, which is v2's behaviour and the reason the state is cleared
+    /// browser, which is intended and the reason the state is cleared
     /// first: the drag is over either way.
     pub fn release(
         &mut self,

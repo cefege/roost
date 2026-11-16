@@ -3,7 +3,6 @@
 //! hidden-page recovery and bounded hot-tail rescans for streaming terminals,
 //! over `LinkScanHost` (the browser in `links::dom`, a fake in tests). Every
 //! owed callback is named, so a dropped animation frame cannot latch it shut.
-//! Ports `apps/web/src/renderer/terminal-links.scan.ts`.
 
 use super::TerminalLinkOptions;
 use super::anchor::{LinkDom, js_parse_int, linkify_terminal_rows, terminal_row_columns};
@@ -24,7 +23,7 @@ pub enum FrameCallback {
     ActivationScan,
 }
 
-/// A set of rows by identity (v2 `Set<HTMLElement>`).
+/// A set of rows by identity.
 pub trait RowSet<R> {
     /// `add`.
     fn insert(&mut self, row: &R);
@@ -50,7 +49,7 @@ pub trait LinkScanHost: LinkDom {
     type Rows: RowSet<Self::Element>;
     /// A new empty row set.
     fn new_row_set(&self) -> Self::Rows;
-    /// v2 `isPageVisible()`.
+    /// Whether the page is visible.
     fn is_page_visible(&self) -> bool;
     /// The container's `--cell-cols` style property, verbatim.
     fn cell_cols_property(&self) -> String;

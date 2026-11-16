@@ -1,8 +1,7 @@
 //! The production `FindHost`: the pane's `CellGridRenderer` answering the find
 //! controller over its public methods — the backfill anchor, the highlight
 //! publication, the find-owned scroll and the end of the find reading. The
-//! terminal pane passes its renderer to every `TerminalFind` call. Ports the
-//! renderer calls of `apps/web/src/renderer/terminalFindController.ts`.
+//! terminal pane passes its renderer to every `TerminalFind` call.
 
 use crate::cell_renderer::CellGridRenderer;
 use crate::find::hits::{ActiveHit, HitRows};

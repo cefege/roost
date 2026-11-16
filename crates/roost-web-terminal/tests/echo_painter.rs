@@ -2,8 +2,7 @@
 //! costs one overlay write per animation frame, the latest request wins, a
 //! clear is a request of its own, and a cancelled frame writes nothing.
 //!
-//! Behaviour of v2's `apps/web/src/renderer/predictiveEchoPaint.ts`
-//! (`PredictionPainter.request` / `cancel` / `flush`).
+//! Covers `PredictionPainter::request` / `cancel` / `flush`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

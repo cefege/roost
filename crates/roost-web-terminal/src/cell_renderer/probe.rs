@@ -1,9 +1,7 @@
 //! The values a pane publishes about itself — epoch watermarks, the backfill
 //! anchor, the painted-history range, the paint presentation and the snapshot —
 //! so "is this pane behind, and by how much" is answered from the renderer's own
-//! model. Nothing here mutates. Ports `backfillAnchor`, `paintedScrollbackRange`,
-//! `paintPresentation`, `presentationSnapshot` and `rendererProjection` of
-//! `apps/web/src/renderer/cellRenderer.ts`.
+//! model. Nothing here mutates.
 
 use std::collections::BTreeMap;
 

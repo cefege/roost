@@ -1,9 +1,7 @@
 //! The link attachment's host seam and event vocabulary: `LinkHost` (the
 //! interaction operations beyond the scanner's), the `LinkListener` set in
-//! v2's attach order, and the `LinkEvent` each dispatch reads. `links::dom`
+//! attach order, and the `LinkEvent` each dispatch reads. `links::dom`
 //! implements the host and wires every listener into `TerminalLinks::dispatch`.
-//! Ports the listener wiring of `attachTerminalLinks` in
-//! `apps/web/src/renderer/terminal-links.ts`.
 
 use crate::links::activation::LinkActivationGesture;
 use crate::links::scan::LinkScanHost;
@@ -26,7 +24,7 @@ pub trait LinkHost: LinkScanHost {
     fn click_detached_anchor(&self, anchor: &Self::Element);
 }
 
-/// One interaction listener, in v2's attach order.
+/// One interaction listener, in attach order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkListener {
     /// window `keydown`.

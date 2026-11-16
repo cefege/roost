@@ -1,9 +1,8 @@
 //! The file-path pattern of the inferred-link detector: Windows drive, UNC,
 //! POSIX/home/relative paths with a separator, bare `name.ext:line`, and bare
-//! archive names. Reproduces v2's `FILE_RE_SOURCE` alternation exactly —
+//! archive names. Reproduces one JavaScript regex alternation exactly —
 //! leftmost start, alternatives in order, greedy directory runs backtracked one
-//! component at a time — so the resolver receives the same candidate v2 did.
-//! Ports `FILE_RE_SOURCE` in `apps/web/src/renderer/terminal-links.detect.ts`.
+//! component at a time — so the resolver receives a predictable candidate.
 
 use super::patterns::{
     digits_end, is_ascii, is_word, is_word_boundary, run_end, starts_with_ascii, unit_at,
@@ -23,7 +22,7 @@ fn is_dot(unit: Option<u16>) -> bool {
     unit == Some(u16::from(b'.'))
 }
 
-/// Distinctive archive extensions, in v2's alternation order.
+/// Distinctive archive extensions, in alternation order.
 const ARCHIVE_EXTENSIONS: [&[u8]; 21] = [
     b"tar.gz",
     b"tar.bz2",
