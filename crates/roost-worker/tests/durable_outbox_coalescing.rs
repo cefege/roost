@@ -1,6 +1,6 @@
 //! The outbox's VOLATILE producers' fold: one record per key, replaced in
 //! place. A link applying backpressure must not accumulate every version of one
-//! agent status and then ship them all in order, because the coordinator would
+//! session status and then ship them all in order, because the coordinator would
 //! walk a replacement edge it has already passed.
 //!
 //! Nothing here touches the durable file, which is why it needs no fixture and
@@ -13,9 +13,9 @@
 use roost_worker::outbox::{Admitted, Lane, Outbox};
 
 /// The volatile producers' fold: one record per key, replaced in place. A link
-/// applying backpressure must not accumulate every version of one agent status
-/// and then ship them all in order, because the coordinator would walk a
-/// replacement edge it has already passed.
+/// applying backpressure must not accumulate every version of one session
+/// status and then ship them all in order, because the coordinator would walk
+/// a replacement edge it has already passed.
 #[test]
 fn a_coalescing_frame_replaces_its_own_predecessor_in_one_lane() {
     let mut outbox = Outbox::default();

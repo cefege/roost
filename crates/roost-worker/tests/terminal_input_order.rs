@@ -112,23 +112,22 @@ async fn a_ticket_released_before_it_writes_does_not_pass_the_lane_on() {
 }
 
 /// THE IDLE GRANT IS A HOLD, NOT A PLACE IN A QUEUE, and giving it back has to
-/// hand the lane on. An agent prompt is admitted, its process proof is
-/// refreshed while the grant is still pending, and the refresh can decide the
-/// prompt is not ours — so a writer that never entered releases a lane it has
-/// held since it was issued. If that release only gives up a QUEUE place, there
-/// is no place to give up, the hold is never handed on, and every later keeper
-/// write on the channel waits for a hand-off that cannot come.
+/// hand the lane on. A write is admitted, then refused before it awaited the
+/// grant — so a writer that never entered releases a lane it has held since it
+/// was issued. If that release only gives up a QUEUE place, there is no place
+/// to give up, the hold is never handed on, and every later keeper write on
+/// the channel waits for a hand-off that cannot come.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn a_writer_released_before_it_enters_hands_the_idle_lane_on() {
     let lanes = ControlLanes::new();
     let channel = ChannelId::try_from(2i64).expect("a positive id is a channel id");
 
-    let Admission::Granted(refused_prompt) = lanes.admit(channel, AdmissionKind::TerminalInput)
+    let Admission::Granted(refused_write) = lanes.admit(channel, AdmissionKind::TerminalInput)
     else {
         panic!("an idle lane grants at once")
     };
     // Refused after admission, before the grant was ever awaited.
-    refused_prompt.release();
+    refused_write.release();
 
     let Admission::Granted(keystroke) = lanes.admit(channel, AdmissionKind::TerminalInput) else {
         panic!("a lane with no holder still admits")
@@ -150,14 +149,14 @@ async fn a_writer_queued_behind_a_refused_one_still_enters() {
     let lanes = ControlLanes::new();
     let channel = ChannelId::try_from(3i64).expect("a positive id is a channel id");
 
-    let Admission::Granted(refused_prompt) = lanes.admit(channel, AdmissionKind::TerminalInput)
+    let Admission::Granted(refused_write) = lanes.admit(channel, AdmissionKind::TerminalInput)
     else {
         panic!("an idle lane grants at once")
     };
     let Admission::Granted(queued) = lanes.admit(channel, AdmissionKind::TerminalInput) else {
         panic!("a held lane still admits; it queues")
     };
-    refused_prompt.release();
+    refused_write.release();
 
     assert!(
         tokio::time::timeout(std::time::Duration::from_secs(5), queued.granted())
@@ -195,8 +194,8 @@ async fn a_queued_writer_refused_after_handoff_releases_its_unpolled_grant() {
     next.release();
 }
 
-/// A burst where writers are refused mid-lane, which is what a burst of agent
-/// prompts against a busy channel looks like. Every write that did not refuse
+/// A burst where writers are refused mid-lane, which is what a burst of pasted
+/// writes against a busy channel looks like. Every write that did not refuse
 /// must still enter, in admit order, and the lane must not overlap two of them.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn a_burst_of_refusals_neither_strands_nor_reorders_the_lane() {

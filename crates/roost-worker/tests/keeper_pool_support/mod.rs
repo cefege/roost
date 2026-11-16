@@ -30,7 +30,7 @@ use roost_worker::session::sinks::ChannelBinding;
 use roost_worker::shell_spec::{SHELL_SPEC_VERSION, ShellSpec};
 
 /// How long a test waits for the keeper or a child to do its part. Generous
-/// because four other agents are building on the same eight cores.
+/// because CI runners share their cores with other builds.
 pub const PATIENCE: Duration = Duration::from_secs(20);
 
 /// What a session would have seen, if this were a real one.
