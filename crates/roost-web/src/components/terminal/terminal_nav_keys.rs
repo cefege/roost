@@ -298,7 +298,7 @@ fn grid_cells(
 struct NavCell {
     /// The grid area name the cell's `data-area` carries and the cell class places it by.
     area: &'static str,
-    /// The oracle's `data-testid`.
+    /// The cell's `data-testid`.
     test_id: &'static str,
     /// The cell's accessible name.
     aria_label: &'static str,

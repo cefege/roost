@@ -1,10 +1,10 @@
 //! Which dictation engine this browser will use, decided from what the
 //! coordinator stores and what the browser exposes.
 //!
-//! Split out from the component because the answer is a contract the
-//! end-to-end oracles read off the DOM (`data-engine`), and because it is the one decision
-//! that must be right before a microphone is opened: a browser with neither
-//! engine must say so, not open a device and record silence.
+//! Split out from the component because the answer is rendered as
+//! `data-engine`, and because it is the one decision that must be right before
+//! a microphone is opened: a browser with neither engine must say so, not open
+//! a device and record silence.
 
 /// What the browser exposes. Probed by `super::capabilities`; passed in here so
 /// the decision itself needs no browser.

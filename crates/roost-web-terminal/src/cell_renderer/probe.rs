@@ -158,7 +158,7 @@ impl<E: RenderElement> CellGridRenderer<E> {
         }
     }
 
-    /// The presentation snapshot the smoke API publishes and diagnostics diff.
+    /// The presentation snapshot diagnostics diff.
     pub fn presentation_snapshot(&self) -> RendererPresentationSnapshot {
         let projection = self.renderer_projection();
         create_renderer_presentation_snapshot(&projection, self.container.now_ms())

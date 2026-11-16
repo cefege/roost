@@ -267,10 +267,8 @@ mod tests {
     #[test]
     fn a_booted_client_with_no_link_reads_as_unreachable_rather_than_nothing() {
         // A boot has no link yet and no identity, and the item is still drawn.
-        // An item that VANISHES is indistinguishable from a healthy one, which
-        // is the failure this replaces: the bar used to have no coordinator
-        // reading at all, so the element the smoke looks for was never in the
-        // page.
+        // An item that VANISHES is indistinguishable from a healthy one: the
+        // bar must say the coordinator is unreachable, not say nothing.
         let core = ClientCore::in_memory("tab-test");
         let readings = read_status("/", &Rc::new(RefCell::new(core)), 1_000);
         assert_eq!(readings.coordinator, CoordinatorState::Unreachable);

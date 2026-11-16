@@ -1,11 +1,11 @@
-//! The router's contract with the URL grammar: every path the Playwright specs
-//! navigate to, and what each one resolves to. Native, because the decision is
-//! `Route::parse` on a string and the document is not part of it.
+//! The router's contract with the URL grammar: every path a link, bookmark or
+//! typed address reaches, and what each one resolves to. Native, because the
+//! decision is `Route::parse` on a string and the document is not part of it.
 //!
-//! The paths here are COPIED FROM THE SPECS, not from the grammar. A test that
-//! navigated with `Route::to_path` would pass whatever the grammar did, which is
-//! the one thing this file exists to catch: a grammar that changed shape and a
-//! spec that did not.
+//! The paths here are WRITTEN OUT LITERALLY, not built from the grammar. A test
+//! that navigated with `Route::to_path` would pass whatever the grammar did,
+//! which is the one thing this file exists to catch: a grammar that changed
+//! shape and a saved link that did not.
 
 use roost_web::app::{Surface, surface_for};
 use roost_web::routes::Route;

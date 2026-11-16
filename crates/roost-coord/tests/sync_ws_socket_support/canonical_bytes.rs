@@ -22,7 +22,7 @@ use roost_proto::buffa::Message as _;
 /// ascending field number, and the coordinator refuses any frame that is not
 /// the canonical encoding of what it decoded to (see
 /// `tests/sync_client_frame_canonical.rs`, whose fixture is a route claim
-/// captured from the smoke browser). A harness that sent buffa's order would
+/// captured from a browser). A harness that sent buffa's order would
 /// be testing a frame no client can send, and the socket would be closed
 /// `1008` for a fault the test never made.
 #[must_use]

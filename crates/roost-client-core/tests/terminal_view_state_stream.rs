@@ -1,6 +1,6 @@
 //! An accepted view state installs the stream the authority minted, at the
 //! authority's effective geometry — decoded from the coordinator's bytes and
-//! applied through `ClientCore::handle`, as the TERM smoke flow receives it.
+//! applied through `ClientCore::handle`, as a browser receives it.
 //!
 //! The stream id and `effectiveCols`/`effectiveRows` of the answer become the
 //! replica's expectation, and an answer without a valid stream or geometry

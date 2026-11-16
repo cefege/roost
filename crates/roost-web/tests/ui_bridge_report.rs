@@ -1,10 +1,8 @@
 //! The report half of the shell's UI bridge: when one is owed, when one goes
 //! out, and what it carries.
 //!
-//! The gate these pin is the end-to-end layout-apply smoke, which polls for the
-//! tab's `layoutDocument` — a tab that never reports
-//! leaves the coordinator holding no arrangement for it, and every layout read
-//! against that tab reads `null`.
+//! A tab that never reports leaves the coordinator holding no arrangement for
+//! it, and every layout read against that tab reads `null`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -47,7 +45,7 @@ fn reporting_bridge() -> Bridge {
     bridge
 }
 
-/// THE SMOKE GATE. A tab showing a terminal route reports the route, the folder
+/// A tab showing a terminal route reports the route, the folder
 /// bucket, and the arrangement as a portable document bound to the sessions the
 /// fleet knows.
 #[test]

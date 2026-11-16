@@ -91,7 +91,7 @@ impl Destination {
         }
     }
 
-    /// The `data-testid` the Playwright specs address this destination by.
+    /// The `data-testid` this destination's activity-bar button carries.
     pub const fn test_id(self) -> &'static str {
         match self {
             Self::Folders => "workbench-activity-folders",

@@ -3,9 +3,8 @@
 //! `web-sys` has no `SpeechRecognition` binding — the API is not in the crate's
 //! WebIDL surface — so this drives it through `js_sys::Reflect`. What the engine
 //! contract promises is preserved: a start, a stop that settles, an abort, and
-//! interim plus final transcripts. The engine name in `data-engine` is the
-//! string the oracles select on, so it comes from the same choice function as
-//! Deepgram's.
+//! interim plus final transcripts. The engine name in `data-engine` comes from
+//! the same choice function as Deepgram's.
 
 use std::cell::RefCell;
 use std::rc::Rc;

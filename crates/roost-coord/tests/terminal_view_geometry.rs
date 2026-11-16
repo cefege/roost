@@ -69,9 +69,9 @@ fn a_viewers_departure_recomputes_the_effective_geometry() {
     );
 }
 
-/// A dead viewer's lease stops it pinning the PTY. This is the behaviour the
-/// smoke spec "a viewer whose socket dies stops pinning the PTY long before its
-/// lease" asserts end to end, pinned here at the unit the decision is made in.
+/// A dead viewer's lease stops it pinning the PTY: a viewer whose socket dies
+/// stops pinning the PTY long before its lease ends, pinned here at the unit
+/// the decision is made in.
 #[test]
 fn an_expired_lease_stops_pinning_the_pty() {
     let harness = Harness::unowned();

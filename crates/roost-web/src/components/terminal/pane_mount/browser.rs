@@ -47,13 +47,8 @@ pub(super) fn now_ms() -> u64 {
     js_sys::Date::now().max(0.0) as u64
 }
 
-/// The document is visible.
-///
-/// Through the platform owner rather than read here, because a direct
-/// `visibilityState` read is the one thing the automation pin exists to defeat:
-/// a pane that asked the document would keep claiming geometry for a tab the
-/// oracle has pinned hidden, and the claim is a PTY resize the reader never
-/// chose.
+/// The document is visible. A hidden pane claims no geometry: the claim is a
+/// PTY resize the reader never chose.
 pub(super) fn page_visible() -> bool {
     crate::platform::visibility::page_visible()
 }

@@ -1,6 +1,6 @@
 //! The reserved pixel height of one scrollback block or gap, and the two
 //! row-height constants every scroll offset derives from; read by the scrollback
-//! layout, the font-settled repair, the smoke harness and the incident scanner.
+//! layout and the font-settled repair.
 //! A BARE length: `auto <len>` would reuse a stale rendered size and understate
 //! `scrollHeight`.
 

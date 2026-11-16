@@ -1,7 +1,6 @@
 //! Reading a worker file through the coordinator, one bounded chunk per call.
 //!
-//! Called by roost-web's smoke backdoor (`downloadWorkerFile`) through
-//! `CoordRpc::call`.
+//! Called by roost-web's download host through `CoordRpc::call`.
 
 use roost_proto::{FilesReadChunkRequest, FilesReadChunkResponse};
 

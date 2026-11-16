@@ -6,8 +6,8 @@ use std::net::TcpListener;
 use crate::error::BenchError;
 
 /// A port the kernel just handed out on 127.0.0.1. The listener is dropped
-/// before the child binds; the window is the same one the deleted smoke
-/// harness accepted.
+/// before the child binds, so another process can take it in that window; a
+/// bench stack accepts that race.
 pub fn free_loopback_port() -> Result<u16, BenchError> {
     let listener = TcpListener::bind("127.0.0.1:0")
         .map_err(|error| BenchError::io("reserving a loopback port", error))?;

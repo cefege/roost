@@ -34,7 +34,7 @@ struct Composer {
     machine: VoiceMachine,
     /// The draft the current recording started from, latched on its first word.
     base: Option<String>,
-    /// The field's value, which is what the smoke specs read off `chat-input`.
+    /// The field's value, which is what the operator sees in `chat-input`.
     field: String,
     provisional_from: Option<usize>,
 }

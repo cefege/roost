@@ -94,10 +94,10 @@ pub fn launchd_domain_query() -> Vec<String> {
 /// Whether a service manager's report says the service is running with a live
 /// main process.
 ///
-/// A pid is required as well as a state, and not as a formality: a service
-/// manager that reports `active` for a job whose process exited leaves a
-/// definition that reads correct and a machine with no worker behind it, and
-/// `roost push` once rolled a whole fleet back over exactly that.
+/// A pid is required as well as a state: a service manager that reports
+/// `active` for a job whose process exited leaves a definition that reads
+/// correct and a machine with no worker behind it, and a rollout that read the
+/// state alone would call that machine healthy.
 pub fn service_is_running(report: &str, platform: HostPlatform) -> bool {
     let line = |name: &str| -> Option<String> {
         report.lines().find_map(|line| {

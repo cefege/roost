@@ -162,7 +162,7 @@ pub enum CommandOutcome {
 /// before `socket_id = 10`, yet two cases (`input_route_claim = 11`,
 /// `terminal_transport_probe = 12`) number after it, so comparing against
 /// buffa's bytes refused every route claim the browser sent and closed the
-/// socket `1008` (terminal-peer smoke, "disabled peer capability"). The
+/// socket `1008` ("disabled peer capability"). The
 /// re-encoding's top-level fields are put in field-number order before the
 /// comparison; every message nested in a client frame declares its fields in
 /// ascending order, so buffa's bytes for them are already canonical.

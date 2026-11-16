@@ -1,8 +1,7 @@
 //! The URL grammar: what path means what, and nothing that renders. Owned by
-//! the SHELL slice (the one route authority) and depended on by the router, by
-//! every component that links, and by the Playwright specs, which navigate by
-//! these exact strings. The concrete href builders are the only sanctioned way
-//! to link to a parameterized route.
+//! the SHELL slice (the one route authority) and depended on by the router and
+//! by every component that links. The concrete href builders are the only
+//! sanctioned way to link to a parameterized route.
 //!
 //! The patterns include `/`, `/s/:sessionId`, `/t/:workerFp/*folderPath`,
 //! `/settings/:pane?`, `/pair`, `/help`, `/design`, `/file/:workerFp/*path`,

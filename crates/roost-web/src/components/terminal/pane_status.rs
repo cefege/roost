@@ -65,7 +65,7 @@ pub struct TerminalStartupNotice {
     pub progress: Option<(u32, u32)>,
     /// Why a stalled attach is stuck.
     pub stuck_reason: Option<String>,
-    /// The pane's session, for smoke diagnostics.
+    /// The pane's session, rendered as the overlay's `data-session-id`.
     pub session_id: Option<String>,
 }
 

@@ -48,8 +48,8 @@ fn read_repo(relative: &str) -> String {
 /// Every `cargo …` command ONE job of a workflow runs, as a set.
 ///
 /// Scoped to a job because a release workflow legitimately runs cargo commands
-/// outside its gate: the matrix build compiles per target and the smoke job
-/// builds the binaries it drives. Comparing whole files reports those as gate
+/// outside its gate: the matrix build compiles per target. Comparing whole
+/// files reports those as gate
 /// drift, so this reads one job's body — from its two-space header to the next
 /// key at the same indent — rather than the file.
 ///

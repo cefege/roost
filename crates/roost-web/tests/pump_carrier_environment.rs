@@ -1,7 +1,7 @@
 //! The host's OWN declaration of what its document can do, on the way to a
 //! peer attempt.
 //!
-//! `roost_client_core`'s `direct_carrier_lane.rs` and `smoke/stream_route_lane.rs`
+//! `roost_client_core`'s `direct_carrier_lane.rs` and `carriers_prewarm.rs`
 //! both call `set_carrier_environment(true, _)` BY HAND before they assert a
 //! phase, so neither can see the defect this file is about: in the running
 //! browser nobody called it at all. `Signalling::start` reads

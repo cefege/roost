@@ -33,7 +33,7 @@ pub enum BannerReason {
 }
 
 impl BannerReason {
-    /// The `data-banner-reason` spelling tests and smoke checks select.
+    /// The `data-banner-reason` spelling.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Offline => "offline",

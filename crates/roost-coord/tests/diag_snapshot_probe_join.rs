@@ -1,17 +1,15 @@
-//! The DiagSnapshot JOIN the web's `__smoke.terminalStreamProbe` performs,
-//! end to end through the RPC: the keys it reads, in the shape it reads them,
-//! and the two joins that would silently answer "healthy" if either side were
-//! wrong.
+//! The DiagSnapshot JOIN a diagnostic reader performs, end to end through the
+//! RPC: the keys it reads, in the shape it reads them, and the two joins that
+//! would silently answer "healthy" if either side were wrong.
 //!
-//! The probe lives in the web crate (`roost_web::smoke::stream_probe`, landed
-//! on `v3-web` as `f17b305c`) and it normalizes the coordinator's
-//! `snapshot_json` by KEY: `coord.sessions[sid].terminal_view`,
+//! A reader normalizes the coordinator's `snapshot_json` by KEY:
+//! `coord.sessions[sid].terminal_view`,
 //! `coord.sessions[sid].route.worker_fp` -> `workers[fp]`, `coord.build`, and
-//! the root's `captured_at_ms`. The two halves had never been checked against
-//! each other, and a renamed or missing key does not fail a build -- it fills
-//! a smoke probe with nulls. This is the coordinator's half of that check.
+//! the root's `captured_at_ms`. A renamed or missing key does not fail a
+//! build -- it fills the reader's view with nulls. This pins the coordinator's
+//! side of those keys.
 //!
-//! WHAT MUST NEVER HAPPEN, because the probe reads each as healthy:
+//! WHAT MUST NEVER HAPPEN, because a reader takes each as healthy:
 //!   * a `workers[fp]` envelope that says `ok` for a worker that did not answer;
 //!   * a session id the coordinator does not hold resolving to another
 //!     session's row.

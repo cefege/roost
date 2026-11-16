@@ -1,7 +1,7 @@
-//! Asking a session's worker whether it already holds an attachment's content.
+//! Uploading an attachment to a session's worker: asking whether the worker
+//! already holds the content, then writing it one chunk at a time.
 //!
-//! Called by roost-web's smoke backdoor (`attachmentProbe`) through
-//! `CoordRpc::call`.
+//! Called by roost-web's upload host through `CoordRpc::call`.
 
 use roost_proto::{
     AttachFileChunkRequest, AttachFileChunkResponse, AttachmentProbeRequest,

@@ -91,8 +91,7 @@ pub enum FallbackReason {
 }
 
 impl FallbackReason {
-    /// The stable string a host writes into its log, and the string the smoke
-    /// backdoor reads back.
+    /// The stable string a host writes into its log.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Unsupported => "unsupported",
@@ -106,7 +105,7 @@ impl FallbackReason {
 
 impl CarrierFault {
     /// Whether the grant this attempt used is still usable — the whole distinction
-    /// between the four oracle faults. A caller that gets this wrong either
+    /// between the grant faults and the rest. A caller that gets this wrong either
     /// re-uses a revoked credential and retries into the same refusal, or
     /// discards a good one and waits on a mint it did not need.
     pub const fn keeps_grant(self) -> bool {

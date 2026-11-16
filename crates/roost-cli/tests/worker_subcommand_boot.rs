@@ -1,6 +1,6 @@
 #![cfg(unix)]
-//! `roost worker` — the subcommand a service manager, a container entrypoint
-//! and the smoke stack all address — has to BOOT, not refuse.
+//! `roost worker` — the subcommand a service manager and a container
+//! entrypoint both address — has to BOOT, not refuse.
 //!
 //! WHY THIS IS A PROCESS TEST AND NOT A CALL TEST. The defect it pins is not a
 //! value; it is which entry point the subcommand takes. `roost_worker::serve`
@@ -9,8 +9,8 @@
 //! it is `async` for exactly that reason. Calling the blocking form from an
 //! `async fn` compiles, passes every unit test in the crate, and produces a
 //! worker that starts, prints one line and exits. A supervisor sees a
-//! crash-looping service; the Playwright stack sees "routable timed out after
-//! 30000ms" on every single spec that needs a worker.
+//! crash-looping service, and every browser sees a machine that never becomes
+//! routable.
 //!
 //! So the property is observed the only way it can be: run the real binary,
 //! give it a coordinator nothing is listening on, and read what it wrote before

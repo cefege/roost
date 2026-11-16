@@ -47,10 +47,6 @@ pub async fn content_digest(bytes: &[u8]) -> Result<String, String> {
 }
 
 /// Lowercase hex, two digits a byte.
-///
-/// A local copy rather than the smoke probe's helper, because that one is
-/// compiled only under the `smoke` feature and a release bundle has no
-/// business depending on the oracle to hash a user's file.
 #[cfg(target_arch = "wasm32")]
 fn lowercase_hex(bytes: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";

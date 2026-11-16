@@ -1,7 +1,6 @@
 //! Session mutations a surface asks for directly: spawn, kill, rename.
 //!
-//! Called by the smoke backdoor (`spawnShell`, `kill`, `cleanupCreated`) and
-//! the session surfaces through `CoordRpc::call`.
+//! Called by the session surfaces through `CoordRpc::call`.
 
 use roost_proto::{
     SessionsKillRequest, SessionsKillResponse, SessionsRenameRequest, SessionsRenameResponse,

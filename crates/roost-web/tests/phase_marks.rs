@@ -1,4 +1,4 @@
-//! The document phase ring the oracle's navigation probe reads: oldest-first
+//! The document phase ring `window.__roostPhaseTimeline()` reads: oldest-first
 //! order across eviction, the once-per-key rule, and the timeline's clock and
 //! driver fields. Pins `platform::browser::phase_marks`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]

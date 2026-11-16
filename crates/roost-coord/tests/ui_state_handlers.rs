@@ -2,8 +2,8 @@
 //! they admit, the persisted-session fence, and the bus messages each publishes.
 //!
 //! None of them is fenced to the caller's own tab. All four require only an
-//! account device, and the headless callers -- `roost ui`, the smoke oracle --
-//! carry no tab. A
+//! account device, and a headless caller such as `roost ui`
+//! carries no tab. A
 //! request naming a session with no `sessions` row would put a command on the
 //! bus for a pane the fleet has never heard of, so that refusal is asserted per
 //! method, because "all four" is exactly the property a per-method implementation drops.

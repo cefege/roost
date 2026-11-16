@@ -3,8 +3,8 @@
 //!
 //! Split from the socket because both are decisions with no socket in them. The
 //! URL is bounded — a long terminal buffer must not produce a URL a browser
-//! refuses to open — and every failure caption is a string the end-to-end
-//! oracles assert on, so they live where a test can read them.
+//! refuses to open — and every failure caption is a string the user reads, so
+//! they live where a test can read them.
 
 /// The WebSocket endpoint. The browser talks to Deepgram directly with a key the
 /// coordinator stored; there is no server-side transcription to route through.

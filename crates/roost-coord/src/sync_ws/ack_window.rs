@@ -163,10 +163,10 @@ impl AckWindow {
     ///
     /// THIS IS NOT `may_send`, and the difference is the contract. `may_send`
     /// also passes the age deadline, and a Sync v2 egress turn that found the
-    /// deadline passed would have to choose between closing and stalling. The
-    /// send path never checks the age at all -- the delivery timer owns it and
-    /// closes the socket -- so the scheduler STALLS on a full window and lets
-    /// the timer close on a stalled one.
+    /// deadline passed would have to choose between closing and stalling.
+    /// `egress` never checks the age -- the driver's `enforce_ack_deadline`
+    /// owns it and closes the socket -- so the scheduler STALLS on a full
+    /// window and lets the deadline close a stalled one.
     #[must_use]
     pub fn has_room(&self, encoded_bytes: u64) -> bool {
         if !self.enabled {

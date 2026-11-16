@@ -92,12 +92,9 @@ fn focus_search_input_next_frame() {
     let _ = window.request_animation_frame(focus.unchecked_ref());
 }
 
-/// Whether the document is in the foreground; the age ticker pauses while not.
-///
-/// Through the platform owner rather than read here, because a raw
-/// `document.hidden` read bypasses the automation pin: the ticker would keep
-/// ticking ages on a tab the oracle has pinned hidden, and a sidebar that
-/// refreshes behind a reader who cannot see it is work nobody asked for.
+/// Whether the document is in the foreground; the age ticker pauses while not,
+/// because a sidebar that refreshes behind a reader who cannot see it is work
+/// nobody asked for.
 pub fn page_visible() -> bool {
     crate::platform::visibility::page_visible()
 }

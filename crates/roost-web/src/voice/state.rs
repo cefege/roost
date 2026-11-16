@@ -1,6 +1,6 @@
 //! The mic state machine, as a decision with no DOM in it.
 //!
-//! Every rule the end-to-end oracles read off `data-state` — the starting gate,
+//! Every rule behind the mic's `data-state` — the starting gate,
 //! the ownership claim, commit-on-switch, the finalize watchdog — is decided
 //! here and returned as a list of effects, so each one can be pinned by a test
 //! that has no microphone. The component in `crate::components::mobile_voice::input`

@@ -1,10 +1,10 @@
 //! The drain-and-answer half of the shell's UI bridge: a coordinator command
 //! executed against this tab's store, and acknowledged on the socket it named.
 //!
-//! The gate these pin is `callerApplyLayout` in the smoke suite, whose caller
-//! holds the request open until the answer lands. Silence is the one answer it
-//! cannot use, so a refusal the coordinator asked for has to travel back as a
-//! refusal — and an answer on the wrong socket is not an answer at all.
+//! A layout-apply caller holds the request open until the answer lands.
+//! Silence is the one answer it cannot use, so a refusal the coordinator asked
+//! for has to travel back as a refusal — and an answer on the wrong socket is
+//! not an answer at all.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

@@ -111,8 +111,7 @@ pub enum ClientEvent {
         /// Whether a hidden document may act on it (`online` may).
         allow_hidden: bool,
     },
-    /// A deliberate transport control: a manual reconnect, or one of the smoke
-    /// backdoor's partition controls.
+    /// A deliberate transport control: the user's manual reconnect.
     SyncTransportControl(crate::handle_sync::lifecycle::TransportControl),
     /// A Connect unary call answered.
     RpcResultReceived(RpcResult),

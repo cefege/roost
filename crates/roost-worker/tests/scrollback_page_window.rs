@@ -4,8 +4,8 @@
 //! against the grid the reader is being answered from, not a validation that
 //! happens before the reader is consulted. A reader walking backwards from the
 //! end of the scrollback does not know the total yet, so it sends the largest
-//! safe integer a JavaScript `number` can hold — the smoke harness's
-//! retained-marker scan does exactly that — and the answer it is owed is the
+//! safe integer a JavaScript `number` can hold — a retained-marker scan
+//! does exactly that — and the answer it is owed is the
 //! last page the grid holds. Refusing the sentinel instead makes every "scan
 //! the whole retained scrollback" reader fail before it reaches the one reader
 //! in this crate whose entire job is to answer it.

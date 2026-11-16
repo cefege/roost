@@ -4,8 +4,8 @@
 //!
 //! These pin `crates/roost-coord/src/sync_ws/terminal/{ready_ring,delivery}.rs`.
 //! A lane that sends one delta and then waits forever for a delivery match is
-//! the smoke failure "main screen history survives width and height
-//! perturbations": the browser sees no deltas, only the fulls its own resync
+//! the failure where main-screen history does not survive width and height
+//! perturbations: the browser sees no deltas, only the fulls its own resync
 //! challenges pull, so the history the deltas carry is never painted.
 
 // Every unwrap here is an assertion over a value the test just built: the panic

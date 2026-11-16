@@ -130,7 +130,7 @@ fn screen_json(services: &CoordServices, session_id: &SessionId) -> Value {
     })
 }
 
-/// One view's geometry input, camelCase as the SPA and the smoke probe read it.
+/// One view's geometry input, camelCase as the SPA reads it.
 fn view_input_json(input: &ViewInput) -> Value {
     json!({
         "fingerprint": input.fingerprint,

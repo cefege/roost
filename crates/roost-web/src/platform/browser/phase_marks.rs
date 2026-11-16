@@ -1,7 +1,7 @@
 //! The document's phase recorder: a fixed 256-slot ring of bootstrap and
 //! terminal phase marks, always on, so an ordinary cold navigation can be
 //! measured without enabling diagnostics first. Marked from the app entry,
-//! the pump's Sync delivery, the pane mount and the smoke paint proofs; read
+//! the pump's Sync delivery, the pane mount and the first painted frame; read
 //! through `window.__roostPhaseTimeline()`.
 
 use std::cell::RefCell;
@@ -112,7 +112,7 @@ impl PhaseRing {
         self.write(name, Some(once_key.to_owned()), detail, clock)
     }
 
-    /// The timeline, oldest mark first, under the keys the smoke members read.
+    /// The timeline, oldest mark first, under the keys the timeline member returns.
     /// `driver_epoch_ms` is the driver's pre-navigation stamp, reported only when
     /// it is finite.
     pub fn timeline_json(&self, clock: PhaseClock, driver_epoch_ms: Option<f64>) -> Value {
@@ -230,7 +230,7 @@ pub fn mark_session_phase(name: PhaseName, session_id: &str) {
     mark_phase(name, &[("sessionId", Value::String(session_id.to_owned()))]);
 }
 
-/// This document's timeline, as the smoke `phaseTimeline` member answers it.
+/// This document's timeline, as `window.__roostPhaseTimeline()` answers it.
 pub fn phase_timeline() -> Value {
     let clock = document_clock();
     DOCUMENT_PHASES.with(|ring| ring.borrow().timeline_json(clock, driver_epoch_ms()))

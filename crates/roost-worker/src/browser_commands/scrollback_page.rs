@@ -92,7 +92,7 @@ pub async fn execute(command: &Command, deps: &Deps) -> Result<Answered, Refusal
     // The window is CLAMPED, not validated, and the clamp is what the protocol
     // promises. A reader that walks backwards from the end of the scrollback
     // asks for `Number.MAX_SAFE_INTEGER` because it does not know the total
-    // yet — the smoke harness's retained-marker scan does exactly that — and the
+    // yet — a retained-marker scan does exactly that — and the
     // answer is the last page the grid holds. Narrowing to `u32` BEFORE the
     // clamp refused that sentinel, so every "scan the whole retained
     // scrollback" reader failed with `end_row does not fit` and never reached

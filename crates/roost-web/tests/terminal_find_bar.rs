@@ -1,8 +1,8 @@
 //! The pane-local find bar's reader-visible contract: what the count says, and
 //! which keys the bar claims while it owns the keyboard.
 //!
-//! The bar is the surface the oracle drives (`terminal-find-input`,
-//! `terminal-find-count`, `terminal-find-close`), and these are the two rules it
+//! The bar's controls are `terminal-find-input`, `terminal-find-count` and
+//! `terminal-find-close`, and these are the two rules it
 //! can get wrong in a way no mount reveals: a count that lies about how much of
 //! the history was read, and a bar that eats a keystroke the reader was typing
 //! into its own field.
@@ -28,9 +28,9 @@ fn searched(total: u32, index: u32, truncated: bool) -> FindBarState {
 
 #[test]
 fn a_search_that_found_nothing_says_zero_of_zero() {
-    // The smoke oracle waits for `1/1` on a unique marker, so a bar reporting
-    // `0/0` for a real hit is indistinguishable from one with no search behind
-    // it. The empty and the searched-and-empty readings must stay different.
+    // A reader waits for `1/1` on a unique word, so a bar reporting `0/0` for a
+    // real hit is indistinguishable from one with no search behind it. The
+    // empty and the searched-and-empty readings must stay different.
     assert_eq!(find_count_text(&searched(0, 0, false)), "0/0");
     assert_eq!(find_count_text(&FindBarState::default()), "");
 }

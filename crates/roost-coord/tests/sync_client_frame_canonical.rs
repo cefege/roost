@@ -4,7 +4,7 @@
 //! The coordinator refuses a client frame whose protobuf-es re-encoding differs
 //! from its bytes, and protobuf-es writes fields in
 //! ascending field number. The fixture below is a `TerminalInputRouteClaim`
-//! frame captured from the smoke browser: `socket_id = 10` precedes
+//! frame captured from a browser: `socket_id = 10` precedes
 //! `input_route_claim = 11`, the order buffa's declaration-order encoder does
 //! not produce.
 
@@ -15,8 +15,8 @@ use roost_proto::__buffa::oneof::sync_client_frame::Command;
 use roost_proto::SyncClientFrame;
 use roost_proto::buffa::{DecodeOptions, Message};
 
-/// A route claim as protobuf-es encoded it (terminal-peer smoke, after a Sync
-/// pause and resume).
+/// A route claim as protobuf-es encoded it, captured after a Sync pause and
+/// resume.
 const BROWSER_ROUTE_CLAIM: &str = "522431656366643637322d313438662d343334642d383139632d32396165\
 30366438346466395a7d0a2466383530363864302d386333652d343435372d393637332d633631636334343130623536\
 122432346662373533342d393133392d346138382d616235342d343738346262643735353064183120dfbaaac1caf4a003\

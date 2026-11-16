@@ -1,8 +1,7 @@
 //! The read-only views a terminal pane publishes about itself: the epoch
 //! watermarks, the paint presentation a stress harness reads, and the snapshot
 //! diagnostics diff against. Plain data with no DOM, so what the browser shows and
-//! what a native test asserts are the same values; the smoke API and the incident
-//! scanner read them.
+//! what a native test asserts are the same values.
 
 use std::rc::Rc;
 
@@ -150,7 +149,7 @@ pub struct RendererProjection {
     pub client_height: f64,
 }
 
-/// The shape the diagnostic snapshot and the smoke API publish.
+/// The shape the diagnostic snapshot publishes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RendererPresentationSnapshot {
     pub captured_at_ms: f64,
@@ -233,7 +232,7 @@ fn parse_css_px(value: &str) -> f64 {
         .unwrap_or(0.0)
 }
 
-/// Build the presentation snapshot the smoke API publishes and diagnostics diff.
+/// Build the presentation snapshot diagnostics diff.
 pub fn create_renderer_presentation_snapshot(
     state: &RendererProjection,
     captured_at_ms: f64,
