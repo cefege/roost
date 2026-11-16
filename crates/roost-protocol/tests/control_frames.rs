@@ -76,6 +76,13 @@ fn a_frame_kind_this_build_retired_is_refused_rather_than_ignored() {
         ClientControlFrame::parse(json!({ "kind": "attach-to", "session_id": CONTROL_SESSION }))
             .is_err()
     );
+    for kind in ["detach", "git-diff", "set-title", "get-home", "cursor-pos"] {
+        assert!(
+            ClientControlFrame::parse(json!({ "kind": kind, "session_id": CONTROL_SESSION }))
+                .is_err(),
+            "{kind}"
+        );
+    }
 }
 
 #[test]

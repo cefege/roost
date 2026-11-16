@@ -1,17 +1,13 @@
 #![cfg(unix)]
 //! The browser file commands: a read, a bounded preview, a byte range, a
-//! listing, a directory, and the home the browse surface starts from.
+//! listing and a directory.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod browser_command_support;
 use browser_command_support::{
-    EPOCH, FINGERPRINT, HostPlatform, LocalFiles, MapEnv, base64_decode, command, dispatch,
-    frame_of, harness, only,
+    EPOCH, FINGERPRINT, base64_decode, command, dispatch, frame_of, harness, only,
 };
-use roost_worker::browser_commands::file_commands::FileCommands;
 use serde_json::json;
-
-use std::sync::Arc;
 
 /// A READ IS BOUNDED BEFORE IT HAPPENS: a file past the ceiling is refused
 /// from its size alone, and a relative path is refused because it would
@@ -181,26 +177,6 @@ async fn making_a_directory_creates_its_missing_parents_and_answers_with_the_pat
         reply.data().and_then(|data| data["resolved_path"].as_str()),
         Some(deep.to_string_lossy().as_ref())
     );
-}
-
-/// THE HOME IS NEVER AN EMPTY STRING. A process that clears HOME has not said
-/// its home is the current directory, and every `~` would resolve there.
-#[tokio::test]
-async fn a_home_that_is_absent_or_empty_falls_back_to_the_sentinel() {
-    let harness = harness();
-    let reply = only(dispatch(&command(frame_of("get-home")), &harness.deps).await);
-    assert_eq!(
-        reply.data().and_then(|data| data["home"].as_str()),
-        Some(harness.root.to_string_lossy().as_ref())
-    );
-
-    let empty = LocalFiles::new(
-        Arc::new(MapEnv::new().with("HOME", "")),
-        HostPlatform::Linux,
-    );
-    assert_eq!(empty.home(), "~");
-    let unset = LocalFiles::new(Arc::new(MapEnv::new()), HostPlatform::Linux);
-    assert_eq!(unset.home(), "~");
 }
 
 #[tokio::test]

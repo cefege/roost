@@ -310,7 +310,11 @@ update broker's coordinator control) and the `DCoordMovePrepare`,
 coordinator-move frames, with their `CoordWorkerDown` fields 7-10 and 30
 reserved; and the unsequenced `DBinary` PTY input frame (`CoordWorkerDown`
 field 4, reserved), whose keyboard path is the sequenced `input_request`; the
-keeper client's `write_input` went with it.
+keeper client's `write_input` went with it. The browser control frames
+`git-diff`, `set-title`, `detach`, `get-home` and `cursor-pos` are gone from
+`ClientControlFrame` with the worker's presence owner and `get-home` file
+command; `SessionsCursorPos` still publishes presence from the coordinator
+and no longer relays to the worker.
 
 The dedicated OMP integration is retired too: managed ACP processes, HTML chat,
 agent RPCs and Sync frames, status detection/reporting, fenced prompts, agent

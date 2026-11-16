@@ -178,12 +178,9 @@ fn route(harness: &SessionsHarness, sid: &str) {
     );
 }
 
-// v2 coord-bidi: "cursor presence uses tab identity while the legacy worker
-// envelope uses sender identity" and "... keep the legacy bare fingerprint".
 #[tokio::test]
-async fn cursor_presence_is_tab_scoped_while_the_worker_envelope_is_the_device() {
+async fn cursor_presence_is_tab_scoped() {
     let harness = SessionsHarness::new("cursor").await;
-    harness.connect_worker();
     for (tail, tab, viewer) in [
         ("5", Some(TAB), format!("{BROWSER_FP}:{TAB}")),
         ("6", None, BROWSER_FP.to_owned()),
@@ -214,16 +211,6 @@ async fn cursor_presence_is_tab_scoped_while_the_worker_envelope_is_the_device()
             ),
             (json!(17), json!(9))
         );
-        let sent = harness.commands().last().cloned().unwrap();
-        assert_eq!(sent.viewer_id, BROWSER_FP);
-        assert!(matches!(
-            sent.frame,
-            ClientControlFrame::CursorPos {
-                col: 17,
-                row: 9,
-                ..
-            }
-        ));
     }
     let unknown = SessionsCursorPosRequest {
         session_id: session("7"),

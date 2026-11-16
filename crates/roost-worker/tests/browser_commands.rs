@@ -116,19 +116,6 @@ fn a_frame_that_does_not_decode_never_reaches_a_handler() {
     );
 }
 
-/// An unavailable command must answer its request rather than leave the
-/// coordinator's pending entry to expire.
-#[test]
-fn a_command_this_build_cannot_run_is_answered_with_a_reason() {
-    let harness = harness();
-    let reply = only(tokio::runtime::Runtime::new().expect("a runtime").block_on(
-        roost_worker::browser_commands::dispatch(&command(frame_of("git-diff")), &harness.deps),
-    ));
-    assert!(!reply.is_ok(), "git-diff is answered as a success");
-    let message = reply.message().expect("a refusal carries a message");
-    assert!(!message.is_empty(), "git-diff is refused with a cause");
-}
-
 /// ATTACH ANSWERS WITH THE OFFSET THE SESSION LAYER NAMED. A hardcoded zero
 /// would tell a browser to replay a ring from the beginning every time, and
 /// would look correct on a session that never had output.
@@ -175,29 +162,6 @@ async fn killing_a_session_reaches_the_session_layer_and_is_answered() {
         "a kill is answered so its request cannot hang"
     );
     assert_eq!(harness.sessions.killed.lock().expect("held")[0], SESSION);
-}
-
-/// PRESENCE ASKS FOR NO ANSWER. A cursor position, a title and a detach are
-/// statements about a moment that has passed.
-#[tokio::test]
-async fn presence_commands_are_answered_with_silence_and_still_take_effect() {
-    let harness = harness();
-    for kind in ["cursor-pos", "set-title", "detach"] {
-        let frames = dispatch(&command(frame_of(kind)), &harness.deps).await;
-        assert!(frames.is_empty(), "{kind} asks for no answer");
-    }
-    assert_eq!(
-        harness.presence.cursors.lock().expect("held")[0],
-        (SESSION.to_owned(), 3, 4)
-    );
-    assert_eq!(
-        harness.presence.titles.lock().expect("held")[0],
-        (SESSION.to_owned(), "build".to_owned())
-    );
-    assert_eq!(
-        harness.presence.left.lock().expect("held")[0],
-        (SESSION.to_owned(), FINGERPRINT.to_owned())
-    );
 }
 
 /// A REFUSAL IS BOUNDED. It crosses a trust boundary, and a capability backed

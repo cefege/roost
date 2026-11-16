@@ -164,15 +164,6 @@ fn a_trace_id_is_carried_through_and_is_held_to_its_shape() {
 
 #[test]
 fn a_negative_where_a_position_is_named_is_refused() {
-    let mut cursor = frame_of("cursor-pos");
-    cursor["col"] = json!(-1);
-    assert!(ClientControlFrame::parse(cursor.clone()).is_err());
-    cursor["col"] = json!(0);
-    cursor["row"] = json!(-1);
-    assert!(ClientControlFrame::parse(cursor.clone()).is_err());
-    cursor["row"] = json!(0);
-    assert!(ClientControlFrame::parse(cursor).is_ok());
-
     let mut chunk = frame_of("read-file-chunk");
     chunk["offset"] = json!(-1);
     assert!(ClientControlFrame::parse(chunk.clone()).is_err());

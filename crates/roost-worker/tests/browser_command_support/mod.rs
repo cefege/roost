@@ -46,9 +46,7 @@ pub use scratch::scratch_root;
 // depend on which test happens to be compiling.
 #[allow(unused_imports)]
 pub use dispatch::{base64_decode, command, dispatch, floor, frame_of, only};
-pub use fakes::{
-    FakeDiagnostics, FakeGrid, FakePresence, FakeSearch, FakeSessions, FakeTerminalImages,
-};
+pub use fakes::{FakeDiagnostics, FakeGrid, FakeSearch, FakeSessions, FakeTerminalImages};
 
 // Re-exported so a test binary can name the collaborators it drives without
 // importing four modules to reach them.
@@ -66,7 +64,6 @@ pub struct Harness {
     pub deps: Deps,
     pub root: PathBuf,
     pub sessions: Arc<FakeSessions>,
-    pub presence: Arc<FakePresence>,
     pub search: Arc<FakeSearch>,
     pub diagnostics: Arc<FakeDiagnostics>,
 }
@@ -81,14 +78,12 @@ pub fn harness() -> Harness {
         root.join("attachments"),
     )));
     let sessions = Arc::new(FakeSessions::default());
-    let presence = Arc::new(FakePresence::default());
     let search = Arc::new(FakeSearch::default());
     let images = Arc::new(FakeTerminalImages::default());
     let diagnostics = Arc::new(FakeDiagnostics::default());
     Harness {
         deps: Deps {
             sessions: sessions.clone(),
-            presence: presence.clone(),
             files,
             grid: Arc::new(FakeGrid::default()),
             images: images.clone(),
@@ -99,7 +94,6 @@ pub fn harness() -> Harness {
         },
         root,
         sessions,
-        presence,
         search,
         diagnostics,
     }

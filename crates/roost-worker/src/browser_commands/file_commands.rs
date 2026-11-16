@@ -1,5 +1,5 @@
-//! The filesystem a browser reads through: whole files, byte ranges,
-//! directories, and the home directory to browse from. Owned by the worker.
+//! The filesystem a browser reads through: whole files, byte ranges and
+//! directories. Owned by the worker.
 //!
 //! Three rules, and each one is a ceiling a caller would otherwise discover by
 //! being cut off mid-answer.
@@ -66,12 +66,6 @@ pub type FileOutcome = Result<serde_json::Value, Refusal>;
 
 /// The filesystem a browser command reads through.
 pub trait FileCommands: Send + Sync {
-    /// The home directory the browse surface starts from, or the `~` sentinel
-    /// when the environment does not name one. Never an empty string: an empty
-    /// home would resolve every `~` a user typed into the directory the worker
-    /// process happens to be in.
-    fn home(&self) -> String;
-
     fn read_file(&self, path: String, max_lines: Option<i64>) -> Boxed<FileOutcome>;
 
     fn read_file_revision(&self, path: String, revision: String) -> Boxed<FileOutcome>;
@@ -106,7 +100,6 @@ pub async fn execute(command: &Command, deps: &Deps) -> Result<Answered, Refusal
         } => files.read_file_chunk(path.clone(), *offset, *len).await,
         ClientControlFrame::ListDir { path, .. } => files.list_dir(path.clone()).await,
         ClientControlFrame::Mkdir { path, .. } => files.make_dir(path.clone()).await,
-        ClientControlFrame::GetHome { .. } => Ok(serde_json::json!({ "home": files.home() })),
         other => {
             return Err(Refusal::failed(
                 "files",
@@ -309,13 +302,6 @@ const LIST_DIR: &str = "list-dir";
 const MKDIR: &str = "mkdir";
 
 impl FileCommands for LocalFiles {
-    fn home(&self) -> String {
-        match self.shell().home_directory() {
-            Some(home) => home.to_string_lossy().into_owned(),
-            None => "~".to_owned(),
-        }
-    }
-
     fn read_file(&self, path: String, max_lines: Option<i64>) -> Boxed<FileOutcome> {
         let shell = self.shell();
         Box::pin(async move { shell.read_file(&path, max_lines).await })

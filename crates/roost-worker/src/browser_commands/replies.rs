@@ -103,7 +103,6 @@ impl Reply {
 pub fn trace_id(frame: &ClientControlFrame) -> Option<TraceId> {
     match frame {
         ClientControlFrame::Attach { trace_id, .. }
-        | ClientControlFrame::Detach { trace_id, .. }
         | ClientControlFrame::SpawnShell { trace_id, .. }
         | ClientControlFrame::Kill { trace_id, .. }
         | ClientControlFrame::ReadFile { trace_id, .. }
@@ -111,10 +110,6 @@ pub fn trace_id(frame: &ClientControlFrame) -> Option<TraceId> {
         | ClientControlFrame::AttachmentProbe { trace_id, .. }
         | ClientControlFrame::ListDir { trace_id, .. }
         | ClientControlFrame::Mkdir { trace_id, .. }
-        | ClientControlFrame::GitDiff { trace_id, .. }
-        | ClientControlFrame::SetTitle { trace_id, .. }
-        | ClientControlFrame::CursorPos { trace_id, .. }
-        | ClientControlFrame::GetHome { trace_id, .. }
         | ClientControlFrame::GetScrollbackCells { trace_id, .. }
         | ClientControlFrame::GetTerminalImage { trace_id, .. }
         | ClientControlFrame::SearchScrollback { trace_id, .. }

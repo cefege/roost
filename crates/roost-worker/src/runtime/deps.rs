@@ -28,7 +28,6 @@ use crate::attachments::store_paths::AttachmentBase;
 use crate::browser_commands::Deps;
 use crate::browser_commands::attachments::SessionAttachments;
 use crate::browser_commands::file_commands::LocalFiles;
-use crate::browser_commands::presence::WorkerPresence;
 use crate::browser_commands::search;
 use crate::browser_commands::search_scan::GridScanner;
 use crate::capture::CaptureRecorder;
@@ -90,7 +89,6 @@ impl WorkerCapabilities {
         } = self;
         Deps {
             sessions: manager,
-            presence: Arc::new(WorkerPresence),
             files: Arc::new(LocalFiles::new(Arc::new(ProcessEnv::new()), platform)),
             grid: Arc::new(SessionGrid::new(Arc::clone(&sessions))),
             images: Arc::new(SessionTerminalImages::new(Arc::clone(&sessions))),

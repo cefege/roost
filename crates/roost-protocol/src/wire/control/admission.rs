@@ -94,10 +94,6 @@ impl ClientControlFrame {
                 nonnegative("read-file-chunk.offset", *offset)?;
                 positive("read-file-chunk.len", *len)?;
             }
-            Self::CursorPos { col, row, .. } => {
-                nonnegative("cursor-pos.col", *col)?;
-                nonnegative("cursor-pos.row", *row)?;
-            }
             Self::GetScrollbackCells {
                 end_row, max_rows, ..
             } => {

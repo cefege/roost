@@ -78,12 +78,6 @@ pub enum ClientControlFrame {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         trace_id: Option<TraceId>,
     },
-    #[serde(rename = "detach")]
-    Detach {
-        session_id: SessionId,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        trace_id: Option<TraceId>,
-    },
     /// The SPA passes the geometry it is already rendering at, so the keeper
     /// PTY starts the right width from its first byte. Without it a TUI paints
     /// to the keeper's default and the wrap it leaves behind is in the visible
@@ -152,35 +146,6 @@ pub enum ClientControlFrame {
     Mkdir {
         request_id: String,
         path: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        trace_id: Option<TraceId>,
-    },
-    #[serde(rename = "git-diff")]
-    GitDiff {
-        request_id: String,
-        session_id: SessionId,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        trace_id: Option<TraceId>,
-    },
-    #[serde(rename = "set-title")]
-    SetTitle {
-        session_id: SessionId,
-        title: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        trace_id: Option<TraceId>,
-    },
-    /// Cursor position for presence, sent whenever the browser's cursor moves.
-    #[serde(rename = "cursor-pos")]
-    CursorPos {
-        session_id: SessionId,
-        col: i64,
-        row: i64,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        trace_id: Option<TraceId>,
-    },
-    #[serde(rename = "get-home")]
-    GetHome {
-        request_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         trace_id: Option<TraceId>,
     },
@@ -337,7 +302,6 @@ impl ClientControlFrame {
     pub fn kind(&self) -> &'static str {
         match self {
             Self::Attach { .. } => "attach",
-            Self::Detach { .. } => "detach",
             Self::SpawnShell { .. } => "spawn-shell",
             Self::Kill { .. } => "kill",
             Self::GetTerminalImage { .. } => "get-terminal-image",
@@ -346,10 +310,6 @@ impl ClientControlFrame {
             Self::AttachmentProbe { .. } => "attachment-probe",
             Self::ListDir { .. } => "list-dir",
             Self::Mkdir { .. } => "mkdir",
-            Self::GitDiff { .. } => "git-diff",
-            Self::SetTitle { .. } => "set-title",
-            Self::CursorPos { .. } => "cursor-pos",
-            Self::GetHome { .. } => "get-home",
             Self::GetScrollbackCells { .. } => "get-scrollback-cells",
             Self::SearchScrollback { .. } => "search-scrollback",
             Self::CancelScrollbackSearch { .. } => "cancel-scrollback-search",

@@ -17,7 +17,6 @@ use roost_protocol::terminal_capture::{
 use roost_protocol::wire::brand::SessionId;
 use roost_worker::browser_commands::Refusal;
 use roost_worker::browser_commands::diagnostics::{CaptureCommand, DiagnosticReports};
-use roost_worker::browser_commands::presence::PresenceReports;
 use roost_worker::browser_commands::scrollback_page::{GridDescription, RetainedGrid};
 use roost_worker::browser_commands::search::{BatchSearch, ScrollbackSearch, SingleSearch};
 use roost_worker::browser_commands::session_lifecycle::{SessionLifecycle, SessionOutcome};
@@ -84,36 +83,6 @@ impl SessionLifecycle for FakeSessions {
             .expect("held")
             .push(session_id.to_string());
         Box::pin(async { Ok(SessionOutcome::Attached { replay_offset: 42 }) })
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct FakePresence {
-    pub cursors: Mutex<Vec<(String, u16, u16)>>,
-    pub titles: Mutex<Vec<(String, String)>>,
-    pub left: Mutex<Vec<(String, String)>>,
-}
-
-impl PresenceReports for FakePresence {
-    fn cursor_moved(&self, session_id: SessionId, col: u16, row: u16) {
-        self.cursors
-            .lock()
-            .expect("held")
-            .push((session_id.to_string(), col, row));
-    }
-
-    fn titled(&self, session_id: SessionId, title: String) {
-        self.titles
-            .lock()
-            .expect("held")
-            .push((session_id.to_string(), title));
-    }
-
-    fn viewer_left(&self, session_id: SessionId, browser_id: String) {
-        self.left
-            .lock()
-            .expect("held")
-            .push((session_id.to_string(), browser_id));
     }
 }
 

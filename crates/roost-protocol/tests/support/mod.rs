@@ -46,10 +46,6 @@ pub fn canonical_frames() -> Vec<(&'static str, Value)> {
             json!({ "kind": "attach", "session_id": CONTROL_SESSION }),
         ),
         (
-            "detach",
-            json!({ "kind": "detach", "session_id": CONTROL_SESSION }),
-        ),
-        (
             "spawn-shell",
             json!({ "kind": "spawn-shell", "folder": "/Users/you", "cols": 120, "rows": 40 }),
         ),
@@ -93,22 +89,6 @@ pub fn canonical_frames() -> Vec<(&'static str, Value)> {
         (
             "mkdir",
             json!({ "kind": "mkdir", "request_id": "r5", "path": "/tmp/new" }),
-        ),
-        (
-            "git-diff",
-            json!({ "kind": "git-diff", "request_id": "r7", "session_id": CONTROL_SESSION }),
-        ),
-        (
-            "set-title",
-            json!({ "kind": "set-title", "session_id": CONTROL_SESSION, "title": "build" }),
-        ),
-        (
-            "cursor-pos",
-            json!({ "kind": "cursor-pos", "session_id": CONTROL_SESSION, "col": 3, "row": 4 }),
-        ),
-        (
-            "get-home",
-            json!({ "kind": "get-home", "request_id": "r8" }),
         ),
         (
             "get-scrollback-cells",
