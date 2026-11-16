@@ -61,9 +61,6 @@ pub trait KeeperChannels: Send + Sync {
     /// the write takes the keeper connection, so async callers run it on a
     /// blocking thread.
     fn begin_input(&self, channel_id: u16, bytes: Vec<u8>) -> KeeperInputCommand;
-    /// Unacknowledged input (v2 `pool.input`, the legacy `onBinary` path). `Err`
-    /// is a write that never reached the keeper.
-    fn write_legacy_input(&self, channel_id: u16, bytes: &[u8]) -> Result<(), KeeperFault>;
 }
 
 /// One channel's ordered history: output and geometry records oldest first,

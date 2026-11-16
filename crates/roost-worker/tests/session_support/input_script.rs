@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::sync::Mutex;
 
 use roost_worker::session::keeper_channels::{
-    InputNotWritten, KeeperFault, KeeperInputCommand, KeeperInputResult,
+    InputNotWritten, KeeperInputCommand, KeeperInputResult,
 };
 use tokio::sync::oneshot;
 
@@ -25,7 +25,6 @@ pub enum ScriptedAnswer {
 pub struct InputScript {
     answers: Mutex<VecDeque<ScriptedAnswer>>,
     written: Mutex<Vec<(u16, Vec<u8>)>>,
-    legacy: Mutex<Vec<(u16, Vec<u8>)>>,
 }
 
 impl InputScript {
@@ -44,11 +43,6 @@ impl InputScript {
     /// Every acknowledged batch that reached the socket, in order.
     pub fn written(&self) -> Vec<(u16, Vec<u8>)> {
         self.written.lock().expect("held").clone()
-    }
-
-    /// Every legacy chunk, in order.
-    pub fn legacy(&self) -> Vec<(u16, Vec<u8>)> {
-        self.legacy.lock().expect("held").clone()
     }
 
     pub fn begin(&self, channel_id: u16, bytes: Vec<u8>) -> KeeperInputCommand {
@@ -73,14 +67,6 @@ impl InputScript {
             Some(ScriptedAnswer::Answered(result)) => written_with(result),
             Some(ScriptedAnswer::NotWritten(_)) | None => written_with(full),
         }
-    }
-
-    pub fn write_legacy(&self, channel_id: u16, bytes: &[u8]) -> Result<(), KeeperFault> {
-        self.legacy
-            .lock()
-            .expect("held")
-            .push((channel_id, bytes.to_vec()));
-        Ok(())
     }
 }
 

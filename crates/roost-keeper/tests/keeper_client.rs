@@ -142,7 +142,7 @@ fn a_terminal_round_trips_through_the_client() {
         .spawn(1, echo(), 80, 24)
         .expect("the spawn is acknowledged");
     client
-        .write_input(1, b"round-trip\r")
+        .send_input_request(1, 1, b"round-trip\r")
         .expect("the write lands");
 
     let start = Instant::now();
@@ -181,9 +181,11 @@ fn a_write_to_a_dead_keeper_reports_rather_than_succeeding() {
     // forever with no keeper behind it — so the claim under test is that the
     // client eventually reports, not that it reports on the first write.
     let mut reported = None;
+    let mut input_seq = 0;
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(5) && reported.is_none() {
-        if let Err(err) = client.write_input(1, b"into the void\r") {
+        input_seq += 1;
+        if let Err(err) = client.send_input_request(1, input_seq, b"into the void\r") {
             reported = Some(err);
         }
         std::thread::sleep(Duration::from_millis(50));

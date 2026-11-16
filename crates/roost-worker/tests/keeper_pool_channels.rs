@@ -9,7 +9,7 @@ mod keeper_pool_support;
 
 use std::sync::Arc;
 
-use keeper_pool_support::{KeeperFixture, channel, opened, session, sh_spec, wait_until};
+use keeper_pool_support::{KeeperFixture, channel, opened, refused, session, sh_spec, wait_until};
 use roost_worker::keeper_pool::PoolError;
 use roost_worker::session::sinks::ChannelBinding;
 
@@ -65,9 +65,11 @@ fn an_exited_channel_is_omitted_from_the_live_bindings() {
         vec![staying.channel_id],
         "only the live channel is announced to the keeper"
     );
-    opened(
-        pool.input(staying.channel_id, b""),
-        "the live channel still answers",
+    assert!(
+        opened(pool.keeper_channels(), "the keeper still answers")
+            .iter()
+            .any(|channel| channel.channel_id == staying.channel_id),
+        "the live channel is still running"
     );
 }
 
@@ -139,8 +141,8 @@ fn a_lost_keeper_ends_every_channel_exactly_once() {
 /// A request after the loss must fail rather than be written into a socket
 /// nobody reads: a silent success leaves a session typing into a void.
 fn refused_after_loss(pool: &roost_worker::keeper_pool::KeeperPool) -> PoolError {
-    match pool.input(1, b"x") {
-        Ok(()) => panic!("a request after the loss was accepted"),
-        Err(err) => err,
-    }
+    refused(
+        pool.keeper_channels(),
+        "a request after the loss was accepted",
+    )
 }

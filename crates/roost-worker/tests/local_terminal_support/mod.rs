@@ -119,9 +119,6 @@ impl KeeperChannels for AutoKeeper {
             result: Box::pin(std::future::ready(answer)),
         }
     }
-    fn write_legacy_input(&self, _channel_id: u16, _bytes: &[u8]) -> Result<(), KeeperFault> {
-        Ok(())
-    }
 }
 
 pub fn case(frame: &ServerFrame) -> &'static str {

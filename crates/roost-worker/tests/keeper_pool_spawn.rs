@@ -322,10 +322,6 @@ fn a_spawn_named_a_channel_the_keeper_still_holds_is_refused() {
         vec![spawned.channel_id],
         "a refused colliding spawn left nothing behind"
     );
-    opened(
-        pool.input(spawned.channel_id, b""),
-        "the channel the collision would have hit is still running",
-    );
 }
 
 /// A KILL IS PROVEN BY THE KEEPER REAPING, NOT BY A FRAME. The daemon owes
@@ -388,10 +384,6 @@ fn a_killed_channel_leaves_the_keeper_and_nothing_else_is_asked_of_it() {
         remaining.iter().map(|c| c.channel_id).collect::<Vec<_>>(),
         vec![doomed.channel_id],
         "only the channel that was killed is gone"
-    );
-    opened(
-        pool.input(doomed.channel_id, b""),
-        "the surviving channel still answers",
     );
     survivor_record.printed("");
 }

@@ -39,15 +39,6 @@ pub fn downstream_arms() -> Vec<(&'static str, CoordWorkerDownstream)> {
             CoordWorkerDownstream::EventAck(EventAck { client_seq: 42 }),
         ),
         (
-            "binary",
-            CoordWorkerDownstream::Binary(Binary {
-                channel_id: channel(4),
-                direction: 1,
-                data: b"ls -la\r".to_vec(),
-                seq: 0,
-            }),
-        ),
-        (
             "input-request",
             CoordWorkerDownstream::InputRequest(Default::default()),
         ),

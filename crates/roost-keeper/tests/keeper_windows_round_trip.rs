@@ -68,7 +68,7 @@ fn a_conpty_channel_streams_output_and_its_kill_produces_an_exit() {
         {
             if frame.payload.windows(4).any(|window| window == b"\x1b[6n") {
                 client
-                    .write_input(1, b"\x1b[1;1R")
+                    .send_input_request(1, 1, b"\x1b[1;1R")
                     .expect("the cursor report is sent");
             }
             seen.extend_from_slice(&frame.payload);

@@ -150,16 +150,6 @@ impl KeeperPool {
         tracing::info!(channel_id, pid, "adopted a surviving channel");
     }
 
-    /// Write input without waiting for an answer.
-    ///
-    /// The keystroke path of the legacy binary frame: nothing is owed back, so
-    /// nothing correlates it. [`KeeperPool::begin_acknowledged_input`] is the
-    /// form whose outcome a caller can report.
-    pub fn input(&self, channel_id: u16, bytes: &[u8]) -> Result<(), PoolError> {
-        self.require_connected()?;
-        self.request(|client| client.write_input(channel_id, bytes))
-    }
-
     /// Put one acknowledged batch on the socket under a worker-owned sequence,
     /// and hand back its two halves (v2 `beginInput`).
     ///

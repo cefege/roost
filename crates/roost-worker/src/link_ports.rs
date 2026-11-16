@@ -24,7 +24,6 @@ use roost_proto::{
     DTerminalTransportProbe, WLocalTerminalPeerAnswer, WTerminalTransportProbeResult,
 };
 use roost_protocol::attachment_transfer::PeerErrorReason;
-use roost_protocol::wire::brand::ChannelId;
 use roost_protocol::wire::coord_worker::{
     InputResult, TerminalSnapshotRequest, TerminalStreamResult,
 };
@@ -33,8 +32,8 @@ use crate::attachments::upload::RelayChunkOutcome;
 use crate::peer::TerminalPeerOfferFailure;
 use crate::uplink::{LinkFence, OwnerFuture, RequestBudget};
 
-/// Browser input reaching a PTY. v2 `onInputRequest`, `onBinary`,
-/// `onTerminalInputRouteClaim`, and the route half of `onTerminalViewSocketClosed`.
+/// Browser input reaching a PTY: `onInputRequest`, `onTerminalInputRouteClaim`,
+/// and the route half of `onTerminalViewSocketClosed`.
 pub trait TerminalInputPort: Send + Sync + std::fmt::Debug {
     /// Work-budget reservation happens synchronously in this call; the future
     /// resolves to the ONE `input-result` payload the coordinator is told, or
@@ -46,9 +45,6 @@ pub trait TerminalInputPort: Send + Sync + std::fmt::Debug {
         budget: RequestBudget,
         fence: LinkFence,
     ) -> OwnerFuture<Option<InputResult>>;
-    /// Legacy unacknowledged input (v2 `onBinary` → `sessionMgr.input`),
-    /// already filtered to `DIR_TO_PTY`.
-    fn write_binary(&self, channel_id: ChannelId, bytes: Vec<u8>);
     /// `None` → the dispatcher sends v2's refused claim (`route_claim_busy`).
     fn claim_route(
         &self,

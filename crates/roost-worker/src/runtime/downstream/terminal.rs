@@ -14,7 +14,7 @@ use roost_proto::{
 };
 use roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1;
 use roost_protocol::wire::coord_worker::{
-    Binary, CoordWorkerUpstream, DIR_TO_PTY, TerminalInputStatus, TerminalSnapshotRequest,
+    CoordWorkerUpstream, TerminalInputStatus, TerminalSnapshotRequest,
     TerminalStreamFailureKind, TerminalStreamStatus, TerminalWritePhase,
 };
 
@@ -51,20 +51,6 @@ impl Dispatcher {
         tracing::info!(client_seq, "the snapshot is acknowledged; the link is live");
         if let Some(owners) = &self.owners {
             owners.lifecycle.on_snapshot_ready();
-        }
-    }
-
-    /// v2 `onBinary`: only `DIR_TO_PTY` is input.
-    pub(super) fn binary(&self, binary: Binary) {
-        if binary.direction != DIR_TO_PTY {
-            tracing::debug!(channel = %binary.channel_id, direction = binary.direction, "a downstream binary frame was not addressed to a PTY");
-            return;
-        }
-        match &self.owners {
-            Some(owners) => owners.input.write_binary(binary.channel_id, binary.data),
-            None => {
-                tracing::warn!(channel = %binary.channel_id, "downstream input arrived with no input owner attached")
-            }
         }
     }
 

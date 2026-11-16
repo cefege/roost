@@ -7,17 +7,16 @@
 //! this build does not know arrives as an unknown field on the wrapper and is
 //! refused with that number in the message.
 
-use super::records::{channel_id, data_from_json, narrow_i64};
+use super::records::{data_from_json, narrow_i64};
 use super::{DOWNSTREAM, empty_arm, unknown_arm};
 use crate::wire::brand::SessionId;
 use crate::wire::control::ClientControlFrame;
 use crate::wire::coord_worker::CoordWorkerDownstream;
-use crate::wire::coord_worker::{Binary, EventAck, TerminalSnapshotRequest};
+use crate::wire::coord_worker::{EventAck, TerminalSnapshotRequest};
 use crate::{ProtocolError, ProtocolResult};
 use roost_proto::coord_worker_down::Frame;
 use roost_proto::{
-    CoordWorkerDown, DBinary, DBrowserCommand, DEventAck, DHelloAck, DPing,
-    DTerminalSnapshotRequest,
+    CoordWorkerDown, DBrowserCommand, DEventAck, DHelloAck, DPing, DTerminalSnapshotRequest,
 };
 
 /// Map one union frame onto the generated oneof.
@@ -49,12 +48,6 @@ pub(super) fn to_proto(frame: &CoordWorkerDownstream) -> ProtocolResult<CoordWor
         })),
         CoordWorkerDownstream::EventAck(ack) => Frame::EventAck(Box::new(DEventAck {
             client_seq: ack.client_seq,
-            ..Default::default()
-        })),
-        CoordWorkerDownstream::Binary(binary) => Frame::Binary(Box::new(DBinary {
-            channel_id: binary.channel_id.as_u32(),
-            direction: u32::from(binary.direction),
-            data: binary.data.clone(),
             ..Default::default()
         })),
         CoordWorkerDownstream::InputRequest(request) => {
@@ -161,13 +154,6 @@ pub(super) fn from_proto(message: &CoordWorkerDown) -> ProtocolResult<CoordWorke
         },
         Frame::EventAck(ack) => CoordWorkerDownstream::EventAck(EventAck {
             client_seq: ack.client_seq,
-        }),
-        Frame::Binary(binary) => CoordWorkerDownstream::Binary(Binary {
-            channel_id: channel_id("binary.channel_id", binary.channel_id)?,
-            direction: u8::try_from(binary.direction)
-                .map_err(|_| ProtocolError::new("binary.direction", "must fit in 8 bits"))?,
-            data: binary.data.clone(),
-            seq: 0,
         }),
         Frame::InputRequest(request) => CoordWorkerDownstream::InputRequest((**request).clone()),
         Frame::TerminalStreamState(state) => {

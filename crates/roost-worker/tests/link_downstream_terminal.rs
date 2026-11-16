@@ -14,10 +14,9 @@ use std::time::Instant;
 use link_downstream_support::{FakeLink, Fakes, OwnerMode, SESSION, next_uplink, settle_tasks};
 use roost_proto::{DInputRequest, DTerminalInputRouteClaim, DTerminalPipelineSnapshotRequest};
 use roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1;
-use roost_protocol::wire::brand::ChannelId;
 use roost_protocol::wire::coord_worker::{
-    Binary, CoordWorkerDownstream as Down, CoordWorkerUpstream as Up, DIR_FROM_PTY, DIR_TO_PTY,
-    TerminalInputStatus, TerminalWritePhase,
+    CoordWorkerDownstream as Down, CoordWorkerUpstream as Up, TerminalInputStatus,
+    TerminalWritePhase,
 };
 use roost_worker::link_ports::LinkPipelineState;
 use roost_worker::runtime::downstream::Dispatcher;
@@ -113,25 +112,6 @@ async fn only_the_ack_that_takes_the_link_live_is_snapshot_ready() {
             "lifecycle.on_snapshot_ready"
         ]
     );
-}
-
-#[tokio::test]
-async fn only_pty_bound_binary_reaches_the_input_owner() {
-    let fakes = Fakes::new(OwnerMode::Answer);
-    let (dispatcher, _receiver) = dispatcher(&fakes);
-    let mut link = FakeLink::default();
-    let channel_id = ChannelId::try_from(3_i64).unwrap();
-    for direction in [DIR_TO_PTY, DIR_FROM_PTY] {
-        let binary = Binary {
-            channel_id,
-            direction,
-            data: b"abc".to_vec(),
-            seq: 0,
-        };
-        dispatcher.dispatch(Down::Binary(binary), Instant::now(), &mut link);
-    }
-    assert_eq!(fakes.log.calls(), ["input.write_binary:3:3"]);
-    assert!(link.replies.is_empty());
 }
 
 #[tokio::test]

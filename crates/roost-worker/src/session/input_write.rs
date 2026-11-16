@@ -100,24 +100,6 @@ impl SessionManager {
         self.write_acknowledged_batch(channel_id, bytes, None, None)
     }
 
-    /// Route one legacy binary input chunk to the keeper, unacknowledged. v2
-    /// `SessionManager.input`: a channel this worker does not hold is ignored,
-    /// and the echo promotion is queued at the same point the acknowledged lane
-    /// queues it.
-    pub fn write_legacy_input(&self, channel_id: u16, bytes: &[u8]) {
-        if !mark_input_sensitive(&self.sessions, &self.cells, &*self.clock, channel_id) {
-            tracing::debug!(
-                channel_id,
-                bytes = bytes.len(),
-                "legacy input for a channel this worker does not hold"
-            );
-            return;
-        }
-        if let Err(fault) = self.keeper.write_legacy_input(channel_id, bytes) {
-            tracing::warn!(channel_id, bytes = bytes.len(), %fault, "legacy input did not reach the keeper");
-        }
-    }
-
     /// v2 `writeAcknowledgedInputBatch`: lane admission, the pre-write
     /// rechecks, the keeper's two halves, and the truth mapping between them.
     fn write_acknowledged_batch(

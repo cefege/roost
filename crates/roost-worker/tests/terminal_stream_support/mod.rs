@@ -135,9 +135,6 @@ impl KeeperChannels for ScriptedKeeper {
     fn begin_input(&self, _channel_id: u16, _bytes: Vec<u8>) -> KeeperInputCommand {
         KeeperInputCommand::not_written(InputNotWritten::Disconnected)
     }
-    fn write_legacy_input(&self, _channel_id: u16, _bytes: &[u8]) -> Result<(), KeeperFault> {
-        Ok(())
-    }
 }
 
 #[derive(Default)]

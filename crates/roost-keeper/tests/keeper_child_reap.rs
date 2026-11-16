@@ -124,8 +124,9 @@ fn the_pty_owns_a_foreground_group_and_resize_delivers_sigwinch() {
     let client = connect(&keeper.endpoint()).expect("a handshake");
     let (shell_pid, mut seen) = shell(&client, 900);
     client
-        .write_input(
+        .send_input_request(
             900,
+            1,
             b"bash --norc -c \"trap 'echo WINCH:\\$(stty size)' WINCH; printf 'CHILD_%s\\n' READY; while :; do sleep 1; done\"\n",
         )
         .unwrap();
@@ -160,7 +161,7 @@ fn an_interactive_shell_and_its_foreground_and_background_jobs_all_die() {
     let client = connect(&keeper.endpoint()).expect("a handshake");
     let (shell_pid, _) = shell(&client, 901);
     client
-        .write_input(901, format!("{BG_MARK} & {FG_MARK}\n").as_bytes())
+        .send_input_request(901, 1, format!("{BG_MARK} & {FG_MARK}\n").as_bytes())
         .unwrap();
     assert!(
         wait_for(Duration::from_secs(4), || !pgrep(FG_MARK).is_empty()

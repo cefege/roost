@@ -83,7 +83,7 @@ fn the_legacy_history_is_the_head_and_the_raw_ring() {
     let (_keeper, client) = client_with_channel(&temp);
 
     client
-        .write_input(1, b"legacy-ring\n")
+        .send_input_request(1, 1, b"legacy-ring\n")
         .expect("input written");
     let mut legacy = (0, Vec::new());
     wait_until("the echo is retained", || {
@@ -120,7 +120,7 @@ fn pre_boundary_output_is_dropped_exactly_once() {
     let (_keeper, client) = client_with_channel(&temp);
 
     client
-        .write_input(1, b"boundary-marker\n")
+        .send_input_request(1, 1, b"boundary-marker\n")
         .expect("input written");
     let mut dropped = 0usize;
     let mut last = HistoryRecords::unknown_channel();

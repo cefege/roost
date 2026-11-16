@@ -239,17 +239,6 @@ impl KeeperClient {
             .ok_or_else(|| ClientError::Io("the channel list did not decode".into()))
     }
 
-    /// Write input, without waiting for an answer.
-    ///
-    /// Deliberately not acknowledged: this is on the keystroke path, where a
-    /// round trip per character would make the terminal feel broken. The
-    /// sequenced form is available for callers that need the guarantee.
-    pub fn write_input(&self, channel_id: u16, bytes: &[u8]) -> Result<(), ClientError> {
-        let frame = MuxFrame::new(MuxFrameType::PtyIn, channel_id, bytes.to_vec())
-            .map_err(|err| ClientError::Io(err.to_string()))?;
-        self.write(&frame)
-    }
-
     /// Put one sequenced input request on the socket, and return as soon as it
     /// is there.
     ///

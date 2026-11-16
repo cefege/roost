@@ -9,13 +9,13 @@ use serde_json::Value;
 
 use super::kind_of;
 use super::payloads::{
-    Binary, DAttachmentChunk, DAttachmentDirectStatusRequest, DInputRequest,
-    DKeeperUpdatePrepare, DLocalAttachmentGrant, DLocalAttachmentGrantRevoke,
-    DLocalAttachmentPeerCancel, DLocalAttachmentPeerOffer, DLocalTerminalGrant,
-    DLocalTerminalGrantRevoke, DLocalTerminalPeerCancel, DLocalTerminalPeerOffer,
-    DTerminalDirectRetire, DTerminalInputRouteClaim, DTerminalPipelineSnapshotRequest,
-    DTerminalStreamState, DTerminalTransportProbe, DTerminalViewRelay, DTerminalViewSocketClosed,
-    EventAck, TerminalSnapshotRequest,
+    DAttachmentChunk, DAttachmentDirectStatusRequest, DInputRequest, DKeeperUpdatePrepare,
+    DLocalAttachmentGrant, DLocalAttachmentGrantRevoke, DLocalAttachmentPeerCancel,
+    DLocalAttachmentPeerOffer, DLocalTerminalGrant, DLocalTerminalGrantRevoke,
+    DLocalTerminalPeerCancel, DLocalTerminalPeerOffer, DTerminalDirectRetire,
+    DTerminalInputRouteClaim, DTerminalPipelineSnapshotRequest, DTerminalStreamState,
+    DTerminalTransportProbe, DTerminalViewRelay, DTerminalViewSocketClosed, EventAck,
+    TerminalSnapshotRequest,
 };
 use crate::validate::nonnegative;
 use crate::wire::brand::TraceId;
@@ -67,9 +67,6 @@ pub enum CoordWorkerDownstream {
     /// `replay`, because nothing on the wire could say which event landed.
     #[serde(rename = "event-ack")]
     EventAck(EventAck),
-    /// PTY bytes going the other way, on the viewer's own channel id.
-    #[serde(rename = "binary")]
-    Binary(Binary),
     /// A bounded terminal-control request. `budget_ms` is RELATIVE time, never
     /// an instant: the two hosts' clocks may drift arbitrarily.
     #[serde(rename = "input-request")]
@@ -140,7 +137,6 @@ impl CoordWorkerDownstream {
             Self::Ping { .. } => "ping",
             Self::BrowserCommand { .. } => "browser-command",
             Self::EventAck(_) => "event-ack",
-            Self::Binary(_) => "binary",
             Self::InputRequest(_) => "input-request",
             Self::TerminalStreamState(_) => "terminal-stream-state",
             Self::TerminalSnapshotRequest(_) => "terminal-snapshot-request",
@@ -186,7 +182,6 @@ impl CoordWorkerDownstream {
         match self {
             Self::Ping { ts, .. } => nonnegative("ping.ts", *ts),
             Self::BrowserCommand { frame, .. } => frame.check(),
-            Self::Binary(binary) => binary.check(),
             _ => Ok(()),
         }
     }

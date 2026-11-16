@@ -308,7 +308,9 @@ Also dropped from the worker link: the `DUpdateBroker` frame (the Windows
 update broker's coordinator control) and the `DCoordMovePrepare`,
 `DCoordMoveSnapshotStart`, `DCoordMoveSnapshotChunk` and `DCoordRelocate`
 coordinator-move frames, with their `CoordWorkerDown` fields 7-10 and 30
-reserved.
+reserved; and the unsequenced `DBinary` PTY input frame (`CoordWorkerDown`
+field 4, reserved), whose keyboard path is the sequenced `input_request`; the
+keeper client's `write_input` went with it.
 
 The dedicated OMP integration is retired too: managed ACP processes, HTML chat,
 agent RPCs and Sync frames, status detection/reporting, fenced prompts, agent

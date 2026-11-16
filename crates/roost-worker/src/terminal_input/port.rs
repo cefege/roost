@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use roost_proto::{DInputRequest, DTerminalInputRouteClaim, TerminalInputRouteResult};
-use roost_protocol::wire::brand::{ChannelId, SessionId};
+use roost_protocol::wire::brand::SessionId;
 use roost_protocol::wire::coord_worker::InputResult;
 
 use super::link_authority::{LinkClaimBudget, LinkInputAuthority, LinkRequestBudget};
@@ -96,15 +96,6 @@ impl TerminalInputPort for InputOwner {
             drop(reservation);
             worker_input_result(&key, &result, false)
         })
-    }
-
-    fn write_binary(&self, channel_id: ChannelId, bytes: Vec<u8>) {
-        match u16::try_from(channel_id.as_u32()) {
-            Ok(channel_id) => self.manager.write_legacy_input(channel_id, &bytes),
-            Err(_) => {
-                tracing::warn!(%channel_id, "legacy input named a channel no keeper can hold")
-            }
-        }
     }
 
     fn claim_route(

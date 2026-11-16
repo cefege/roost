@@ -49,7 +49,6 @@ const DOWNSTREAM_FIELD_NUMBERS: &[(&str, u32)] = &[
     ("hello-ack", 1),
     ("ping", 2),
     ("browser-command", 3),
-    ("binary", 4),
     ("event-ack", 5),
     ("attachment-chunk", 6),
     ("input-request", 12),

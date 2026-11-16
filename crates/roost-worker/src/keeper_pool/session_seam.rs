@@ -113,12 +113,6 @@ impl KeeperChannels for KeeperPool {
     fn begin_input(&self, channel_id: u16, bytes: Vec<u8>) -> KeeperInputCommand {
         self.begin_acknowledged_input(channel_id, bytes)
     }
-
-    /// The unacknowledged legacy frame.
-    fn write_legacy_input(&self, channel_id: u16, bytes: &[u8]) -> Result<(), KeeperFault> {
-        self.input(channel_id, bytes)
-            .map_err(|error| fault("write_legacy_input", &error))
-    }
 }
 
 fn fault(operation: &'static str, error: &PoolError) -> KeeperFault {

@@ -133,8 +133,9 @@ fn a_nohup_job_that_ignores_sighup_is_still_reaped() {
     // pgrep counts the window between the fork and the exec.
     let pid_file = temp.socket().with_extension("pid");
     client
-        .write_input(
+        .send_input_request(
             902,
+            1,
             format!(
                 "(trap '' TERM; exec nohup {HUP_MARK}) >/dev/null 2>&1 & echo $! > {}\n",
                 pid_file.display()

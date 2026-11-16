@@ -115,9 +115,6 @@ impl KeeperChannels for ScriptedKeeper {
     fn begin_input(&self, channel_id: u16, bytes: Vec<u8>) -> KeeperInputCommand {
         self.input.begin(channel_id, bytes)
     }
-    fn write_legacy_input(&self, channel_id: u16, bytes: &[u8]) -> Result<(), KeeperFault> {
-        self.input.write_legacy(channel_id, bytes)
-    }
 }
 
 impl ScriptedKeeper {

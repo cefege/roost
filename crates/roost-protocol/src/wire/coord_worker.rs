@@ -191,7 +191,12 @@ mod tests {
             CoordWorkerUpstream::parse(json!({ "kind": "transfer-done", "job_id": "job" }))
                 .is_err()
         );
-        for kind in ["update-broker", "coord-relocate", "coord-move-prepare"] {
+        for kind in [
+            "binary",
+            "update-broker",
+            "coord-relocate",
+            "coord-move-prepare",
+        ] {
             assert!(CoordWorkerDownstream::parse(json!({ "kind": kind })).is_err());
         }
     }

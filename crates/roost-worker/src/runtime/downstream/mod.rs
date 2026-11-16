@@ -104,7 +104,6 @@ impl Dispatcher {
                 link.browser_command(command, self.uplink.fence());
             }
             CoordWorkerDownstream::EventAck(ack) => self.event_ack(ack.client_seq, link),
-            CoordWorkerDownstream::Binary(binary) => self.binary(binary),
             CoordWorkerDownstream::InputRequest(request) => {
                 self.input_request(request, received, link);
             }

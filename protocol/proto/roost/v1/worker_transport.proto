@@ -310,7 +310,6 @@ message DBrowserCommand {
   string request_id = 3;
   string frame_json = 4;
 }
-message DBinary { uint32 channel_id = 1; uint32 direction = 2; bytes data = 3; }
 message DEventAck { uint64 client_seq = 1; }
 
 // Dedicated terminal-control requests. Input stays session-scoped. Terminal
@@ -518,18 +517,17 @@ message DTerminalDirectRetire {
 message DLiveMetricsSubscription { bool active = 1; }
 
 message CoordWorkerDown {
-  reserved 7, 8, 9, 10, 11, 16, 30, 37, 38, 39, 40, 41, 43, 44, 45, 46, 47, 48, 49, 50;
+  reserved 4, 7, 8, 9, 10, 11, 16, 30, 37, 38, 39, 40, 41, 43, 44, 45, 46, 47, 48, 49, 50;
   reserved "viewport_request", "agent_tool_call", "agent_tool_cancel",
       "agent_conversation_closed", "agent_tool_background", "agent_jobs_abort",
       "agent_prompt", "omp_prompt", "omp_cancel", "omp_events_ack", "omp_close",
       "omp_open", "omp_respond", "omp_set_mode", "omp_ui", "coord_move_prepare",
       "coord_move_snapshot_start", "coord_move_snapshot_chunk", "coord_relocate",
-      "update_broker";
+      "update_broker", "binary";
   oneof frame {
     DHelloAck hello_ack = 1;
     DPing ping = 2;
     DBrowserCommand browser_command = 3;
-    DBinary binary = 4;
     DEventAck event_ack = 5;
     DAttachmentChunk attachment_chunk = 6;
     DInputRequest input_request = 12;

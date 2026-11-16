@@ -250,14 +250,3 @@ async fn the_request_budget_is_honoured_before_queued_keeper_work() {
     );
     assert!(harness.keeper.input.written().is_empty());
 }
-
-#[tokio::test]
-async fn legacy_binary_input_reaches_the_keeper_only_for_a_held_channel() {
-    let harness = harness();
-    harness.manager.write_legacy_input(CHANNEL, b"k");
-    harness.manager.write_legacy_input(CHANNEL + 1, b"lost");
-    assert_eq!(
-        harness.keeper.input.legacy(),
-        vec![(CHANNEL, b"k".to_vec())]
-    );
-}

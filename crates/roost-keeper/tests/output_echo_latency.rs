@@ -58,7 +58,7 @@ fn a_keystroke_echo_reaches_a_bell_waiting_worker_without_a_tick() {
         std::thread::sleep(Duration::from_millis(7));
         let sent = Instant::now();
         client
-            .write_input(1, &[key])
+            .send_input_request(1, index as u64 + 1, &[key])
             .expect("the keystroke is written");
         latencies.push(wait_for_echo(&client, &arrival, key, sent));
     }

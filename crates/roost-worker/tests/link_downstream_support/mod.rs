@@ -23,7 +23,7 @@ use roost_proto::{
     DInputRequest, DLocalTerminalGrant, DTerminalInputRouteClaim, DTerminalPipelineSnapshotRequest,
     DTerminalStreamState, DTerminalViewRelay, TerminalInputRouteResult, WTerminalPipelineSnapshot,
 };
-use roost_protocol::wire::brand::{ChannelId, SessionId};
+use roost_protocol::wire::brand::SessionId;
 use roost_protocol::wire::coord_worker::{
     CoordWorkerUpstream, InputResult, TerminalInputStatus, TerminalSnapshotRequest,
     TerminalStreamResult, TerminalStreamStatus, TerminalWritePhase,
@@ -155,10 +155,6 @@ impl TerminalInputPort for Fakes {
             reason: String::new(),
             phase: TerminalWritePhase::Written,
         }))
-    }
-    fn write_binary(&self, channel_id: ChannelId, bytes: Vec<u8>) {
-        self.log
-            .push(format!("input.write_binary:{channel_id}:{}", bytes.len()));
     }
     fn claim_route(
         &self,
