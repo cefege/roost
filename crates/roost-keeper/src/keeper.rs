@@ -255,7 +255,7 @@ impl Keeper {
 
     /// Drain whatever output is ready on every channel, recording each chunk
     /// into the channel's history BEFORE it is framed, so a history answer on
-    /// this connection is an exact boundary (v2 `releaseOutput`).
+    /// this connection is an exact boundary.
     ///
     /// Called by the socket loop whenever a reader signals, and at least once
     /// a tick. Returns nothing for a channel with nothing to say, which is the
@@ -350,7 +350,7 @@ impl Keeper {
     }
 
     /// A channel's ordered history; a channel the keeper does not hold answers
-    /// "nothing emitted" at the default geometry (v2 `:510-515`).
+    /// "nothing emitted" at the default geometry.
     pub fn ordered_history(&self, channel_id: u16) -> HistoryRecords {
         self.channels
             .get(&channel_id)

@@ -330,10 +330,8 @@ impl FrameDecoder {
             // those four bytes to the socket, so an unguarded index here is a
             // four-byte denial of service against every terminal on a host.
             //
-            // v2 refused the same frame: `protocol-envelope.ts:114` throws a
-            // `RangeError` when the body is under three bytes. The port kept
-            // the indexing and lost the check, and `LengthMismatch` was
-            // declared for exactly this and never constructed by the decoder.
+            // `LengthMismatch` exists for exactly this: the decoder refuses the
+            // frame instead of indexing it.
             if claimed < MUX_FRAME_HEADER_BYTES {
                 events.push(StreamEvent::Failed(CodecError::LengthMismatch {
                     claimed,

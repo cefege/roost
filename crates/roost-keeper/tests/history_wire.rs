@@ -1,6 +1,4 @@
-//! Wire-format conformance for `GetHistoryRecordsResp`, the payload v2's
-//! `encodeKeeperHistoryRecords`/`decodeKeeperHistoryRecords`
-//! (`apps/worker/src/keeper/protocol-terminal.ts:196-315`) define: a versioned
+//! Wire-format conformance for `GetHistoryRecordsResp`: a versioned
 //! header carrying the head and the base geometry, then tagged records.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -49,7 +47,7 @@ fn the_payload_is_v2_s_layout_and_round_trips() {
     assert_eq!(HistoryRecords::decode(&encoded).unwrap(), sample());
 }
 
-/// Every shape v2's decoder refuses is refused here, and a truncated payload is
+/// Every shape the decoder refuses is refused here, and a truncated payload is
 /// an error rather than a panic.
 #[test]
 fn malformed_payloads_are_refused() {
@@ -77,7 +75,7 @@ fn malformed_payloads_are_refused() {
     );
 }
 
-/// A keeper never encodes a history v2 would refuse to read.
+/// A keeper never encodes a history its own decoder would refuse to read.
 #[test]
 fn an_unencodable_history_is_refused_at_the_keeper() {
     let empty_output = HistoryRecords {

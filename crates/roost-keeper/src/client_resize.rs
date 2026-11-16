@@ -11,10 +11,6 @@
 //! as a failure retried a resize the keeper had already declined, and a caller
 //! that read a timeout as a failure believed the PTY was at the geometry it had
 //! asked for when nothing had proved it.
-//!
-//! v2's shape is `KeeperResizeResult` in
-//! `apps/worker/src/keeper/protocol-terminal.ts:18-60`, and the three callers
-//! that need all of it are named there.
 
 use std::time::Duration;
 
@@ -28,9 +24,8 @@ use crate::payloads::{ResizeRequest, TerminalState};
 /// Not a failure deadline: an unanswered resize is still in flight, and the
 /// caller recovers it by asking the keeper for its terminal state
 /// ([`KeeperClient::terminal_state`]) rather than by sending the sequence
-/// again. v2's bound is 2.5s for the same reason, and this one is longer only
-/// because the daemon answers resize from live channel state, which cannot take
-/// a lock.
+/// again. The bound can be generous because the daemon answers resize from
+/// live channel state, which cannot take a lock.
 pub const RESIZE_ACK_TIMEOUT: Duration = Duration::from_secs(10);
 
 impl KeeperClient {
@@ -151,9 +146,8 @@ fn decode_resize_answer(seq: u64, answer: &MuxFrame) -> ResizeOutcome {
     }
 }
 
-/// Every answer a resize can have. The names are v2's (`protocol-terminal.ts`),
-/// because a session layer written against v2 reads these and the wire codes
-/// are the contract between the two.
+/// Every answer a resize can have. The variant names and the wire codes below
+/// are the contract with the session layer that reads them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResizeOutcome {
     /// The keeper applied a geometry, and this is the one it applied.
@@ -195,7 +189,7 @@ impl ResizeOutcome {
     }
 }
 
-/// Why the keeper refused a geometry change, with the wire codes v2 fixes.
+/// Why the keeper refused a geometry change, with the wire codes the protocol fixes.
 ///
 /// A refusal is a decision the keeper already made, so the reason is the whole
 /// message: `channel_missing` and `channel_exited` mean the session is gone,
@@ -224,9 +218,8 @@ pub enum ResizeRejectReason {
 }
 
 impl ResizeRejectReason {
-    /// The byte this reason travels as. Fixed by v2 at
-    /// `protocol-terminal.ts:50-60`, so a keeper from either build reads the
-    /// other's refusals.
+    /// The byte this reason travels as. Fixed by the wire protocol, so a keeper
+    /// from either build reads the other's refusals.
     pub fn code(self) -> u8 {
         match self {
             ResizeRejectReason::ChannelMissing => 1,

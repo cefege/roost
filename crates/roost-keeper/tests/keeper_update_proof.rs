@@ -3,9 +3,7 @@
 //! the daemon's own pid and ONE process epoch across every connection, so a
 //! worker restart finds the same keeper holding the same channels; and an
 //! unconditional shutdown ends the daemon AND every PTY it held, even a child
-//! that ignores the hangup. Ports the keeper half of v2
-//! `apps/worker/tests/keeper-force-live-refresh.test.ts` and the pid/epoch
-//! identity `keeper-update-action.test.ts` assumes.
+//! that ignores the hangup.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod support;

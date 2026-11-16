@@ -1,7 +1,6 @@
 #![cfg(unix)]
-//! The snapshot SIGKILL sweep, on its own. Ports the `nohup` half of
-//! `apps/worker/tests/keeper-child-reap.test.ts` (`keeper-process-reap.ts`'s
-//! escalation path) against the real daemon, and it is a separate binary from
+//! The snapshot SIGKILL sweep, on its own: the `nohup` half of the process-tree
+//! reap, against the real daemon. It is a separate binary from
 //! `keeper_child_reap.rs` on purpose.
 //!
 //! A single signal to the session leader leaks: an interactive shell sets
@@ -33,7 +32,7 @@ use support::daemon::{Keeper, TempDir};
 /// corroborated by `pgrep` before the test trusts it.
 const HUP_MARK: &str = "sleep 7761100";
 
-/// Grace (2 s) plus margin, as v2 waits.
+/// Grace (2 s) plus margin.
 const REAPED_WITHIN: Duration = Duration::from_secs(6);
 
 /// SIGKILL whatever a previous red run of this test left behind under its mark.
@@ -125,8 +124,7 @@ fn a_nohup_job_that_ignores_sighup_is_still_reaped() {
     let _shell_pid = shell(&client, 902);
     // nohup sets SIGHUP to SIG_IGN and then execs, so the hangup is a no-op on
     // it; the inherited SIG_IGN for SIGTERM makes the group SIGTERM a no-op as
-    // well, so only the snapshot SIGKILL sweep can end it — v2's
-    // "escalation SIGKILL path".
+    // well, so only the snapshot SIGKILL sweep can end it.
     //
     // `$!` is the subshell's pid and `exec` keeps it, so the pid the shell
     // writes IS the nohuped job: a pattern match is not an identity, and

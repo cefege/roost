@@ -1,4 +1,4 @@
-//! Ending a channel's whole process tree (v2 `reapChannelTree`). On Unix the
+//! Ending a channel's whole process tree. On Unix the
 //! process group and its foreground group are signalled through
 //! `process_reap`; on Windows the channel's kill-on-close Job Object is
 //! terminated. Called by `KillChild`, a respawn over a live channel, and
@@ -7,7 +7,7 @@
 use crate::pty_channel::PtyChannel;
 
 impl PtyChannel {
-    /// Terminate the child and every process it spawned (v2 `reapChannelTree`).
+    /// Terminate the child and every process it spawned.
     /// Used by `KillChild` and by a respawn over a live channel.
     #[cfg(unix)]
     pub fn kill(&mut self) {
@@ -31,8 +31,7 @@ impl PtyChannel {
     }
 
     /// Where a reap starts, or `None` once the child has exited: a reaped
-    /// leader's pid may already belong to someone else (v2's `ch.exited` guard,
-    /// and v2 dropped an exited channel from its map before any shutdown reap).
+    /// leader's pid may already belong to someone else.
     #[cfg(unix)]
     pub fn reap_target(&mut self) -> Option<crate::process_reap::ReapTarget> {
         if self.exited().is_some() {

@@ -1,6 +1,5 @@
 //! Process-tree reaping for a keeper channel: closing a pane must end EVERY
-//! process it spawned. Ports the POSIX half of v2
-//! `apps/worker/src/keeper/keeper-process-reap.ts`. Called by
+//! process it spawned. Called by
 //! `PtyChannel::kill` (a `KillChild`, a respawn over a live channel) and by
 //! `Keeper::reap_all_channels` before the daemon exits. On Windows a channel's
 //! tree is its Job Object (`channel_job`), so only [`terminate_process`] is
@@ -60,7 +59,7 @@ pub fn reap_channel_tree(target: ReapTarget) {
     let tree = collect_process_tree(target.leader);
     hang_up(target);
     signal_group(target.leader, libc::SIGTERM);
-    // Births are read after the group SIGTERM, which is where v2 reads them.
+    // Births are read after the group SIGTERM.
     let members: Vec<Member> = tree
         .iter()
         .map(|&pid| Member {
@@ -86,7 +85,7 @@ pub fn reap_channel_tree(target: ReapTarget) {
 }
 
 /// Reap every channel before the keeper exits: hang each terminal up and
-/// SIGKILL every live member of every tree at once (v2 `reapAllChannels`).
+/// SIGKILL every live member of every tree at once.
 #[cfg(unix)]
 pub fn reap_all_channels(targets: &[ReapTarget]) {
     let mut victims = Vec::new();
@@ -120,10 +119,10 @@ pub fn terminate_process(pid: u32) -> bool {
     delivered
 }
 
-/// The kernel's hangup, delivered by hand. v2 closed the PTY master and the tty
-/// sent SIGHUP; this keeper's reader and input threads hold duplicates of the
-/// master, so dropping one descriptor hangs nothing up, and the same signals go
-/// to the same processes instead: the session leader and the foreground group.
+/// The kernel's hangup, delivered by hand. This keeper's reader and input
+/// threads hold duplicates of the PTY master, so dropping one descriptor hangs
+/// nothing up, and the signals the tty would have sent go to the same
+/// processes directly: the session leader and the foreground group.
 #[cfg(unix)]
 fn hang_up(target: ReapTarget) {
     if let Some(group) = target.foreground_group
@@ -192,7 +191,7 @@ fn collect_process_tree(root: i32) -> Vec<i32> {
 }
 
 /// `ps -A -o pid=,ppid=`, bounded by [`PS_TIMEOUT`]. Empty when `ps` is missing
-/// or fails, which leaves the tree as the leader alone, as v2 did.
+/// or fails, which leaves the tree as the leader alone.
 #[cfg(unix)]
 fn process_listing() -> String {
     let spawned = Command::new("ps")

@@ -29,9 +29,9 @@ fn a_spawn_is_acknowledged_with_a_real_process() {
     assert_eq!(keeper.channel_count(), 1);
 }
 
-/// A spawn that cannot be honoured must SAY SO. The v2 incident this exists
-/// for: a degraded keeper accepts Spawn and never replies, and the worker's RPC
-/// hangs forever with no trail.
+/// A spawn that cannot be honoured must SAY SO: a degraded keeper that accepts
+/// Spawn and never replies leaves the worker's RPC hanging forever with no
+/// trail.
 #[test]
 fn a_spawn_that_cannot_be_honoured_answers_instead_of_hanging() {
     let mut keeper = Keeper::new();

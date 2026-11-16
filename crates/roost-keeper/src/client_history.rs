@@ -1,15 +1,11 @@
 //! Reading a channel's retained history over the client: the ordered records an
-//! adoption or a core re-proof replays. Ports the client half of
-//! `apps/worker/src/keeper/keeper-pool-channels.ts` (`getChannelHistoryRecords`)
-//! and the matching arms of `keeper-pool-lifecycle.ts`. Called by the worker's
-//! keeper pool.
+//! adoption or a core re-proof replays. Called by the worker's keeper pool.
 //!
 //! THE ANSWER IS AN ORDERED BOUNDARY. The keeper appends every chunk to the
 //! history before it sends the `PtyOut`, and answers on the same socket, so a
 //! channel's `PtyOut` that arrives before the answer is already inside it and
-//! one that arrives after is not. v2 buffers the former while the request is
-//! pending and discards the buffer when the records land; here the former are
-//! dropped as the wait meets them, including any a previous wait deferred.
+//! one that arrives after is not. The former are dropped as the wait meets
+//! them, including any a previous wait deferred.
 
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
@@ -19,7 +15,7 @@ use crate::client_error::ClientError;
 use crate::codec::{MuxFrame, MuxFrameType};
 use crate::history::HistoryRecords;
 
-/// v2 `getHistoryRecords timed out after 3000ms`.
+/// How long a history request waits for its answer.
 pub const HISTORY_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// A history answer and how many pre-boundary output bytes were dropped for it.
@@ -36,8 +32,8 @@ impl KeeperClient {
         self.write(&empty_frame(MuxFrameType::GetHistoryRecords, channel_id)?)?;
         let (frame, dropped_output_bytes) =
             self.wait_across_history_boundary(channel_id, MuxFrameType::GetHistoryRecordsResp)?;
-        // An unreadable answer is a protocol violation, not a lost keeper: v2
-        // rejects the one waiter and keeps the connection.
+        // An unreadable answer is a protocol violation, not a lost keeper: the
+        // one waiter is rejected and the connection is kept.
         let history = HistoryRecords::decode(&frame.payload).map_err(|error| {
             ClientError::Protocol(format!(
                 "getHistoryRecords: invalid keeper response: {error}"
@@ -88,7 +84,7 @@ impl KeeperClient {
     }
 
     /// A wedged keeper, reported as every unanswered control wait is: NOT a
-    /// lost connection, so the pool keeps driving it (v2 rejects the waiter only).
+    /// lost connection, so the pool keeps driving it.
     fn history_timeout(&self) -> ClientError {
         ClientError::SpawnNotAcknowledged {
             path: self.path.clone(),

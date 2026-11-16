@@ -22,13 +22,12 @@ use crate::payloads::KeeperHelloRequest;
 
 use super::{ConnectionEnd, DRAIN_LIMIT_BYTES, OUTPUT_TICK, READ_BUFFER_BYTES, Server};
 
-/// The most a connection may send before its `Hello` verifies (v2
-/// `LOCAL_ENDPOINT_UNAUTHENTICATED_MAX_BYTES`). A real `Hello` is a few hundred
+/// The most a connection may send before its `Hello` verifies. A real `Hello`
+/// is a few hundred
 /// bytes; anything near this is a peer filling the keeper's memory.
 pub const UNAUTHENTICATED_MAX_BYTES: usize = 64 * 1024;
 
-/// How long an accepted connection has to authenticate (v2
-/// `LOCAL_ENDPOINT_UNAUTHENTICATED_TIMEOUT_MS`). The keeper serves one
+/// How long an accepted connection has to authenticate. The keeper serves one
 /// connection at a time, so this is also the longest a peer that never
 /// authenticates can keep a worker waiting in the listen backlog.
 pub const UNAUTHENTICATED_TIMEOUT: Duration = Duration::from_secs(2);
@@ -139,7 +138,7 @@ impl Server {
 
     /// THE FIRST FRAME MUST BE A `Hello` ON THE CONTROL LANE WHOSE CAPABILITY
     /// VERIFIES, sent inside `UNAUTHENTICATED_TIMEOUT` and
-    /// `UNAUTHENTICATED_MAX_BYTES` (v2 `multiplexed-main.ts:170-264`). Until
+    /// `UNAUTHENTICATED_MAX_BYTES`. Until
     /// then nothing is drained, reaped or written: PTY output only wakes this
     /// wait and is left for the first authenticated turn, because a peer that
     /// has not proved the capability must not read a byte of any terminal.
@@ -200,7 +199,7 @@ impl Server {
     /// channel, and a turn starts on any of three wakes: a channel's reader
     /// handed over output, the worker sent bytes, or a tick passed with
     /// neither. So a keystroke's echo leaves the keeper as soon as the PTY
-    /// produces it, as v2's data callback did, and the tick only bounds how
+    /// produces it, and the tick only bounds how
     /// long an idle connection goes without a drain and an exit check — the
     /// watch's signal flag and socket check included, so a keeper serving a
     /// worker still stops on SIGTERM or a deleted socket.

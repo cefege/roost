@@ -3,7 +3,7 @@
 //! mid-batch, bounded by a command and a byte budget, and written by a thread of
 //! its own so a child that stops reading stalls only its own channel. Owned by
 //! `pty_channel::PtyChannel`; `keeper_ops` enqueues and `server` attaches the
-//! connection results go to. Ports `apps/worker/src/keeper/keeper-input-queue.ts`.
+//! connection results go to.
 
 use crate::transport::UnixStream;
 use std::collections::VecDeque;
@@ -15,9 +15,9 @@ use crate::codec::{MuxFrame, MuxFrameType};
 use crate::payloads::{PtyInRejectReason, PtyInResult};
 use crate::pty_channel::WriteOutcome;
 
-/// Queued plus in-flight batches one channel may hold (v2 keeper-input-queue.ts:16).
+/// Queued plus in-flight batches one channel may hold.
 pub const KEEPER_INPUT_QUEUE_MAX_COMMANDS: usize = 200;
-/// Queued plus in-flight bytes one channel may hold (v2 keeper-input-queue.ts:17).
+/// Queued plus in-flight bytes one channel may hold.
 pub const KEEPER_INPUT_QUEUE_MAX_BYTES: usize = 256 * 1024;
 
 /// Where a lane writes the result frame of an acknowledged batch.
@@ -267,7 +267,7 @@ fn settle_batch(lane: &LaneShared, writer: &mut Box<dyn Write + Send>, batch: &B
     } = &batch.reply
         && route.current() != Some(*generation)
     {
-        // v2 drops an unstarted batch whose socket was destroyed: nobody is
+        // An unstarted batch whose socket was destroyed is dropped: nobody is
         // left to be told, and writing it would type into a session unobserved.
         tracing::info!(
             channel_id = lane.channel_id,

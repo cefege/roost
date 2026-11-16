@@ -85,8 +85,7 @@ pub const KEEPER_PROTOCOL_VERSION: u32 = 3;
 /// live PTY belongs to, so `build_sha` is excluded from restart admission.
 pub use roost_protocol::keeper_update::KeeperContractV1;
 
-/// The client's `Hello`: v2 `KeeperHelloRequestSchema`
-/// (`apps/worker/src/keeper/protocol-io.ts:73-79`). It is the first frame of
+/// The client's `Hello`: the first frame of
 /// every connection, and a keeper serves nothing until `capability` verifies.
 ///
 /// `features` is raw names, not the enum: a worker that asks for a feature
@@ -105,11 +104,10 @@ pub struct KeeperHelloRequest {
     pub process_epoch: Option<String>,
 }
 
-/// The keeper's `Hello` answer: v2 `KeeperHelloResponseSchema`
-/// (`protocol-io.ts:87-96`), and what the keeper observed about itself, so a
+/// The keeper's `Hello` answer: what the keeper observed about itself, so a
 /// worker can prove a binding without trusting a pid it was handed.
-/// `authenticated` is always `true`: v2's decoder is `z.literal(true)` and an
-/// unauthenticated client never receives this frame.
+/// `authenticated` is always `true`: an unauthenticated client never receives
+/// this frame.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeeperHelloResponse {
     pub version: u32,
@@ -122,8 +120,7 @@ pub struct KeeperHelloResponse {
     /// pid carries a different epoch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub process_epoch: Option<String>,
-    /// Every live channel, sorted ascending by `channel_id` and unique, which
-    /// v2's decoder refines on.
+    /// Every live channel, sorted ascending by `channel_id` and unique.
     pub bindings: Vec<ChannelBinding>,
     /// Channels mid-spawn. Always empty here: the keeper decides a spawn before
     /// it answers the next frame.

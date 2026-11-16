@@ -1,8 +1,6 @@
 //! The keeper capability: the 64-hex secret a worker presents in its first
 //! `Hello` and the keeper checks before it serves anything. The worker creates
-//! it (`load_or_create`); the keeper only reads it (`load`). Ports
-//! `loadOrCreateCapability` and `verifyLocalEndpointCapability` of v2
-//! `packages/host/src/local-endpoint.ts`.
+//! it (`load_or_create`); the keeper only reads it (`load`).
 
 use std::fmt::{self, Write as _};
 use std::io::{ErrorKind, Write};
@@ -120,7 +118,7 @@ impl KeeperCapability {
     }
 }
 
-/// v2's `/^[a-f0-9]{64}$/`.
+/// Exactly 64 lowercase hex digits.
 fn is_lowercase_hex_secret(value: &str) -> bool {
     value.len() == CAPABILITY_BYTES * 2
         && value

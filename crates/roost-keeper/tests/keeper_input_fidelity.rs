@@ -1,9 +1,9 @@
 #![cfg(unix)]
 //! Real PTYs through the keeper's dispatcher: every byte value reaches a raw
 //! `cat` exactly once and in order, whichever frame carried it (the
-//! "backspace acts like space" guard, v2 `apps/worker/tests/keeper-input-stress.test.ts`),
-//! and a child that stops reading stalls only its own channel instead of the
-//! keeper (v2 `keeper-input-queue.ts`: the write is off the dispatch path).
+//! "backspace acts like space" guard), and a child that stops reading stalls
+//! only its own channel instead of the keeper: the write is off the dispatch
+//! path.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod support;
@@ -37,8 +37,8 @@ fn legacy_frame(channel_id: u16, bytes: &[u8]) -> MuxFrame {
 }
 
 /// A raw cat on channel 1 whose tty is already raw: `ready` is printed only
-/// after `stty raw` returned, so no input can meet the cooked tty (which v2
-/// slept past) and nothing but `cat`'s echo follows it.
+/// after `stty raw` returned, so no input can meet the cooked tty and nothing
+/// but `cat`'s echo follows it.
 fn raw_channel(keeper: &mut Keeper) {
     keeper.handle(&spawn_with(1, raw_cat(), 200, 50));
     drain_until(keeper, |seen| {
@@ -51,8 +51,8 @@ fn raw_channel(keeper: &mut Keeper) {
 ///
 /// Sent in bursts of half the lane's command budget, each drained before the
 /// next: 256 frames at once outrun a writer thread the scheduler is starving and
-/// are refused at the 201st, which is the budget working. v2's stress test
-/// stays under it the same way, awaiting each payload's echo (`sendAndExpect`).
+/// are refused at the 201st, which is the budget working. Staying under it
+/// the same way, awaiting each payload's echo, is the other valid shape.
 #[test]
 fn every_byte_value_crosses_both_frame_kinds_intact_and_in_order() {
     let mut keeper = Keeper::new();

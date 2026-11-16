@@ -66,9 +66,9 @@ pub struct KeeperClient {
     /// replies, because the keeper writes both on the same socket from the same
     /// connection loop — `server.rs` drains `PtyOut` and writes it there. A wait
     /// that pulled a `PtyOut` and dropped it would lose terminal output on every
-    /// round-trip, and a resize drag is sixty round-trips a second. v2 kept the
-    /// two paths disjoint by routing every frame by tag in a single loop; here
-    /// the disjointness is this buffer.
+    /// round-trip, and a resize drag is sixty round-trips a second. A wait
+    /// defers every frame that is not its answer, so the two paths stay
+    /// disjoint through this buffer.
     pub(crate) deferred: Mutex<VecDeque<MuxFrame>>,
     /// Set on drop so the reader thread stops. A reader that only noticed a
     /// closed socket would block in `read` until the KEEPER closed its end,

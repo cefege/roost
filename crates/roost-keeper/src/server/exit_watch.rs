@@ -1,7 +1,6 @@
 //! Why a keeper stops without a worker asking: a termination signal, or its
 //! socket file disappearing. `Server` polls this from its accept wait and from
-//! every connection turn; the daemon installs it. Ports the `SIGTERM` handler
-//! and the 30 s socket check of v2 `apps/worker/src/keeper/multiplexed-main.ts`.
+//! every connection turn; the daemon installs it.
 
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
@@ -9,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-/// How often a keeper checks that its socket file still exists, as v2 did.
+/// How often a keeper checks that its socket file still exists.
 ///
 /// No worker can connect to a path that is gone, so a keeper whose socket was
 /// deleted holds PTYs nobody can reach, and would otherwise hold them, and
@@ -88,7 +87,7 @@ impl ExitWatch {
 }
 
 /// Whether the socket file is still there. `exists` follows a symlink and reads
-/// any error as absence, which is what v2's `fs.existsSync` answered.
+/// any error as absence.
 #[cfg(unix)]
 fn socket_path_present(socket: &std::path::Path) -> bool {
     socket.exists()

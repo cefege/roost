@@ -17,8 +17,7 @@ fn frame_events(bytes: &[u8]) -> Vec<StreamEvent> {
 /// peer sending `00 00 00 00` produced an empty frame, and the index panicked.
 /// The panic unwinds the serve loop and the keeper's `main`, so four bytes
 /// written to the socket by any same-uid process destroyed every PTY on the
-/// machine. v2 refused the same frame with a `RangeError` at
-/// `protocol-envelope.ts:114`; the port kept the indexing and lost the check.
+/// machine. The decoder refuses the frame instead of indexing it.
 ///
 /// Every short length is exercised, not just zero, because 1 and 2 reach the
 /// index too — each one is one byte short of the channel id it reads.

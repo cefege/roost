@@ -17,8 +17,8 @@ use crate::client_error::ClientError;
 use crate::codec::{MuxFrame, MuxFrameType};
 
 /// How a bounded wait ended. A value rather than an error because the resize
-/// family must tell a wedged keeper from a departed one, and v2 drives a
-/// different recovery from each: the first is a timeout to be asked about with
+/// family must tell a wedged keeper from a departed one, and each needs a
+/// different recovery: the first is a timeout to be asked about with
 /// `GetTerminalState`, the second is a resize that will never be answered.
 pub(crate) enum WaitEnded {
     Answered(MuxFrame),
@@ -27,8 +27,8 @@ pub(crate) enum WaitEnded {
 }
 
 /// One non-blocking look at the event stream. `Closed` is the reader thread
-/// gone — the keeper closed the connection — which v2's socket `close` handler
-/// turns into a keeper death.
+/// gone — the keeper closed the connection — which the worker treats as a
+/// keeper death.
 #[derive(Debug)]
 pub enum EventPoll {
     Frame(MuxFrame),

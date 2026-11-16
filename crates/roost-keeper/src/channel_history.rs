@@ -1,8 +1,7 @@
 //! One channel's retained history: the last `KEEPER_RING_CAP_BYTES` of raw
 //! output, the head (every byte ever emitted), and the resize markers
-//! interleaved with the retained bytes. Ports `apps/worker/src/keeper/keeper-history.ts`
-//! and the channel's `outRing`/`headSeq` fields (`keeper-frame-handler.ts`);
-//! `keeper::Keeper` records into it and answers `GetHistoryRecords` from it.
+//! interleaved with the retained bytes. `keeper::Keeper` records into it and
+//! answers `GetHistoryRecords` from it.
 //! The markers are what let a resuming worker replay the exact
 //! byte/geometry stream the PTY produced.
 
@@ -11,7 +10,7 @@ use std::collections::VecDeque;
 use crate::codec::KEEPER_MAX_HISTORY_RESIZE_RECORDS;
 use crate::history::{HistoryRecord, HistoryRecords};
 
-/// The raw output a channel retains (v2 `KEEPER_RING_CAP_BYTES`).
+/// The raw output a channel retains.
 pub const KEEPER_RING_CAP_BYTES: usize = 1024 * 1024;
 
 /// A geometry change at a raw-output offset.
@@ -76,7 +75,7 @@ impl ChannelHistory {
 
     /// Record one emitted chunk: the head advances by its length, the ring keeps
     /// the newest `ring_cap` bytes, and markers the ring evicted over become the
-    /// base (v2 `appendToRing` + `trimEvictedResizeHistory`).
+    /// base.
     pub fn record_output(&mut self, bytes: &[u8]) {
         if bytes.is_empty() {
             return;
@@ -89,7 +88,7 @@ impl ChannelHistory {
         self.trim_evicted();
     }
 
-    /// Record a geometry change at the current head (v2 `appendResizeHistory`).
+    /// Record a geometry change at the current head.
     /// A full marker budget discards the raw window too: retaining fewer
     /// records is truthful, while retaining bytes under an unknowable geometry
     /// is not.
@@ -114,8 +113,7 @@ impl ChannelHistory {
         self.current_rows = rows;
     }
 
-    /// The retained window as ordered records, cut at each marker (v2
-    /// `orderedHistory`).
+    /// The retained window as ordered records, cut at each marker.
     pub fn ordered(&self) -> HistoryRecords {
         let retained: Vec<u8> = self.ring.iter().copied().collect();
         let retained_tail = self.head_seq - retained.len() as u64;

@@ -1,7 +1,6 @@
 //! The keeper process's epoch: a v4 uuid minted once when the daemon's
 //! `Keeper` is built and reported in every `Hello`, so a worker can tell this
-//! incarnation from a later process that reused its pid. Ports the
-//! `processEpoch = randomUUID()` of v2 `apps/worker/src/keeper/multiplexed-main.ts`.
+//! incarnation from a later process that reused its pid.
 //! Called by `keeper::Keeper::new`; read by `keeper_ops::Keeper::hello_response`.
 
 const UUID_BYTES: usize = 16;

@@ -16,7 +16,7 @@
 //!   that answer.
 //! * A frame's meaning comes from the byte on the wire, not from the nearest
 //!   vocabulary in the crate. `GetHistoryRecords` is answered with the
-//!   versioned ordered records (v2 `keeper-frame-handler.ts:505-520`).
+//!   versioned ordered records.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -42,7 +42,7 @@ fn client_with_channel(temp: &TempDir) -> (Keeper, KeeperClient) {
 
 /// F5 — the ordered history an adopter replays: the head, the base geometry the
 /// channel was spawned at, and the marker the keeper recorded at the sequence
-/// it applied (v2 `appendResizeHistory`).
+/// it applied.
 #[test]
 fn the_ordered_history_is_the_resize_the_keeper_recorded() {
     let temp = TempDir::new("history");
@@ -76,9 +76,8 @@ fn the_ordered_history_is_the_resize_the_keeper_recorded() {
 
 /// The history answer is an ORDERED boundary: every `PtyOut` the channel sent
 /// before the answer is already inside it and is dropped by the wait, so the
-/// dropped bytes across successive reads add up to exactly the head (v2
-/// `releasePendingHistoryOutput`). A client that deferred them instead would
-/// replay those bytes twice.
+/// dropped bytes across successive reads add up to exactly the head. A client
+/// that deferred them instead would replay those bytes twice.
 #[test]
 fn pre_boundary_output_is_dropped_exactly_once() {
     let temp = TempDir::new("history-boundary");

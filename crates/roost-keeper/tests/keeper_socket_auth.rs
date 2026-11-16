@@ -184,7 +184,7 @@ fn an_unauthenticated_connection_reads_no_terminal_output() {
     server.finish();
 }
 
-/// The `HelloResp` an authenticated worker gets is v2's: authenticated, this
+/// The `HelloResp` an authenticated worker gets: authenticated, this
 /// protocol version, the keeper's own pid, and the same bindings the channel
 /// list reports.
 #[test]

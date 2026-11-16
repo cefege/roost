@@ -247,8 +247,8 @@ fn main() -> std::process::ExitCode {
         }
     };
 
-    // v2 `shutdown()` reaps every channel's tree before the process exits, for
-    // every stop reason: a stopped keeper must not leave PTY children behind.
+    // The keeper reaps every channel's tree before the process exits, for every
+    // stop reason: a stopped keeper must not leave PTY children behind.
     server.keeper_mut().reap_all_channels();
     if let Some(pid_file) = &args.pid_file {
         remove_own_pid_file(pid_file);

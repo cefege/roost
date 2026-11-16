@@ -68,8 +68,7 @@ impl Keeper {
             })
             .collect();
         // Sorted so two workers polling the same keeper see the same order,
-        // which a HashMap's iteration order does not promise, and because v2's
-        // Hello decoder refuses unsorted bindings.
+        // which a HashMap's iteration order does not promise.
         bindings.sort_by_key(|binding| binding.channel_id);
         bindings
     }
@@ -205,9 +204,9 @@ impl Keeper {
             name: "Resize",
             reason: "unreadable".into(),
         })?;
-        // Unsequenced: v2 resizes the PTY without touching the applied
-        // sequence, and records the marker under sequence zero, "reserved for
-        // the deployed legacy frame" (`keeper-frame-handler.ts:350-378`).
+        // Unsequenced: the PTY resizes without touching the applied sequence,
+        // and the marker is recorded under sequence zero, reserved for the
+        // legacy frame.
         let Some(channel) = self.channels.get_mut(&frame.channel_id) else {
             return Ok(Vec::new());
         };
@@ -293,7 +292,7 @@ impl Keeper {
             })
     }
 
-    /// v2 `GetHistoryRecords` (`keeper-frame-handler.ts:505-520`): the ordered
+    /// `GetHistoryRecords`: the ordered
     /// history, or the empty default for a channel this keeper does not hold.
     pub fn history_records(&mut self, frame: &MuxFrame) -> Result<Vec<MuxFrame>, CodecError> {
         let payload = self.ordered_history(frame.channel_id).encode()?;

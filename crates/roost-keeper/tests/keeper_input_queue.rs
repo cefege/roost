@@ -2,7 +2,7 @@
 //! The keeper's per-channel input lane with a writer the test controls: one
 //! FIFO across both frame kinds, the command and byte budgets, a batch whose
 //! connection left before it started, and an exit that refuses what is still
-//! queued. Pins v2 `apps/worker/src/keeper/keeper-input-queue.ts`.
+//! queued.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod support;
@@ -182,8 +182,8 @@ fn both_frame_kinds_share_one_fifo_and_each_acknowledged_batch_is_answered() {
     );
 }
 
-/// v2 drops an unstarted acknowledged batch whose socket was destroyed: nobody
-/// is left to be told, so it is never typed. The batch already writing
+/// An unstarted acknowledged batch whose socket was destroyed is dropped:
+/// nobody is left to be told, so it is never typed. The batch already writing
 /// completes; its answer goes nowhere.
 #[test]
 fn an_unstarted_batch_whose_connection_left_is_never_written() {

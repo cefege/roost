@@ -73,8 +73,8 @@ fn a_stale_resize_is_acknowledged_with_the_geometry_the_keeper_already_had() {
 ///
 /// The daemon names the sequence so the caller can match the refusal to its own
 /// request (`keeper_ops.rs:213-217`, a zero there would be a hang wearing a
-/// different hat) and codes the reason 1, `channel_missing`, from v2's table
-/// (`protocol-terminal.ts:52`). A channel this keeper does not have is the one
+/// different hat) and codes the reason 1, `channel_missing`, from the
+/// protocol's table. A channel this keeper does not have is the one
 /// refusal the daemon can be made to produce deterministically.
 #[test]
 fn a_refused_resize_names_the_sequence_and_the_reason() {
@@ -143,7 +143,8 @@ fn a_resize_the_keeper_never_answers_is_unknown_and_bounded() {
 /// `PtyInRejectReason` is the INPUT vocabulary on the same shape: code 4 there
 /// is `ChildExited`. A client that reused it type-checked perfectly and drove
 /// the wrong recovery for eight of the nine reasons, so the codes are pinned
-/// here against v2's table rather than against the crate's nearest enum.
+/// here against the protocol's table rather than against the crate's nearest
+/// enum.
 #[test]
 fn the_resize_refusal_codes_are_v2s_nine() {
     let table = [

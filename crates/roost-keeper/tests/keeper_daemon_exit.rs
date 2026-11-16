@@ -1,8 +1,7 @@
 #![cfg(unix)]
 //! What stops the keeper without a worker asking: SIGTERM, whether the keeper
 //! is waiting for a worker or serving one, and its socket file being deleted.
-//! Ports the `SIGTERM` handler and the 30 s socket check of v2
-//! `apps/worker/src/keeper/multiplexed-main.ts`. A keeper that survives either
+//! A keeper that survives either
 //! holds its PTYs, and every shell in them, until the machine reboots — which
 //! is how one oracle session left 1155 orphaned keepers behind.
 #![allow(clippy::unwrap_used, clippy::expect_used)]

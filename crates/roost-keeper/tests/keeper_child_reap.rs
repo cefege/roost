@@ -1,6 +1,6 @@
 #![cfg(unix)]
-//! Closing a channel kills the WHOLE process tree it spawned. Ports
-//! `apps/worker/tests/keeper-child-reap.test.ts` against the real daemon.
+//! Closing a channel kills the WHOLE process tree it spawned, against the real
+//! daemon.
 //!
 //! A single signal to the session leader leaks two ways, and each test pins
 //! one: an interactive shell ignores SIGTERM, and a foreground job and a
@@ -25,7 +25,7 @@ use support::daemon::{Keeper, TempDir};
 const FG_MARK: &str = "sleep 8873310";
 const BG_MARK: &str = "sleep 9982210";
 
-/// Grace (2 s) plus margin, as v2 waits.
+/// Grace (2 s) plus margin.
 const REAPED_WITHIN: Duration = Duration::from_secs(6);
 
 /// SIGKILL anything a previous red run left behind under ONE test's mark.

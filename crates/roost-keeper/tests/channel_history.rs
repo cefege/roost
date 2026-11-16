@@ -1,9 +1,9 @@
 #![cfg(unix)]
 //! The keeper's retained history, which is what a fresh worker replays to
-//! rebuild a channel it did not spawn: v2 `keeper/keeper-history.ts` semantics
-//! (head counts every byte, resize markers split the window, an evicted marker
-//! becomes the base geometry, a full marker budget discards the window) and
-//! `keeper-history-resume.test.ts` against a live channel.
+//! rebuild a channel it did not spawn: the head counts every byte, resize
+//! markers split the window, an evicted marker becomes the base geometry, a
+//! full marker budget discards the window, and a live channel retains its
+//! echo.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_keeper::channel_history::ChannelHistory;
@@ -105,7 +105,7 @@ fn a_full_marker_budget_discards_the_retained_window() {
 }
 
 /// A channel the keeper does not hold answers "nothing emitted" at the default
-/// geometry rather than failing (v2 `keeper-frame-handler.ts:510-515`).
+/// geometry rather than failing.
 #[test]
 fn an_unknown_channel_answers_an_empty_history() {
     let keeper = Keeper::new();
@@ -115,7 +115,7 @@ fn an_unknown_channel_answers_an_empty_history() {
     );
 }
 
-/// v2 `keeper-history-resume.test.ts`: the echoed output is retained, the head
+/// The echoed output is retained, the head
 /// equals the ring under the cap, and it advances as output accrues.
 #[test]
 fn a_live_channel_retains_its_echo_and_its_head_advances() {

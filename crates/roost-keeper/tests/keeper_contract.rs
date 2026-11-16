@@ -166,11 +166,11 @@ fn the_digest_follows_the_named_path_not_the_running_process() {
     assert_eq!(running, implementation_digest_of(&own));
 }
 
-/// The Rust keeper's contract, as JSON, satisfies v2's own `KeeperContractV1Schema`
-/// (`packages/protocol/src/keeper-update.ts:17-26`), rule for rule: a TS
-/// coordinator or web client still decoding it applies exactly these. Stated
-/// here rather than delegated to `ProtocolContract::parse`, because that is the
-/// port being checked. zod's `min`/`max` count UTF-16 units, so these do too.
+/// The Rust keeper's contract, as JSON, satisfies the contract's field rules
+/// (`KeeperContractV1`'s strict schema), rule for rule: any decoder applies
+/// exactly these. Stated here rather than delegated to
+/// `ProtocolContract::parse`, because that is the code being checked. A
+/// schema's `min`/`max` count UTF-16 units, so these do too.
 #[test]
 fn the_contract_satisfies_the_v2_schema_field_rules() {
     let value = serde_json::to_value(contract()).expect("serialisable");

@@ -1,9 +1,8 @@
 //! A channel's ordered history as `GetHistoryRecordsResp` carries it: the head
 //! the retained window was cut from, the geometry its oldest record was
-//! produced at, and the output/resize records in stream order. Ports the codec
-//! half of `apps/worker/src/keeper/protocol-terminal.ts` (`encodeKeeperHistoryRecords`,
-//! `decodeKeeperHistoryRecords`); the keeper encodes it, the worker's client
-//! decodes it for an adoption or a core re-proof.
+//! produced at, and the output/resize records in stream order; the keeper
+//! encodes it, the worker's client decodes it for an adoption or a core
+//! re-proof.
 
 use crate::codec::{
     CodecError, KEEPER_MAX_HISTORY_RESIZE_RECORDS, check_dimension, read_sequence, read_u32,
@@ -23,7 +22,8 @@ const HISTORY_RESIZE_TAG: u8 = 2;
 pub const MAX_HISTORY_RECORDS: usize = KEEPER_MAX_HISTORY_RESIZE_RECORDS as usize * 2 + 1;
 /// The retained ring plus its framing always fits well inside this.
 pub const MAX_HISTORY_PAYLOAD_BYTES: usize = 2 * 1024 * 1024;
-/// v2 encodes counters as JS numbers, so a head past 2^53-1 is not a head.
+/// Counters stay within the largest integer a JSON number holds exactly, so a
+/// head past 2^53-1 is not a head.
 const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
 
 /// One entry of a channel's ordered history.
@@ -48,8 +48,8 @@ pub struct HistoryRecords {
 }
 
 impl HistoryRecords {
-    /// v2's answer for a channel the keeper does not hold: nothing emitted, the
-    /// default geometry, no records (`keeper-frame-handler.ts:510-515`).
+    /// The answer for a channel the keeper does not hold: nothing emitted, the
+    /// default geometry, no records.
     pub fn unknown_channel() -> Self {
         Self {
             head_seq: 0,
@@ -70,8 +70,8 @@ impl HistoryRecords {
         window
     }
 
-    /// Encode under v2's bounds; a history that breaks one is a keeper bug and
-    /// is refused rather than truncated.
+    /// Encode under the protocol's bounds; a history that breaks one is a
+    /// keeper bug and is refused rather than truncated.
     pub fn encode(&self) -> Result<Vec<u8>, CodecError> {
         if self.head_seq > MAX_SAFE_INTEGER {
             return Err(invalid("the head is past the largest exact counter"));
@@ -134,7 +134,7 @@ impl HistoryRecords {
         Ok(out)
     }
 
-    /// Decode, refusing every shape v2's decoder refuses: a wrong version, an
+    /// Decode, refusing every shape the protocol refuses: a wrong version, an
     /// oversized payload, an empty or overlong output record, output that
     /// exceeds the head, an unknown tag, and trailing bytes.
     pub fn decode(payload: &[u8]) -> Result<Self, CodecError> {
