@@ -385,7 +385,7 @@
     background: transparent;
   }
 
-  .group\/scrollbar-on-hover:hover & {
+  &:hover {
     scrollbar-width: thin;
 
     &::-webkit-scrollbar {

@@ -1,9 +1,9 @@
 //! Settings → Interface → Theme: the base, accent and mode pickers, plus the two
 //! device modality switches that sit above them.
 //!
-//! The pickers read their options from `crate::theme::catalog` (rust-ui's base
-//! and accent palettes) and persist through `crate::theme::apply_theme`, which
-//! writes the resolved palette onto the document root. The modality switches
+//! The pickers read their options from `crate::theme::catalog`, persist through
+//! account-scoped client state and immediately apply the resolved palette.
+//! The modality switches remain device-local and
 //! depend on `input_nav::modality` for the TV and controller choices.
 
 use std::rc::Rc;
@@ -21,13 +21,14 @@ use crate::platform::storage::LocalStorageKeyValueStore;
 use crate::pump::{Pump, use_store};
 use crate::theme::apply_theme;
 use crate::theme::catalog::{accent_themes, base_theme, base_themes};
-use crate::theme::choice::{ThemeChoice, ThemeMode, effective_choice, load_theme};
+use crate::theme::choice::{ThemeChoice, ThemeMode, effective_choice, load_theme, persist_theme};
 
-/// Persist a changed theme choice and apply it. `change` edits the stored
-/// choice; the result is written through the engine, which persists it too.
-fn change_theme(storage: &dyn KeyValueStore, pump: &Pump, change: impl FnOnce(&mut ThemeChoice)) {
-    let mut choice = load_theme(storage);
+/// Persist an explicit edit through account sync, then apply it locally.
+fn change_theme(pump: &Pump, change: impl FnOnce(&mut ThemeChoice)) {
+    let core = pump.core();
+    let mut choice = load_theme(core.borrow().storage());
     change(&mut choice);
+    persist_theme(core.borrow().storage(), &choice);
     apply_theme(&choice);
     pump.dispatch(ClientEvent::Shell(ShellIntent::ActionSucceeded {
         message: "Theme saved".to_owned(),
@@ -113,32 +114,25 @@ pub fn ThemePane() -> Element {
     };
     let on_base_change = {
         let base_pump = pump.clone();
-        let base_storage = storage.clone();
         move |value: String| {
-            change_theme(base_storage.as_ref(), &base_pump, |choice| {
-                choice.base = value
-            });
+            change_theme(&base_pump, |choice| choice.base = value);
         }
     };
     let on_accent_change = {
         let accent_pump = pump.clone();
-        let accent_storage = storage.clone();
         move |value: String| {
-            change_theme(accent_storage.as_ref(), &accent_pump, |choice| {
+            change_theme(&accent_pump, |choice| {
                 choice.accent = value;
             });
         }
     };
     let on_mode_change = {
         let mode_pump = pump.clone();
-        let mode_storage = storage.clone();
         move |value: String| {
             let Some(mode) = ThemeMode::from_stored(&value) else {
                 return;
             };
-            change_theme(mode_storage.as_ref(), &mode_pump, |choice| {
-                choice.mode = mode
-            });
+            change_theme(&mode_pump, |choice| choice.mode = mode);
         }
     };
     let shown = effective_choice(&stored);
@@ -170,7 +164,7 @@ pub fn ThemePane() -> Element {
                 on_change: on_pad_change,
             }
             p { class: "text-sm text-muted-foreground",
-                "Pick a base, an accent and a mode. Applies to this browser profile."
+                "Base, accent and mode sync across your devices. System mode follows each device’s appearance."
             }
             Select {
                 test_id: "theme-base-select",

@@ -143,6 +143,7 @@ pub fn App() -> Element {
     let pump = use_hook(|| pump::start_pump(Rc::new(RefCell::new(build_core())), revision, queue));
     use_context_provider(|| pump.core());
     use_context_provider(|| pump.clone());
+    theme::use_synced_theme(pump.clone());
     use_context_provider(components::terminal::pane_registry::PaneRegistry::default);
     motion::resize_drag::ResizeDrag::provide();
     keyboard_shortcuts::ShortcutOverlays::provide();

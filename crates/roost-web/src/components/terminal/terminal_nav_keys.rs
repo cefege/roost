@@ -39,7 +39,7 @@ pub fn TerminalKeyGrid(
     );
     rsx! {
         Card {
-            class: Some("group/nav fixed z-40 box-border max-h-[max(0rem,calc(100dvh_-_env(safe-area-inset-top,0px)_-_max(calc(env(safe-area-inset-bottom,0px)_+_13.75rem),calc(var(--terminal-nav-composer-lift,0px)_+_4.25rem))_-_1rem))] left-[calc(env(safe-area-inset-left,0px)_+_0.5rem)] right-[calc(env(safe-area-inset-right,0px)_+_0.5rem)] bottom-[max(calc(env(safe-area-inset-bottom,0px)_+_13.75rem),calc(var(--terminal-nav-composer-lift,0px)_+_4.25rem))] overflow-y-auto pointer-events-auto font-sans animate-voice-dock-enter motion-reduce:animate-none rounded-xl border-0 shadow-none p-1 data-[placement=tray]:absolute data-[placement=tray]:inset-x-0 data-[placement=tray]:bottom-full data-[placement=tray]:h-(--term-tray-height) data-[placement=tray]:max-h-none data-[placement=tray]:overflow-visible".to_owned()),
+            class: Some("group/nav fixed z-40 box-border max-h-[max(0rem,calc(100dvh_-_env(safe-area-inset-top,0px)_-_max(calc(env(safe-area-inset-bottom,0px)_+_13.75rem),calc(var(--terminal-nav-composer-lift,0px)_+_4.25rem))_-_1rem))] left-[calc(env(safe-area-inset-left,0px)_+_0.5rem)] right-[calc(env(safe-area-inset-right,0px)_+_0.5rem)] bottom-[max(calc(env(safe-area-inset-bottom,0px)_+_13.75rem),calc(var(--terminal-nav-composer-lift,0px)_+_4.25rem))] overflow-y-auto pointer-events-auto font-sans animate-voice-dock-enter motion-reduce:animate-none data-[placement=tray]:absolute data-[placement=tray]:inset-x-0 data-[placement=tray]:bottom-full data-[placement=tray]:h-(--term-tray-height) data-[placement=tray]:max-h-none data-[placement=tray]:overflow-visible".to_owned()),
             "data-testid": "terminal-nav-buttons",
             "data-placement": placement,
             "data-keypad": "true",
@@ -110,9 +110,9 @@ fn key_cell(cell: NavCell) -> Element {
     let label = face_label(face);
     rsx! {
         Button {
-            variant: ButtonVariant::Ghost,
+            variant: if area == "enter" { ButtonVariant::Default } else { ButtonVariant::Ghost },
             size: ButtonSize::Icon,
-            class: Some("w-full min-w-0 !h-(--term-chat-control) transition-colors duration-150 data-[area=esc]:[grid-area:esc] data-[area=tab]:[grid-area:tab] data-[area=ctrl]:[grid-area:ctrl] data-[area=alt]:[grid-area:alt] data-[area=back]:[grid-area:back] data-[area=home]:[grid-area:home] data-[area=up]:[grid-area:up] data-[area=end]:[grid-area:end] data-[area=pgup]:[grid-area:pgup] data-[area=left]:[grid-area:left] data-[area=down]:[grid-area:down] data-[area=right]:[grid-area:right] data-[area=pgdn]:[grid-area:pgdn] data-[area=space]:[grid-area:space] data-[area=enter]:[grid-area:ent] data-[area=mouse]:[grid-area:mouse] data-[area=mouse]:gap-2 data-[area=enter]:bg-primary data-[area=enter]:text-primary-foreground data-[area=ctrl][data-active=true]:bg-accent data-[area=ctrl][data-active=true]:text-accent-foreground data-[area=alt][data-active=true]:bg-accent data-[area=alt][data-active=true]:text-accent-foreground data-[area=mouse][data-active=true]:bg-primary data-[area=mouse][data-active=true]:text-primary-foreground group-data-[placement=tray]/nav:!h-(--term-tray-key)".to_owned()),
+            class: Some("w-full min-w-0 !h-(--term-chat-control) transition-colors duration-150 data-[area=esc]:[grid-area:esc] data-[area=tab]:[grid-area:tab] data-[area=ctrl]:[grid-area:ctrl] data-[area=alt]:[grid-area:alt] data-[area=back]:[grid-area:back] data-[area=home]:[grid-area:home] data-[area=up]:[grid-area:up] data-[area=end]:[grid-area:end] data-[area=pgup]:[grid-area:pgup] data-[area=left]:[grid-area:left] data-[area=down]:[grid-area:down] data-[area=right]:[grid-area:right] data-[area=pgdn]:[grid-area:pgdn] data-[area=space]:[grid-area:space] data-[area=enter]:[grid-area:ent] data-[area=mouse]:[grid-area:mouse] data-[area=mouse]:gap-2 data-[active=true]:bg-accent data-[active=true]:text-accent-foreground group-data-[placement=tray]/nav:!h-(--term-tray-key)".to_owned()),
             "data-testid": test_id,
             "data-area": area,
             "data-active": active.then_some("true"),

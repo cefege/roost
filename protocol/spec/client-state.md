@@ -7,7 +7,7 @@
 
 An operator who opens Roost on another laptop lands where they left off: the
 pane layout, the last terminal, the sidebar's recent sessions and manual folder
-order, per-folder and per-machine memory, and unsent composer drafts.
+order, per-folder and per-machine memory, unsent composer drafts, and theme.
 The coordinator stores the allowlisted subset, scoped to the account. Browsers
 merge it on boot, reconnect and account-scoped live invalidation.
 
@@ -25,14 +25,15 @@ merge it on boot, reconnect and account-scoped live invalidation.
 
 Exact keys: `roost.paneLayout.v1`, `roost.lastSessionByFolder`,
 `roost.lastTerminalPath`, `roost.sidebar.recent`,
-`roost.sidebar.folderOrder`, `roost.composerDrafts.v1`.
+`roost.sidebar.folderOrder`, `roost.composerDrafts.v1`,
+`roost.theme.base`, `roost.theme.accent`, `roost.theme.mode`.
 
 Prefix (the suffix must be non-empty): `roost.lastWorkspaceId.`.
 
 Everything else is device-local and is never sent. In particular the device
 key, endpoint selection (`coordinatorUrl`, `coords`, `deploymentMode`,
 `localWorkerOrigin`), the per-tab id, pairing and fragment credentials,
-theme, and input modality never leave the browser that owns them.
+and input modality never leave the browser that owns them.
 
 ## Limits
 
@@ -68,6 +69,11 @@ remote manual order takes precedence over locally discovered folders. Activity
 never changes either order. An unstamped order from an older browser seeds an
 account only when its first successful List has no folder-order entry; otherwise
 the existing account order wins.
+
+On the first successful List, unstamped local theme settings from an older
+browser seed the account only if it has no theme keys at all. If any account
+theme key exists, no unstamped local theme setting is uploaded. Stamped edits
+still follow the ordinary last-writer-wins rule.
 
 ## Browser timing
 

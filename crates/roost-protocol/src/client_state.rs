@@ -8,6 +8,8 @@
 
 use crate::error::{ProtocolError, ProtocolResult};
 
+pub mod theme;
+
 /// Exact keys that sync across devices.
 pub const SYNCED_EXACT_KEYS: &[&str] = &[
     "roost.paneLayout.v1",
@@ -16,6 +18,9 @@ pub const SYNCED_EXACT_KEYS: &[&str] = &[
     "roost.sidebar.recent",
     "roost.sidebar.folderOrder",
     "roost.composerDrafts.v1",
+    theme::BASE_STORAGE_KEY,
+    theme::ACCENT_STORAGE_KEY,
+    theme::MODE_STORAGE_KEY,
 ];
 
 /// Key prefixes that sync across devices.
@@ -76,6 +81,7 @@ mod tests {
     #[test]
     fn allowlist_admits_only_listed_keys_and_prefixes() {
         assert!(is_synced_key("roost.paneLayout.v1"));
+        assert!(theme::KEYS.iter().all(|key| is_synced_key(key)));
         assert!(is_synced_key("roost.lastWorkspaceId.fp-1"));
         assert!(!is_synced_key("roost.lastWorkspaceId."));
         assert!(!is_synced_key("roost.agent.draft.conv-1"));

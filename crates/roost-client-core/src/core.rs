@@ -173,6 +173,11 @@ impl ClientCore {
     pub fn client_state_settled(&self) -> bool {
         self.store.client_state.is_settled()
     }
+
+    /// Revision of remote client-state merges that changed persisted values.
+    pub fn client_state_merged_revision(&self) -> u64 {
+        self.store.client_state.merged_revision()
+    }
 }
 
 /// Reload the store fields that a synced key backs from `storage`. Boot runs it,

@@ -23,6 +23,8 @@ const SETTLE_DEADLINE_MS: u64 = 5_000;
 pub struct ClientStateSync {
     started_ms: u64,
     settled: bool,
+    has_merged_list: bool,
+    merged_revision: u64,
     list_call_id: Option<u64>,
     refresh_pending: bool,
     observed: BTreeMap<String, Observation>,
@@ -63,6 +65,11 @@ impl ClientStateSync {
     /// True once the first pull has merged, or the deadline has passed.
     pub fn is_settled(&self) -> bool {
         self.settled
+    }
+
+    /// Revision of remote merges that applied at least one value.
+    pub fn merged_revision(&self) -> u64 {
+        self.merged_revision
     }
 }
 
@@ -281,6 +288,7 @@ fn rehydrate_after_merge(store: &mut Store, storage: &ClientStateStore, applied:
         return;
     }
     crate::core::hydrate_from_local(store, storage);
+    store.client_state.merged_revision = store.client_state.merged_revision.wrapping_add(1);
     store.note_change();
     tracing::info!(
         target: "client_state",
@@ -302,7 +310,8 @@ pub(crate) fn settle_result(
             if store.client_state.list_call_id == Some(*call_id) =>
         {
             store.client_state.list_call_id = None;
-            let counts = merge_list_answer(storage, entries);
+            let counts = merge_list_answer(storage, entries, !store.client_state.has_merged_list);
+            store.client_state.has_merged_list = true;
             tracing::info!(
                 target: "client_state",
                 call_id,

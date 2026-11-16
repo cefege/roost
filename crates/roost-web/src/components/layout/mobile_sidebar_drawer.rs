@@ -28,6 +28,7 @@ pub fn MobileSidebarDrawer(children: Element) -> Element {
             "data-testid": crate::motion::drawer_drag::DRAWER_TEST_ID,
             "data-open": flag,
             "aria-hidden": if open { "false" } else { "true" },
+            inert: (!open).then_some(true),
             {children}
         }
     }

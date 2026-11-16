@@ -183,10 +183,11 @@ fn AttachmentRow(
     };
     rsx! {
         ListRow {
+            class: "grid grid-cols-[auto_minmax(0,1fr)] gap-3 [&>div:last-child]:col-span-2 [&>div:last-child]:flex-wrap md:flex",
             leading_icon: Some(icon_for_file(&filename)),
             headline: rsx! { span { class: "font-mono", {filename.clone()} } },
             support: Some(rsx! {
-                span { class: "inline-flex items-center gap-3",
+                span { class: "inline-flex flex-wrap items-center gap-3",
                     span { {format_bytes(entry.size_bytes as f64)} }
                     span { {format_age(now_ms, entry.mtime_ms)} }
                     Badge {

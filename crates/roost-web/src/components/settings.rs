@@ -30,7 +30,8 @@ use crate::components::ui::sidenav_layout::{
 use crate::components::ui::sidenav_links::SidenavMenuButton;
 use crate::components::ui::{
     Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyMediaVariant, EmptyTitle, Icon,
-    IconButton, IconType, List, TextField,
+    IconButton, IconType, Item, ItemContent, ItemDescription, ItemMedia, ItemTitle, List,
+    TextField,
 };
 use crate::router_state::use_navigate;
 use crate::routes::Route;
@@ -202,7 +203,7 @@ fn MobileSettingsList() -> Element {
                                         let href = Route::Settings { pane: Some(pane.id.to_string()) }.to_path();
                                         rsx! {
                                             SidenavMenuItem {
-                                                SidenavMenuButton {
+                                                Item {
                                                     href: Some(href.clone()),
                                                     "data-testid": format!("settings-list-{}", pane.id),
                                                     onclick: move |event: MouseEvent| {
@@ -212,12 +213,12 @@ fn MobileSettingsList() -> Element {
                                                             navigate.call(href.clone());
                                                         }
                                                     },
-                                                    Icon { icon: pane.icon }
-                                                    span { class: "min-w-0 flex-1",
-                                                        span { class: "block truncate", {pane.label} }
-                                                        span { class: "block truncate text-xs font-normal text-muted-foreground", {pane.description} }
+                                                    ItemMedia { Icon { icon: pane.icon } }
+                                                    ItemContent {
+                                                        ItemTitle { {pane.label} }
+                                                        ItemDescription { {pane.description} }
                                                     }
-                                                    Icon { icon: IconType::ChevronRight }
+                                                    ItemMedia { Icon { icon: IconType::ChevronRight } }
                                                 }
                                             }
                                         }

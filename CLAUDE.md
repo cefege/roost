@@ -419,7 +419,7 @@ for Dioxus 0.7 + Tailwind v4. Roost adapts those components under the web crate'
    `text-muted-foreground`, `border-border`, `bg-accent`, `bg-destructive`, …),
    which `crates/roost-web/tailwind.css` maps onto rust-ui's theme variables.
    The theme engine (`src/theme/`) writes rust-ui's base × accent palettes
-   (`src/theme/palettes/`) and the `dark` class; default dark Neutral.
+   (`src/theme/palettes/`) and the `dark` class; default dark Tokyo Night.
    Components and CSS consume those roles directly; `theme-vars.css` retains
    terminal bridges and layout/runtime tokens, not legacy visual aliases.
    `theme/terminal_palette.rs` reapplies the saved terminal palette after app
@@ -435,9 +435,12 @@ for Dioxus 0.7 + Tailwind v4. Roost adapts those components under the web crate'
    rust-ui's collapsed offsets (`-translate-y-5` and `scale-95` per step behind
    the front card) and fans on hover, focus or tap (operator decision: rust-ui's
    tinted, heavy-bordered, `p-5` cards clashed with the theme),
-   and `ui/input_prompt.rs`, whose frame uses opaque `bg-background` in both
-   themes so growing drafts obscure terminal output beneath them. Caller
-   classes place components, not recolor, reshape, or reskin them. The few raw values rust-ui itself
+   `ui/input_prompt.rs`, whose frame uses opaque `bg-background` in both
+   themes so growing drafts obscure terminal output beneath them, and text
+   inputs (`Input`, `Textarea`, `SidenavInput`, `InputPromptTextarea`), whose
+   font size follows the short-side compact hook so landscape phones retain
+   `text-base` without changing desktop typography. Caller classes place
+   components, not recolor, reshape, or reskin them. The few raw values rust-ui itself
    ships are baselined. Enforced by `cargo xtask lint`'s design ratchet against
    `xtask/design-raw-baseline.json`: a NEW raw value fails the build. After
    migrating a file down, re-snapshot with

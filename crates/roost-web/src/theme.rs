@@ -3,13 +3,12 @@
 //! follows OS flips through [`use_follow_system_appearance`]; the Settings
 //! theme picker calls [`apply_theme`].
 //!
-//! A choice is a base palette, an accent palette and a mode. Applying it
-//! persists the three parts (`KeyValueStore`), resolves the mode against the OS
-//! preference, clears every managed custom property, and writes the resolved
-//! base, accent and Roost roles inline on `document.documentElement`, together
-//! with the `dark` class rust-ui's `dark:` variant selects on. The sequence is
-//! [`apply_theme_with`] over a [`ThemeDocument`], so it runs natively in tests;
-//! the browser document is `document::BrowserThemeDocument`.
+//! A choice is a base palette, an accent palette and a mode. Settings persists
+//! explicit edits through account-scoped client state; remote merges redraw
+//! without creating another local write. Resolved roles are written inline on
+//! `document.documentElement`, with the `dark` class rust-ui selects on.
+//! Native tests use [`apply_theme_with`] over a [`ThemeDocument`]; the browser
+//! document is `document::BrowserThemeDocument`.
 
 pub mod catalog;
 pub mod choice;
@@ -44,6 +43,10 @@ pub fn apply_theme_with(
     choice: &ThemeChoice,
 ) -> ThemeApplication {
     persist_theme(store, choice);
+    write_theme_with(document, choice)
+}
+
+fn write_theme_with(document: &dyn ThemeDocument, choice: &ThemeChoice) -> ThemeApplication {
     let application = theme_application(choice, document.system_appearance());
     document.write(&application);
     tracing::info!(
@@ -64,7 +67,7 @@ pub fn reapply_for_system_flip(
     document: &dyn ThemeDocument,
 ) -> Option<ThemeApplication> {
     let stored = load_theme(store);
-    (stored.mode == ThemeMode::System).then(|| apply_theme_with(store, document, &stored))
+    (stored.mode == ThemeMode::System).then(|| write_theme_with(document, &stored))
 }
 
 /// Apply the persisted theme. Called once, by `App`, before the first
@@ -74,7 +77,7 @@ pub fn apply_stored_theme() {
     use crate::platform::LocalStorageKeyValueStore;
 
     let store = LocalStorageKeyValueStore::new();
-    apply_theme_with(&store, &document::BrowserThemeDocument, &load_theme(&store));
+    apply_theme(&load_theme(&store));
 }
 
 /// Apply the persisted theme. A native build has no document to theme.
@@ -107,16 +110,38 @@ pub fn use_follow_system_appearance() {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn use_follow_system_appearance() {}
 
-/// Persist `choice` and apply it to this document, instantly.
+/// Apply `choice` to this document without writing account state.
 #[cfg(target_arch = "wasm32")]
 pub fn apply_theme(choice: &ThemeChoice) {
-    let store = crate::platform::LocalStorageKeyValueStore::new();
-    apply_theme_with(&store, &document::BrowserThemeDocument, choice);
+    write_theme_with(&document::BrowserThemeDocument, choice);
 }
 
-/// Persist and apply `choice`. A native build has no document to theme.
+/// A native build has no document to theme.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn apply_theme(_choice: &ThemeChoice) {}
+
+/// Redraw remote theme changes without reading storage on terminal frames.
+#[cfg(target_arch = "wasm32")]
+pub fn use_synced_theme(pump: crate::pump::Pump) {
+    use dioxus::prelude::{use_effect, use_memo};
+
+    let merged = use_memo(move || {
+        let revision = pump.revision();
+        let _ = revision();
+        let core = pump.core();
+        let core = core.borrow();
+        core.client_state_merged_revision()
+    });
+    use_effect(move || {
+        if merged() != 0 {
+            let choice = load_theme(&crate::platform::LocalStorageKeyValueStore::new());
+            apply_theme(&choice);
+        }
+    });
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn use_synced_theme(_pump: crate::pump::Pump) {}
 
 /// The OS light/dark preference, for the picker's "System" preview.
 #[cfg(target_arch = "wasm32")]

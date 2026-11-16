@@ -28,8 +28,11 @@ pub fn Textarea(
     #[props(optional)] onkeydown: Option<EventHandler<KeyboardEvent>>,
     #[props(optional)] onmounted: Option<EventHandler<MountedEvent>>,
 ) -> Element {
+    let is_mobile = crate::components::hooks::use_is_mobile::use_is_mobile();
+    let font_class = if is_mobile() { "text-base" } else { "text-sm" };
     let class = tw_merge!(
-        "border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 flex field-sizing-content min-h-16 w-full rounded-md border bg-transparent px-3 py-2 text-base shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+        "border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 flex field-sizing-content min-h-16 w-full rounded-md border bg-transparent px-3 py-2 shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50",
+        font_class,
         class.as_deref().unwrap_or("")
     );
     let aria_invalid_attribute = aria_invalid.then_some("true");

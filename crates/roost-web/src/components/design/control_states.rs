@@ -23,7 +23,8 @@ pub fn surface_options() -> Vec<SelectOption> {
 
 const CONTROL_ROW_CLASS: &str = "flex flex-wrap items-center gap-3";
 const CONTROL_ROW_SPACED_CLASS: &str = "flex flex-wrap items-center gap-3 mt-3";
-const FIELD_GRID_CLASS: &str = "grid grid-cols-[repeat(auto-fit,minmax(16rem,1fr))] gap-4";
+const FIELD_GRID_CLASS: &str =
+    "grid grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))] gap-4";
 
 /// The control reference.
 #[component]

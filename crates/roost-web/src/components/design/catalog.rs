@@ -231,7 +231,8 @@ pub const DENSE_GRID_ROWS: [DenseGridRow; 6] = [
 pub const SWATCH_GRID_CLASS: &str = "grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-4";
 
 /// The specimen card grid: columns at least a 15rem wide.
-pub const CARD_GRID_CLASS: &str = "grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-4 mb-5";
+pub const CARD_GRID_CLASS: &str =
+    "grid grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),1fr))] gap-4 mb-5";
 
 /// The metric and surface grid: columns at least a 12rem wide.
 pub const TILE_GRID_CLASS: &str = "grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-4 mb-5";

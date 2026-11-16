@@ -536,6 +536,19 @@ Pairing is what authorizes a device. Network reachability, a VPN membership, or
 a login your front door performs on its own does not authorize a phone as a
 Roost device.
 
+## Appearance across devices
+
+**Settings → Appearance** shares the base palette, accent and Light/Dark/System
+mode across paired devices on the same account. Open devices apply remote
+changes without a reload; offline edits synchronize after reconnecting.
+Mobile keeps its compact layout but uses the same palette as desktop.
+
+Choose **Light** or **Dark** for matching appearance on devices with different
+OS settings. **System** shares the preference but follows each device's OS.
+An existing browser seeds an account without theme preferences on its first
+successful sync; a saved account theme takes precedence over an unstamped
+browser-local choice.
+
 ## Sidebar folders
 
 The sidebar groups terminal sessions by folder and keeps a manual folder order

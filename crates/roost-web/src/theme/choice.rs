@@ -3,6 +3,7 @@
 //! write. Every rule the browser applies is decided here, natively testable.
 
 use roost_client_core::KeyValueStore;
+use roost_protocol::client_state::theme::{ACCENT_STORAGE_KEY, BASE_STORAGE_KEY, MODE_STORAGE_KEY};
 
 use super::catalog::{
     DEFAULT_ACCENT_ID, DEFAULT_BASE_ID, ThemeSpec, accent_theme, accent_themes, base_theme,
@@ -11,10 +12,6 @@ use super::catalog::{
 use super::omarchy::derive_roles;
 use super::palettes::roost::{ROOST_DARK, ROOST_LIGHT};
 use super::tokens::ThemeAppearance;
-
-pub const BASE_STORAGE_KEY: &str = "roost.theme.base";
-pub const ACCENT_STORAGE_KEY: &str = "roost.theme.accent";
-pub const MODE_STORAGE_KEY: &str = "roost.theme.mode";
 
 /// The mode the reader picked: follow the OS, or pin light or dark.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
