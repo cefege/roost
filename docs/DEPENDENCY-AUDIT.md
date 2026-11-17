@@ -111,6 +111,29 @@ Sources: [Dioxus comparison](https://github.com/DioxusLabs/dioxus/compare/v0.8.0
 [Tailwind 4.3.5](https://github.com/tailwindlabs/tailwindcss/releases/tag/v4.3.5),
 [Rust/UI comparison](https://github.com/rust-ui/ui/compare/7120636e68556ddd023a4ec8e083663c7b745318...4f5a516e76d75a15a587ab2169352cf34fd318d0).
 
+## Dioxus reuse candidates
+
+The shipped SDK already supports two bounded replacements:
+
+| Current owner | SDK API | Required behavior |
+| --- | --- | --- |
+| `terminal_deck_hooks::DeckMeasure`, `composer_slot::ResizeWatch` | Element `onresize` | Keep synchronous initial measurements, integer client dimensions, composer visibility arbitration and height deduplication. Replace observer ownership, not geometry. |
+| `file_viewer` fetch tokens and teardown invalidation | `use_resource` with `use_reactive` | Keep auth-generation fencing, platform readiness and explicit loading when the file changes; resources retain their previous value while pending. |
+
+Keep imperative terminal ownership, synchronous drag geometry, prevent-scroll
+focus and the core placement patch. The exported core `Portal` has no stock
+web render-target registration API. Official components' compatible `0.8`
+branch uses `document::eval` for dialogs, which Roost's CSP blocks; its focus
+behavior also does not preserve Roost's cancellable, prevent-scroll contract.
+The alpha.3 release's buffered `NodeHandle` mutations concern native rendering,
+not a replacement for web DOM measurements.
+
+These are recommendations, not applied UI changes. Sources:
+[`onresize`](https://github.com/DioxusLabs/dioxus/blob/v0.8.0-alpha.3/packages/html/src/events/resize.rs),
+[`use_resource`](https://github.com/DioxusLabs/dioxus/blob/v0.8.0-alpha.3/packages/hooks/src/use_resource.rs),
+[`use_reactive`](https://github.com/DioxusLabs/dioxus/blob/v0.8.0-alpha.3/packages/hooks/src/use_reactive.rs),
+[compatible dialog implementation](https://github.com/DioxusLabs/dioxus-components/blob/aecbc392d947b4325507f5ce5976e649854344c8/primitives/src/dialog.rs).
+
 ## Remaining security advisories: explicit upstream-only policy
 
 An OSV batch query of **672 resolved registry packages** after the refresh
@@ -154,8 +177,11 @@ import guard includes `combase.dll`, the inbox
 [Windows Runtime component](https://learn.microsoft.com/en-us/windows/win32/api/roapi/nf-roapi-roinitialize)
 available since Windows 8; non-system imports remain rejected.
 
-PostgreSQL remains on the supported 17 major. Moving production to 18 is a
-database upgrade with backup/restore implications, not a library bump.
+PostgreSQL 18.7 restores the production snapshot with identical fingerprints
+for all 52 public tables, column definitions, constraints, indexes and sequences
+against an independent PostgreSQL 17 restore. The replacement volume has data
+checksums enabled. Production cutover remains a separate writer-paused operation;
+the default chart image stays on 17 to avoid upgrading existing data directories.
 
 Sources: [checkout](https://github.com/actions/checkout/releases/tag/v7.0.1),
 [artifact upload](https://github.com/actions/upload-artifact/releases/tag/v7.0.2),
