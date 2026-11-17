@@ -1,6 +1,6 @@
-//! The sidebar's native decisions: session titles and machine identity, plus
-//! the row's exact route match, the swipe release rule, and the upward
-//! machine-menu placement.
+//! Native sidebar decisions: session titles and machine identity.
+//! Covers exact route matching and swipe release behavior.
+//! Terminal creation belongs to the selected folder, not a machine launcher.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -14,9 +14,7 @@ use roost_web::components::machines::machine_identity::{
 };
 use roost_web::components::sidebar::row_swipe::{RowSwipe, SwipeRelease};
 use roost_web::components::sidebar::session_row::session_row_is_active;
-use roost_web::components::sidebar::sidebar_new_terminal::MACHINE_MENU_SIDE;
 use roost_web::components::ui::IconType;
-use roost_web::components::ui::placement::{ClientRect, Vertical, place_menu};
 use roost_web::session_naming::{folder_headline, program_subtitle, session_title};
 
 const FP: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -266,52 +264,4 @@ fn row_touch_cancellation_and_finger_changes_never_close() {
     swipe.start_touch(11, 1, 300.0, 0.0);
     swipe.track_touch(11, 1, 100.0, 0.0, 400.0);
     assert_eq!(swipe.end_touch(11, 0, 400.0), SwipeRelease::Close);
-}
-
-#[test]
-fn the_machine_menu_opens_upward_from_its_trigger() {
-    let viewport = ClientRect {
-        left: 0.0,
-        top: 0.0,
-        width: 1_200.0,
-        height: 1_000.0,
-    };
-    let trigger = ClientRect {
-        left: 200.0,
-        top: 900.0,
-        width: 80.0,
-        height: 32.0,
-    };
-    assert!(
-        MACHINE_MENU_SIDE.prefers_up(),
-        "the picker is configured to open upward"
-    );
-    let placement = place_menu(trigger, viewport, viewport, MACHINE_MENU_SIDE.prefers_up());
-    assert_eq!(
-        placement.vertical,
-        Vertical::Bottom(104.0),
-        "the bottom edge sits the trigger gap above the trigger's top"
-    );
-}
-
-#[test]
-fn the_machine_menu_drops_below_when_no_room_is_above() {
-    let viewport = ClientRect {
-        left: 0.0,
-        top: 0.0,
-        width: 1_200.0,
-        height: 1_000.0,
-    };
-    let trigger = ClientRect {
-        left: 200.0,
-        top: 100.0,
-        width: 80.0,
-        height: 32.0,
-    };
-    let placement = place_menu(trigger, viewport, viewport, MACHINE_MENU_SIDE.prefers_up());
-    assert_eq!(
-        placement.vertical,
-        Vertical::Top(136.0),
-        "flips below the trigger's bottom edge"
-    );
 }

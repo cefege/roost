@@ -1,6 +1,6 @@
 # Unified access and onboarding
 
-Status: proposed; research only. No service, network, authentication or production changes applied.
+Status: access changes deployed in v3.0.21; folder-first sidebar cutover implemented and locally verified.
 
 ## Recommendation
 
@@ -120,8 +120,10 @@ Required scenarios:
 
 ## Implementation and verification
 
-The five implementation steps are complete. The folder picker retains its
-existing scoped navigation owner; access surfaces reuse the stock UI recipes.
+Access setup and recovery are implemented. Folder navigation owns machine
+selection and explicit terminal creation; the separate sidebar launcher and
+its target-selection policy are removed. Desktop and phone use the same
+folder heading entry and existing scoped filesystem browser.
 
 - 105 focused native tests passed across host, client-core, coordinator, CLI
   and web access contracts. Scoped clippy and the repository linter passed;
@@ -155,3 +157,19 @@ fixture used a private test CA accepted only by managed Chromium; it installed
 no system trust. Native deployment/recovery behavior was exercised by the
 focused regression tests, not by replacing this workstation's services.
 Service-log redaction was not independently verified.
+
+## Folder-first sidebar verification
+
+The sidebar's Browse folders action opens the existing filesystem browser on
+desktop and phone. Machine selection stays inside that browser; opening it
+never creates a terminal. Open terminal explicitly creates one in the chosen
+directory. Folder-context terminal actions remain scoped to their folder.
+
+- Removed the separate machine launcher and its target-selection policy.
+- 57 focused sidebar, browser and home tests passed; scoped web clippy passed.
+- Repository lint reported zero violations; the Dioxus web build passed.
+- Design review found no primitive, accessibility or interaction defects.
+- An isolated coordinator, worker and keeper served the actual web bundle.
+  Desktop (1280×900) and phone (390×844) each opened a real PTY; shell output
+  confirmed the chosen directory over WebRTC. Phone folder selection exercised
+  the touch handler, not a physical touchscreen.

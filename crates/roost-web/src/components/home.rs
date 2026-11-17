@@ -184,7 +184,7 @@ pub fn HomeLanding(reader_platform: BrowserPlatform) -> Element {
                             }
                             EmptyTitle { "Open a terminal" }
                             EmptyDescription { class: "max-w-[42ch]",
-                                "Select a session or start a new terminal from the sidebar, or press "
+                                "Choose a folder in the sidebar, use Browse folders to select a directory, or press "
                                 Kbd { class: "whitespace-nowrap",
                                     {SHORTCUTS[0].glyph(reader_platform)}
                                 }

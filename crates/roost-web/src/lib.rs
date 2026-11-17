@@ -27,7 +27,6 @@ pub mod keyboard_shortcuts;
 pub mod keyboard_shortcuts_dom;
 pub mod machine_actions;
 pub mod motion;
-pub mod new_terminal_target;
 pub mod platform;
 pub mod pump;
 pub mod route_session;

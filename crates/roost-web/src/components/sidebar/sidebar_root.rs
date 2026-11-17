@@ -1,8 +1,6 @@
-//! The route-stable primary sidebar: the session heading with its Recent /
-//! Folders switcher, debounced search, the folder tree, the compact
-//! terminal text-size row, and the terminal launcher. `AppShell` mounts it once
-//! in the desktop aside or the compact drawer. State changes dispatch
-//! `ClientEvent::Sidebar`.
+//! The route-stable folders sidebar: heading, search and folder tree.
+//! AppShell mounts it in the desktop aside or compact drawer.
+//! Folder selection owns terminal creation; the compact footer controls type.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
@@ -11,7 +9,6 @@ use roost_client_core::store::sidebar::SidebarIntent;
 use super::all_view::AllView;
 use super::rel_time_tick::provide_rel_time_ticker;
 use super::sidebar_heading::SidebarHeading;
-use super::sidebar_new_terminal::SidebarNewTerminal;
 use super::sidebar_search::SidebarSearch;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::term_font_stepper::TermFontStepper;
@@ -127,7 +124,6 @@ pub fn SidebarRoot() -> Element {
                     }
                 }
             }
-            SidebarNewTerminal {}
         }
     }
 }
