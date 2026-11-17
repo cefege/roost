@@ -1,27 +1,23 @@
 //! A folder destination composed from the stock Sidenav menu parts.
-//! The link resolves the remembered terminal; supporting badges
-//! keep machine, activity, git and port context outside the destination link.
+//! The link resolves the remembered terminal; the row shows name, machine
+//! and activity only.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
 use roost_client_core::store::selectors::{session_by_id, session_folder_key};
 use roost_client_core::store::sidebar::SidebarIntent;
-use roost_client_core::store::sidebar::folder_groups::{FolderGroup, pr_check_glyph};
+use roost_client_core::store::sidebar::folder_groups::FolderGroup;
 use roost_protocol::wire::SessionStatus;
 
 use super::folder_row_context_menu::{FolderMenuTarget, FolderRowContextMenu};
 use super::rel_time_tick::use_rel_time_now;
-use super::row_chips::{BranchChip, PortChip, PrBadgeChip};
-use crate::components::layout::window_size::use_is_compact;
-use crate::components::machines::machine_identity_mark::MachineIdentityMark;
 use crate::components::notifications::notify_target::{
     folder_ring_attribute, open_tab_session_ids, use_notify_target,
 };
 use crate::components::ui::list::is_in_app_navigation_click;
 use crate::components::ui::status::StatusDot;
 use crate::components::ui::{
-    Badge, BadgeSize, BadgeVariant, Icon, IconType, SidenavMenuAction, SidenavMenuButton,
-    SidenavMenuButtonSize, SidenavMenuItem,
+    Icon, IconType, SidenavMenuAction, SidenavMenuButton, SidenavMenuButtonSize, SidenavMenuItem,
 };
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::use_store;
@@ -50,11 +46,10 @@ pub fn FolderRow(
 ) -> Element {
     let pump = use_store();
     let navigate = use_navigate();
-    let compact = use_is_compact();
     let path = use_location();
     let notify_target = use_notify_target();
     let now_ms = use_rel_time_now();
-    let (worker, target_id) = {
+    let target_id = {
         let core = pump.core();
         let core = core.borrow();
         let store = core.store();
@@ -68,10 +63,7 @@ pub fn FolderRow(
                     && session_folder_key(store, &BrowserWorkerPaths, session) == group.key
             })
             .map(|session| session.id.to_string());
-        (
-            store.workers.get(&group.spawn_fp).cloned(),
-            remembered.unwrap_or_else(|| group.lead_id.clone()),
-        )
+        remembered.unwrap_or_else(|| group.lead_id.clone())
     };
     // A hovered toast names a SESSION, and this row is the surface that answers
     // for it when no pane tab shows that session. Resolving it here rather than
@@ -96,11 +88,6 @@ pub fn FolderRow(
     } else {
         format!("/s/{target_id}")
     };
-    let pane_count = group.session_ids.len();
-    let panes_title = format!(
-        "{pane_count} pane{} in this workspace",
-        if pane_count == 1 { "" } else { "s" }
-    );
     let mut menu = use_signal(|| None::<FolderMenuTarget>);
     let menu_target = {
         let group = group.clone();
@@ -220,36 +207,6 @@ pub fn FolderRow(
                     menu.set(Some(more_target(at.x, at.y)));
                 },
                 Icon { icon: IconType::Ellipsis }
-            }
-            div { class: "flex min-w-0 flex-wrap items-center gap-1 px-2 pb-2",
-                if !compact {
-                    MachineIdentityMark { worker, context_title: group.spawn_cwd.clone() }
-                }
-                if !compact {
-                    span { title: panes_title,
-                        Badge { variant: BadgeVariant::Outline, size: BadgeSize::Sm,
-                            "{pane_count} terminal"
-                        }
-                    }
-                }
-                if let Some(branch) = group.branch.clone() { BranchChip { branch } }
-                if let Some(pr) = group.pr.clone() {
-                    PrBadgeChip {
-                        folder_key: group.key.clone(),
-                        glyph: pr_check_glyph(pr.checks).to_owned(),
-                        pr,
-                    }
-                }
-                if !compact {
-                    for port in group.ports.iter().copied() {
-                        PortChip {
-                            key: "{port}",
-                            folder_key: group.key.clone(),
-                            port,
-                            reach_addr: group.reach_addr.clone(),
-                        }
-                    }
-                }
             }
             {children}
             if let Some(target) = menu() {

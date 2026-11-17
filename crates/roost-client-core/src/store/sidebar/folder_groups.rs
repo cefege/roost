@@ -3,7 +3,7 @@
 //! store; the folder key is `store::paths::folder_key_of`, the same key the
 //! deck uses.
 
-use roost_protocol::wire::{PullRequestChecks, PullRequestState, Session, SessionKind, Workspace};
+use roost_protocol::wire::{Session, SessionKind, Workspace};
 
 use crate::store::Store;
 use crate::store::navigation::query::normalize_navigation_search_query;
@@ -15,19 +15,6 @@ use crate::store::sidebar::format::short_server_label;
 
 /// The subtitle a folder on an unreachable machine shows.
 pub const OFFLINE_SUBTITLE: &str = "Machine offline — reopen to refresh";
-
-/// The lead session's pull request, shaped for the row badge.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PrBadge {
-    /// The PR number.
-    pub number: i64,
-    /// Open, merged, closed or draft; `open` when the worker did not say.
-    pub state: PullRequestState,
-    /// The checks rollup; `none` when the worker did not say.
-    pub checks: PullRequestChecks,
-    /// The PR's URL; empty when unknown, which the badge reads as "not a link".
-    pub url: String,
-}
 
 /// One folder row: plain scalars, so a rebuild compares by value.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,24 +39,6 @@ pub struct FolderGroup {
     pub lead_id: String,
     /// Every session in the bucket.
     pub session_ids: Vec<String>,
-    /// The lead's pull request badge.
-    pub pr: Option<PrBadge>,
-    /// The lead's git branch.
-    pub branch: Option<String>,
-    /// The union of listening ports across the bucket, ascending.
-    pub ports: Vec<i64>,
-    /// The machine's reachable address, for port click-through.
-    pub reach_addr: Option<String>,
-}
-
-/// The glyph a checks rollup shows beside `#123`; `none` shows none.
-pub const fn pr_check_glyph(checks: PullRequestChecks) -> &'static str {
-    match checks {
-        PullRequestChecks::Passing => "✓",
-        PullRequestChecks::Failing => "✕",
-        PullRequestChecks::Pending => "•",
-        PullRequestChecks::None => "",
-    }
 }
 
 /// Terminals live in their current cwd.
@@ -194,12 +163,6 @@ fn group_of(
     let worker = store.workers.get(head.worker_fp.as_str());
     let online = worker
         .is_some_and(|worker| worker_online(worker, store.routable_worker_fps.as_ref(), now_ms));
-    let mut ports: Vec<i64> = members
-        .iter()
-        .flat_map(|session| session.ports.iter().flatten().copied())
-        .collect();
-    ports.sort_unstable();
-    ports.dedup();
     let fallback_label: String = head.worker_fp.as_str().chars().take(6).collect();
     Some(FolderGroup {
         key,
@@ -223,15 +186,6 @@ fn group_of(
             .iter()
             .map(|session| session.id.to_string())
             .collect(),
-        pr: lead.pr_number.map(|number| PrBadge {
-            number,
-            state: lead.pr_state.unwrap_or(PullRequestState::Open),
-            checks: lead.pr_checks.unwrap_or(PullRequestChecks::None),
-            url: lead.pr_url.clone().unwrap_or_default(),
-        }),
-        branch: lead.git_branch.clone(),
-        ports,
-        reach_addr: worker.and_then(|worker| worker.reachable_addr.clone()),
     })
 }
 

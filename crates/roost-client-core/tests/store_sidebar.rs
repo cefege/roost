@@ -181,10 +181,6 @@ fn folder(key: &str, name: &str, server: &str, spawn_cwd: &str) -> FolderGroup {
         latest_activity: 1,
         lead_id: "session".to_owned(),
         session_ids: ids(&["session"]),
-        pr: None,
-        branch: None,
-        ports: Vec::new(),
-        reach_addr: None,
     }
 }
 
