@@ -23,8 +23,8 @@ use roost_host::coord_config_loader::{
     ENV_WEB_PUBLIC_URL,
 };
 use roost_host::{
-    CoordConfig, DEFAULT_COORDINATOR_BIND, EnvSource, HostPlatform, MapEnv, ProtocolResult,
-    load_coord_config, normalize_https_origin, validate_bare_http_origin,
+    CoordConfig, DEFAULT_COORDINATOR_BIND, EnvSource, HostPlatform, ProtocolResult,
+    normalize_https_origin, validate_bare_http_origin,
 };
 
 use crate::status::service_definition::InstalledEnvironment;
@@ -63,6 +63,8 @@ pub struct QuickstartEndpoint {
     pub coordinator_public_url: Option<String>,
     /// The exact browser origins the coordinator admits through CORS.
     pub cors_allowed_origins: Vec<String>,
+    /// Previously verified front doors retained independently of CORS clients.
+    pub retained_frontdoor_origins: Vec<String>,
 }
 
 impl QuickstartEndpoint {
@@ -106,6 +108,10 @@ impl QuickstartEndpoint {
             ENV_CORS_ALLOWED_ORIGINS.to_string(),
             self.cors_allowed_origins.join(","),
         );
+        settings.insert(
+            roost_host::ENV_RETAINED_FRONTDOOR_ORIGINS.to_string(),
+            self.retained_frontdoor_origins.join(","),
+        );
         settings
     }
 }
@@ -132,6 +138,7 @@ pub fn fresh_endpoint(declared_front_door: Option<&str>) -> ProtocolResult<Quick
             web_public_url: None,
             coordinator_public_url: None,
             cors_allowed_origins: vec![local_origin],
+            retained_frontdoor_origins: Vec::new(),
         });
     };
     let origin = declared_front_door_origin(declared, "--coordinator-url")?;
@@ -142,6 +149,7 @@ pub fn fresh_endpoint(declared_front_door: Option<&str>) -> ProtocolResult<Quick
         web_public_url: Some(origin),
         coordinator_public_url: None,
         cors_allowed_origins: vec![local_origin],
+        retained_frontdoor_origins: Vec::new(),
     })
 }
 
@@ -171,20 +179,41 @@ pub fn installed_endpoint(
     let local_origin = format!("http://{LOOPBACK_HOST}:{port}");
     let mut origins = cors_origins(installed)?;
     let installed_web = config.web_public_url.clone();
+    let mut retained = config.retained_frontdoor_origins.clone();
 
     if let Some(declared) = declared_front_door {
         let origin = declared_front_door_origin(declared, "--coordinator-url")?;
+        if let Some(previous) = &installed_web
+            && previous != &origin
+            && !retained.contains(previous)
+        {
+            retained.push(previous.clone());
+        }
+        retained.retain(|previous| previous != &origin);
         if !origins.contains(&local_origin) {
             origins.push(local_origin);
         }
-        return Ok(QuickstartEndpoint {
+        if let Some(previous) = &installed_web
+            && !origins.contains(previous)
+        {
+            origins.push(previous.clone());
+        }
+        let endpoint = QuickstartEndpoint {
             mode: EndpointMode::FrontDoor,
             origin: origin.clone(),
             loopback_port: port,
             web_public_url: Some(origin),
             coordinator_public_url: config.public_url.clone(),
             cors_allowed_origins: origins,
-        });
+            retained_frontdoor_origins: retained,
+        };
+        roost_host::access::preview_coordinator_settings(
+            installed,
+            &endpoint.coordinator_settings(),
+            base,
+            platform,
+        )?;
+        return Ok(endpoint);
     }
     let (mode, origin) = match &installed_web {
         Some(web) => (EndpointMode::FrontDoor, web.clone()),
@@ -197,6 +226,7 @@ pub fn installed_endpoint(
         web_public_url: installed_web,
         coordinator_public_url: config.public_url.clone(),
         cors_allowed_origins: origins,
+        retained_frontdoor_origins: retained,
     })
 }
 
@@ -213,14 +243,7 @@ pub fn validate_installed_coordinator(
     base: &dyn EnvSource,
     platform: HostPlatform,
 ) -> ProtocolResult<CoordConfig> {
-    let mut config_env = MapEnv::new();
-    if let Some(home) = base.home_dir() {
-        config_env.set(roost_host::HOME_ENV, &home.display().to_string());
-    }
-    for (name, value) in installed {
-        config_env.set(name, value);
-    }
-    load_coord_config(&config_env, platform)
+    roost_host::access::preview_coordinator_settings(installed, &BTreeMap::new(), base, platform)
 }
 
 /// A declared front door, normalized the way a browser will write it back.
@@ -256,138 +279,4 @@ fn port_of(bind: &str) -> Option<u16> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{EndpointMode, installed_endpoint, port_of, validate_installed_coordinator};
-    use crate::status::service_definition::InstalledEnvironment;
-    use roost_host::{HostPlatform, MapEnv};
-
-    fn base() -> MapEnv {
-        MapEnv::new().with("HOME", "/home/operator")
-    }
-
-    fn installed(pairs: &[(&str, &str)]) -> InstalledEnvironment {
-        pairs
-            .iter()
-            .map(|(name, value)| ((*name).to_string(), (*value).to_string()))
-            .collect()
-    }
-
-    #[test]
-    fn a_host_port_bind_yields_its_port_and_bare_or_out_of_range_text_does_not() {
-        assert_eq!(port_of("127.0.0.1:4113"), Some(4113));
-        assert_eq!(port_of("0.0.0.0:4113"), Some(4113));
-        assert_eq!(port_of("127.0.0.1"), None);
-        assert_eq!(port_of("127.0.0.1:0"), None);
-        assert_eq!(port_of("127.0.0.1:99999"), None);
-    }
-
-    #[test]
-    fn an_install_with_no_front_door_keeps_its_own_loopback_origin() {
-        let endpoint = installed_endpoint(
-            &installed(&[("ROOST_COORDINATOR_BIND", "127.0.0.1:4200")]),
-            None,
-            &base(),
-            HostPlatform::Linux,
-        )
-        .expect("an installed bind resolves");
-        assert_eq!(endpoint.mode, EndpointMode::Local);
-        assert_eq!(endpoint.origin, "http://127.0.0.1:4200");
-        assert_eq!(endpoint.loopback_origin(), "http://127.0.0.1:4200");
-    }
-
-    #[test]
-    fn an_install_that_declares_a_front_door_sends_the_browser_through_it() {
-        let endpoint = installed_endpoint(
-            &installed(&[
-                ("ROOST_COORDINATOR_BIND", "127.0.0.1:4200"),
-                ("ROOST_WEB_PUBLIC_URL", "https://roost.example.com"),
-            ]),
-            None,
-            &base(),
-            HostPlatform::Linux,
-        )
-        .expect("an installed front door resolves");
-        assert_eq!(endpoint.mode, EndpointMode::FrontDoor);
-        assert_eq!(endpoint.origin, "https://roost.example.com");
-        assert_eq!(endpoint.loopback_port, 4200);
-    }
-
-    #[test]
-    fn a_promotion_keeps_the_installed_worker_door_and_adds_the_local_origin() {
-        let endpoint = installed_endpoint(
-            &installed(&[
-                ("ROOST_COORDINATOR_BIND", "127.0.0.1:4200"),
-                ("ROOST_COORDINATOR_PUBLIC_URL", "https://api.example.com"),
-                ("ROOST_CORS_ALLOWED_ORIGINS", "https://old.example.com"),
-            ]),
-            Some("https://new.example.com"),
-            &base(),
-            HostPlatform::Linux,
-        )
-        .expect("a promotion resolves");
-        assert_eq!(endpoint.mode, EndpointMode::FrontDoor);
-        assert_eq!(
-            endpoint.web_public_url.as_deref(),
-            Some("https://new.example.com")
-        );
-        assert_eq!(
-            endpoint.coordinator_public_url.as_deref(),
-            Some("https://api.example.com")
-        );
-        assert_eq!(
-            endpoint.cors_allowed_origins,
-            vec![
-                "https://old.example.com".to_string(),
-                "http://127.0.0.1:4200".to_string()
-            ]
-        );
-    }
-
-    #[test]
-    fn a_front_door_that_is_not_https_is_refused_before_anything_is_touched() {
-        let failure = installed_endpoint(
-            &installed(&[("ROOST_COORDINATOR_BIND", "127.0.0.1:4200")]),
-            Some("http://roost.example.com"),
-            &base(),
-            HostPlatform::Linux,
-        )
-        .expect_err("a plaintext front door is refused");
-        assert!(
-            failure.to_string().contains("--coordinator-url"),
-            "{failure}"
-        );
-    }
-
-    #[test]
-    fn a_cors_entry_that_is_not_a_bare_origin_is_refused() {
-        let failure = validate_installed_coordinator(
-            &installed(&[
-                ("ROOST_COORDINATOR_BIND", "127.0.0.1:4200"),
-                (
-                    "ROOST_CORS_ALLOWED_ORIGINS",
-                    "https://roost.example.com/app",
-                ),
-            ]),
-            &base(),
-            HostPlatform::Linux,
-        )
-        .expect_err("a CORS entry with a path is refused");
-        assert!(
-            failure
-                .to_string()
-                .contains(roost_host::ENV_CORS_ALLOWED_ORIGINS),
-            "{failure}"
-        );
-    }
-
-    #[test]
-    fn a_definition_that_says_nothing_about_the_bind_still_resolves_to_the_default() {
-        let config = validate_installed_coordinator(
-            &installed(&[("ROOST_WEB_PUBLIC_URL", "https://roost.example.com")]),
-            &base(),
-            HostPlatform::Linux,
-        )
-        .expect("a definition with no bind resolves to the default");
-        assert_eq!(config.bind, roost_host::DEFAULT_COORDINATOR_BIND);
-    }
-}
+mod tests;

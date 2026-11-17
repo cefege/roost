@@ -43,6 +43,15 @@ curl -fsSL https://raw.githubusercontent.com/cefege/roost/v3/install.sh | bash -
 Rerunning the install is safe: it preserves the installed endpoint, database,
 worker and keeper, reactivates the coordinator, and opens a new browser pairing.
 
+After installation, `roost access` previews the local, Tailscale, public HTTPS,
+externally managed, and join profiles. `roost access --mode local --dry-run`
+shows the local installation plan; replace `--dry-run` with `--apply` to approve
+it without an interactive prompt. `roost status` reports service health.
+For a Flux-managed coordinator, `roost access --mode external` inspects the
+configured source and prints a reviewable values proposal; it never patches
+the cluster. Browser keys are scoped to their origin, so pair the browser
+again after changing the public address.
+
 On a machine with no desktop to open a browser on (a server reached over SSH),
 run `roost add-browser` there and open the URL it prints wherever you have a
 browser that can reach the coordinator.
@@ -68,31 +77,46 @@ The coordinator listens only on loopback and serves plaintext there. Its local
 worker dials that same loopback origin. Browser pairing still authorizes the
 browser; it is not a network-access grant.
 
-When you want browsers or another worker to connect from elsewhere, choose an
-operator-managed HTTPS address. Before exposing the running local listener, run
-this on the coordinator machine:
+Use `roost access` to preview an access profile and approve its changes. For an
+existing local coordinator, `roost access --mode public --url
+https://roost.example.com` proposes a stable HTTPS browser origin. The existing
+front door must already reach this coordinator and return its temporary route
+challenge; Roost verifies it before and after restarting the coordinator.
+Configure the front door to deny `/internal` and `/api/db-export` and their
+subpaths, and to **overwrite**, never append, `X-Forwarded-For`. It must pass
+`/.well-known/roost-access-challenge` during the approved operation. Existing
+browser origins and the effective worker origin are retained.
 
-```sh
-roost quickstart --coordinator-url "https://roost.example.com"
-```
+`roost access --mode tailscale` uses an already installed and authenticated
+Tailscale client; it does not log in, enable Funnel, or create a public quick
+tunnel. It also requires Caddy at `/usr/bin/caddy`, `/usr/local/bin/caddy`, or
+`/opt/homebrew/bin/caddy`, `lsof`, a user service manager, and free loopback
+port 4115. Roost provisions a separately supervised loopback Caddy filter,
+checks its service and listener ownership, blocks private coordinator paths,
+and replaces untrusted forwarding headers before publishing a private Serve
+route. Roost removes only its own matching Serve mapping. Move the canonical
+browser origin first, then use `roost access --mode tailscale --disable` to
+remove that mapping.
 
-`--coordinator-url` is an absolute `https:` origin with no userinfo, query, or
-fragment and no path beyond `/`; an explicit port is allowed. This promotion
-changes only the coordinator endpoint profile and restarts only the coordinator.
-It preserves the installed worker, keeper, PTYs, database, and local browser
-route. Configure your front door afterwards to forward to the installed
-loopback bind and to **overwrite**, never append, `X-Forwarded-For`.
+`roost access --mode external` inspects an operator-selected k3s/Flux deployment
+and emits a reviewable values proposal instead of patching the cluster. A
+configured owner reported by the coordinator is a declaration; live cluster
+verification requires the CLI's read-only Kubernetes inspection.
 
-Roost owns no TLS, DNS, tunnel, VPN, certificate renewal, SSH session, or
-target reachability. A valid HTTPS address is not proof that another machine
-can reach it. The front door's declared browser origin seeds the SPA's CSP
-`connect-src` and Sync WebSocket allowlist, so it must be exactly the browser
-origin — scheme, host, and non-default port included.
+Browser origins are absolute `https:` origins with no userinfo, query, fragment,
+or path beyond `/`; an explicit port is allowed. A declared origin seeds the
+SPA's CSP `connect-src` and Sync WebSocket allowlist and must exactly match the
+browser origin. DNS, certificate renewal and external proxy availability remain
+the operator's responsibility.
 
 `ROOST_COORDINATOR_PUBLIC_URL` remains optional and separate: use it only when
 workers should dial a different HTTPS door from browsers. The worker URL
 precedence is `ROOST_COORDINATOR_URL` → `ROOST_COORDINATOR_PUBLIC_URL` →
 `ROOST_WEB_PUBLIC_URL`.
+
+Phone pairing QR codes use `ROOST_WEB_PUBLIC_URL` when declared, otherwise the
+active HTTPS browser endpoint. A separately declared worker address is not
+substituted for the browser front door.
 
 ## Run the coordinator in a container or on Kubernetes
 

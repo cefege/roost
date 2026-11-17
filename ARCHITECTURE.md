@@ -43,10 +43,14 @@ instead carry cell frames and input directly between browser and worker:
 same-worker loopback first, then an authenticated WebRTC UDP peer; Sync stays
 connected for metadata, authorization/control, and fallback.
 
-The coordinator owns one plaintext HTTP listener. TLS, DNS, and public
-reachability belong to whatever the operator puts in front of it, and
-`ROOST_WEB_PUBLIC_URL` is how the coordinator learns the resulting origin. The
-same listener serves the web bundle (`ROOST_WEB_DIST_PATH`), Connect RPC, both
+The coordinator owns one plaintext HTTP listener. TLS and DNS remain external.
+`roost access` owns native service changes and can configure an already signed-in
+Tailscale Serve route through an owned, private-path-filtering Caddy proxy.
+It does not log into Tailscale, enable Funnel, or mutate a Flux deployment.
+`ROOST_WEB_PUBLIC_URL` declares the browser origin; the worker origin remains
+separate, and `ROOST_RETAINED_FRONTDOOR_ORIGINS` preserves previous browser
+hosts without admitting unrelated CORS origins. The same listener serves the
+web bundle (`ROOST_WEB_DIST_PATH`), Connect RPC, both
 WebSockets, `/healthz`, `/readyz`, and `/api/db-export`
 (`crates/roost-coord/src/http/listener.rs`). The coordinator also ships as the
 container image built from `Dockerfile` and the Helm chart in

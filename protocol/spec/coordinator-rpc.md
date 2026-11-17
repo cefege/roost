@@ -19,6 +19,7 @@
 | System/audit | `Misc*`, `Audit*` | Health is public; DB export URL additionally requires on-host; metrics/diagnostics/audit require device authority. |
 | Files/attachments | `Files*`, `Attachments*`, `AttachFileChunk`, `AttachmentProbe`, `ListAttachments`, `DeleteAttachment` | AttachFileChunk is coordinator relay fallback, not the direct-carrier ACK contract. |
 | Settings/UI/push | `Transcription*`, `Ui*`, `Push*` | Device-authorized dashboard state; UI apply targets one current Sync-v2 socket generation. |
+| Access | `AccessGetSettings`, `AccessPreview`, `AccessApply` | Account-device authority; preview accepts only a mode and candidate origin. Externally managed routes are proposals, never live mutations. |
 | Diagnostics | `DiagDebugLogBatch`, `DiagSnapshot` | Device-authorized bounded diagnostics. |
 | Sync compatibility | `FirehoseFrame` (`sync.proto`) | Current path is `/ws/coord-sync`; the retired Connect path answers HTTP 410. |
 
@@ -31,6 +32,13 @@
 4. Handler mutation commits first, then the domain bus/publication updates Sync projections. Optimistic concurrency, resource scope, tab identity, and worker connection readiness are enforced at the owning domain boundary.
 5. Connect error codes carry the failure. The auth gate maps them to HTTP-equivalent audit status and releases its write lease when the call ends; response-aware audit policy is independent of handler business logic.
 6. `PairPoll` is token-bound anonymous high-volume polling and never persists audit rows. Successful `PairConfirm` writes an explicit success audit row. Other listed low-signal successes may be skipped, while failures remain eligible under listener policy.
+7. Access settings distinguish a configured deployment owner from a live-verified owner. A local apply requires an exact server-issued preview and schedules a durable operation; acceptance is not proof that the replacement route has been verified. An external proposal is reviewable configuration, not an applied route.
+
+Local initialization belongs to the native access wizard; the browser cannot
+remove a live canonical route by selecting local mode. The temporary route
+challenge admits only its approved candidate Host on its dedicated path, with
+no Origin header; it proves routing to this coordinator, not that an
+intermediary proxy is trustworthy.
 
 ## Limits
 
@@ -38,7 +46,7 @@
 | --- | --- | --- |
 | RPC path | `/roost.v1.CoordinatorService/<Method>` | `protocol/proto/roost/v1/coordinator.proto` (`service CoordinatorService`) |
 | `CoordinatorService` implementations | exactly `1` | `crates/roost-coord/src/rpc/service_impl.rs` |
-| Route table rows | `87`, one per proto method | `crates/roost-coord/src/rpc/method_route_rows.rs` |
+| Route table rows | `90`, one per proto method | `crates/roost-coord/src/rpc/method_route_rows.rs` |
 | Protected principal marker | `x-roost-auth-layer: device` | `crates/roost-coord/src/auth/principal.rs` (`AUTH_LAYER_HEADER`, `AUTH_LAYER_DEVICE`) |
 | Terminal-search owner | device fingerprint + required `x-roost-tab-id` | `crates/roost-coord/src/search/rpc_search.rs` |
 | Audit page maximum | `500` | `crates/roost-coord/src/diagnostics/rpc_audit.rs` (`MAX_LIMIT`) |
@@ -76,6 +84,7 @@ The method list is the `service CoordinatorService` block in `protocol/proto/roo
 | Auth/pair/devices | `crates/roost-coord/src/auth/` (`rpc_bootstrap.rs`, `rpc_devices.rs`, `rpc_identity.rs`, `rpc_pairing.rs`) | Mixed: public identity/bootstrap redemption; device mint/logout/devices; pairing public-token/on-host/device rules per [`auth-and-pairing.md`](auth-and-pairing.md). |
 | System/diagnostics/audit | `crates/roost-coord/src/diagnostics/` and `crates/roost-coord/src/rpc/service.rs` | Health public; DB export URL device + on-host; remaining methods device. |
 | Transcription | `crates/roost-coord/src/diagnostics/rpc_transcription.rs` | Device. |
+| Access | `crates/roost-coord/src/rpc/access.rs` | Account device; host ownership and operation policy also apply. |
 | Attachments/files | `crates/roost-coord/src/attachments/rpc_files.rs` | Device. |
 | Attachment direct | `crates/roost-coord/src/attachments/rpc_direct.rs` | Device plus exact tab/grant descriptor. |
 | Attachment peer | `crates/roost-coord/src/attachments/peer.rs` | Device plus exact tab/grant/worker fence. |

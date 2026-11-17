@@ -126,6 +126,7 @@ fn owns_another_surface(path: &str) -> bool {
         || path.starts_with(WS_PREFIX)
         || path == HEALTHZ_PATH
         || path == READYZ_PATH
+        || path == crate::http::access_challenge::ACCESS_CHALLENGE_PATH
         || path == VERSION_PATH
 }
 

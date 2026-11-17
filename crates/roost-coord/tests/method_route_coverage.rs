@@ -131,6 +131,20 @@ fn only_the_worker_lifecycle_and_its_own_recovery_list_take_a_worker_credential(
 }
 
 #[test]
+fn access_settings_routes_refuse_unpaired_and_machine_callers() {
+    let worker = Principal::Worker {
+        fingerprint: "worker".into(),
+        label: "worker".into(),
+    };
+    for method in ["AccessGetSettings", "AccessPreview", "AccessApply"] {
+        let requirement = auth_requirement(method).expect("access route is registered");
+        assert_eq!(requirement, AuthRequirement::Device);
+        assert!(!principal_satisfies(None, requirement));
+        assert!(!principal_satisfies(Some(&worker), requirement));
+    }
+}
+
+#[test]
 fn exactly_one_method_requires_on_host_and_the_gate_does_not_yet_enforce_it() {
     // The table records what each method REQUIRES. The gate is a separate
     // question, and for one row the two answers differ — so this test asserts

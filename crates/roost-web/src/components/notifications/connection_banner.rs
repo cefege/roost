@@ -10,7 +10,10 @@ use roost_client_core::sync::redial::sync_link_answering;
 use roost_client_core::{ClientEvent, TransportControl};
 
 use crate::components::terminal::dom::{page_visible, sleep_ms};
-use crate::components::ui::{Alert, AlertVariant, Button, ButtonSize, ButtonVariant, StatusDot};
+use crate::components::ui::{
+    Alert, AlertVariant, Button, ButtonSize, ButtonVariant, Dialog, DialogBody, DialogContent,
+    DialogDescription, DialogHeader, DialogTitle, StatusDot,
+};
 use crate::pump::{Pump, use_store};
 
 /// How often a visible tab re-reads its own liveness. The core redials on its
@@ -115,6 +118,7 @@ pub fn banner_verdict(inputs: BannerInputs) -> Option<BannerReason> {
 pub fn ConnectionBanner() -> Element {
     let pump = use_store();
     let mut reason = use_signal(|| None::<BannerReason>);
+    let mut access_open = use_signal(|| false);
 
     // A hidden tab is not evaluated: nobody can see the banner, and its last
     // verdict is replaced on the first tick after it is shown again.
@@ -135,10 +139,8 @@ pub fn ConnectionBanner() -> Element {
     });
 
     let verdict = reason();
-    let Some(verdict) = verdict else {
-        return rsx! {};
-    };
     rsx! {
+        if let Some(verdict) = verdict {
         div {
             class: "fixed inset-x-0 top-0 z-50",
             "data-testid": "connection-banner",
@@ -159,6 +161,24 @@ pub fn ConnectionBanner() -> Element {
                         },
                         "Reconnect"
                     }
+                }
+                Button {
+                    variant: ButtonVariant::Secondary,
+                    size: ButtonSize::Sm,
+                    onclick: move |_| access_open.set(true),
+                    "Access"
+                }
+            }
+        }
+        }
+        if access_open() {
+            Dialog { open: true, on_open_change: move |open| access_open.set(open),
+                DialogContent { class: "flex flex-col overflow-hidden sm:max-w-3xl",
+                    DialogHeader {
+                        DialogTitle { "Connection recovery" }
+                        DialogDescription { "Review access without reloading a working terminal." }
+                    }
+                    DialogBody { class: "min-h-0 overflow-y-auto", crate::components::access::AccessSurface {} }
                 }
             }
         }

@@ -54,6 +54,9 @@ pub const ENV_COORDINATOR_LOG_DIR: &str = "ROOST_COORDINATOR_LOG_DIR";
 /// A comma-separated list of bare HTTP(S) origins allowed to make RPC calls.
 pub const ENV_CORS_ALLOWED_ORIGINS: &str = "ROOST_CORS_ALLOWED_ORIGINS";
 
+/// A comma-separated list of retained bare HTTPS front-door origins.
+pub const ENV_RETAINED_FRONTDOOR_ORIGINS: &str = "ROOST_RETAINED_FRONTDOOR_ORIGINS";
+
 /// A comma-separated list of bare HTTPS origins allowed to receive web push.
 pub const ENV_PUSH_ALLOWED_ORIGINS: &str = "ROOST_PUSH_ALLOWED_ORIGINS";
 
@@ -138,6 +141,7 @@ pub fn load_coord_config(
         jwt_max_age_secs: integer_env(env, ENV_COORDINATOR_JWT_MAX_AGE_SECS)?,
         audit_retention_days: integer_env(env, ENV_COORDINATOR_AUDIT_RETENTION_DAYS)?,
         cors_allowed_origins: Some(origin_list(env, ENV_CORS_ALLOWED_ORIGINS)),
+        retained_frontdoor_origins: Some(origin_list(env, ENV_RETAINED_FRONTDOOR_ORIGINS)),
         push_allowed_origins: Some(origin_list(env, ENV_PUSH_ALLOWED_ORIGINS)),
         relaxed_csp: Some(is_enabled(env, ENV_RELAXED_CSP)),
         trust_proxy: Some(is_enabled(env, ENV_TRUST_PROXY)),
@@ -207,6 +211,9 @@ fn apply_listener_policy(config: &CoordConfig) -> ProtocolResult<()> {
     }
     for origin in &config.cors_allowed_origins {
         validate_bare_http_origin(origin, ENV_CORS_ALLOWED_ORIGINS)?;
+    }
+    for origin in &config.retained_frontdoor_origins {
+        validate_bare_https_origin(origin, ENV_RETAINED_FRONTDOOR_ORIGINS)?;
     }
     for origin in &config.push_allowed_origins {
         validate_bare_https_origin(origin, ENV_PUSH_ALLOWED_ORIGINS)?;
@@ -350,5 +357,27 @@ fn parse_terminal_peer_enabled(value: Option<&str>) -> ProtocolResult<bool> {
             ENV_TERMINAL_PEER_ENABLED,
             format!("{ENV_TERMINAL_PEER_ENABLED} must be exactly 0 or 1"),
         )),
+    }
+}
+
+#[cfg(test)]
+mod retained_origin_tests {
+    use super::*;
+
+    #[test]
+    fn retained_front_doors_require_exact_bare_https_origins() {
+        for origin in [
+            "http://old.example.com",
+            "https://old.example.com/path",
+            "https://EXAMPLE.com",
+        ] {
+            let env = crate::MapEnv::new()
+                .with("HOME", "/home/operator")
+                .with(ENV_RETAINED_FRONTDOOR_ORIGINS, origin);
+            assert!(
+                load_coord_config(&env, HostPlatform::Linux).is_err(),
+                "{origin}"
+            );
+        }
     }
 }

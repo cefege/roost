@@ -3,15 +3,13 @@
 //! presentation behind both), and how a new one joins — the deploy dialog, its
 //! local-access guide, and the enrollment policy both decide with.
 //!
-//! The policy half is split the way the product has to reason about it:
-//! `enrollment_origin` answers "may another machine dial this?", `deploy_state`
-//! answers "what may this dialog do next?", and `deploy_calls` is the only
-//! place a coordinator is asked.
+//! Enrollment origin policy belongs to client-core's access model;
+//! `deploy_state` decides what the dialog may do next and `deploy_calls`
+//! asks the coordinator for the current declaration.
 
 pub mod deploy_calls;
 pub mod deploy_dialog;
 pub mod deploy_state;
-pub mod enrollment_origin;
 pub mod host_usage;
 pub mod linux_distribution_mark;
 pub mod local_access_guide;

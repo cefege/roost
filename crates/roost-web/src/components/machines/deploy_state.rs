@@ -8,7 +8,7 @@
 //! away is dropped. Every operation is started with a generation and every
 //! answer is fenced by it, which is the whole fence.
 
-use super::enrollment_origin::EnrollmentDecision;
+use roost_client_core::client::access::enrollment::EnrollmentDecision;
 
 /// What the dialog is showing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

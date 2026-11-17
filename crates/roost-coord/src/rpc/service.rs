@@ -30,6 +30,8 @@ pub struct CoordinatorServiceImpl {
     pub boot_ms: i64,
     /// The coordinator's own build SHA, for `MiscHealth`.
     pub git_sha: String,
+    /// Preview plans are process-local and bound to the requesting device.
+    pub(crate) access_plans: std::sync::Mutex<super::access::AccessPlans>,
 }
 
 impl CoordinatorServiceImpl {
@@ -52,6 +54,7 @@ impl CoordinatorServiceImpl {
             process_epoch,
             boot_ms,
             git_sha,
+            access_plans: std::sync::Mutex::new(super::access::AccessPlans::default()),
         }
     }
 

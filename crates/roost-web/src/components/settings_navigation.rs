@@ -63,11 +63,11 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 3] = [
             ),
             pane(
                 "connection",
-                "Connection",
+                "Access",
                 IconType::Network,
-                "Connection",
-                "Coordinator address, connection health and reconnect options.",
-                "server offline reconnect",
+                "Access",
+                "Connect, pair devices, add machines and diagnose the effective server connection.",
+                "server connection offline reconnect login local tailscale cloudflare pairing",
             ),
             pane(
                 "devices",

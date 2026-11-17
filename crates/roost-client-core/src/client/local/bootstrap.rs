@@ -175,13 +175,14 @@ pub fn coordinator_base(
     deployment_mode: Option<&str>,
     stored_override: Option<&str>,
 ) -> String {
-    if let Some(bootstrap) = served_by_worker {
-        return bootstrap.coordinator_url.clone();
-    }
-    if deployment_mode != Some(DEPLOYMENT_MODE_SELF_HOSTED) {
-        return String::new();
-    }
-    stored_override.unwrap_or_default().to_string()
+    crate::client::access::select_coordinator(
+        served_by_worker,
+        deployment_mode,
+        stored_override,
+        "",
+    )
+    .origin
+    .to_owned()
 }
 
 /// The origin Connect calls actually go to: the base, or the page's own origin

@@ -67,6 +67,7 @@ impl AdmissionLayer {
             .into_iter()
             .flatten()
             .filter(|declared| !declared.is_empty())
+            .chain(config.retained_frontdoor_origins.iter().cloned())
             .collect();
         Self {
             engaged: is_loopback_coordinator_bind(&config.bind),
@@ -221,6 +222,11 @@ pub async fn admission_gate(
     let Some(policy) = gate.policy.get() else {
         return refusal_response(Admission::ListenerUnavailable);
     };
+    if crate::http::access_challenge::is_challenge_request(request.method(), request.uri().path())
+        && crate::http::access_challenge::approved_challenge(request.headers()).is_some()
+    {
+        return next.run(request).await;
+    }
     let host = host_header(&request);
     let origin = origin_header(&request);
     let decision = match &origin {
@@ -231,5 +237,77 @@ pub async fn admission_gate(
     match decision {
         Admission::Allowed => next.run(request).await,
         refused => refusal_response(refused),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use roost_host::{HostPlatform, MapEnv, access::controller::preview_access_change};
+
+    #[test]
+    fn promotion_admits_retained_hosts_but_not_unrelated_cors_hosts() {
+        let env = MapEnv::new()
+            .with("HOME", "/home/operator")
+            .with(roost_host::ENV_WEB_PUBLIC_URL, "https://old.example.com")
+            .with(
+                roost_host::ENV_COORDINATOR_PUBLIC_URL,
+                "https://worker.example.com",
+            )
+            .with(
+                roost_host::ENV_CORS_ALLOWED_ORIGINS,
+                "https://other.example.com",
+            )
+            .with(
+                roost_host::ENV_RETAINED_FRONTDOOR_ORIGINS,
+                "https://earlier.example.com",
+            );
+        let current = roost_host::load_coord_config(&env, HostPlatform::Linux)
+            .unwrap_or_else(|error| panic!("{error}"));
+        let proposal = preview_access_change(
+            &current,
+            &env,
+            HostPlatform::Linux,
+            "https://new.example.com",
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        let promoted = env
+            .with(roost_host::ENV_WEB_PUBLIC_URL, &proposal.browser_origin)
+            .with(
+                roost_host::ENV_CORS_ALLOWED_ORIGINS,
+                &proposal.cors_allowed_origins.join(","),
+            )
+            .with(
+                roost_host::ENV_RETAINED_FRONTDOOR_ORIGINS,
+                &proposal.retained_frontdoor_origins.join(","),
+            );
+        let config = roost_host::load_coord_config(&promoted, HostPlatform::Linux)
+            .unwrap_or_else(|error| panic!("{error}"));
+        let layer = AdmissionLayer::from_config(&config);
+        layer.publish_bound_port(4113);
+        let policy = layer
+            .policy
+            .get()
+            .unwrap_or_else(|| panic!("policy unavailable"));
+        for host in [
+            "old.example.com",
+            "earlier.example.com",
+            "worker.example.com",
+            "new.example.com",
+        ] {
+            assert_eq!(admit(Some(host), None, policy), Admission::Allowed);
+        }
+        assert_eq!(
+            admit(Some("other.example.com"), None, policy),
+            Admission::ForbiddenHost
+        );
+        assert_eq!(
+            admit(
+                Some("new.example.com"),
+                Some("https://other.example.com"),
+                policy
+            ),
+            Admission::Allowed
+        );
     }
 }

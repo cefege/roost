@@ -127,3 +127,23 @@ pub fn reload_document() {}
 pub fn hand_off_to_os(_href: &str) -> bool {
     false
 }
+
+/// Open a validated Roost origin, optionally carrying a one-shot fragment.
+/// Navigation errors must never print the credential-bearing destination.
+#[cfg(target_arch = "wasm32")]
+pub fn open_roost(origin: &str, token: Option<&str>) -> bool {
+    let destination = token.map(|grant| roost_platform::browser_pairing_link(origin, grant));
+    let href = destination.as_deref().unwrap_or(origin);
+    let opened = web_sys::window().is_some_and(|window| window.location().assign(href).is_ok());
+    if opened {
+        tracing::info!(target: "router", origin, pairing = token.is_some(), "opening Roost origin");
+    } else {
+        tracing::warn!(target: "router", origin, "the browser refused Roost navigation");
+    }
+    opened
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn open_roost(_origin: &str, _token: Option<&str>) -> bool {
+    false
+}

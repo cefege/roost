@@ -639,6 +639,64 @@ message FilesListDirResponse { repeated FilesListDirEntry entries = 1; string re
 message FilesMkdirRequest { string worker_fp = 1; string path = 2; }
 message FilesMkdirResponse { string resolved_path = 1; }
 
+// ─── coordinator access settings ───────────────────────────────────────────
+// The coordinator selects all host paths, deployment evidence and targets.
+enum AccessMode {
+  ACCESS_MODE_UNSPECIFIED = 0;
+  ACCESS_MODE_LOCAL = 1;
+  ACCESS_MODE_TAILSCALE = 2;
+  ACCESS_MODE_PUBLIC_HTTPS = 3;
+}
+enum AccessOwner {
+  ACCESS_OWNER_UNKNOWN = 0;
+  ACCESS_OWNER_LOCAL_SERVICE = 1;
+  ACCESS_OWNER_FLUX = 2;
+}
+enum AccessOperationState {
+  ACCESS_OPERATION_STATE_NONE = 0;
+  ACCESS_OPERATION_STATE_SCHEDULED = 1;
+  ACCESS_OPERATION_STATE_APPLYING = 2;
+  ACCESS_OPERATION_STATE_SUCCEEDED = 3;
+  ACCESS_OPERATION_STATE_FAILED = 4;
+}
+message AccessGetSettingsRequest { optional string operation_id = 1; }
+message AccessSettings {
+  AccessOwner owner = 1;
+  // Whether the owner was observed, rather than only configured.
+  bool owner_verified = 2;
+  string browser_origin = 3;
+  string worker_origin = 4;
+  bool can_preview = 5;
+  bool can_apply = 6;
+  string unavailable_reason = 7;
+  string operation_id = 8;
+  AccessOperationState operation_state = 9;
+  string operation_detail = 10;
+  bool can_configure_tailscale = 11;
+  string tailscale_unavailable_reason = 12;
+}
+message AccessPreviewRequest {
+  AccessMode mode = 1;
+  string candidate_origin = 2;
+}
+message AccessPreviewResponse {
+  // Opaque, server-issued authority to request this exact preview's application.
+  // Empty for a proposal which must be applied outside Roost.
+  string plan_token = 1;
+  AccessMode mode = 2;
+  string candidate_origin = 3;
+  string worker_origin = 4;
+  bool proposal_only = 5;
+  string review = 6;
+}
+message AccessApplyRequest { string plan_token = 1; }
+message AccessApplyResponse {
+  // Accepted means the durable helper has been scheduled, not that the new
+  // route has been verified or that the coordinator has restarted.
+  bool accepted = 1;
+  string operation_id = 2;
+}
+
 // ─── transcription (voice dictation) ────────────────────────────────────────
 // Settings reads expose only the mask. Direct Deepgram mode returns the configured
 // key through TranscriptionGrantToken only to an authenticated dashboard admin
@@ -824,6 +882,11 @@ service CoordinatorService {
   rpc FilesReadChunk(FilesReadChunkRequest) returns (FilesReadChunkResponse);
   rpc FilesListDir(FilesListDirRequest) returns (FilesListDirResponse);
   rpc FilesMkdir(FilesMkdirRequest) returns (FilesMkdirResponse);
+
+  // Coordinator access configuration. All three require an account device.
+  rpc AccessGetSettings(AccessGetSettingsRequest) returns (AccessSettings);
+  rpc AccessPreview(AccessPreviewRequest) returns (AccessPreviewResponse);
+  rpc AccessApply(AccessApplyRequest) returns (AccessApplyResponse);
 
   // transcription (voice dictation) — coord stores the Deepgram key. Direct mode
   // returns that configured key only to the authenticated dashboard-admin/owner

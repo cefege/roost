@@ -7,6 +7,7 @@
 //! invents a button for a method the product never exposed would be a control
 //! nobody tested.
 
+pub mod access;
 pub mod attachments;
 pub mod audit;
 pub mod bootstrap;

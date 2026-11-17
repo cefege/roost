@@ -21,9 +21,9 @@ use roost_platform::machine_join_command;
 #[cfg(target_arch = "wasm32")]
 use super::deploy_state::DeployError;
 use super::deploy_state::DeployModel;
-#[cfg(target_arch = "wasm32")]
-use super::enrollment_origin::enrollment_decision;
 use crate::pump::Pump;
+#[cfg(target_arch = "wasm32")]
+use roost_client_core::client::access::enrollment::enrollment_decision;
 
 /// Ask the coordinator which address it enrolls new machines against.
 ///

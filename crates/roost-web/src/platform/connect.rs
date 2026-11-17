@@ -8,6 +8,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use roost_client_core::client::access::CoordinatorSource;
 use roost_client_core::client::rpc::{
     CallError, ConnectError, UnaryMethod, connect_method, decode_rpc_response, encode_rpc_request,
 };
@@ -25,6 +26,7 @@ pub struct CoordRpc {
     transport: FetchConnectTransport,
     key: RefCell<Option<Rc<WebDeviceKey>>>,
     clock: WallClock,
+    selection_source: CoordinatorSource,
 }
 
 impl CoordRpc {
@@ -34,12 +36,23 @@ impl CoordRpc {
             transport: FetchConnectTransport::new(base_url, tab_id),
             key: RefCell::new(None),
             clock: WallClock,
+            selection_source: CoordinatorSource::StoredOverride,
         }
     }
 
     /// The origin every call goes to.
     pub fn base_url(&self) -> &str {
         self.transport.base_url()
+    }
+
+    pub(crate) fn with_selection_source(mut self, source: CoordinatorSource) -> Self {
+        self.selection_source = source;
+        self
+    }
+
+    /// The selection captured when this transport was built.
+    pub fn selection_source(&self) -> CoordinatorSource {
+        self.selection_source
     }
 
     /// Present the document's claimed tab id on every later call.

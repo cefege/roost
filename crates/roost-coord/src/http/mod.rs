@@ -13,6 +13,7 @@
 //! The coordinator never terminates TLS: it serves plaintext on its loopback
 //! bind, and the operator's front door owns TLS.
 
+pub mod access_challenge;
 pub mod bind;
 pub mod db_export;
 pub mod health;

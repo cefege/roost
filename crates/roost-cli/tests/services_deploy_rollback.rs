@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use roost_cli::services::deploy_journal::{DeployJournal, SavedDefinition};
 use roost_cli::services::deploy_transaction::{
-    DeployError, RollbackOutcome, deploy_service_definition,
+    DeployError, RollbackOutcome, deploy_service_definition, deploy_service_definition_verified,
 };
 use roost_cli::services::install::install_definition;
 use roost_cli::services::service_argv::ServiceAction;
@@ -218,6 +218,41 @@ fn a_deploy_that_does_not_come_up_puts_the_previous_unit_back_byte_for_byte() {
         manager.actions.contains(&ServiceAction::Restart),
         "the rollback has to restart the service onto the definition it restored"
     );
+}
+
+#[test]
+fn failed_health_verification_rolls_back_before_settlement() {
+    let tree = TempTree::new("health-rollback");
+    let env = environment(&tree);
+    let service_dir = tree.path("home/service");
+    std::fs::create_dir_all(&service_dir).expect("service directory exists");
+    let first_program = tree.path("release-1/bin/roost");
+    write_program(&first_program, "first");
+    let first = spec(&env, &first_program);
+    install_definition(&first, HostPlatform::Linux).expect("first definition is installed");
+    let previous = read(&first.definition_path);
+    let second_program = tree.path("release-2/bin/roost");
+    write_program(&second_program, "second");
+    let second = spec(&env, &second_program);
+    let mut manager = ScriptedManager::up();
+    let failure = deploy_service_definition_verified(
+        &second,
+        HostPlatform::Linux,
+        &service_dir,
+        &mut manager,
+        &mut || false,
+    )
+    .expect_err("failed health verification refuses the deployment");
+    assert!(matches!(
+        failure,
+        DeployError::Activation {
+            rolled_back: RollbackOutcome::RestoredPrevious,
+            ..
+        }
+    ));
+    assert_eq!(read(&second.definition_path), previous);
+    assert_eq!(manager.activations, 2);
+    assert!(!DeployJournal::path_in(&service_dir).exists());
 }
 
 #[test]

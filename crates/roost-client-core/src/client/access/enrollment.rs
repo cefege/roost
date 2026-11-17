@@ -88,6 +88,32 @@ pub fn worker_dialable_origin(candidate: &str) -> Option<String> {
     Some(format!("https://{host}{port}"))
 }
 
+/// A browser address: HTTPS remotely, or HTTP on this computer only.
+pub fn browser_origin(candidate: &str) -> Option<String> {
+    let (scheme, authority) = browser_origin_parts(candidate)?;
+    Some(format!("{scheme}://{}", authority.to_ascii_lowercase()))
+}
+
+pub(super) fn browser_origin_is_valid(candidate: &str) -> bool {
+    browser_origin_parts(candidate).is_some()
+}
+
+fn browser_origin_parts(candidate: &str) -> Option<(&'static str, &str)> {
+    let (scheme, rest) = candidate.trim().split_once("://")?;
+    let authority = rest.strip_suffix('/').unwrap_or(rest);
+    let (host, _) = split_authority_port(authority)?;
+    if authority.contains('@') || authority.contains(['/', '?', '#']) {
+        return None;
+    }
+    if scheme.eq_ignore_ascii_case("https") {
+        return Some(("https", authority));
+    }
+    if scheme.eq_ignore_ascii_case("http") && is_loopback_host(host) {
+        return Some(("http", authority));
+    }
+    None
+}
+
 /// An authority's host and optional port, refusing the spellings that cannot be
 /// one: an unbracketed IPv6 literal, an empty host, and a port that is not
 /// digits.
@@ -142,17 +168,32 @@ fn is_host(host: &str) -> bool {
 /// A port is at least one digit and nothing else: a trailing colon is a typo,
 /// not the default port, and a port a dialer would have to guess at is not one.
 fn is_port(port: &str) -> bool {
-    !port.is_empty() && port.bytes().all(|byte| byte.is_ascii_digit())
+    !port.is_empty()
+        && port.bytes().all(|byte| byte.is_ascii_digit())
+        && port.parse::<u16>().is_ok()
 }
 
 /// Whether a host names THIS machine rather than the fleet. A worker dialling it
 /// from another machine reaches nothing, so a command built on it cannot work.
 fn is_loopback_host(host: &str) -> bool {
-    let host = host.trim_end_matches('.').to_ascii_lowercase();
-    host == "localhost"
-        || host.ends_with(".localhost")
-        || host.starts_with("127.")
-        || host == "[::1]"
+    let host = host.trim_end_matches('.');
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .rsplit_once('.')
+            .is_some_and(|(_, suffix)| suffix.eq_ignore_ascii_case("localhost"))
+        || host
+            .parse::<std::net::Ipv4Addr>()
+            .is_ok_and(|address| address.is_loopback())
+        || host
+            .strip_prefix('[')
+            .and_then(|host| host.strip_suffix(']'))
+            .and_then(|host| host.parse::<std::net::Ipv6Addr>().ok())
+            .is_some_and(|address| {
+                address.is_loopback()
+                    || address
+                        .to_ipv4_mapped()
+                        .is_some_and(|address| address.is_loopback())
+            })
 }
 
 #[cfg(test)]
@@ -258,5 +299,39 @@ mod tests {
                 "declared was {declared}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod browser_tests {
+    use super::browser_origin;
+
+    #[test]
+    fn saved_browser_addresses_never_contain_credentials_or_non_origin_urls() {
+        for refused in [
+            "https://user:secret@roost.test",
+            "https://roost.test/path",
+            "https://roost.test?pair=secret",
+            "https://roost.test#pair=secret",
+            "http://remote.test",
+            "http://127.attacker.test",
+            "https://roost.test:",
+            "https://roost.test:65536",
+            "https://",
+        ] {
+            assert_eq!(browser_origin(refused), None, "{refused}");
+        }
+        assert_eq!(
+            browser_origin(" HTTP://localhost:4113/ "),
+            Some("http://localhost:4113".to_owned())
+        );
+        assert_eq!(
+            browser_origin("https://HOME.ts.net/"),
+            Some("https://home.ts.net".to_owned())
+        );
+        assert_eq!(
+            browser_origin("http://[::ffff:127.0.0.1]:4113"),
+            Some("http://[::ffff:127.0.0.1]:4113".to_owned())
+        );
     }
 }

@@ -1,16 +1,11 @@
-//! Replacing an installed service definition as a transaction with a defined
-//! rollback point, rather than a sequence of steps each of which is best
-//! effort.
+//! Journaled service-definition swaps with verified activation and rollback.
 //!
-//! The order is the whole design. The previous definition is read FIRST, and a
-//! deploy that cannot read it refuses without writing anything, because a
-//! deploy that overwrote a definition it could not read destroyed the only
-//! copy of the state it was replacing. The saved copy and the journal are both
-//! written and flushed BEFORE the swap, so a machine that loses power between
-//! the two comes back with a journal that says a swap was in flight and the
-//! bytes that undo it. The journal is removed only once the new service is
-//! proven up, or once a rollback is proven — never on the way to finding out
-//! that something failed.
+//! The previous definition is saved durably before the swap and the journal
+//! remains until activation and caller-supplied health verification succeed.
+
+mod definition_restore;
+
+use definition_restore::{remove_quietly, restore};
 
 use std::path::{Path, PathBuf};
 
@@ -21,9 +16,7 @@ use crate::services::atomic_file::{InstalledFile, read_installed_file, write_dur
 use crate::services::definition_text::{
     DEFINITION_MODE, definition_is_complete, render_definition,
 };
-use crate::services::deploy_journal::{
-    DeployJournal, RecoveredTarget, SavedDefinition, sha256_hex,
-};
+use crate::services::deploy_journal::{DeployJournal, RecoveredTarget, SavedDefinition};
 use crate::services::service_argv::ServiceAction;
 use crate::services::service_control::ServiceManager;
 use crate::services::service_spec::{ServiceSpec, ServiceTarget};
@@ -140,6 +133,17 @@ pub fn deploy_service_definition(
     service_dir: &Path,
     manager: &mut dyn ServiceManager,
 ) -> Result<DeployOutcome, DeployError> {
+    deploy_service_definition_verified(spec, platform, service_dir, manager, &mut || true)
+}
+
+/// Deploy, retaining the rollback point until the caller verifies service health.
+pub fn deploy_service_definition_verified(
+    spec: &ServiceSpec,
+    platform: HostPlatform,
+    service_dir: &Path,
+    manager: &mut dyn ServiceManager,
+    verify: &mut dyn FnMut() -> bool,
+) -> Result<DeployOutcome, DeployError> {
     let target = spec.target();
     info!(
         label = %target.label,
@@ -178,6 +182,14 @@ pub fn deploy_service_definition(
             report_failure(&target, *rolled_back);
         }
         return Err(failure);
+    }
+    if !verify() {
+        let rolled_back = roll_back(&target, &rollback_point.saved, service_dir, manager);
+        report_failure(&target, rolled_back);
+        return Err(DeployError::Activation {
+            label: target.label,
+            rolled_back,
+        });
     }
     settle(&target, service_dir);
     let definition_changed = rollback_point.definition_changed(&pending);
@@ -333,37 +345,6 @@ fn roll_back(
     RollbackOutcome::for_previous(previous)
 }
 
-/// Write the saved bytes back, or remove the definition when this deploy was
-/// the first install. The saved copy's digest is checked against the journal's
-/// before it is installed, so a truncated save cannot quietly replace a
-/// definition that was working.
-fn restore(target: &ServiceTarget, previous: &SavedDefinition) -> Result<(), DeployError> {
-    match previous {
-        SavedDefinition::Absent => remove_quietly(&target.definition_path),
-        SavedDefinition::Saved { sha256, .. } => {
-            let saved_path = SavedDefinition::saved_path(&target.definition_path);
-            let bytes = std::fs::read(&saved_path).map_err(|error| DeployError::Io {
-                path: saved_path.clone(),
-                cause: error.to_string(),
-            })?;
-            if sha256_hex(&bytes) != *sha256 {
-                return Err(DeployError::Io {
-                    path: saved_path,
-                    cause: "the saved definition does not match the digest the journal recorded"
-                        .to_string(),
-                });
-            }
-            write_durable(&target.definition_path, &bytes, DEFINITION_MODE).map_err(|error| {
-                DeployError::Io {
-                    path: target.definition_path.clone(),
-                    cause: error.to_string(),
-                }
-            })?;
-        }
-    }
-    Ok(())
-}
-
 /// The deploy is proven, so the journal and the saved copy are retired.
 fn settle(target: &ServiceTarget, service_dir: &Path) {
     if let Err(error) = DeployJournal::clear(service_dir) {
@@ -376,14 +357,6 @@ fn target_of(recovered: &RecoveredTarget) -> ServiceTarget {
     ServiceTarget {
         label: recovered.label.clone(),
         definition_path: recovered.definition_path.clone(),
-    }
-}
-
-fn remove_quietly(path: &Path) {
-    if let Err(error) = std::fs::remove_file(path)
-        && error.kind() != std::io::ErrorKind::NotFound
-    {
-        warn!(path = %path.display(), "could not remove a deploy artefact: {error}");
     }
 }
 

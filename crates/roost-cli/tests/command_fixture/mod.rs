@@ -11,7 +11,7 @@
 /// prints them. The list is the contract `docs/phase6-cli-contract.md`
 /// documents; a command added here must be documented there in the same change.
 ///
-pub const SUBCOMMANDS: [&str; 26] = [
+pub const SUBCOMMANDS: [&str; 27] = [
     "coord",
     "worker",
     "keeper",
@@ -24,6 +24,7 @@ pub const SUBCOMMANDS: [&str; 26] = [
     "logs",
     "deploy",
     "keeper-refresh",
+    "access",
     "api",
     "quickstart",
     "push",

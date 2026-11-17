@@ -1,24 +1,24 @@
 //! "Pair a phone": a paired browser mints a one-shot browser grant and shows its
 //! `#pair=` link as a QR code, so a phone camera opens Roost and pairs with no
-//! typing. Mounted by Settings → Devices and by the approver half of the pairing page.
+//! typing. Mounted by the shared Access surface after browser approval.
 
 use dioxus::prelude::*;
 #[cfg(target_arch = "wasm32")]
-use roost_client_core::client::rpc::calls::settings::bootstrap::{BootstrapKind, MintBootstrap};
+use roost_client_core::client::rpc::calls::settings::access::GetAccessSettings;
 #[cfg(target_arch = "wasm32")]
-use roost_client_core::client::rpc::calls::settings::machines::GetCoordinatorIdentity;
+use roost_client_core::client::rpc::calls::settings::bootstrap::{BootstrapKind, MintBootstrap};
 
 #[cfg(target_arch = "wasm32")]
 use super::phone_qr::pairing_qr_svg;
 use crate::components::hooks::use_copy_clipboard::use_copy_clipboard;
-#[cfg(target_arch = "wasm32")]
-use crate::components::machines::enrollment_origin::{EnrollmentDecision, enrollment_decision};
 use crate::components::terminal::dom::{now_ms, sleep_ms};
 use crate::components::ui::{
     Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader, CardTitle, FieldError,
     IconType,
 };
 use crate::pump::{Pump, use_store};
+#[cfg(target_arch = "wasm32")]
+use roost_client_core::client::access::enrollment::{EnrollmentDecision, enrollment_decision};
 
 /// The label the coordinator records against a grant this card mints, shown in
 /// the device list's provenance until the phone spends it.
@@ -209,8 +209,8 @@ fn mint_phone_grant(pump: Pump, mut state: Signal<PhonePairing>) {
 #[cfg(target_arch = "wasm32")]
 async fn mint_scannable_pairing(pump: &Pump) -> PhonePairing {
     let rpc = pump.rpc();
-    let declared = match rpc.call(&GetCoordinatorIdentity).await {
-        Ok(declared) => declared,
+    let declared = match rpc.call(&GetAccessSettings::default()).await {
+        Ok(declared) => declared.browser_origin,
         Err(error) => {
             tracing::warn!(target: "pairing", %error, "phone pairing origin check refused");
             return PhonePairing::Failed(format!("The coordinator did not answer: {error}"));

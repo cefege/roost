@@ -17,6 +17,7 @@
 //! reports every origin as unreachable, which is the truth — it has no network
 //! stack of its own to have asked.
 
+use roost_client_core::client::access::CoordinatorSource;
 use roost_client_core::client::local::bootstrap::LocalBootstrap;
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::local::bootstrap::{
@@ -194,23 +195,28 @@ pub async fn prime_serving_bootstrap() {}
 /// deployment mode because a stale override on someone else's
 /// page would otherwise aim their calls at a stranger's machine.
 #[cfg(target_arch = "wasm32")]
-pub fn coordinator_base_url_for_page() -> String {
+pub fn coordinator_endpoint_for_page() -> (String, CoordinatorSource) {
     let stored = |key: &str| {
         web_sys::window()
             .and_then(|window| window.local_storage().ok().flatten())
             .and_then(|storage| storage.get_item(key).ok().flatten())
     };
-    let base = roost_client_core::client::local::coordinator_base(
-        primed_serving_bootstrap().as_ref(),
-        stored(DEPLOYMENT_MODE_KEY).as_deref(),
-        stored(COORDINATOR_OVERRIDE_KEY).as_deref(),
+    let bootstrap = primed_serving_bootstrap();
+    let mode = stored(DEPLOYMENT_MODE_KEY);
+    let override_url = stored(COORDINATOR_OVERRIDE_KEY);
+    let origin = page_origin();
+    let selected = roost_client_core::client::access::select_coordinator(
+        bootstrap.as_ref(),
+        mode.as_deref(),
+        override_url.as_deref(),
+        &origin,
     );
-    roost_client_core::client::local::coordinator_base_url(&base, &page_origin())
+    (selected.origin.to_owned(), selected.source)
 }
 
 /// The coordinator base for a build with no document, which has no origin and so
 /// no coordinator to dial.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn coordinator_base_url_for_page() -> String {
-    String::new()
+pub fn coordinator_endpoint_for_page() -> (String, CoordinatorSource) {
+    (String::new(), CoordinatorSource::DocumentOrigin)
 }

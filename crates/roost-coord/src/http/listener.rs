@@ -64,6 +64,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 
 use crate::coord_core::CoordCore;
+use crate::http::access_challenge::{ACCESS_CHALLENGE_PATH, access_challenge};
 use crate::http::db_export::db_export;
 use crate::http::health::{HEALTHZ_PATH, READYZ_PATH};
 use crate::http::spa::{self, SpaMount};
@@ -210,6 +211,7 @@ pub fn build_router(state: Arc<ListenerState>) -> MountedListener {
     // added to the router, so the LAST one added is the first one a request
     // meets.
     let router = Router::new()
+        .route(ACCESS_CHALLENGE_PATH, get(access_challenge))
         .route(SYNC_WS_PATH, get(sync_upgrade))
         .route("/ws/coord-worker/{fingerprint}", get(worker_upgrade))
         .route(DB_EXPORT_PATH, get(db_export).head(db_export))

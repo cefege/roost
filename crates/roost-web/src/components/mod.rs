@@ -12,6 +12,7 @@
 //! here without an arm there is unreachable, and a route added there without a
 //! module here is a compile error.
 
+pub mod access;
 pub mod access_gate;
 pub mod app_error_boundary;
 pub mod brand_mark;

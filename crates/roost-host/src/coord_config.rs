@@ -53,6 +53,8 @@ pub struct CoordConfig {
     pub audit_retention_days: u64,
     /// Bare HTTP(S) origins allowed to make cross-origin RPC calls.
     pub cors_allowed_origins: Vec<String>,
+    /// Previously declared HTTPS front doors still admitted as request hosts.
+    pub retained_frontdoor_origins: Vec<String>,
     /// Bare HTTPS origins allowed to receive web push.
     pub push_allowed_origins: Vec<String>,
     /// Whether to ship a CSP loose enough to debug a deployment.
@@ -101,6 +103,7 @@ pub struct CoordConfigInput {
     pub jwt_max_age_secs: Option<i64>,
     pub audit_retention_days: Option<i64>,
     pub cors_allowed_origins: Option<Vec<String>>,
+    pub retained_frontdoor_origins: Option<Vec<String>>,
     pub push_allowed_origins: Option<Vec<String>>,
     pub relaxed_csp: Option<bool>,
     pub trust_proxy: Option<bool>,
@@ -163,6 +166,7 @@ impl CoordConfig {
                 "config.audit_retention_days",
             )?,
             cors_allowed_origins: input.cors_allowed_origins.unwrap_or_default(),
+            retained_frontdoor_origins: input.retained_frontdoor_origins.unwrap_or_default(),
             push_allowed_origins: input.push_allowed_origins.unwrap_or_default(),
             relaxed_csp: input.relaxed_csp.unwrap_or(false),
             trust_proxy: input.trust_proxy.unwrap_or(false),

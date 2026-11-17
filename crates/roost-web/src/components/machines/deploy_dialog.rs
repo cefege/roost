@@ -31,6 +31,7 @@ use crate::pump::use_store;
 #[component]
 pub fn MachineDeployDialog(on_close: EventHandler<()>) -> Element {
     let pump = use_store();
+    let navigate = crate::router_state::use_navigate();
     let model = use_signal(DeployModel::opened);
     let label = use_signal(String::new);
     let close = use_callback({
@@ -102,6 +103,10 @@ pub fn MachineDeployDialog(on_close: EventHandler<()>) -> Element {
             MachineLocalAccessGuide {
                 checking: phase == DeployPhase::Checking,
                 on_recheck: move |()| recheck.call(()),
+                on_open_access: move |()| {
+                    close.call(());
+                    navigate.call("/settings/connection".to_owned());
+                },
             }
         } else if generated {
             GeneratedCommand { model: state.clone() }

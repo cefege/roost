@@ -82,8 +82,15 @@ spec:
             {{- with .Values.publicUrl }}
             - name: ROOST_WEB_PUBLIC_URL
               value: {{ . | quote }}
+            {{- end }}
+            {{- $corsOrigins := join "," .Values.corsAllowedOrigins | default .Values.publicUrl }}
+            {{- if $corsOrigins }}
             - name: ROOST_CORS_ALLOWED_ORIGINS
-              value: {{ . | quote }}
+              value: {{ $corsOrigins | quote }}
+            {{- end }}
+            {{- with .Values.retainedFrontdoorOrigins }}
+            - name: ROOST_RETAINED_FRONTDOOR_ORIGINS
+              value: {{ join "," . | quote }}
             {{- end }}
             {{- if .Values.logs.persistence.enabled }}
             # The coordinator copies its warn/error lines to main.err.log here,
@@ -94,6 +101,12 @@ spec:
               value: /var/log/roost
             {{- end }}
             {{- range $name, $value := .Values.env }}
+            {{- if eq $name "ROOST_CORS_ALLOWED_ORIGINS" }}
+            {{- fail "Set corsAllowedOrigins instead of env.ROOST_CORS_ALLOWED_ORIGINS" }}
+            {{- end }}
+            {{- if eq $name "ROOST_RETAINED_FRONTDOOR_ORIGINS" }}
+            {{- fail "Set retainedFrontdoorOrigins instead of env.ROOST_RETAINED_FRONTDOOR_ORIGINS" }}
+            {{- end }}
             - name: {{ $name }}
               value: {{ $value | quote }}
             {{- end }}

@@ -21,7 +21,6 @@ use roost_client_core::client::rpc::calls::settings::devices::{ListDevices, Revo
 use roost_client_core::store::shell_intent::ShellIntent;
 
 use super::format::format_timestamp;
-use crate::components::pairing::PhonePairingCard;
 use crate::components::ui::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader,
     CardTitle, EmptyState, FieldError, IconType, List, ListRow,
@@ -75,7 +74,7 @@ pub fn DevicesPane() -> Element {
                         EmptyState {
                             icon: IconType::MonitorSmartphone,
                             title: "No browser devices",
-                            supporting: "Pair a browser below, then refresh this list.",
+                            supporting: "Use Access to pair a browser, then refresh this list.",
                         }
                     }
                     if !state.devices.is_empty() {
@@ -87,12 +86,11 @@ pub fn DevicesPane() -> Element {
                     }
                 }
             }
-            PhonePairingCard {}
             Card {
                 CardHeader {
-                    CardTitle { "Approve a browser" }
+                    CardTitle { "Manage browser access" }
                     CardDescription {
-                        "A browser that requested access waits on the pairing page until you approve it with the code it shows."
+                        "Pair phones, approve browsers and review this installation's connection from Access."
                     }
                 }
                 CardContent {
@@ -100,8 +98,8 @@ pub fn DevicesPane() -> Element {
                         variant: ButtonVariant::Secondary,
                         icon: Some(IconType::MonitorSmartphone),
                         "data-testid": "settings-pair-device",
-                        onclick: move |_| navigate.call(Route::Pair.to_path()),
-                        "Open pairing"
+                        onclick: move |_| navigate.call(Route::Settings { pane: Some("connection".to_owned()) }.to_path()),
+                        "Open Access"
                     }
                 }
             }

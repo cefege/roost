@@ -16,9 +16,9 @@ use roost_host::coord_config_loader::{
     ENV_COORDINATOR_AUDIT_RETENTION_DAYS, ENV_COORDINATOR_AUTHORIZED_KEYS, ENV_COORDINATOR_BIND,
     ENV_COORDINATOR_DATABASE_URL, ENV_COORDINATOR_DB, ENV_COORDINATOR_JWT_MAX_AGE_SECS,
     ENV_COORDINATOR_LOG_DIR, ENV_COORDINATOR_PUBLIC_URL, ENV_CORS_ALLOWED_ORIGINS,
-    ENV_PUSH_ALLOWED_ORIGINS, ENV_RELAXED_CSP, ENV_TERMINAL_PEER_ENABLED,
-    ENV_TERMINAL_PEER_STUN_URLS, ENV_TRUST_PROXY, ENV_TRUSTED_PROXY_CIDRS, ENV_WEB_DIST_PATH,
-    ENV_WEB_PUBLIC_URL, load_coord_config,
+    ENV_PUSH_ALLOWED_ORIGINS, ENV_RELAXED_CSP, ENV_RETAINED_FRONTDOOR_ORIGINS,
+    ENV_TERMINAL_PEER_ENABLED, ENV_TERMINAL_PEER_STUN_URLS, ENV_TRUST_PROXY,
+    ENV_TRUSTED_PROXY_CIDRS, ENV_WEB_DIST_PATH, ENV_WEB_PUBLIC_URL, load_coord_config,
 };
 use roost_host::paths::{COORD_DATA_DIR_ENV, WORKER_DATA_DIR_ENV, WORKER_LOG_DIR_ENV};
 use roost_host::{DatabaseLocation, EnvSource, HostPlatform, ProtocolResult, coord_data_dir};
@@ -114,6 +114,10 @@ fn coordinator_settings(
             settings.insert(name.to_string(), value.to_string());
         }
     }
+    settings.insert(
+        ENV_RETAINED_FRONTDOOR_ORIGINS.to_string(),
+        config.retained_frontdoor_origins.join(","),
+    );
     for (name, values) in [
         (ENV_CORS_ALLOWED_ORIGINS, &config.cors_allowed_origins),
         (ENV_PUSH_ALLOWED_ORIGINS, &config.push_allowed_origins),

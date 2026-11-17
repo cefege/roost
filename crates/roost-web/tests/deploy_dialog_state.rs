@@ -15,10 +15,10 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use roost_client_core::client::access::enrollment::EnrollmentDecision;
 use roost_web::components::machines::deploy_state::{
     DeployError, DeployErrorKind, DeployModel, DeployPhase,
 };
-use roost_web::components::machines::enrollment_origin::EnrollmentDecision;
 
 const DOOR: &str = "https://roost.example.com";
 const COMMAND: &str = "curl -fsSL https://example/join.sh | ROOST_COORDINATOR_URL='x' bash";

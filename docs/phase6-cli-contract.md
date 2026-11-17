@@ -652,6 +652,22 @@ half-written one. The command is **idempotent**: a second run reports
 
 ---
 
+## `roost access`
+
+`roost access` chooses an access profile interactively; `--mode local`,
+`tailscale`, `public`, `external` or `join` selects it explicitly. `--dry-run`
+prints the proposal without applying it; `--apply` approves a local change
+without a prompt. The local profile previews and invokes `quickstart`. The join
+profile uses the existing one-shot worker enrollment environment and does not
+pair a browser. The public profile requires a stable HTTPS `--url` and verifies
+the coordinator identity endpoint before promotion. Browser device keys remain
+origin-scoped.
+
+The external profile accepts `--namespace`, `--release`, `--repository`,
+`--deployment-source` and `--url`; it inspects the existing Flux deployment
+and prints a proposed Helm values change, never patches the cluster. Tailscale
+Serve mappings are private; Funnel is never enabled by this command.
+
 ## `roost quickstart`
 
 ```

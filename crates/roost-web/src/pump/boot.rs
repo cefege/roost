@@ -29,7 +29,8 @@ pub fn start_pump(
     revision: Signal<u64>,
     diag_upload: Option<DiagUploadQueue>,
 ) -> Pump {
-    let rpc = Rc::new(CoordRpc::new(coordinator_origin(), ""));
+    let (origin, source) = crate::platform::door_probe::coordinator_endpoint_for_page();
+    let rpc = Rc::new(CoordRpc::new(origin, "").with_selection_source(source));
     let pump = Pump::new(core, revision, rpc);
     let booting = pump.clone();
     wasm_bindgen_futures::spawn_local(async move { boot(booting, diag_upload).await });
@@ -139,21 +140,4 @@ fn redeem_failure_is_authoritative(error: &CallError) -> bool {
                 | ConnectCode::Unauthenticated
         )
     )
-}
-
-/// The coordinator this document dials.
-///
-/// The serving-origin answer was primed before the graph loaded, so a page a
-/// WORKER served dials the coordinator that worker advertised instead of itself.
-/// The decision and its storage keys live in `client::local`; this only names
-/// the host inputs.
-#[cfg(target_arch = "wasm32")]
-fn coordinator_origin() -> String {
-    crate::platform::door_probe::coordinator_base_url_for_page()
-}
-
-/// A build with no document has no origin and no coordinator to dial.
-#[cfg(not(target_arch = "wasm32"))]
-fn coordinator_origin() -> String {
-    String::new()
 }

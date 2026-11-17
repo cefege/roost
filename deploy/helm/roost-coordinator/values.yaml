@@ -21,6 +21,13 @@ secretKey: ""
 # `roost add-machine` print URLs on it.
 publicUrl: ""
 
+# Explicit browser-origin allowlist for staged address changes. Empty defaults
+# to publicUrl. Keep the old origin until browsers have moved and been paired.
+corsAllowedOrigins: []
+
+# Previous HTTPS front doors that remain valid request hosts.
+retainedFrontdoorOrigins: []
+
 # Believe X-Forwarded-For, but only from these networks (the ingress
 # controller's pods). The front door must OVERWRITE the header, never append.
 trustProxy: true
@@ -30,6 +37,10 @@ trustedProxyCidrs:
   - 192.168.0.0/16
 
 # Extra non-secret ROOST_* settings, as name: value.
+# Externally managed access can declare its configured owner/source here with
+# ROOST_ACCESS_DEPLOYMENT_OWNER=k3s-flux and ROOST_ACCESS_FLUX_{NAMESPACE,
+# RELEASE,REPOSITORY,REPOSITORY_NAMESPACE,VALUES_FILE}. Declarations do not
+# prove that the live Flux resources were observed.
 env: {}
 
 # Any count >= 1: one replica owns worker links and others proxy to it.

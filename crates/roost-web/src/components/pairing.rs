@@ -8,8 +8,8 @@ mod approval_dialog;
 mod approval_list;
 mod approver;
 mod failure;
+mod key_recovery;
 mod notices;
-mod other_options;
 mod phone_pairing;
 pub mod phone_qr;
 mod request_card;
@@ -131,7 +131,8 @@ fn RequesterPanel(requester: PairingRequester) -> Element {
                 test_id: Some("onboarding-request-error".to_owned()),
             }
         }
-        other_options::PairingOtherOptions { requester }
+        crate::components::access::AccessSurface { requester: Some(requester) }
+        key_recovery::KeyRecoveryCard {}
     }
 }
 
@@ -148,6 +149,6 @@ fn ApproverPanel(approver: approver::PairApprover, has_workers: bool) -> Element
             }
         }
         approval_list::ApprovalList { approver }
-        PhonePairingCard {}
+        crate::components::access::AccessSurface {}
     }
 }

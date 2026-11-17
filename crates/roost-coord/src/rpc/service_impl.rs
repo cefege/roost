@@ -1002,6 +1002,43 @@ impl CoordinatorService for CoordinatorServiceImpl {
     }
     // ── rpc ─────────────────────────────────────────────────────────────
 
+    fn access_get_settings<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AccessGetSettingsRequest>,
+    ) -> impl Future<Output = ServiceResult<impl Encodable<AccessSettings> + Send + use<'a>>> + Send
+    {
+        async move {
+            let caller = caller_of(&ctx, "AccessGetSettings")?;
+            crate::rpc::access::settings::get_settings(&self.core, caller, r.to_owned_message())
+                .await
+        }
+    }
+
+    fn access_preview<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AccessPreviewRequest>,
+    ) -> impl Future<Output = ServiceResult<impl Encodable<AccessPreviewResponse> + Send + use<'a>>> + Send
+    {
+        async move {
+            let caller = caller_of(&ctx, "AccessPreview")?;
+            crate::rpc::access::preview(self, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn access_apply<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AccessApplyRequest>,
+    ) -> impl Future<Output = ServiceResult<impl Encodable<AccessApplyResponse> + Send + use<'a>>> + Send
+    {
+        async move {
+            let caller = caller_of(&ctx, "AccessApply")?;
+            crate::rpc::access::apply(self, caller, r.to_owned_message()).await
+        }
+    }
+
     fn transcription_get_config<'a>(
         &'a self,
         ctx: RequestContext,

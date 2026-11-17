@@ -16,6 +16,9 @@
 //! cannot tell a "refused, and do not retry" from a "failed, try again" is a
 //! script that retries the one thing that must never be retried.
 
+pub mod access;
+#[path = "access/service_apply.rs"]
+mod access_service_apply;
 pub mod api;
 pub mod command_error;
 pub mod daemon;
@@ -103,6 +106,8 @@ pub enum Command {
     Deploy(DeployArgs),
     /// Shut a machine's keeper down empty, keeping its worker installed.
     KeeperRefresh(KeeperRefreshArgs),
+    /// Preview and configure access to this Roost.
+    Access(access::AccessArgs),
     /// Introspect and drive a running coordinator without a browser.
     Api(ApiArgs),
     /// Install a coordinator and this machine's worker, then open a browser.
@@ -127,6 +132,8 @@ pub enum Command {
     RemoteTransaction(RemoteTransactionArgs),
     #[command(name = "__remote-apply", hide = true)]
     RemoteApply(RemoteApplyArgs),
+    #[command(name = "__access-service-apply", hide = true)]
+    AccessServiceApply(access_service_apply::AccessServiceApplyArgs),
     /// Stop the local services and delete the coordinator database.
     Reset(ResetArgs),
     #[command(name = "__keeper-contract", hide = true)]
@@ -154,6 +161,7 @@ impl Command {
             Command::Logs(_) => "logs",
             Command::Deploy(_) => "deploy",
             Command::KeeperRefresh(_) => "keeper-refresh",
+            Command::Access(_) => "access",
             Command::Quickstart(_) => "quickstart",
             Command::Api(_) => "api",
             Command::Push(_) => "push",
@@ -166,6 +174,7 @@ impl Command {
             Command::RemoteEvidence(_) => "__remote-evidence",
             Command::RemoteTransaction(_) => "__remote-transaction",
             Command::RemoteApply(_) => "__remote-apply",
+            Command::AccessServiceApply(_) => "__access-service-apply",
             Command::Reset(_) => "reset",
             Command::KeeperContract(_) => "__keeper-contract",
             Command::SelfUpdate(_) => "__self-update",
@@ -187,6 +196,7 @@ pub async fn dispatch(cli: Cli) -> Result<ExitCode, CommandFailure> {
         Command::Logs(args) => ops::logs::run(&args),
         Command::Deploy(args) => deploy::run::run(&args).await,
         Command::KeeperRefresh(args) => deploy::keeper_refresh::run(&args).await,
+        Command::Access(args) => access::run(&args).await,
         Command::Quickstart(args) => quickstart::run(&args).await,
         Command::Api(args) => api::run(&args).await,
         Command::Push(args) => push::run(&args).await,
@@ -202,6 +212,7 @@ pub async fn dispatch(cli: Cli) -> Result<ExitCode, CommandFailure> {
         Command::RemoteEvidence(args) => deploy::remote_commands::evidence(&args),
         Command::RemoteTransaction(args) => deploy::remote_commands::transaction(&args).await,
         Command::RemoteApply(args) => deploy::remote_commands::apply(&args).await,
+        Command::AccessServiceApply(args) => access_service_apply::apply(&args).await,
         Command::Reset(args) => ops::reset::run(&args),
         Command::KeeperContract(args) => ops::keeper_contract::run(&args),
         Command::SelfUpdate(args) => self_update::run(&args).await,

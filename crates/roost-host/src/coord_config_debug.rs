@@ -16,6 +16,10 @@ impl std::fmt::Debug for CoordConfig {
             .field("jwt_max_age_secs", &self.jwt_max_age_secs)
             .field("audit_retention_days", &self.audit_retention_days)
             .field("cors_allowed_origins", &self.cors_allowed_origins)
+            .field(
+                "retained_frontdoor_origins",
+                &self.retained_frontdoor_origins,
+            )
             .field("push_allowed_origins", &self.push_allowed_origins)
             .field("relaxed_csp", &self.relaxed_csp)
             .field("trust_proxy", &self.trust_proxy)
