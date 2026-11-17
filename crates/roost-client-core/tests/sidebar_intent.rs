@@ -9,6 +9,7 @@ use std::rc::Rc;
 use roost_client_core::store::prefs::PrefDefaults;
 use roost_client_core::store::sidebar::SidebarIntent;
 use roost_client_core::store::sidebar::memory::{RECENT_KEY, RECENT_MAX};
+use roost_client_core::store::ui::{SIDEBAR_VIEW_KEY, SidebarView};
 use roost_client_core::{
     ClientCore, ClientEvent, ClientStateStore, KeyValueStore, MemoryClock, MemoryEpochClock,
     MemoryKeyValueStore,
@@ -109,4 +110,32 @@ fn a_cursor_move_repaints_and_republishing_the_same_rows_does_not() {
     sidebar(&mut core, SidebarIntent::MoveCursor(1));
     assert!(core.store().revision() > published);
     assert_eq!(core.store().sidebar.cursor.cursor_session_id(), Some("a"));
+}
+
+#[test]
+fn the_view_choice_persists_and_an_unknown_stored_value_falls_back() {
+    let storage = Rc::new(MemoryKeyValueStore::new());
+    let mut core = core_over(&storage);
+    assert_eq!(core.store().ui.sidebar_view, SidebarView::Folders);
+    sidebar(&mut core, SidebarIntent::SetView(SidebarView::Sessions));
+    assert_eq!(core.store().ui.sidebar_view, SidebarView::Sessions);
+    assert_eq!(storage.get(SIDEBAR_VIEW_KEY).as_deref(), Some("sessions"));
+    let chosen = core.store().revision();
+    sidebar(&mut core, SidebarIntent::SetView(SidebarView::Sessions));
+    assert_eq!(
+        core.store().revision(),
+        chosen,
+        "re-choosing the same view is a no-op"
+    );
+    assert_eq!(
+        core_over(&storage).store().ui.sidebar_view,
+        SidebarView::Sessions,
+        "a reload reads the choice back"
+    );
+    storage.set(SIDEBAR_VIEW_KEY, "agents");
+    assert_eq!(
+        core_over(&storage).store().ui.sidebar_view,
+        SidebarView::Folders,
+        "a spelling this build did not write resolves to the default"
+    );
 }

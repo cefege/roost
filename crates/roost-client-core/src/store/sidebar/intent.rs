@@ -5,7 +5,9 @@
 use crate::platform::KeyValueStore;
 use crate::store::Store;
 use crate::store::sidebar::memory::remember_last_workspace;
-use crate::store::ui::{close_sidebar, open_sidebar, toggle_sidebar_collapsed};
+use crate::store::ui::{
+    SidebarView, close_sidebar, open_sidebar, set_sidebar_view, toggle_sidebar_collapsed,
+};
 
 /// A sidebar action.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,6 +18,8 @@ pub enum SidebarIntent {
     CloseDrawer,
     /// Flip the desktop rail.
     ToggleCollapsed,
+    /// Choose between the Folders and Sessions views.
+    SetView(SidebarView),
     /// The Cmd-F shortcut: make the search box reachable.
     RevealForSearch {
         /// Whether the window is in the compact size class.
@@ -31,7 +35,7 @@ pub enum SidebarIntent {
         /// route change that would close it).
         close_drawer: bool,
     },
-    /// The Folders panel's rendered row order; empty while it is inactive.
+    /// The selected view's rendered row order; empty while it is inactive.
     PublishCursorTargets(Vec<String>),
     /// Record folders as they become visible, preserving previous positions.
     ObserveFolders(Vec<String>),
@@ -59,6 +63,7 @@ impl SidebarIntent {
             Self::OpenDrawer => "open_drawer",
             Self::CloseDrawer => "close_drawer",
             Self::ToggleCollapsed => "toggle_collapsed",
+            Self::SetView(_) => "set_view",
             Self::RevealForSearch { .. } => "reveal_for_search",
             Self::RecordNavigation { .. } => "record_navigation",
             Self::PublishCursorTargets(_) => "publish_cursor_targets",
@@ -80,6 +85,7 @@ pub fn apply_sidebar_intent(
         SidebarIntent::OpenDrawer => open_sidebar(store),
         SidebarIntent::CloseDrawer => close_sidebar(store),
         SidebarIntent::ToggleCollapsed => toggle_sidebar_collapsed(store, storage),
+        SidebarIntent::SetView(view) => set_sidebar_view(store, storage, *view),
         SidebarIntent::RevealForSearch { compact } => reveal_for_search(store, storage, *compact),
         SidebarIntent::RecordNavigation {
             session_id,

@@ -4,7 +4,7 @@
 //! churn the records the Sync projector folds, and a sidebar that re-renders
 //! because a drawer opened is a repaint a user can see.
 //!
-//! Three of the four fields persist per device. `sidebar_open` does not persist:
+//! Four of the five fields persist per device. `sidebar_open` does not persist:
 //! it is the mobile drawer, and a reload on a phone should not open it over the
 //! the user asked for.
 //!
@@ -23,6 +23,8 @@ pub const SIDEBAR_COLLAPSED_KEY: &str = "roost.sidebarCollapsed";
 /// See [`SIDEBAR_COLLAPSED_KEY`].
 pub const SIDEBAR_WIDTH_KEY: &str = "roost.sidebarWidth";
 pub const HOME_FOLDER_SHOW_FILES_KEY: &str = "roost.homeFolderShowFiles";
+/// The stored key of the sidebar's selected view.
+pub const SIDEBAR_VIEW_KEY: &str = "roost.sidebarView";
 
 /// The sidebar width a device gets before it has chosen one.
 pub const SIDEBAR_WIDTH_DEFAULT: u32 = 300;
@@ -30,6 +32,35 @@ pub const SIDEBAR_WIDTH_DEFAULT: u32 = 300;
 pub const SIDEBAR_WIDTH_MIN: u32 = 200;
 /// The widest a drag may take it. Beyond this the terminal loses the pane.
 pub const SIDEBAR_WIDTH_MAX: u32 = 600;
+
+/// The sidebar's two views: the static folder tree and the dynamic session list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SidebarView {
+    /// The folder tree in the account's manual order.
+    #[default]
+    Folders,
+    /// Every terminal, newest activity first.
+    Sessions,
+}
+
+impl SidebarView {
+    /// The stored spelling. The only two values ever written.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Folders => "folders",
+            Self::Sessions => "sessions",
+        }
+    }
+
+    /// Read a stored value; a spelling this build did not write is absent.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "folders" => Some(Self::Folders),
+            "sessions" => Some(Self::Sessions),
+            _ => None,
+        }
+    }
+}
 
 /// The chrome state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +72,8 @@ pub struct UiState {
     pub sidebar_collapsed: bool,
     /// The sidebar's width in pixels, drag-resizable.
     pub sidebar_width: u32,
+    /// The selected view: the static Folders tree or the dynamic Sessions list.
+    pub sidebar_view: SidebarView,
     /// Whether the home and browse surfaces reveal view-only files beside
     /// folders.
     pub home_folder_show_files: bool,
@@ -52,6 +85,7 @@ impl Default for UiState {
             sidebar_open: false,
             sidebar_collapsed: false,
             sidebar_width: SIDEBAR_WIDTH_DEFAULT,
+            sidebar_view: SidebarView::default(),
             home_folder_show_files: false,
         }
     }
@@ -88,6 +122,10 @@ pub fn load_ui(store: &mut Store, storage: &dyn KeyValueStore) -> bool {
         sidebar_open: store.ui.sidebar_open,
         sidebar_collapsed: read_flag(storage, SIDEBAR_COLLAPSED_KEY, false),
         sidebar_width: stored_width,
+        sidebar_view: storage
+            .get(SIDEBAR_VIEW_KEY)
+            .and_then(|raw| SidebarView::parse(raw.trim()))
+            .unwrap_or_default(),
         home_folder_show_files: read_flag(storage, HOME_FOLDER_SHOW_FILES_KEY, false),
     };
     if next == store.ui {
@@ -136,6 +174,18 @@ pub fn set_sidebar_width(store: &mut Store, storage: &dyn KeyValueStore, px: u32
     store.ui.sidebar_width = clamped;
     storage.set(SIDEBAR_WIDTH_KEY, &clamped.to_string());
     store.note_change();
+    true
+}
+
+/// Choose the sidebar's view, and persist.
+pub fn set_sidebar_view(store: &mut Store, storage: &dyn KeyValueStore, view: SidebarView) -> bool {
+    if store.ui.sidebar_view == view {
+        return false;
+    }
+    store.ui.sidebar_view = view;
+    storage.set(SIDEBAR_VIEW_KEY, view.as_str());
+    store.note_change();
+    tracing::debug!(target: "store", view = view.as_str(), "sidebar view");
     true
 }
 

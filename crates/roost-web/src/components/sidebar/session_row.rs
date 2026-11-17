@@ -265,6 +265,11 @@ pub fn SessionRow(
                                     text: facts.title.clone(),
                                     query,
                                 }
+                                if let Some(disambiguator) = disambiguator {
+                                    span { class: "ml-1 shrink-0 text-xs text-muted-foreground",
+                                        "{disambiguator}"
+                                    }
+                                }
                             }
                             span { class: "block truncate text-xs text-muted-foreground",
                                 "data-testid": "session-reltime-{session_id}",

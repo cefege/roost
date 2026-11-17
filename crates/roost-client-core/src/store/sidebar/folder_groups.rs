@@ -163,11 +163,10 @@ fn group_of(
     let worker = store.workers.get(head.worker_fp.as_str());
     let online = worker
         .is_some_and(|worker| worker_online(worker, store.routable_worker_fps.as_ref(), now_ms));
-    let fallback_label: String = head.worker_fp.as_str().chars().take(6).collect();
     Some(FolderGroup {
         key,
         name: folder_display_name(store, paths, head),
-        server: short_server_label(worker.map_or(fallback_label.as_str(), |w| w.label.as_str())),
+        server: server_label_for(store, head.worker_fp.as_str()),
         spawn_fp: head.worker_fp.to_string(),
         spawn_cwd: folder_path_of(head).to_owned(),
         online,
@@ -205,4 +204,16 @@ fn worker_os<'store>(store: &'store Store, worker_fp: &str) -> Option<&'store st
         .workers
         .get(worker_fp)
         .map(|worker| worker.os.as_str())
+}
+
+/// A machine's short sidebar label: its label, or the fingerprint's head when
+/// the registry has no row for it.
+pub fn server_label_for(store: &Store, worker_fp: &str) -> String {
+    let fallback: String = worker_fp.chars().take(6).collect();
+    short_server_label(
+        store
+            .workers
+            .get(worker_fp)
+            .map_or(fallback.as_str(), |worker| worker.label.as_str()),
+    )
 }

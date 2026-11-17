@@ -16,6 +16,7 @@ use roost_client_core::store::sidebar::folder_groups::{
 };
 use roost_protocol::wire::{Session, SessionKind};
 
+use super::cursor_targets::publish_cursor_targets;
 use super::folder_row::{FolderRow, folder_drop_position};
 use super::session_row::SessionRow;
 use crate::components::ui::empty::EmptyState;
@@ -34,7 +35,7 @@ mod motion;
 
 /// The list.
 #[component]
-pub fn FolderList(active: bool, query: String) -> Element {
+pub fn FolderList(active: bool, selected: bool, query: String) -> Element {
     let pump = use_store();
     let compact = crate::components::layout::window_size::use_is_compact();
     let path = use_location();
@@ -133,7 +134,10 @@ pub fn FolderList(active: bool, query: String) -> Element {
                 .collect()
         }
     };
-    publish_cursor_targets(&pump, active, visible_ids);
+    publish_cursor_targets(
+        &pump,
+        selected.then(|| if active { visible_ids } else { Vec::new() }),
+    );
 
     rsx! {
             SidenavContent { "data-testid": "folder-list",
@@ -278,25 +282,7 @@ pub fn FolderList(active: bool, query: String) -> Element {
         }
 }
 
-/// Cursor commands target only rows in the visible Folders projection, and
-/// none while the panel is inactive or unmounted.
-fn publish_cursor_targets(pump: &Pump, active: bool, visible_ids: Vec<String>) {
-    let targets = if active { visible_ids } else { Vec::new() };
-    let effect_pump = pump.clone();
-    use_effect(use_reactive((&targets,), move |(targets,)| {
-        effect_pump.dispatch(ClientEvent::Sidebar(SidebarIntent::PublishCursorTargets(
-            targets,
-        )));
-    }));
-    let drop_pump = pump.clone();
-    use_drop(move || {
-        drop_pump.dispatch(ClientEvent::Sidebar(SidebarIntent::PublishCursorTargets(
-            Vec::new(),
-        )));
-    });
-}
-
-fn folder_group_heading(name: &str, machine: &str) -> String {
+pub(super) fn folder_group_heading(name: &str, machine: &str) -> String {
     format!("{name} · {machine}")
 }
 

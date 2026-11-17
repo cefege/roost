@@ -8,6 +8,7 @@ pub mod folder_groups;
 pub mod format;
 pub mod intent;
 pub mod memory;
+pub mod session_groups;
 pub mod viewers;
 
 pub use cursor::SidebarCursor;

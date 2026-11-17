@@ -396,11 +396,13 @@ pause; and in `roost-web` the pane-registry and surface read API, the
 observer), the visibility pin (`visibility::{pin_visible, pin_engaged}`),
 `Pump::sync_dial_count` and `EchoHost::debug`.
 
-The sidebar holds terminal folders only. Folder order is static until a user
-drags it, and the saved order synchronizes across that account's devices.
-There is no agent Recent view. The custom `ui::Surface`/`SurfaceLevel` skin
-and `List.contained` border option are removed; panels use stock Rust/UI `Card`
-recipes and lists compose stock `Item` rows.
+The sidebar has two views, chosen per device and persisted: Folders, the
+terminal folder tree in a static manual order that synchronizes across that
+account's devices, and Sessions, every terminal newest-activity-first, grouped
+by the reader's local day. There is no agent Recent view. The custom
+`ui::Surface`/`SurfaceLevel` skin and `List.contained` border option are
+removed; panels use stock Rust/UI `Card` recipes and lists compose stock
+`Item` rows.
 
 ---
 

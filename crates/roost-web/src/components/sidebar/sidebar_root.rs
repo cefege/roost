@@ -1,15 +1,17 @@
-//! The route-stable folders sidebar: heading, search and folder tree.
+//! The route-stable sidebar: view selector, search, and the two panels —
+//! the static Folders tree and the dynamic Sessions list, both kept mounted.
 //! AppShell mounts it in the desktop aside or compact drawer.
-//! Folder selection owns terminal creation; the compact footer controls type.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
 use roost_client_core::store::sidebar::SidebarIntent;
+use roost_client_core::store::ui::SidebarView;
 
 use super::all_view::AllView;
 use super::rel_time_tick::provide_rel_time_ticker;
-use super::sidebar_heading::SidebarHeading;
+use super::sessions_view::SessionsView;
 use super::sidebar_search::SidebarSearch;
+use super::sidebar_view_switch::SidebarViewSwitch;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::term_font_stepper::TermFontStepper;
 use crate::components::ui::{
@@ -80,7 +82,9 @@ pub fn SidebarRoot() -> Element {
     } else {
         !ui.sidebar_collapsed
     };
-    let folders_active = interactive;
+    let folders_selected = ui.sidebar_view == SidebarView::Folders;
+    let folders_active = interactive && folders_selected;
+    let sessions_active = interactive && !folders_selected;
     let close_drawer = pump.clone();
 
     rsx! {
@@ -103,7 +107,7 @@ pub fn SidebarRoot() -> Element {
                         }
                     }
                 }
-                SidebarHeading {}
+                SidebarViewSwitch {}
                 SidebarSearch {
                     query: query(),
                     on_change: on_query_change,
@@ -111,10 +115,20 @@ pub fn SidebarRoot() -> Element {
                     shortcut_label: platform_shortcut_label(PlatformShortcut::SidebarSearch, "⌘F", platform).to_owned(),
                 }
                 div {
-                    class: "flex min-h-0 flex-1 flex-col",
+                    class: "flex min-h-0 flex-1 flex-col data-[active=false]:hidden",
                     "data-testid": "sidebar-folders",
-                    inert: (!interactive).then_some(true),
-                    AllView { active: folders_active, query: debounced() }
+                    "data-active": if folders_selected { "true" } else { "false" },
+                    inert: (!folders_active).then_some(true),
+                    "aria-hidden": (!folders_selected).then_some("true"),
+                    AllView { active: folders_active, selected: folders_selected, query: debounced() }
+                }
+                div {
+                    class: "flex min-h-0 flex-1 flex-col data-[active=false]:hidden",
+                    "data-testid": "sidebar-sessions",
+                    "data-active": if folders_selected { "false" } else { "true" },
+                    inert: (!sessions_active).then_some(true),
+                    "aria-hidden": folders_selected.then_some("true"),
+                    SessionsView { active: sessions_active, selected: !folders_selected, query: debounced() }
                 }
             if compact && terminal_route {
                 SidenavFooter { class: "flex-row items-center justify-between",

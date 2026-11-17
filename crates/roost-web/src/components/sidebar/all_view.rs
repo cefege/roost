@@ -10,7 +10,7 @@ use crate::pump::use_store;
 
 /// The Folders panel.
 #[component]
-pub fn AllView(active: bool, query: String) -> Element {
+pub fn AllView(active: bool, selected: bool, query: String) -> Element {
     let pump = use_store();
     let no_machines = pump.core().borrow().store().workers.is_empty();
     let folder_list_active = active && !no_machines;
@@ -24,7 +24,7 @@ pub fn AllView(active: bool, query: String) -> Element {
                     "data-active": if folder_list_active { "true" } else { "false" },
                     inert: (!folder_list_active).then_some(true),
                     "aria-hidden": (!folder_list_active).then_some("true"),
-                    FolderList { active: folder_list_active, query }
+                    FolderList { active: folder_list_active, selected, query }
                 }
             }
         }
