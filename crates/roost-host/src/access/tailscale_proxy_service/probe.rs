@@ -147,11 +147,14 @@ mod tests {
             token: "0123456789abcdef0123456789abcdef".into(),
             caddy: "/usr/bin/caddy".into(),
         };
-        create_private(
-            &controller.state.join("tailscale-proxy.caddyfile"),
-            configuration(&receipt).as_bytes(),
-        )
-        .expect("config");
+        let config_path = controller.state.join("tailscale-proxy.caddyfile");
+        fs::write(&config_path, configuration(&receipt)).expect("config");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&config_path, fs::Permissions::from_mode(0o600))
+                .expect("private config");
+        }
         assert!(check_existing(&controller, &receipt, false).is_ok());
         assert!(check_files(&controller, &receipt).is_err());
         fs::write(

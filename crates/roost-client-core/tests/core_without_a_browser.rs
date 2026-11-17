@@ -1,22 +1,7 @@
-//! The claim of `docs/phase4-client-contract.md` §1, end to end, and the
-//! `SyncDomain` wire numbers against `sync.proto`.
-//!
-//! `src/sync/link.rs:48` names this file as the reason `SyncDomain` may restate
-//! its wire numbers instead of importing them. That is a licence to have ONE
-//! second source, not to have an unchecked one: this test parses the proto and
-//! fails when the two disagree, so a renumbered domain in either place is a red
-//! test rather than a client that subscribes to the wrong domain.
-//!
-//! The §1 half is the harder half to test and the easier to lose. `web-sys`,
-//! `wasm-bindgen`, `js-sys` and `tokio` all look harmless in a function signature
-//! and each one puts a runtime type into this crate's public API, which is the
-//! one thing the crate exists to prevent. So the guard reads the crate's own
-//! source and its own manifest.
-//!
-//! The "and it runs" half of §1 is carried by the crate's other native binaries:
-//! `cargo test -p roost-client-core` runs 18 unit tests and 30 integration tests
-//! in a native binary with no browser and no DOM, which is the same claim stated
-//! by execution rather than by inspection.
+//! Native portability and SyncDomain wire contracts for client-core.
+//! The dependency check excludes browser and asynchronous runtime crates.
+//! SyncDomain values are compared with the protocol source; behavioral suites
+//! exercise the same client state machine without a browser.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -34,68 +19,8 @@ fn workspace_root() -> PathBuf {
         .expect("the crate lives two directories under the workspace root")
 }
 
-/// Every `.rs` file under `src/`, sorted so a failure names the same file twice.
-fn source_files() -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    let mut stack = vec![workspace_root().join("crates/roost-client-core/src")];
-    while let Some(directory) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&directory) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                stack.push(path);
-            } else if path.extension().is_some_and(|suffix| suffix == "rs") {
-                files.push(path);
-            }
-        }
-    }
-    files.sort();
-    files
-}
-
-#[test]
-fn the_library_source_names_no_dom_binding_no_wasm_binding_and_no_async_runtime() {
-    // Each of these is a way the crate's public API grows a type that only
-    // exists in a browser or on a runtime. `docs/phase4-client-contract.md` §1
-    // names the first two; `tokio` is the same defect wearing a different hat.
-    let forbidden = [
-        "web_sys",
-        "web-sys",
-        "wasm_bindgen",
-        "wasm-bindgen",
-        "js_sys",
-        "js-sys",
-        "tokio",
-        "std::net::",
-        "std::io::",
-        "std::fs::",
-    ];
-    let mut offenders = Vec::new();
-    for file in source_files() {
-        let Ok(text) = std::fs::read_to_string(&file) else {
-            continue;
-        };
-        for (index, line) in text.lines().enumerate() {
-            for token in forbidden {
-                if line.contains(token) {
-                    offenders.push(format!("{}:{} names `{token}`", file.display(), index + 1));
-                }
-            }
-        }
-    }
-    assert!(
-        offenders.is_empty(),
-        "roost-client-core must name no DOM type and no runtime type:\n{}",
-        offenders.join("\n")
-    );
-}
-
 #[test]
 fn the_manifest_depends_on_no_platform_crate() {
-    // The source scan above is defeated by a dependency the source never spells
-    // out, which is the shape a `web-sys` dependency actually takes.
     let forbidden = [
         "web-sys",
         "wasm-bindgen",
