@@ -177,11 +177,17 @@ import guard includes `combase.dll`, the inbox
 [Windows Runtime component](https://learn.microsoft.com/en-us/windows/win32/api/roapi/nf-roapi-roinitialize)
 available since Windows 8; non-system imports remain rejected.
 
-PostgreSQL 18.7 restores the production snapshot with identical fingerprints
-for all 52 public tables, column definitions, constraints, indexes and sequences
-against an independent PostgreSQL 17 restore. The replacement volume has data
-checksums enabled. Production cutover remains a separate writer-paused operation;
-the default chart image stays on 17 to avoid upgrading existing data directories.
+Production migrated from PostgreSQL 17.11 to **18.7** on 2026-11-17 with
+Roost v3.0.19. The final writer-paused restore matched fingerprints for all 52
+public tables, column definitions, constraints, indexes and sequences. The first
+native PostgreSQL 18 backup was restored into a separate database and matched
+the same fingerprints before coordinator writes resumed. Data checksums are on;
+scheduled backups and Flux reconciliation are resumed.
+
+The original PostgreSQL 17 volume and byte-verified off-node dumps of both
+majors are retained. Once PostgreSQL 18 accepts writes, the old volume is stale:
+see [major-upgrade recovery](../GETTING_STARTED.md#postgresql-major-upgrades).
+The default chart image stays on 17 to avoid upgrading existing data directories.
 
 Sources: [checkout](https://github.com/actions/checkout/releases/tag/v7.0.1),
 [artifact upload](https://github.com/actions/upload-artifact/releases/tag/v7.0.2),
@@ -232,3 +238,9 @@ not inferred from the static review.
   cases passed after adapting to Rust 1.100's must-use exit statuses.
 - Production web bundling passed with the `wasm-release` profile, including
   wasm-bindgen/wasm-opt processing and generated index/Tailwind checks.
+- [CI](https://github.com/cefege/roost/actions/runs/44031427446) passed Linux,
+  Intel macOS and Windows gates plus the complete coordinator suite against
+  PostgreSQL 17 and 18. The [v3.0.19 release](https://github.com/cefege/roost/actions/runs/44031598665)
+  passed verification, native/web builds, publication and promotion.
+- Production `/readyz` returned `ready`; `/version` reported v3.0.19.
+  The live database reported PostgreSQL 18.7, checksums on and writes enabled.
