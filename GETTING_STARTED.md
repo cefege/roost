@@ -994,6 +994,46 @@ shared-memory file into `coordinator-rollback-<rollout id>/` in the
 coordinator's service directory before it touches anything, restores from that
 copy on rollback, and removes it once the transaction settles.
 
+### PostgreSQL major upgrades
+
+Never upgrade an existing data directory by changing `postgres.image`.
+Rehearse a logical dump/restore into a fresh volume first, using the target
+major's client tools. Verify table contents, migrations, constraints, indexes
+and sequences, then start an isolated coordinator with outbound access blocked
+except to its test database and DNS. Copy recovery archives off the node.
+
+The Helm chart accepts a pre-restored volume through `postgres.existingClaim`.
+For the PostgreSQL 18 Alpine image, the replacement settings are:
+
+```yaml
+postgres:
+  image: postgres:18.7-alpine@sha256:b6972e1115a4ff8eba5d7f7d19184926d1e16d7d1136ae1e1a7ebf286da0f015
+  existingClaim: roost-coordinator-postgres18-data
+  mountPath: /var/lib/postgresql
+  dataDirectory: /var/lib/postgresql/18/docker
+```
+
+These settings select a replacement volume, not an in-place conversion.
+The default 17 image and layout preserve existing installations. Changing
+`existingClaim` removes the immutable StatefulSet claim template: stop its
+pods and recreate the StatefulSet controller, never delete the original PVC.
+Keep the database credentials and Service name unchanged.
+
+For the final cutover, suspend Helm reconciliation and scheduled backups,
+stop every coordinator writer, make the source database read-only, and take
+a final dump. Restore it into the replacement database and compare contents
+before switching volumes. Pin the image, claim and paths in the fleet's
+`roost-coordinator-values` Secret so a later promotion cannot undo them.
+Resume reconciliation with coordinator replicas still zero; validate the
+replacement database and a restored backup before enabling writers.
+
+Before writers restart, rollback can select the untouched 17 volume with its
+17 image and layout, then remove the source's read-only setting. After 18
+accepts writes, that volume is stale: reverting to it loses new data.
+An application-tag rollback is not a database rollback. Older charts do not
+understand `existingClaim`; do not promote one onto the 18 configuration.
+A downgrade requires a separately verified current-data restore into 17.
+
 ## Release rollout and canaries
 
 The managed fleet releases through GitHub and Flux, not a host-side deployment:

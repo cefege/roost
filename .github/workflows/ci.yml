@@ -73,12 +73,16 @@ jobs:
   # its own, never steps in `rust` — `release.yml`'s verify job must run exactly
   # the `rust` job's commands, and `release_asset_names.rs` pins that.
   postgres:
-    name: coordinator on postgres
+    name: coordinator on postgres ${{ matrix.postgres }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ["17", "18"]
     services:
       postgres:
-        image: postgres:17
+        image: postgres:${{ matrix.postgres }}
         env:
           POSTGRES_USER: roost
           POSTGRES_PASSWORD: roost

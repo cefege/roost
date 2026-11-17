@@ -87,6 +87,10 @@ postgres:
   enabled: false
   image: postgres:17-alpine
   storage: 10Gi
+  # A restored replacement volume; changing this requires recreating the StatefulSet.
+  existingClaim: ""
+  mountPath: /var/lib/postgresql/data
+  dataDirectory: /var/lib/postgresql/data/pgdata
   password: ""
   resources:
     requests:

@@ -65,7 +65,7 @@ spec:
             - name: POSTGRES_DB
               value: roost
             - name: PGDATA
-              value: /var/lib/postgresql/data/pgdata
+              value: {{ .Values.postgres.dataDirectory | quote }}
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -88,7 +88,14 @@ spec:
             {{- toYaml .Values.postgres.resources | nindent 12 }}
           volumeMounts:
             - name: data
-              mountPath: /var/lib/postgresql/data
+              mountPath: {{ .Values.postgres.mountPath | quote }}
+      {{- if .Values.postgres.existingClaim }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.postgres.existingClaim | quote }}
+      {{- end }}
+  {{- if not .Values.postgres.existingClaim }}
   volumeClaimTemplates:
     - metadata:
         name: data
@@ -97,6 +104,7 @@ spec:
         resources:
           requests:
             storage: {{ .Values.postgres.storage }}
+  {{- end }}
 {{- if .Values.postgres.backup.enabled }}
 ---
 apiVersion: v1
