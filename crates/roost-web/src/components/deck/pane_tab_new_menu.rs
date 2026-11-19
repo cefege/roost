@@ -1,15 +1,18 @@
-//! A pane strip's new-terminal button.
-//! Creation is owned by `TerminalDeck`.
+//! A pane strip's new-terminal button: a terminal beside the selected one, or
+//! the machine and folder picker. Creation is owned by `TerminalDeck`.
 
 use dioxus::prelude::*;
 
 use crate::components::ui::{
     DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Icon, IconType,
 };
+use crate::router_state::use_navigate;
+use crate::routes::Route;
 
 #[component]
 pub fn PaneTabNewMenu(on_new_terminal: EventHandler<()>) -> Element {
     let mut open = use_signal(|| false);
+    let navigate = use_navigate();
     rsx! {
         DropdownMenu {
             open: open(),
@@ -22,14 +25,22 @@ pub fn PaneTabNewMenu(on_new_terminal: EventHandler<()>) -> Element {
                 aria_label: "New tab",
                 Icon { icon: IconType::Plus, class: "size-4" }
             }
-            DropdownMenuContent { class: "w-40",
+            DropdownMenuContent { class: "w-52",
                 DropdownMenuItem {
                     test_id: "tab-new-terminal",
                     onclick: move |_| {
                         open.set(false);
                         on_new_terminal.call(());
                     },
-                    NewTabRow { icon: IconType::Terminal, label: "New terminal" }
+                    NewTabRow { icon: IconType::Terminal, label: "New terminal here" }
+                }
+                DropdownMenuItem {
+                    test_id: "tab-new-pick-machine",
+                    onclick: move |_| {
+                        open.set(false);
+                        navigate.call(Route::Browse { worker_fp: None }.to_path());
+                    },
+                    NewTabRow { icon: IconType::Monitor, label: "Choose machine…" }
                 }
             }
         }

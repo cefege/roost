@@ -73,20 +73,23 @@ pub fn BrowseToolbar(
                         "data-testid": "browse-folder-name",
                         {folder_name}
                     }
-                    span {
-                        class: "flex min-w-0 items-center gap-1 truncate text-xs text-muted-foreground",
-                        "data-testid": "browse-machine",
-                        StatusDot { status: if server_online { "ok".to_owned() } else { "idle".to_owned() } }
-                        {server_label.clone()}
-                    }
-                }
-                if online_workers.len() > 1 {
-                    DropdownMenuTrigger {
-                        class: "max-w-40 truncate",
-                        ghost: true,
-                        test_id: "browse-server",
-                        span { class: "sr-only", {server_label.clone()} }
-                        Icon { icon: IconType::ChevronsUpDown }
+                    if online_workers.len() > 1 {
+                        DropdownMenuTrigger {
+                            class: "h-7 max-w-56 justify-start gap-1.5 px-2 text-xs",
+                            test_id: "browse-server",
+                            aria_label: "Switch machine",
+                            title: "Switch machine",
+                            StatusDot { status: if server_online { "ok".to_owned() } else { "idle".to_owned() } }
+                            span { class: "truncate", "data-testid": "browse-machine", {server_label.clone()} }
+                            Icon { icon: IconType::ChevronsUpDown }
+                        }
+                    } else {
+                        span {
+                            class: "flex min-w-0 items-center gap-1 truncate text-xs text-muted-foreground",
+                            "data-testid": "browse-machine",
+                            StatusDot { status: if server_online { "ok".to_owned() } else { "idle".to_owned() } }
+                            {server_label.clone()}
+                        }
                     }
                 }
                 IconButton {

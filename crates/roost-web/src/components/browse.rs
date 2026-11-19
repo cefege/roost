@@ -18,6 +18,7 @@ mod entry_list;
 mod key_listener;
 mod keys;
 pub(crate) mod listing;
+mod machine_choice;
 mod new_folder;
 mod path_bar;
 mod picker;
@@ -57,18 +58,22 @@ pub fn BrowseSurface(route: Route) -> Element {
     }
 }
 
-/// `/browse` before a machine is chosen: the newest session's online machine,
-/// else any online machine, else home. One navigation, taken once the store can
-/// answer, so the reader never sees a picker with nothing to browse.
+/// `/browse` before a machine is chosen. Several online machines: ask which.
+/// One: go straight to it. None: home. The navigation is taken once the store
+/// can answer, so the reader never sees a picker with nothing to browse.
 #[component]
 fn BrowseRedirect() -> Element {
     let navigate = use_navigate();
     let pump = use_store();
-    let target = {
+    let start = {
         let core = pump.core();
         let core = core.borrow();
         let now_ms = i64::try_from(core.clock().now_ms()).unwrap_or(i64::MAX);
-        browse_redirect_target(core.store(), now_ms)
+        browse_start(core.store(), now_ms)
+    };
+    let target = match &start {
+        BrowseStart::Go(href) => Some(href.clone()),
+        BrowseStart::Waiting | BrowseStart::Choose(_) => None,
     };
     let navigated = use_hook(|| std::rc::Rc::new(std::cell::Cell::new(false)));
     use_effect(use_reactive((&target,), move |(target,)| {
@@ -77,42 +82,55 @@ fn BrowseRedirect() -> Element {
             navigate.call(href);
         }
     }));
-    rsx! {}
+    match start {
+        BrowseStart::Choose(machines) => rsx! { machine_choice::BrowseMachineChoice { machines } },
+        BrowseStart::Waiting | BrowseStart::Go(_) => rsx! {},
+    }
 }
 
-/// Where a bare `/browse` goes, or `None` while a cold store cannot answer yet:
-/// before the first snapshot and the worker registry land, "no machine online"
-/// is indistinguishable from "not heard yet", and sending the reader home then
-/// would be wrong.
-fn browse_redirect_target(store: &Store, now_ms: i64) -> Option<String> {
+/// What a bare `/browse` does.
+enum BrowseStart {
+    /// A cold store: before the first snapshot and the worker registry land,
+    /// "no machine online" is indistinguishable from "not heard yet".
+    Waiting,
+    /// Navigate here without asking.
+    Go(String),
+    /// Ask the reader which of these online machines, most recently used first.
+    Choose(Vec<roost_protocol::wire::Worker>),
+}
+
+fn browse_start(store: &Store, now_ms: i64) -> BrowseStart {
     if !store.hydrated || !workers_hydrated(store) {
-        return None;
+        return BrowseStart::Waiting;
     }
-    Some(default_browse_worker(store, now_ms).map_or_else(|| "/".to_owned(), |fp| browse_href(&fp)))
+    let mut machines = online_machines_recent_first(store, now_ms);
+    match machines.len() {
+        0 => BrowseStart::Go("/".to_owned()),
+        1 => BrowseStart::Go(browse_href(machines.remove(0).fp.as_str())),
+        _ => BrowseStart::Choose(machines),
+    }
 }
 
-/// The machine `/browse` opens on: the newest session's machine while it is
-/// online, else the first online machine by label.
-fn default_browse_worker(store: &Store, now_ms: i64) -> Option<String> {
-    let reachable = |worker: &roost_protocol::wire::Worker| {
-        worker_online(worker, store.routable_worker_fps.as_ref(), now_ms)
-    };
-    let mut sessions = all_sessions(store);
-    sessions.sort_by_key(|session| std::cmp::Reverse(session.created_at));
-    if let Some(recent) = sessions
-        .iter()
-        .map(|session| session.worker_fp.as_str())
-        .find(|worker_fp| store.workers.get(*worker_fp).is_some_and(&reachable))
-    {
-        return Some(recent.to_owned());
-    }
-    let mut machines: Vec<&roost_protocol::wire::Worker> = store
+/// Online machines, the newest session's machine first, the rest by label.
+fn online_machines_recent_first(store: &Store, now_ms: i64) -> Vec<roost_protocol::wire::Worker> {
+    let mut machines: Vec<roost_protocol::wire::Worker> = store
         .workers
         .values()
-        .filter(|worker| reachable(worker))
+        .filter(|worker| worker_online(worker, store.routable_worker_fps.as_ref(), now_ms))
+        .cloned()
         .collect();
     machines.sort_by(|left, right| left.label.cmp(&right.label));
-    machines.first().map(|worker| worker.fp.as_str().to_owned())
+    let recent_fp = all_sessions(store)
+        .into_iter()
+        .max_by_key(|session| session.created_at)
+        .map(|session| session.worker_fp.clone());
+    if let Some(recent_fp) = recent_fp
+        && let Some(idx) = machines.iter().position(|worker| worker.fp == recent_fp)
+    {
+        let recent = machines.remove(idx);
+        machines.insert(0, recent);
+    }
+    machines
 }
 
 /// What the picker's content region is showing.
