@@ -54,7 +54,7 @@
 
 :root {
   --bottom__nav__height: 4rem;
-  --radius: 0.625rem;
+  --radius: 0.75rem;
   --font-sans: 'Roost Symbols', 'Inter', sans-serif;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -195,11 +195,11 @@
   --radius-md: var(--radius-control);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --radius-row: 6px;
-  --radius-control: 7px;
-  --radius-card: 8px;
-  --radius-window: 10px;
-  --radius-sheet: 12px;
+  --radius-row: 0.5rem;
+  --radius-control: 0.5rem;
+  --radius-card: 0.75rem;
+  --radius-window: 0.75rem;
+  --radius-sheet: 1rem;
   --radius-pill: 999px;
   --shadow-card: 0 18px 40px -18px rgb(0 0 0 / 50%), 0 2px 6px -2px rgb(0 0 0 / 50%);
   --shadow-pop: 0 24px 60px -16px rgb(0 0 0 / 50%), 0 0 0 1px var(--border);

@@ -1,11 +1,12 @@
-//! The theme catalog: the rust-ui base palettes, the Omarchy base palettes, the
-//! accent palettes, and the lookups the engine resolves a stored choice against.
-//! The palette data lives in `palettes/`; Omarchy roles are derived in `omarchy.rs`.
+//! The theme catalog: Roost's paired light/dark default, rust-ui base palettes,
+//! Omarchy bases and accent palettes. Stored ids resolve here without migration;
+//! palette data lives in `palettes/`, derived Omarchy roles in `omarchy.rs`.
 
 use super::omarchy::OmarchyPalette;
 use super::palettes::accent_a::ACCENT_THEMES_A;
 use super::palettes::accent_b::ACCENT_THEMES_B;
 use super::palettes::base::BASE_THEMES;
+use super::palettes::brand::ROOST_THEME;
 use super::palettes::omarchy_a::OMARCHY_THEMES_A;
 use super::palettes::omarchy_b::OMARCHY_THEMES_B;
 
@@ -25,14 +26,14 @@ pub struct ThemeSpec {
 }
 
 /// The base a fresh reader gets.
-pub const DEFAULT_BASE_ID: &str = "tokyo-night";
+pub const DEFAULT_BASE_ID: &str = "roost";
 /// The accent a fresh reader gets: no accent, the base's own primary.
 pub const DEFAULT_ACCENT_ID: &str = "default";
 
-/// Every base palette, in picker order: rust-ui's, then the Omarchy palettes.
+/// Every base palette, in picker order: Roost, rust-ui, then Omarchy.
 pub fn base_themes() -> impl Iterator<Item = &'static ThemeSpec> {
-    BASE_THEMES
-        .iter()
+    std::iter::once(&ROOST_THEME)
+        .chain(BASE_THEMES.iter())
         .chain(OMARCHY_THEMES_A.iter())
         .chain(OMARCHY_THEMES_B.iter())
 }
@@ -54,7 +55,7 @@ pub fn accent_theme(id: &str) -> Option<&'static ThemeSpec> {
 
 /// The fallback base, used when a stored id is unknown.
 pub fn default_base() -> &'static ThemeSpec {
-    base_theme(DEFAULT_BASE_ID).unwrap_or(&BASE_THEMES[0])
+    &ROOST_THEME
 }
 
 /// The fallback accent, used when a stored id is unknown. "Default" is entry 0

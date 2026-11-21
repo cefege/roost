@@ -18,8 +18,8 @@ use crate::components::brand_mark::{BrandMark, HOME_MARK_SIZE, PRODUCT};
 use crate::components::layout::window_size::{use_is_compact, use_tv_layout};
 use crate::components::tv_home_board::TvHomeBoard;
 use crate::components::ui::{
-    Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyMediaVariant, EmptyTitle, Icon,
-    IconButton, IconType, Kbd,
+    Button, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyMediaVariant,
+    EmptyTitle, Icon, IconButton, IconType, Kbd,
 };
 use crate::pump::{use_pump, use_store};
 use crate::route_session::active_open_session_for_route;
@@ -137,6 +137,7 @@ fn landing_href(store: &Store, storage: &dyn KeyValueStore) -> Option<String> {
 #[component]
 pub fn HomeLanding(reader_platform: BrowserPlatform) -> Element {
     let pump = use_store();
+    let mut palette = crate::keyboard_shortcuts::use_shortcut_overlays().palette;
     let compact = use_is_compact();
     let tv = use_tv_layout();
     if tv {
@@ -176,19 +177,22 @@ pub fn HomeLanding(reader_platform: BrowserPlatform) -> Element {
                         " {shortcut.action}"
                     }
                 }
-                div { class: "px-6 py-9", "data-testid": "home-empty",
+                div { class: "py-3", "data-testid": "home-empty",
                     Empty {
                         EmptyHeader {
                             EmptyMedia { variant: EmptyMediaVariant::Icon,
                                 Icon { icon: IconType::Terminal }
                             }
-                            EmptyTitle { "Open a terminal" }
+                            EmptyTitle { "Your terminals, together" }
                             EmptyDescription { class: "max-w-[42ch]",
-                                "Choose a folder in the sidebar, use Browse folders to select a directory, or press "
-                                Kbd { class: "whitespace-nowrap",
-                                    {SHORTCUTS[0].glyph(reader_platform)}
-                                }
-                                " to open the Command palette."
+                                "Choose a folder on a connected machine in the sidebar, or find a command below."
+                            }
+                        }
+                        EmptyContent {
+                            Button {
+                                icon: IconType::Search,
+                                onclick: move |_| palette.set(true),
+                                "Open command palette"
                             }
                         }
                     }
@@ -223,13 +227,6 @@ mod tests {
         assert_eq!(SHORTCUTS[0].glyph(BrowserPlatform::Windows), "Ctrl+Shift+P");
         assert_eq!(SHORTCUTS[1].glyph(BrowserPlatform::Windows), "Ctrl+Shift+F");
         assert_eq!(SHORTCUTS[0].glyph(BrowserPlatform::Other), "Ctrl+K");
-    }
-
-    #[test]
-    fn the_palette_shortcut_is_the_one_the_empty_state_repeats() {
-        // The empty state names a shortcut; if it named a different one from the
-        // line above it, the page would be giving two answers to one question.
-        assert_eq!(SHORTCUTS[0].key, "commandPalette");
     }
 
     #[test]

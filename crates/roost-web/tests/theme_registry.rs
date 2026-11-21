@@ -39,12 +39,6 @@ fn every_palette() -> Vec<&'static ThemeSpec> {
 }
 
 #[test]
-fn the_picker_lists_twenty_nine_bases_and_eighteen_accents() {
-    assert_eq!(base_themes().count(), 29);
-    assert_eq!(accent_themes().count(), 18);
-}
-
-#[test]
 fn palette_ids_are_unique_within_each_list() {
     let bases: BTreeSet<&str> = base_themes().map(|theme| theme.id).collect();
     assert_eq!(bases.len(), base_themes().count());

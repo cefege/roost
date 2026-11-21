@@ -13,16 +13,19 @@ use dioxus::prelude::*;
 pub fn BrandMark(size: &'static str) -> Element {
     rsx! {
         svg {
-            view_box: "0 0 24 24",
+            view_box: "0 0 100 100",
             width: size,
             height: size,
             fill: "currentColor",
             "aria-hidden": "true",
-            ellipse { cx: "11.5", cy: "12.5", rx: "6.2", ry: "6.4" }
-            circle { cx: "14.5", cy: "8", r: "3.6" }
-            polygon { points: "17.5,6.4 19.9,8.8 17.5,11.2" }
-            polygon { points: "8.5,10.5 4.0,18.6 11.0,19.0" }
-            rect { x: "4.8", y: "19", width: "14.4", height: "1.5", rx: "0.75" }
+            path { d: "M19 53 8 45l4 27 17-3Z" }
+            path { d: "m84 32 12 9-12 6Z" }
+            path {
+                fill_rule: "evenodd",
+                d: "M21 55c0-15 9-22 19-24 0-14 9-22 21-22 15 0 24 10 24 25v23c0 20-14 31-34 31-19 0-30-12-30-33Z M40 40c-5 5-9 13-9 23 0 11 8 17 19 17 10 0 18-7 18-17 0-13-9-20-28-23Z M69 24.5a3.5 4.5 0 1 0 0 9 3.5 4.5 0 1 0 0-9Z",
+            }
+            path { d: "m43 54 8 7-8 7m14 0h8", fill: "none", stroke: "currentColor", stroke_width: "4", stroke_linecap: "round", stroke_linejoin: "round" }
+            path { d: "M39 87v7m18-7v7M29 95h13m10 0h13", fill: "none", stroke: "currentColor", stroke_width: "4", stroke_linecap: "round" }
         }
     }
 }

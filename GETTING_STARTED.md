@@ -567,6 +567,11 @@ mode across paired devices on the same account. Open devices apply remote
 changes without a reload; offline edits synchronize after reconnecting.
 Mobile keeps its compact layout but uses the same palette as desktop.
 
+New accounts start with **Roost**, a charcoal-and-moss dark palette with a
+cream-and-sage light counterpart. Saved themes stay selected; choose **Roost**
+under **Base** to switch. Terminal colour schemes remain independent of the
+app palette.
+
 Choose **Light** or **Dark** for matching appearance on devices with different
 OS settings. **System** shares the preference but follows each device's OS.
 An existing browser seeds an account without theme preferences on its first

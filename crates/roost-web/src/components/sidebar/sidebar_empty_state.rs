@@ -26,8 +26,8 @@ impl EmptyStateKind {
     pub const fn copy(self) -> (&'static str, &'static str) {
         match self {
             Self::NoMachines => (
-                "No machines registered",
-                "Connect a macOS, Linux, or Windows machine as a worker to start a terminal here.",
+                "Connect your first machine",
+                "Add a computer or server, then open a terminal in any folder.",
             ),
         }
     }
@@ -35,7 +35,7 @@ impl EmptyStateKind {
     /// The call to action and where it goes.
     pub const fn call_to_action(self) -> (&'static str, &'static str) {
         match self {
-            Self::NoMachines => ("Add a Machine", "/settings/machines"),
+            Self::NoMachines => ("Add a machine", "/settings/machines"),
         }
     }
 }

@@ -421,7 +421,8 @@ for Dioxus 0.7 + Tailwind v4. Roost adapts those components under the web crate'
    `text-muted-foreground`, `border-border`, `bg-accent`, `bg-destructive`, …),
    which `crates/roost-web/tailwind.css` maps onto rust-ui's theme variables.
    The theme engine (`src/theme/`) writes rust-ui's base × accent palettes
-   (`src/theme/palettes/`) and the `dark` class; default dark Tokyo Night.
+   (`src/theme/palettes/`) and the `dark` class; default Roost charcoal/moss,
+   with cream/sage in light mode. Saved palette choices remain unchanged.
    Components and CSS consume those roles directly; `theme-vars.css` retains
    terminal bridges and layout/runtime tokens, not legacy visual aliases.
    `theme/terminal_palette.rs` reapplies the saved terminal palette after app

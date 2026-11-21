@@ -110,9 +110,15 @@ fn key_cell(cell: NavCell) -> Element {
     let label = face_label(face);
     rsx! {
         Button {
-            variant: if area == "enter" { ButtonVariant::Default } else { ButtonVariant::Ghost },
+            variant: if area == "enter" {
+                ButtonVariant::Default
+            } else if active {
+                ButtonVariant::Secondary
+            } else {
+                ButtonVariant::Outline
+            },
             size: ButtonSize::Icon,
-            class: Some("w-full min-w-0 !h-(--term-chat-control) transition-colors duration-150 data-[area=esc]:[grid-area:esc] data-[area=tab]:[grid-area:tab] data-[area=ctrl]:[grid-area:ctrl] data-[area=alt]:[grid-area:alt] data-[area=back]:[grid-area:back] data-[area=home]:[grid-area:home] data-[area=up]:[grid-area:up] data-[area=end]:[grid-area:end] data-[area=pgup]:[grid-area:pgup] data-[area=left]:[grid-area:left] data-[area=down]:[grid-area:down] data-[area=right]:[grid-area:right] data-[area=pgdn]:[grid-area:pgdn] data-[area=space]:[grid-area:space] data-[area=enter]:[grid-area:ent] data-[area=mouse]:[grid-area:mouse] data-[area=mouse]:gap-2 data-[active=true]:bg-accent data-[active=true]:text-accent-foreground group-data-[placement=tray]/nav:!h-(--term-tray-key)".to_owned()),
+            class: Some("w-full min-w-0 !h-(--term-chat-control) data-[area=esc]:[grid-area:esc] data-[area=tab]:[grid-area:tab] data-[area=ctrl]:[grid-area:ctrl] data-[area=alt]:[grid-area:alt] data-[area=back]:[grid-area:back] data-[area=home]:[grid-area:home] data-[area=up]:[grid-area:up] data-[area=end]:[grid-area:end] data-[area=pgup]:[grid-area:pgup] data-[area=left]:[grid-area:left] data-[area=down]:[grid-area:down] data-[area=right]:[grid-area:right] data-[area=pgdn]:[grid-area:pgdn] data-[area=space]:[grid-area:space] data-[area=enter]:[grid-area:ent] data-[area=mouse]:[grid-area:mouse] group-data-[placement=tray]/nav:!h-(--term-tray-key)".to_owned()),
             "data-testid": test_id,
             "data-area": area,
             "data-active": active.then_some("true"),
@@ -184,13 +190,13 @@ fn grid_cells(
         }
     };
     vec![
-        key("esc", "nav-esc", "Escape", KeyFace::Label("esc"), "Escape"),
-        key("tab", "nav-tab", "Tab", KeyFace::Label("tab"), "Tab"),
+        key("esc", "nav-esc", "Escape", KeyFace::Label("Esc"), "Escape"),
+        key("tab", "nav-tab", "Tab", KeyFace::Label("Tab"), "Tab"),
         NavCell {
             area: "ctrl",
             test_id: "nav-ctrl",
             aria_label: "Control",
-            face: KeyFace::Label("ctrl"),
+            face: KeyFace::Label("Ctrl"),
             latched: Some(ctrl_on),
             // The sheet REPORTS the change; the pane decides what arming means,
             // because only it knows whether this device has a pointer that can
@@ -201,7 +207,7 @@ fn grid_cells(
             area: "alt",
             test_id: "nav-alt",
             aria_label: "Toggle Alt link activation",
-            face: KeyFace::Label("alt"),
+            face: KeyFace::Label("Alt"),
             latched: Some(alt_on),
             press: EventHandler::new(move |_event: MouseEvent| on_link_armed.call(!alt_on)),
         },
@@ -212,7 +218,7 @@ fn grid_cells(
             KeyFace::Icon(IconType::Delete),
             "Backspace",
         ),
-        key("home", "nav-home", "Home", KeyFace::Label("home"), "Home"),
+        key("home", "nav-home", "Home", KeyFace::Label("Home"), "Home"),
         key(
             "up",
             "nav-up",
@@ -220,7 +226,7 @@ fn grid_cells(
             KeyFace::Icon(IconType::ChevronUp),
             "ArrowUp",
         ),
-        key("end", "nav-end", "End", KeyFace::Label("end"), "End"),
+        key("end", "nav-end", "End", KeyFace::Label("End"), "End"),
         key(
             "pgup",
             "nav-pgup",
@@ -260,7 +266,7 @@ fn grid_cells(
             area: "space",
             test_id: "nav-space",
             aria_label: "Space",
-            face: KeyFace::Label("space"),
+            face: KeyFace::Label("Space"),
             latched: None,
             press: {
                 let handle = handle.clone();

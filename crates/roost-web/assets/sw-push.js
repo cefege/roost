@@ -33,8 +33,8 @@ self.addEventListener("push", (event) => {
       tag: `roost-pair:${payload.ephemeralId}`,
       data: { target: "pair" },
       requireInteraction: true,
-      icon: "/icon-192.png?v=2",
-      badge: "/icon-32.png?v=2",
+      icon: "/icon-192.png?v=3",
+      badge: "/icon-32.png?v=3",
     }));
     return;
   }
@@ -46,8 +46,8 @@ self.addEventListener("push", (event) => {
     body,
     tag: `roost-session:${sessionId}`,
     data: { sessionId },
-    icon: "/icon-192.png?v=2",
-    badge: "/icon-32.png?v=2",
+    icon: "/icon-192.png?v=3",
+    badge: "/icon-32.png?v=3",
   }));
 });
 

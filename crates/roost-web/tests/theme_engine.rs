@@ -49,20 +49,21 @@ fn choice(base: &str, accent: &str, mode: ThemeMode) -> ThemeChoice {
 }
 
 #[test]
-fn an_empty_store_loads_the_default_tokyo_night_dark_choice() {
+fn an_empty_store_loads_dark_without_persisting_a_preference() {
     let store = MemoryKeyValueStore::default();
     let loaded = load_theme(&store);
     assert_eq!(loaded, ThemeChoice::default());
-    assert_eq!(loaded.base, "tokyo-night");
-    assert_eq!(loaded.accent, "default");
     assert_eq!(loaded.mode, ThemeMode::Dark);
+    for key in [BASE_STORAGE_KEY, ACCENT_STORAGE_KEY, MODE_STORAGE_KEY] {
+        assert_eq!(store.get(key), None);
+    }
 }
 
 #[test]
 fn an_unknown_stored_base_falls_back_to_the_default() {
     let store = MemoryKeyValueStore::default();
     store.set(BASE_STORAGE_KEY, "solarized-next");
-    assert_eq!(load_theme(&store).base, "tokyo-night");
+    assert_eq!(load_theme(&store).base, ThemeChoice::default().base);
 }
 
 #[test]
@@ -75,12 +76,26 @@ fn the_legacy_single_key_is_ignored() {
 #[test]
 fn a_saved_choice_round_trips_through_the_store() {
     let store = MemoryKeyValueStore::default();
-    let saved = choice("zinc", "blue", ThemeMode::Light);
-    persist_theme(&store, &saved);
-    assert_eq!(store.get(BASE_STORAGE_KEY).as_deref(), Some("zinc"));
-    assert_eq!(store.get(ACCENT_STORAGE_KEY).as_deref(), Some("blue"));
-    assert_eq!(store.get(MODE_STORAGE_KEY).as_deref(), Some("light"));
-    assert_eq!(load_theme(&store), saved);
+    for saved in [
+        choice("zinc", "blue", ThemeMode::Light),
+        choice("tokyo-night", "default", ThemeMode::Dark),
+    ] {
+        persist_theme(&store, &saved);
+        let loaded = load_theme(&store);
+        assert_eq!(loaded, saved);
+        assert_eq!(
+            store.get(BASE_STORAGE_KEY).as_deref(),
+            Some(saved.base.as_str())
+        );
+        assert_eq!(
+            store.get(ACCENT_STORAGE_KEY).as_deref(),
+            Some(saved.accent.as_str())
+        );
+        assert_eq!(
+            store.get(MODE_STORAGE_KEY).as_deref(),
+            Some(saved.mode.as_stored())
+        );
+    }
 }
 
 #[test]
