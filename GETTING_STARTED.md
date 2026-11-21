@@ -1096,6 +1096,9 @@ roost logs worker -n 500     # worker; -n/--tail sets the line count
 
 `roosttt.com` is the standalone static site in `deploy/site/public/`, not a
 coordinator or the Dioxus product app. It needs no Rust build or product release.
+Both the website and a new app account start dark, including on devices using
+a light OS appearance. The website's footer offers **Light mode** and remembers
+an explicit choice in that browser; app appearance remains an account setting.
 Build and preview it from this checkout:
 
 ```sh
