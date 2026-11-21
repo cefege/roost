@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 200" fill="none">
+  <title>A little terminal bird</title>
+  <g stroke="#293c32" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m45 91-25-9 13 46 27-9" fill="#70947d"/>
+    <path d="M44 102c0-22 12-37 31-43C73 37 85 21 107 21c25 0 40 17 40 42v46c0 31-22 49-52 49-31 0-51-20-51-56Z" fill="#a8bfa0"/>
+    <path d="m147 55 22 13-22 10" fill="#e5aa68"/>
+    <path d="M75 79c-9 7-15 19-15 35 0 19 13 29 32 29 16 0 31-11 31-27 0-19-17-34-48-37Z" fill="#e8edcf" stroke="none"/>
+    <path d="m78 102 12 10-12 10m23 0h13"/>
+    <path d="M78 157v16m28-16v16m-40 0h19m15 0h19"/>
+    <path d="M31 178c33-7 66 9 116-2m-97 4-7 7m77-8 9 8" stroke="#a5ad8e"/>
+    <path d="M91 23c-5-9-2-15 0-17m6 15c-1-8 3-13 6-15"/>
+  </g>
+  <ellipse cx="121" cy="52" rx="5" ry="6" fill="#293c32"/>
+  <ellipse cx="132" cy="70" rx="7" ry="4" fill="#dfaa85"/>
+</svg>

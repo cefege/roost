@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <style>@font-face { font-family: Nunito; font-weight: 400 900; src: url('/fonts/nunito-latin.woff2'); }</style>
+  <rect width="1200" height="630" fill="#f8f7ef"/>
+  <g fill="#293c32" font-family="Nunito, sans-serif">
+    <text x="80" y="92" font-size="40" font-weight="900">roost.</text>
+    <text x="80" y="238" font-size="82" font-weight="900" letter-spacing="-4">Your terminal,</text>
+    <text x="80" y="334" font-size="82" font-weight="900" letter-spacing="-4">wherever you land.</text>
+    <text x="84" y="405" font-size="27" fill="#626c60">Your machines. One browser. Phone included.</text>
+    <rect x="82" y="468" width="318" height="53" rx="26" fill="#e8eddf"/>
+    <text x="109" y="503" font-size="22" font-weight="700">Free · Self-hosted · Rust</text>
+    <text x="84" y="584" font-size="22" fill="#626c60">roosttt.com</text>
+  </g>
+  <g transform="translate(910 240) scale(1.45)" stroke="#293c32" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m20 79-17-5 11 33 22-8" fill="#70947d"/>
+    <path d="M20 88c0-18 10-30 25-35C43 35 53 22 70 22c21 0 33 14 33 35v37c0 25-18 40-43 40-25 0-40-16-40-46Z" fill="#a8bfa0"/>
+    <path d="m103 50 18 11-18 8" fill="#e5aa68"/>
+    <path d="M45 73c-7 6-12 16-12 29 0 15 10 23 25 23 13 0 25-9 25-22 0-15-13-27-38-30Z" fill="#e8edcf" stroke="none"/>
+    <path d="m48 90 10 8-10 8m19 0h10" fill="none"/>
+    <ellipse cx="82" cy="47" rx="3" ry="4" fill="#293c32"/>
+    <path d="M48 134v13m23-13v13m-33 0h16m11 0h16M18 153c27-6 54 8 94-2" fill="none"/>
+  </g>
+</svg>

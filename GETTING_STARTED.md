@@ -1086,3 +1086,32 @@ The managed fleet releases through GitHub and Flux, not a host-side deployment:
 roost logs coord             # coordinator stdout then stderr, last lines
 roost logs worker -n 500     # worker; -n/--tail sets the line count
 ```
+
+## Public marketing website
+
+`roosttt.com` is the standalone static site in `deploy/site/public/`, not a
+coordinator or the Dioxus product app. It needs no Rust build or product release.
+Build and preview it from this checkout:
+
+```sh
+bun deploy/site/build.mjs
+python3 -m http.server 4391 --bind 127.0.0.1 --directory target/site
+```
+
+The build fingerprints styles, scripts, fonts, and artwork and replaces legacy
+installation, documentation, and comparison URLs with handoffs to v3 information.
+The bird artwork lives in `icon.svg` and `bird.svg`; `social.svg` is the
+share-image source. The PNG share image and touch icons are browser-rendered
+exports; refresh them when the corresponding artwork changes. Nunito is
+self-hosted with its SIL Open Font License under `public/fonts/`.
+
+Publish with `bash deploy/site/publish.sh`. It builds locally, archives the
+entire previous website to `/srv/roost-site/website-backup-*.tar.gz` on `ovh1`,
+and rsyncs only `target/site/` into `/srv/roost-site/www/`, removing obsolete
+site files. It also installs `deploy/site/roost.caddy`, backing up and
+hot-reloading Caddy only when that marketing configuration changes; a rejected
+configuration restores the previous file. Pages revalidate on each visit;
+fingerprinted assets are immutable. OVH's Caddy container serves the files
+through Cloudflare. No container restart or coordinator change is needed.
+Verify the public page, phone layout, install-command copy, and legacy URL
+handoffs after publishing. Site and Caddy archives are the rollback sources.

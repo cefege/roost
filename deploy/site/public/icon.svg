@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <title>Roost bird</title>
+  <path d="M19 53 8 45l4 27 17-3" fill="#70947d" stroke="#293c32" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M21 55c0-15 9-22 19-24 0-14 9-22 21-22 15 0 24 10 24 25v23c0 20-14 31-34 31-19 0-30-12-30-33Z" fill="#a8bfa0" stroke="#293c32" stroke-width="4"/>
+  <path d="m84 32 12 9-12 6" fill="#e5aa68" stroke="#293c32" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M40 40c-5 5-9 13-9 23 0 11 8 17 19 17 10 0 18-7 18-17 0-13-9-20-28-23Z" fill="#e8edcf"/>
+  <path d="m43 54 8 7-8 7m14 0h8" stroke="#293c32" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <ellipse cx="69" cy="29" rx="3.5" ry="4.5" fill="#293c32"/>
+  <path d="M39 87v7m18-7v7M29 95h13m10 0h13" stroke="#293c32" stroke-width="4" stroke-linecap="round"/>
+</svg>

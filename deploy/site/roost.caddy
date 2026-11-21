@@ -1,0 +1,34 @@
+# Public marketing site, deployed by deploy/site/publish.sh on ovh1.
+# Cloudflare terminates TLS; this origin is reached through its existing tunnel.
+# The product coordinator and unrelated sites have separate configuration.
+http://www.roosttt.com {
+	redir https://roosttt.com{uri} permanent
+}
+
+http://roosttt.com {
+	root * /srv/roost-site
+	encode gzip zstd
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+		Cross-Origin-Opener-Policy same-origin
+		-Server
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'"
+	}
+
+	route {
+		# A new page must not inherit the previous release's heuristic freshness.
+		header Cache-Control "no-cache"
+		@fingerprinted path_regexp fingerprinted ^/.*\.[0-9a-f]{12}\.(css|js|svg|png|woff2)$
+		header @fingerprinted Cache-Control "public, max-age=31536000, immutable"
+		try_files {path} {path}/index.html
+		file_server
+	}
+
+	handle_errors {
+		rewrite * /404.html
+		file_server
+	}
+}
