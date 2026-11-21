@@ -18,7 +18,7 @@ client alongside macOS, Linux, iPhone, Android, and tablets.
 
 _I built Roost for my own daily workflow: real infrastructure, not a demo._
 
-[![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![Servers](https://img.shields.io/badge/coordinator%20%2B%20workers-macOS%20%7C%20Linux-lightgrey)
 ![Clients](https://img.shields.io/badge/clients-any%20browser%20%C2%B7%20iOS%20%7C%20Android%20%7C%20desktop-lightgrey)
 ![Language](https://img.shields.io/badge/language-Rust-14151a?logo=rust&logoColor=white)
@@ -285,4 +285,4 @@ Reach me on [GitHub](https://github.com/cefege) or [LinkedIn](https://de.linkedi
 
 ## License
 
-GPL-3.0-only. See [`LICENSE`](LICENSE).
+MIT. See [`LICENSE`](LICENSE). Third-party components retain their own licenses.

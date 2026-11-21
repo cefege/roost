@@ -12,6 +12,7 @@ await mkdir(output, { recursive: true });
 // Copy into a fresh staging tree so deleted source assets cannot survive a build.
 const staging = await mkdtemp(path.join(path.dirname(output), 'site-build-'));
 await cp(source, staging, { recursive: true });
+await cp(new URL('../../LICENSE', import.meta.url), path.join(staging, 'LICENSE'));
 
 const assetNames = new Map();
 for (const filename of ['fonts/nunito-latin.woff2', 'icon.svg', 'bird.svg', 'social.svg', 'og.png', 'apple-touch-icon.png', 'icon-192.png', 'site.css', 'site.js']) {
